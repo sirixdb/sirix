@@ -87,10 +87,15 @@ public final class OpenRevisionsTest {
   }
 
   @Test
-  public void intervalStartingAtTimestampTieBeginsWithLastTiedRevision() {
+  public void intervalStartingAtAnAdjustedTieBeginsWithTheRevisionHoldingTheInstant() {
     assertIntervalStartingAtFirstCommit(true);
   }
 
+  /**
+   * With {@code timestampTie}, revision 2 supplies revision 1's instant. TXN-310 adjusts it to one
+   * microsecond later, so the interval start names revision 1 unambiguously and the interval covers
+   * every revision, exactly as without the tie.
+   */
   private void assertIntervalStartingAtFirstCommit(final boolean timestampTie) {
     holder.getXmlNodeTrx().close();
     final Instant start = Instant.parse("2018-05-01T00:00:00Z");
@@ -105,6 +110,14 @@ public final class OpenRevisionsTest {
               : revision - 1));
         }
       }
+      if (timestampTie) {
+        // The supplied tie is adjusted, not stored: revision 1 keeps the exact instant and
+        // revision 2 sits one microsecond later.
+        try (final var first = session.beginNodeReadOnlyTrx(1); final var second = session.beginNodeReadOnlyTrx(2)) {
+          Assert.assertEquals(start, first.getRevisionTimestamp());
+          Assert.assertEquals(start.plusNanos(1_000), second.getRevisionTimestamp());
+        }
+      }
       try (final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store);
           final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store)) {
         final String query = "xn:open-revisions('" + database + "','resource1', xs:dateTime('" + start
@@ -112,9 +125,7 @@ public final class OpenRevisionsTest {
         final Sequence nodes = new Query(chain, query).evaluate(context);
         Assert.assertNotNull(nodes);
         try (final Iter iter = nodes.iterate()) {
-          for (int revision = timestampTie
-              ? 2
-              : 1; revision <= 5; revision++) {
+          for (int revision = 1; revision <= 5; revision++) {
             final XmlDBNode node = (XmlDBNode) iter.next();
             Assert.assertNotNull(node);
             Assert.assertEquals(revision, node.getTrx().getRevisionNumber());
@@ -151,7 +162,7 @@ public final class OpenRevisionsTest {
   }
 
   @Test
-  public void intervalUsesLastTimestampTieAcrossInterveningCommit() {
+  public void intervalSpansTheAdjustedTieAcrossInterveningCommit() {
     assertRevisionIntervalAcrossCommits(1, true);
   }
 
@@ -222,9 +233,17 @@ public final class OpenRevisionsTest {
         final Sequence nodes = new Query(chain, query).evaluate(context);
         Assert.assertNotNull(nodes);
         try (final Iter iter = nodes.iterate()) {
-          final XmlDBNode node = (XmlDBNode) iter.next();
-          Assert.assertNotNull("the captured interval must include revision 5", node);
-          Assert.assertEquals(5, node.getTrx().getRevisionNumber());
+          // Revisions 4 and 5 supply the same instant; revision 5 is adjusted one microsecond
+          // later, so the interval start names revision 4 and the interval ends at revision 5.
+          // The commits made while the end endpoint resolves land a millisecond later, outside it.
+          final int firstExpected = timestampTies
+              ? 4
+              : 5;
+          for (int revision = firstExpected; revision <= 5; revision++) {
+            final XmlDBNode node = (XmlDBNode) iter.next();
+            Assert.assertNotNull("the captured interval must include revision " + revision, node);
+            Assert.assertEquals(revision, node.getTrx().getRevisionNumber());
+          }
           Assert.assertNull(iter.next());
         }
         Assert.assertEquals(2, endpointResolutions[0]);
