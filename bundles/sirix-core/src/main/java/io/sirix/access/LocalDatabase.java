@@ -1,8 +1,8 @@
 package io.sirix.access;
 
 import io.sirix.cache.ShardedPageCache;
+import io.sirix.io.ResourceFormatCompatibility.Proof;
 import io.sirix.exception.UnsupportedFormatVersionException;
-import io.sirix.page.UberPage;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.api.json.JsonResourceSession;
@@ -28,7 +28,7 @@ import io.sirix.exception.SirixRuntimeException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.IOStorage;
-import io.sirix.io.InterruptedFirstCommitRecovery;
+import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.page.StoreFeatures;
 import io.sirix.io.StorageType;
 import io.sirix.index.projection.ProjectionIndexCatalog;
@@ -193,7 +193,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   private synchronized OpenedSession<T> beginResourceSession(final String resourceName,
-      final @Nullable UberPage openingUberPage) {
+      final @Nullable Proof compatibility) {
     assertAcceptingResources();
     ensureInMemoryLeftoversRetired();
     final String canonicalName = canonicalResourceName(resourceName);
@@ -225,9 +225,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // Use the global BufferManager for this resource session.
     // Cache keys include (databaseId, resourceId) to prevent collisions.
-    final T session = openingUberPage == null
+    final T session = compatibility == null
         ? resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath)
-        : resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath, openingUberPage);
+        : resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath, compatibility);
     final StoreFeatures features = ((AbstractResourceSession<?, ?>) session).getStoreFeatures();
     if (features.readOnlyCompat() == 0) {
       ProjectionSortedRunSpill.removeOrphanedRuns(resourceConfig);
@@ -342,11 +342,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final List<ByteHandler> sourceHandlers = source.getResourceConfig().byteHandlePipeline.getComponents();
     final boolean encrypted = sourceHandlers.stream().anyMatch(Encryptor.class::isInstance);
     if (Files.exists(derivedPath)) {
-      UberPage derivedUberPage = null;
+      ResourceConfiguration derivedConfig = null;
       try {
-        final ResourceConfiguration derivedConfig = ResourceConfiguration.deserialize(derivedPath);
-        derivedUberPage = InterruptedFirstCommitRecovery.probeUberPage(derivedConfig);
-        derivedUberPage.getFeatures().requireWritable();
+        derivedConfig = ResourceConfiguration.deserialize(derivedPath);
+        final Proof derivedCompatibility = ResourceFormatCompatibility.verify(derivedConfig);
+        derivedCompatibility.uberPage().getFeatures().requireWritable();
         if (ResourceConfiguration.ResourcePaths.compareStructure(derivedPath) != 0) {
           throw new SirixIOException("Incomplete derived resource: " + name);
         }
@@ -358,23 +358,27 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
             }
           }
         }
-        final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name, derivedUberPage).session();
+        final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name, derivedCompatibility).session();
         DerivedIndexMaintainer.validateSnapshot(derived);
         return derived;
       } catch (final UnsupportedStoreFeatureException unsupported) {
         throw unsupported;
       } catch (final RuntimeException unreadable) {
-        InterruptedFirstCommitRecovery.requireValidFileIdentities(derivedPath);
-        // A missing/broken settings file must not bypass the binary feature check before deletion.
+        // Missing settings must not bypass the side-effect-free compatibility gate before deletion.
         // Derived stores use the default pipeline, or the source's pipeline when encrypted.
-        if (derivedUberPage == null) {
+        final Proof compatibility;
+        if (derivedConfig != null) {
+          compatibility = ResourceFormatCompatibility.verify(derivedConfig);
+        } else {
           final ResourceConfiguration.Builder probe = ResourceConfiguration.newBuilder(name);
           if (encrypted) {
             probe.byteHandlerPipeline(new ByteHandlerPipeline(source.getResourceConfig().byteHandlePipeline));
           }
-          InterruptedFirstCommitRecovery.probeFeatures(probe.build().setDatabaseConfiguration(dbConfig))
-                                        .requireWritable();
+          compatibility = ResourceFormatCompatibility.verifyWithoutSettings(
+              probe.build().setDatabaseConfiguration(dbConfig));
         }
+        compatibility.uberPage().getFeatures().requireWritable();
+        compatibility.requireResource(derivedPath);
         logger.warn("Rebuilding unreadable derived resource {} from the source log", name, unreadable);
         final Path path = source.getResourcePath().resolveSibling(name);
         final T existing = resourceStore.getOpenResourceSession(path);

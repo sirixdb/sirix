@@ -1,5 +1,7 @@
 package io.sirix.access.json;
 
+import io.sirix.io.ResourceFormatCompatibility.Proof;
+
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.DatabaseType;
@@ -23,6 +25,7 @@ import io.sirix.cache.BufferManager;
 import io.sirix.io.IOStorage;
 import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.page.UberPage;
+import io.sirix.io.ResourceFormatCompatibility;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,14 +75,14 @@ public final class LocalJsonDatabaseFactory implements LocalDatabaseFactory<Json
 
       @Override
       public JsonResourceSession create(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
-          final Path resourceFile, final @Nullable UberPage openingUberPage) {
+          final Path resourceFile, final @Nullable Proof compatibility) {
 
         // Resource-session-scoped dependencies (previously in ResourceSessionModule). The
         // open helper decides bootstrap-vs-load and conservatively auto-heals a provably
         // interrupted FIRST commit (non-empty data file without any committed superblock/
         // beacon/revision-record state).
         final var storageAndUberPage =
-            InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(resourceConfig, openingUberPage);
+            InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(resourceConfig, compatibility);
         final IOStorage storage = storageAndUberPage.storage();
         final UberPage uberPage = storageAndUberPage.uberPage();
         final Semaphore writeLock = writeLocksRegistry.getWriteLock(resourceConfig.getResource());

@@ -1,14 +1,16 @@
 package io.sirix.io.filechannel;
 
+import io.sirix.io.ResourceFormatCompatibility.Proof;
+
 import org.jspecify.annotations.Nullable;
 import io.sirix.page.UberPage;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.page.PagePersister;
 import io.sirix.page.SerializationType;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
+import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.RevisionIndexHolder;
@@ -213,11 +215,12 @@ public final class FileChannelStorage implements IOStorage {
 
   public FileChannelStorage(final ResourceConfiguration resourceConfig,
       final AsyncCache<Integer, RevisionFileData> cache, final RevisionIndexHolder revisionIndexHolder,
-      final @Nullable UberPage openingUberPage) {
+      final @Nullable Proof compatibility) {
     assert resourceConfig != null : "resourceConfig must not be null!";
-    this.openingUberPage = openingUberPage != null
-        ? openingUberPage
-        : InterruptedFirstCommitRecovery.probeUberPage(resourceConfig);
+    final Proof verified = compatibility == null
+        ? ResourceFormatCompatibility.verify(resourceConfig) : compatibility;
+    verified.requireResource(resourceConfig.resourcePath);
+    this.openingUberPage = verified.uberPage();
     this.openingUberPage.getFeatures().requireReadable();
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;

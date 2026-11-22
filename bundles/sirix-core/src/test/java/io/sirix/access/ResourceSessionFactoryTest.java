@@ -6,18 +6,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.BufferManager;
-import io.sirix.page.UberPage;
+import io.sirix.io.ResourceFormatCompatibility;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** The legacy SPI overloads must still return usable sessions when given an opening snapshot. */
+/** The legacy SPI overloads must still return usable sessions when given a compatibility proof. */
 class ResourceSessionFactoryTest {
   @TempDir
   Path directory;
 
   @Test
-  void openingSnapshotDefaultsPreserveLegacySessionAndStoreContracts() {
+  void compatibilityProofDefaultsPreserveSessionAndStoreContracts() {
     final Path path = directory.resolve("legacy");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (final var database = Databases.openJsonDatabase(path)) {
@@ -36,7 +36,7 @@ class ResourceSessionFactoryTest {
         assertEquals(resource, location);
         return database.beginResourceSession("resource");
       };
-      try (final var session = legacyFactory.create(configuration, buffers, resource, new UberPage(2))) {
+      try (final var session = legacyFactory.create(configuration, buffers, resource, ResourceFormatCompatibility.verify(configuration))) {
         assertPersistedValue(session);
       }
       final var delegate = new ResourceStoreImpl<>(new PathBasedPool<>(), legacyFactory);
@@ -78,7 +78,7 @@ class ResourceSessionFactoryTest {
         }
       };
       try (legacyStore;
-          final var session = legacyStore.beginResourceSession(configuration, buffers, resource, new UberPage(2))) {
+          final var session = legacyStore.beginResourceSession(configuration, buffers, resource, ResourceFormatCompatibility.verify(configuration))) {
         assertTrue(legacyStore.hasOpenResourceSession(resource));
         assertSame(session, legacyStore.getOpenResourceSession(resource));
         assertPersistedValue(session);

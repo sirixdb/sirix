@@ -21,11 +21,12 @@
 
 package io.sirix.io.memorymapped;
 
+import io.sirix.io.ResourceFormatCompatibility.Proof;
+
 import org.jspecify.annotations.Nullable;
 import io.sirix.page.UberPage;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.io.filechannel.SpillChannelHolder;
 import io.sirix.page.PagePersister;
@@ -37,6 +38,7 @@ import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.IOStorage;
+import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.SharedArenas;
 import io.sirix.io.Writer;
 import io.sirix.io.filechannel.FileChannelReader;
@@ -223,11 +225,12 @@ public final class MMStorage implements IOStorage {
   }
 
   public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache,
-      final RevisionIndexHolder revisionIndexHolder, final @Nullable UberPage openingUberPage) {
+      final RevisionIndexHolder revisionIndexHolder, final @Nullable Proof compatibility) {
     assert resourceConfig != null : "resourceConfig must not be null!";
-    this.openingUberPage = openingUberPage != null
-        ? openingUberPage
-        : InterruptedFirstCommitRecovery.probeUberPage(resourceConfig);
+    final Proof verified = compatibility == null
+        ? ResourceFormatCompatibility.verify(resourceConfig) : compatibility;
+    verified.requireResource(resourceConfig.resourcePath);
+    this.openingUberPage = verified.uberPage();
     this.openingUberPage.getFeatures().requireReadable();
     final Path file = resourceConfig.resourcePath;
     revisionsFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);

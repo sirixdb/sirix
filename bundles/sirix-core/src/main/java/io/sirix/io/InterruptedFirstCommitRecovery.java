@@ -1,5 +1,7 @@
 package io.sirix.io;
 
+import io.sirix.io.ResourceFormatCompatibility.Proof;
+
 import io.sirix.exception.UnsupportedFormatVersionException;
 import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
@@ -99,9 +101,9 @@ public final class InterruptedFirstCommitRecovery {
   }
 
   public static StorageAndUberPage openStorageAndLoadUberPage(final ResourceConfiguration resourceConfig,
-      final @Nullable UberPage openingUberPage) {
+      final @Nullable Proof compatibility) {
     try {
-      final IOStorage storage = StorageType.getStorage(resourceConfig, openingUberPage);
+      final IOStorage storage = StorageType.getStorage(resourceConfig, compatibility);
       try {
         return new StorageAndUberPage(storage, storage.getOpeningUberPage());
       } catch (final RuntimeException failure) {
@@ -121,7 +123,7 @@ public final class InterruptedFirstCommitRecovery {
           + "beacons either were never written or advertise only the EMPTY bootstrap revision, and the "
           + "revisions file holds no checksum-valid revision record — no commit carrying data ever became "
           + "durable and nothing on disk is reachable. Re-initializing the resource empty.", dataFile, openFailure);
-      reinitializeEmpty(resourceConfig, dataFile, revisionsFile);
+      reinitializeEmpty(resourceConfig, dataFile, revisionsFile, ResourceFormatCompatibility.verify(resourceConfig));
       // Retry: with both files truncated to zero, exists() is false and the SAME code path that
       // initializes a brand-new resource runs (bootstrap UberPage, no on-disk reads).
       final IOStorage storage = StorageType.getStorage(resourceConfig);
@@ -135,9 +137,9 @@ public final class InterruptedFirstCommitRecovery {
    * revision records. The caller owns and must close the returned storage.
    */
   public static StorageAndUberPage openStorageForTool(final ResourceConfiguration resourceConfig) {
-    final UberPage openingUberPage = probeUberPage(resourceConfig);
-    openingUberPage.getFeatures().requireToolCompatible();
-    final IOStorage storage = StorageType.getStorage(resourceConfig, openingUberPage);
+    final Proof compatibility = ResourceFormatCompatibility.verify(resourceConfig);
+    compatibility.uberPage().getFeatures().requireToolCompatible();
+    final IOStorage storage = StorageType.getStorage(resourceConfig, compatibility);
     try {
       final UberPage page = storage.getOpeningUberPage();
       page.getFeatures().requireToolCompatible();
@@ -254,17 +256,7 @@ public final class InterruptedFirstCommitRecovery {
     }
   }
 
-  public static void requireValidFileIdentities(final Path resourcePath) {
-    final Path data = resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath());
-    try {
-      requireValidFileIdentity(data.resolve(IOStorage.FILENAME), Superblock.ROLE_DATA, 0L, 0L);
-      requireValidFileIdentity(data.resolve(IOStorage.REVISIONS_FILENAME), Superblock.ROLE_REVISIONS, 0L, 0L);
-    } catch (final IOException failure) {
-      throw new SirixIOException(failure);
-    }
-  }
-
-  private static void requireValidFileIdentity(final Path file, final byte role, final long expectedUuidMsb,
+  static void requireValidFileIdentity(final Path file, final byte role, final long expectedUuidMsb,
       final long expectedUuidLsb) throws IOException {
     if (!Files.isRegularFile(file) || Files.size(file) == 0) {
       return;
@@ -423,7 +415,8 @@ public final class InterruptedFirstCommitRecovery {
    * retried open and the subsequent first commit behave exactly like a brand-new resource.
    */
   private static void reinitializeEmpty(final ResourceConfiguration resourceConfig, final Path dataFile,
-      final Path revisionsFile) {
+      final Path revisionsFile, final Proof compatibility) {
+    compatibility.requireResource(resourceConfig.resourcePath);
     try {
       truncateToZero(dataFile);
       truncateToZero(revisionsFile);

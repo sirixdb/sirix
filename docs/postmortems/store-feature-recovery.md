@@ -174,3 +174,47 @@
   Output is recorded in `build/review-history-oracle.log`. No production code changed.
 - Lesson: assert each stage of a round trip against known inputs; agreement between outputs from
   the same decoder cannot establish preservation. See [LESSONS.md](../LESSONS.md).
+
+## Foreign root envelopes at repair boundaries
+
+- Fix / issue: FMT-401; test findings T1 and test-2, continuing R4/review-1.
+- Symptom: a foreign root with damaged derived settings was rebuilt; orphan spills were deleted,
+  commit-marker recovery truncated files, and torn revision records were healed before refusal.
+  With a lost bootstrap record and tail log, both backends could reinitialize the foreign resource.
+- Trigger: checksummed foreign root envelopes combined with each repair trigger on FILE_CHANNEL
+  and MEMORY_MAPPED, after clearing global caches.
+- Root cause: superblock and uber compatibility were checked before initialization, while root
+  envelope compatibility was deferred until after storage preload and session cleanup. The
+  bootstrap proof considered record reachability but never checked surviving page envelopes.
+- Fix: read-only compatibility discovery checks file identities, the uber page and root envelope
+  before persistent storage initialization. Tail-log discovery cannot heal records. Bootstrap
+  recovery without a root pointer checks the surviving framed prefix; reinitialization and derived
+  rebuilding require a resource-bound compatibility proof. Direct record healing and truncation
+  check their target root envelope before changing files.
+- Why tests missed it: foreign envelopes and recovery triggers were tested separately; existing
+  preservation assertions omitted orphan spills and commit markers.
+- Regression: `FormatRepairBoundaryTest` combines those inputs and compares a manifest of every
+  resource file's length and SHA-256 digest. The independent oracle is FMT-401's refusal without
+  mutation, rejecting an engine that refuses only after cleanup. The supplied SDK probe reproduced
+  all ten backend/scenario failures before the fix (exit 1); the added JUnit regressions also failed
+  before the fix (four failing parameterized invocations, exit 1).
+- Lesson: compatibility discovery is itself a read-only operation; a salvaged pointer is evidence
+  to validate, not permission to repair. See the compatibility-before-repair entry in
+  [LESSONS.md](../LESSONS.md).
+
+- Focused verification: 127 tests passed with no failures, errors or skips across
+  `FormatRepairBoundaryTest`, `FormatVersionBaselineTest`, both interrupted-first-commit suites,
+  `LazyRevisionRecordRecoveryTest`, `ResourceSessionFactoryTest`,
+  `FileChannelWriterFrontierValidationTest` and `HistoryPreservingExportImportTest`
+  (`:sirix-core:test --tests <each named class>`, exit 0). All ten original SDK reproductions
+  passed on the two backends (exit 0), with unchanged whole-resource manifests.
+- Targeted counterfactuals: compiled disposable copies with either root-envelope validation or
+  bounded salvage discovery removed. The existing refusal and mixed-salvage behavior tests each
+  passed against production classes (exit 0) and failed against their respective mutant (exit 1),
+  detecting orphan-spill deletion and an earlier record healed before foreign refusal. Production
+  sources were never replaced by the mutant copies. These two checks are scoped mutation evidence;
+  the outer pipeline owns broader mutation coverage and CI.
+- Storage-budget verification: `ScratchBufferWorkBudgetTest`,
+  `SparseRevisionIndexWorkBudgetTest` and `CommitReinstantiationWorkBudgetTest` passed all eight
+  tests (exit 0), without changing bounds. Verification stayed focused; broad regression and CI
+  remain owned by the outer pipeline.

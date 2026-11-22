@@ -21,6 +21,8 @@
 
 package io.sirix.io.filechannel;
 
+import io.sirix.io.ResourceFormatCompatibility.RepairProof;
+
 import io.sirix.cache.ScratchLease;
 import io.sirix.cache.ScratchUse;
 import com.github.benmanes.caffeine.cache.AsyncCache;
@@ -30,6 +32,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.io.AbstractForwardingReader;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.io.IOStorage;
+import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.PageHasher;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
@@ -451,6 +454,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   @Override
   public Writer truncateTo(final int revision) {
     try {
+      final RepairProof compatibility =
+          ResourceFormatCompatibility.verifyRepair(dataFileChannel, revisionsFileChannel, reader);
+      compatibility.requireChannels(dataFileChannel, revisionsFileChannel);
       final long fileSize = dataFileChannel.size();
       final int durableRevision = durableBeaconRevision();
       if (durableRevision < revision) {
@@ -460,6 +466,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       final RevisionFileData revisionFileData = reader.getRevisionFileData(revision);
       final ValidatedFrame frame = validateRevisionRootFrame(dataFileChannel, revisionFileData, revision, fileSize, -1L,
           "truncateTo(" + revision + ")");
+      ResourceFormatCompatibility.requireRootEnvelope(dataFileChannel, frame.frameOffset(), reader.getByteHandler());
       final long newSize = frame.frameEnd();
 
       RevisionRecordDurability.invalidateFor(revisionsFilePath);

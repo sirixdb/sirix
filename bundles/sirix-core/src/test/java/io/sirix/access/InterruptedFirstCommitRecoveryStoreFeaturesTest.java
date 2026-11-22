@@ -1,5 +1,7 @@
 package io.sirix.access;
 
+import io.sirix.io.ResourceFormatCompatibility.Proof;
+
 import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.exception.UnsupportedFormatVersionException;
 import io.sirix.backup.BackupManager;
@@ -17,6 +19,7 @@ import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.parallel.Isolated;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
+import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.io.filechannel.FileChannelStorage;
 import io.sirix.io.memorymapped.MMStorage;
@@ -277,15 +280,17 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void readOnlyOpeningSnapshotCannotCreateMissingDataFile(final StorageType backend) throws IOException {
-    final var configuration = ResourceConfiguration.newBuilder("missing").storageType(backend).build();
-    configuration.resourcePath = directory.resolve("missing-data");
-    final var opening = new UberPage(1, new StoreFeatures(0, 1, 0));
+    createStore(backend);
+    materializeRevisionRecords();
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    final Proof compatibility = ResourceFormatCompatibility.verify(config);
+    Files.delete(dataFile());
     final IOStorage storage = backend == StorageType.MEMORY_MAPPED
-        ? new MMStorage(configuration, Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), opening)
-        : new FileChannelStorage(configuration, Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), opening);
+        ? new MMStorage(config, Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), compatibility)
+        : new FileChannelStorage(config, Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), compatibility);
     try {
       assertThrows(UnsupportedStoreFeatureException.class, storage::createReader);
-      assertFalse(Files.exists(configuration.resourcePath), "read-only refusal must preserve the missing directory");
+      assertFalse(Files.exists(dataFile()), "read-only refusal must preserve the missing data file");
     } finally {
       storage.close();
     }
@@ -648,7 +653,7 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
     when(storage.createReader()).thenReturn(reader);
     when(reader.readUberPageReference()).thenReturn(reference);
     try (final var storageTypes = mockStatic(StorageType.class)) {
-      storageTypes.when(() -> StorageType.getStorage(eq(config), any(UberPage.class))).thenReturn(storage);
+      storageTypes.when(() -> StorageType.getStorage(eq(config), any(Proof.class))).thenReturn(storage);
       assertThrows(UnsupportedStoreFeatureException.class,
           () -> InterruptedFirstCommitRecovery.openStorageForTool(config));
     }
