@@ -85,3 +85,42 @@ Reproduce the alias/ownership regressions with:
   URL returns HTTP 403 through both HTTP retrieval and Chrome. The issue's location
   and rule could not be established, so it remains unresolved; no speculative
   quality refactor was made.
+
+## CI follow-up: rebase onto the required base
+
+- Rebased the format branch onto `b2f7599e4f513dc434407ae7bd832903da8cfa63`,
+  preserving its IN_MEMORY lifetime/retirement changes and the format gates.
+- The old history contained a tree-neutral merge recording the pre-rebase initial
+  format commit. Replaying that second copy conflicted with its already-applied
+  corrections; it was skipped without dropping any unique change.
+- The remaining conflict was the association-validator regression: both branches
+  had corrected the whole-map equality assertion. Retained the base's membership
+  checks, which require all four query contract pairs while permitting additional
+  valid tests and associations. The actual loader still validates every entry.
+  The existing lesson about configuration-coupled test fixtures applies; no new
+  runtime behavior or test oracle was introduced.
+- Re-traced the combined paths: session creation retains the base's IN_MEMORY
+  bookkeeping and this PR's resource-bound proof before orphan-spill cleanup;
+  derived rebuilding still verifies compatibility before removal; tool discovery
+  still excludes retired directories before opening resources. All production
+  changes from the format branch replayed without manual conflict edits.
+- CodeFactor still reports failure through GitHub, but its diagnostic page returns
+  HTTP 403 and the web reader cannot access it. There is no rule or source location
+  available to diagnose, so the check remains unresolved rather than being
+  classified as an external failure or fixed through speculative refactoring.
+  The GitHub commit-status API confirms status `59599474877` belongs to the supplied
+  target `52bb35256d4d7fbcd6dd7cdad24153f79a5e10ba`, says “1 issue found,” and
+  supplies only the inaccessible provider link; it is not proven stale.
+- The 156 mutation-tooling behavior tests pass after conflict resolution.
+  Command: `python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'`.
+- Rebased Java verification passed in 6m 40s: 668 main tests and 55 isolated
+  allocation/startup/storage-epoch tests, zero failures/errors and two existing
+  arena-policy skips. Selection covered `FormatRepairBoundaryTest`, `io.sirix.format.*`,
+  interrupted-first-commit recovery, resource-session factories, derived maintenance,
+  both IN_MEMORY lifetime suites, RAM storage contracts/committed revisions, all core
+  work budgets, projection work budgets and `RefusedOverflowLeafTableTest`.
+  Log: `build/ci-rebase/core-tests.log`; per-task counts: `build/ci-rebase/test-results.json`.
+- `git diff --check` passed, and the specified base is an ancestor of rebased HEAD
+  `0b9ca2a13`. Manual conflict resolution changed no production logic, so the prior
+  focused mutation evidence remains applicable; no new disposition was added.
+  No push, remote check trigger or pipeline control was performed.
