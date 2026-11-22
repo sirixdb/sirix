@@ -38,7 +38,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.ArrayDeque;
-import java.util.function.IntConsumer;
 import org.junit.jupiter.api.Test;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;

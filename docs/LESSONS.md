@@ -327,3 +327,10 @@ Inline fault injection changes shared runtime classes. Prefer interface delegate
 owners, and isolate suites requiring that instrumentation from normal hot-workload execution.
 Use the framework's class-ordering boundary, retaining every case and assertion. Diagnose with
 per-test A/B durations while preserving workloads and keeping elapsed-time assertions out of CI.
+
+## Separate source hygiene from behavioral verification
+
+Unused imports and misplaced package directories can pass runtime tests. Remove stale
+imports after fixture changes, keep standalone Java fixtures under their declared package,
+and verify their real build consumer. Do not add source-string tests as behavioral evidence.
+See [the lifecycle CI hygiene postmortem](postmortems/lifecycle-ci-source-hygiene.md).
