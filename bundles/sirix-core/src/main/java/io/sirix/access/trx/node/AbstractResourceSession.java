@@ -969,6 +969,16 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return historyTimestampsNewestFirst(newest, oldest);
   }
 
+  @Override
+  public void prepareRevisionIndexForCommit(final int revision) {
+    checkArgument(revision >= 0, "Revision must not be negative.");
+    final RevisionIndexHolder holder = storage.getRevisionIndexHolder();
+    final RevisionIndex index = holder.get();
+    if (index.size() > revision) {
+      holder.update(revision == 0 ? RevisionIndex.EMPTY : index.truncateTo(revision - 1));
+    }
+  }
+
   /**
    * Read the commit timestamps (epoch micros) for the inclusive revision range
    * {@code [oldest, newest]} from the in-memory {@link RevisionIndex} and return them newest-first.

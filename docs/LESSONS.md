@@ -201,6 +201,8 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
 - **Distinguish attempt state from committed state.** Retrying must derive metadata from the original
   committed predecessor and the retry input, while repeated serialization within an attempt remains
   stable. Exercise a failure after assignment, both increasing and decreasing replacement inputs,
-  the synchronous and asynchronous recovery paths, and cold read-back. Verify formatted metadata
+  the synchronous and asynchronous recovery paths, and warm as well as cold read-back. Repeat the
+  failure after each metadata publication boundary: an index append before the final flush can
+  survive a failed attempt even when the root timestamp itself is recomputed correctly. Verify formatted metadata
   through its actual serializers and handlers, including zero and trailing fractional groups.
   Evidence: [commit timestamp retry](postmortems/commit-timestamp-retry.md).

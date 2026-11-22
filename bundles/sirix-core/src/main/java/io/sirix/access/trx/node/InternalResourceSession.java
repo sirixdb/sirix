@@ -68,6 +68,8 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
    */
   void restoreIndexCatalogue(int revision, Indexes indexes);
 
+  void prepareRevisionIndexForCommit(int revision);
+
   Path getCommitFile();
 
   void assertAccess(int revision);

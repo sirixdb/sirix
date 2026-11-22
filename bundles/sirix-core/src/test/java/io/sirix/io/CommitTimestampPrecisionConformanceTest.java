@@ -232,6 +232,9 @@ final class CommitTimestampPrecisionConformanceTest {
         writer.commit(null, SECOND);
       }
       assertEquals(SECOND, commitTimestampOf(session, 2));
+      assertArrayEquals(new long[] {CommitTimestamps.toEpochMicros(SECOND), CommitTimestamps.toEpochMicros(FIRST)},
+          session.getHistoryTimestampsMicros());
+      assertEquals(2, session.getRevisionNumber(SECOND));
     }
     Databases.clearGlobalCaches();
     try (final var database = Databases.openJsonDatabase(directory);
