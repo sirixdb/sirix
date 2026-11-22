@@ -216,10 +216,21 @@ sirix-cli -l /tmp/mydb resource-history myresource
 ```
 
 `sirix-shell` is a JSONiq/XQuery REPL over the same data (`jn:store(...)`, `jn:doc(...)` —
-multi-line queries, empty line executes, Control-D exits).
+multi-line queries, an empty line executes accumulated input, Control-D or Control-C exits).
+An empty submission keeps the session open. A runtime query failure reports an error,
+discards that query's pending updates and returns to the prompt.
 Its terminal presentation adds syntax highlighting, formatted results and a revision
 indicator. See the [shell presentation reference](docs/shell-presentation.md) for colour
-controls, plain-output compatibility and the supported revision/diff inference forms.
+controls, error reporting, plain-output compatibility and the supported revision/diff inference forms.
+
+Run a query script with `sirix-shell -iqf queries.xq`, or pipe it into
+`sirix-shell -iqf -`. Empty lines and lines containing only spaces or tabs separate queries;
+repeated separators are skipped, and the final query needs no trailing separator. LF and
+CRLF line endings are accepted and joined with LF within each query, preserving indentation;
+other characters remain query content. Queries run in order in one session without prompts.
+A failed query uses the same failure boundary as the REPL, and later queries still run.
+The shell returns status 0 if all queries succeed and -1 if any fails. An unreadable script
+reports `I/O Error` and returns -1.
 
 JSONiq array access uses zero-based positions. Negative positions count from the end of
 each containing array: `jn:doc('mydb','myresource').numbers[-1].v` reads the last
@@ -239,6 +250,12 @@ xn:store('names', (), <root>
   <item>plain</item>
 </root>)
 ```
+
+`xn:store($coll, $res, $nodes, $create-new)` stores a single node under `$res`, including
+singleton sorted or lazy sequences. This holds when creating or recreating a collection,
+creating a missing collection with `false()`, and appending with `false()`. With `$res = ()`,
+a single node uses an automatic `resourceN` name on creation and `resource` on append.
+Several nodes use automatic names regardless of `$res`.
 
 For embedded Java/CLI queries, `xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
 `xn:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
@@ -273,9 +290,10 @@ stored URI `https://example.test/ns?a=1&b=2` is written as
 query results also carry inherited namespace bindings, including unused and attribute-only
 prefixes; nearer declarations take precedence, including default-namespace undeclarations.
 
-When creating a collection from a sequence, `xn:store` and `xn:load` import documents
-concurrently and return successfully only after every import has committed and closed its write
-transaction. The query context can then be closed immediately. Import or stream failures reach
+When creating a collection from several nodes with `xn:store`, or from a URI sequence with
+`xn:load`, the functions import documents concurrently and return successfully only after every
+import has committed and closed its write transaction. The query context can then be closed
+immediately. Import or stream failures reach
 the caller after submitted workers finish; interruption interrupts and drains the workers and
 preserves the caller's interrupt flag. Failed creation does not roll back imports that already
 committed. These semantics also apply to `BasicXmlDBStore.create(String, Stream<NodeSubtreeParser>)`.
@@ -356,8 +374,9 @@ Count-based and scheduled auto-commits cannot publish an XML list partway throug
 application. Adjacent text nodes are merged and empty text nodes removed after all
 operations have run, before publication. `CommitStrategy.AUTO` commits and closes each
 affected XML writer after successful application; `EXPLICIT` ends application without
-committing. A failed list marks every participating XML writer rollback-only; roll back
-before making further changes or committing. The publication-scope API contract is in
+committing. For application failures in either JSON or XML, see the
+[`SirixQueryContext.applyUpdates()` cleanup and writer-ownership contract](bundles/sirix-query/src/main/java/io/sirix/query/SirixQueryContext.java).
+The publication-scope API contract, including rollback-only writer restrictions, is in
 [`XmlNodeTrx`](bundles/sirix-core/src/main/java/io/sirix/api/xml/XmlNodeTrx.java).
 
 XQuery `insert nodes` preserves the source sequence order at every insertion position:

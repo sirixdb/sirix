@@ -23,6 +23,7 @@ import java.io.StringWriter;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 final class ShellOutputTest {
   @TempDir
@@ -118,6 +119,30 @@ final class ShellOutputTest {
       assertEquals(palette.enabled()
           ? "\033[31mError [err:XPTY0004]: bad input\033[0m" + System.lineSeparator()
           : "Error: " + failure.getMessage() + System.lineSeparator(), err.toString());
+    }
+  }
+
+  @Test
+  void errorReportsEscapeEveryLineTerminatorWithoutChangingTheException() {
+    final String message = "first\r\nsecond\u000bthird\ffourth\u0085fifth\u2028sixth\u2029seventh % \\n";
+    final String escaped = "first\\r\\nsecond\\u000bthird\\ffourth\\u0085fifth\\u2028sixth\\u2029seventh % \\n";
+    final IllegalStateException cause = new IllegalStateException("original\ncause");
+    final QueryException failure = new QueryException(cause, ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE, "%s", message);
+    final String originalMessage = failure.getMessage();
+    final String originalDescription = failure.getDescription();
+    for (final ShellPalette palette : ShellPalette.values()) {
+      final StringWriter err = new StringWriter();
+      new ShellOutput(palette, new PrintWriter(Writer.nullWriter()), new PrintWriter(new BufferedWriter(err))).error(
+          failure);
+      assertEquals(palette.enabled()
+          ? palette.red() + "Error [err:XPTY0004]: " + escaped + palette.reset() + System.lineSeparator()
+          : "Error: err:XPTY0004: " + escaped + System.lineSeparator(), err.toString());
+      assertEquals(1, err.toString().lines().count());
+      assertEquals(originalMessage, failure.getMessage());
+      assertEquals(originalDescription, failure.getDescription());
+      assertEquals(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE, failure.getCode());
+      assertSame(cause, failure.getCause());
+      assertEquals("original\ncause", cause.getMessage());
     }
   }
 

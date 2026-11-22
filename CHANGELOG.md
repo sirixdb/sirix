@@ -203,6 +203,28 @@ All notable changes to SirixDB are documented in this file.
 
 ### Fixed
 
+- **`xn:store` authorizes CREATE at the query function**, as `xn:load` and `jn:store` do. The REST
+  API already refused it through its store decorators; embedders relying on the query-function
+  check were not covered ([write-up](docs/postmortems/xml-store-create-authorization.md), #1473).
+- **`sirix-shell -iqf` runs query scripts** — the option now takes a file (or `-` for stdin),
+  runs its blank-line separated queries in one session, reports failing queries and continues,
+  and exits with -1 if any query failed. LF and CRLF scripts yield the same query text on every
+  platform; other separator characters remain query content. Before, it could not run any query
+  ([write-up](docs/postmortems/shell-query-script-mode.md), #1470).
+- **`xn:store` stores a single node under the given resource name** on creation, recreation and
+  append, including singleton sequences, as `xn:load` and `jn:store` do; before, creation and
+  singleton sequences stored the document under an automatic name
+  ([write-up](docs/postmortems/xml-store-resource-name.md), #1471).
+- **The shell returns to its prompt after any query failure, and failed updates no longer leak** —
+  a store failure such as opening a missing resource used to end `sirix-shell`; it is now reported
+  with an error code (`bit:BIDY0300` for non-query failures) and the next prompt follows. Embedded
+  line terminators are escaped in reports while debug diagnostics retain the original messages. Empty
+  submissions also keep both interactive modes open until EOF or interrupt. A failed
+  query's pending updates are discarded instead of being committed by the next updating query, and
+  `SirixQueryContext` rolls back and closes the writers a failed update application opened, so
+  later queries neither commit partial changes nor meet a rollback-only writer. Retained JSON
+  update targets also discard memoized values from a rolled-back apply
+  ([write-up](docs/postmortems/shell-query-failure-recovery.md), #1430).
 - **A HOT index range could start past its lower bound** — `HOTTrieReader.lowerBound` and
   `upperBound` returned the first entry of the leaf an absent search key was routed to even when the
   key sorted below that leaf and earlier leaves held keys in range, so a scan from such a bound

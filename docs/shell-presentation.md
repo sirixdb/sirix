@@ -27,8 +27,13 @@ lifetimes and result values are unchanged. No new commands are introduced.
    `sirix database/resource@revision> ` for supported forms (detailed below), reading
    revision metadata only after result consumption. Unsupported forms reset it to neutral.
    Tests: `ShellPromptTest`, including the real store/update/time-travel sequence.
-5. Terminal results include subdued elapsed time; query errors include their code in red,
-   with stack traces only under -d. Pipes keep existing errors and no timing footer.
+5. Terminal results include subdued elapsed time; query errors include their code in red.
+   Every coded report occupies one line in plain or coloured output: embedded line
+   terminators are escaped. A `QueryException` retains its code; other runtime failures
+   use `bit:BIDY0300` with the stripped message, or the exception type when no message
+   is available. The original exception and cause remain available for stack traces
+   under `-d`. Pipes have no timing footer. JVM `Error`s are not caught by the
+   interactive query failure boundary.
    Tests: `ShellOutputTest` and `MainTest`.
 
 Verification includes adversarial chunk boundaries, unterminated input, supplementary
