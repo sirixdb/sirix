@@ -2473,7 +2473,7 @@ offset  bytes (hex)                meaning
  0x14   00 10 00 00                beacon-slot size = 4096   (u32 LE)
  0x18   00 10 00 00 00 00 00 00    primary-beacon offset = 4096   (u64 LE)
  0x20   00 30 00 00 00 00 00 00    content-start = 12288   (u64 LE)   (DATA_REGION_START)
- 0x28   00 … 00  (16 bytes)        legacy zero resource UUID (see docs/DISK_FORMAT.md §1)
+ 0x28   [see FMT-102]              resource UUID (spec/FMT-disk-format.md)
  0x38   xx xx xx xx xx xx xx xx    XXH3-64 over bytes [0x00, 0x38)   (self-checksum)
 
 then:  0x1000 PRIMARY beacon slot (4 KiB) · 0x2000 SECONDARY beacon slot (4 KiB) · 0x3000 first page record

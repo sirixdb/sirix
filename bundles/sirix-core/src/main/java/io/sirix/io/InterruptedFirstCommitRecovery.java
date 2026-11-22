@@ -60,12 +60,13 @@ import java.nio.file.StandardOpenOption;
  * on-disk state PROVES that at most the empty bootstrap revision was ever committed AND no
  * checksum-valid revision record survives and no beacon carries active feature words — i.e. nothing
  * recoverable exists (see
- * {@link #provesAtMostEmptyBootstrapCommitted(ResourceConfiguration, Path, Path)}). Both files are
- * truncated to zero and the open is retried — which then runs the EXACT fresh-resource bootstrap
- * path ({@code exists() == false} → {@code new UberPage()}), not a duplicate of it. When the state
- * is not provable — any beacon advertising a revision past the bootstrap one, any torn/garbage
- * beacon bytes, any checksum-valid revision record, any foreign superblock bytes — data may exist
- * and the original exception (with its existing actionable message) is rethrown unchanged.
+ * {@link #provesAtMostEmptyBootstrapCommitted(ResourceConfiguration, Path, Path)}), and
+ * {@link ResourceFormatCompatibility} authorizes recovery. Both files are truncated to zero and the
+ * open is retried — which then runs the EXACT fresh-resource bootstrap path
+ * ({@code exists() == false} → {@code new UberPage()}), not a duplicate of it. When the state is
+ * not provable — any beacon advertising a revision past the bootstrap one, any torn/garbage beacon
+ * bytes, any checksum-valid revision record, any foreign superblock bytes — data may exist and the
+ * original exception (with its existing actionable message) is rethrown unchanged.
  *
  * @author Johannes Lichtenberger
  */
