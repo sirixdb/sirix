@@ -1283,7 +1283,7 @@ def format_dispositions(dispositions, associations):
     return lines
 
 
-def format_full_scope(window, results, stale):
+def format_full_scope(window, results, stale, associations=None):
     """The scheduled debt report: what no test detects, per class, and nothing blocking."""
     lines = ['# Full-scope mutation report (scheduled)', '',
              f"Every mutant of the sources this branch changed in the last {window['days']} day(s)"
@@ -1300,6 +1300,10 @@ def format_full_scope(window, results, stale):
             lines.extend(['Incomplete: this is not a complete debt report for the module.', ''])
         lines.extend(format_report(result))
         lines.extend(format_advisory(result))
+    if associations and associations['errors']:
+        # It changes no outcome here, but a broken file silently narrows the lane's test scope.
+        lines.extend([f"`{associations['file']}` is invalid; the lane would reject it:", '']
+                     + ['- ' + escape(error) for error in associations['errors']] + [''])
     if stale['errors']:
         lines.extend([f"`{stale['file']}` is invalid; no entry was judged:", '']
                      + ['- ' + escape(error) for error in stale['errors']] + [''])
@@ -1442,14 +1446,27 @@ def prepare_analysis(root, directory, module, sources, result, associations=None
     return command
 
 
-CENSUS_FIELDS = ('class', 'method', 'descriptor', 'mutator', 'indexes', 'description',
-                 'sourceFile', 'lineNumber')
+CENSUS_TEXT_FIELDS = ('class', 'method', 'descriptor', 'mutator', 'description', 'sourceFile')
 
 
 def census_identity(record):
-    """The CONV-201 identity of a censused mutant, in `mutant_identity`'s field order."""
+    """The CONV-201 identity of a censused mutant, in `mutant_identity`'s field order.
+
+    The census is evidence the verdict reads, so a record whose fields are not of the type the
+    identity needs is rejected rather than turned into an identity that matches nothing: a silent
+    near-miss would cost an entry its existence proof and read as staleness (CONV-202).
+    """
+    for field in CENSUS_TEXT_FIELDS:
+        if not isinstance(record[field], str):
+            raise ValueError(f'census `{field}` must be a string')
+    indexes = record['indexes']
+    if not isinstance(indexes, list) or not all(
+            isinstance(index, int) and not isinstance(index, bool) for index in indexes):
+        raise ValueError('census `indexes` must be a list of integers')
+    if not isinstance(record['lineNumber'], int) or isinstance(record['lineNumber'], bool):
+        raise ValueError('census `lineNumber` must be an integer')
     return (record['class'], record['method'], record['descriptor'], record['mutator'],
-            tuple(record['indexes']), record['description'])
+            tuple(indexes), record['description'])
 
 
 def read_census(path, index):
@@ -1457,28 +1474,33 @@ def read_census(path, index):
 
     Returns the identities (never a status) plus every record whose own line is a changed line:
     the restriction decided to remove it, and this independent attribution says it should not
-    have, which fails the run. A record the kill truncated is reported, never guessed at.
+    have, which fails the run. A record the kill truncated is reported, never guessed at, and a
+    record two interceptor passes both wrote is counted once.
     """
     census = {'file': str(path), 'count': 0, 'violations': [], 'malformed': 0}
     records = {}
     if not path.exists():
         return census, records
-    for number, line in enumerate(path.read_text().splitlines(), start=1):
+    for line in path.read_text().splitlines():
         if not line.strip():
             continue
         try:
             record = json.loads(line)
             identity = census_identity(record)
-            source, mutant = record['sourceFile'], int(record['lineNumber'])
         except (ValueError, TypeError, KeyError):
             census['malformed'] += 1
             continue
+        records.setdefault(identity, {'line': record['lineNumber'],
+                                      'source': record['sourceFile'],
+                                      'class': record['class'], 'mutator': record['mutator']})
+        # Every record is attributed, not only the first of an identity: a line is not part of a
+        # mutant's identity (CONV-201), so judging the deduplicated map could miss a violation.
         package = record['class'].rpartition('.')[0]
-        if mutant in index.get((package, source), set()):
-            census['violations'].append(f"line {number}: {record['class']}:{mutant} "
-                                        f"({record['mutator']}) is on a changed line")
-        records.setdefault(identity, {'line': mutant, 'source': source,
-                                      'class': record['class']})
+        if record['lineNumber'] in index.get((package, record['sourceFile']), set()):
+            violation = (f"{record['class']}:{record['lineNumber']} ({record['mutator']}) is on "
+                         f"a changed line")
+            if violation not in census['violations']:
+                census['violations'].append(violation)
     census['count'] = len(records)
     return census, records
 
@@ -1745,15 +1767,19 @@ def full_scope(root, output, seconds, days):
               'produced_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}
     (output / 'selection.json').write_text(json.dumps(
         {'modules': selected, 'changed_lines': changed, 'window': window}, indent=2) + '\n')
-    associations, _ = load_associations(root)
+    associations, association_errors = load_associations(root)
+    association_verdict = {'file': ASSOCIATIONS_FILE, 'errors': association_errors,
+                           'count': len(associations)}
     results = analyze_modules(root, output, selected, changed, seconds, associations,
                               restrict=False, debt_limit=None)
     stale = stale_entries(root, results)
     modules = [{key: value for key, value in result.items() if not key.startswith('_')}
                for result in results]
     (output / 'results.json').write_text(json.dumps(
-        {'window': window, 'modules': modules, 'stale_entries': stale}, indent=2) + '\n')
-    (output / 'summary.md').write_text(format_full_scope(window, results, stale))
+        {'window': window, 'modules': modules, 'stale_entries': stale,
+         'associations': association_verdict}, indent=2) + '\n')
+    (output / 'summary.md').write_text(
+        format_full_scope(window, results, stale, association_verdict))
     # A mutation result never decides an outcome here (CONV-206); broken tooling still raises.
     return 0
 

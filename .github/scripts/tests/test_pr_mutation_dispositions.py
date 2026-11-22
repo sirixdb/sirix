@@ -1110,6 +1110,37 @@ class CensusVerdictTest(unittest.TestCase):
                              (1, 'error', 1))
             self.assertIn('malformed census record', summary)
 
+    def test_a_record_two_interceptor_passes_both_wrote_is_counted_once(self):
+        # PIT may build its pipeline for a pre-scan pass and again for the analysis pass, and the
+        # census appends rather than truncating, so the reporter is what deduplicates - by
+        # identity for the count, and by message for a violation it would otherwise list twice.
+        with lane() as work:
+            code, results, summary = work.run(
+                [mutant('KILLED', 11)],
+                census=[census_record(21), census_record(21), census_record(22, indexes=(8,)),
+                        census_record(11, indexes=(9,)), census_record(11, indexes=(9,))])
+            census = results['modules'][0]['census']
+            self.assertEqual((code, census['count']), (1, 3))
+            self.assertEqual(census['violations'],
+                             [f'a.Foo:11 ({MUTATOR}) is on a changed line'])
+            self.assertIn('Mutants removed off the diff: 3.', summary)
+
+    def test_a_record_whose_fields_are_not_the_identity_types_is_malformed(self):
+        # A near-miss identity would match nothing and read as staleness, so the reporter rejects
+        # the record instead of deriving an identity from it.
+        wrong = [json.dumps({**json.loads(census_record(21)), 'indexes': ['7']}),
+                 json.dumps({**json.loads(census_record(21)), 'lineNumber': '21'}),
+                 json.dumps({**json.loads(census_record(21)), 'class': 7}),
+                 json.dumps({key: value for key, value in json.loads(census_record(21)).items()
+                             if key != 'mutator'})]
+        for record in wrong:
+            with self.subTest(record=record), lane() as work:
+                code, results, _ = work.run([mutant('KILLED', 11)], census=[record])
+                module = results['modules'][0]
+                self.assertEqual((code, module['state'], module['census']['malformed']),
+                                 (1, 'error', 1))
+                self.assertEqual(module['census']['count'], 0)
+
     def test_an_absent_census_file_is_an_empty_census(self):
         with lane() as work:
             code, results, _ = work.run([mutant('KILLED', 11)])

@@ -26,6 +26,12 @@ import org.pitest.mutationtest.engine.Location;
  * <p>Records are deduplicated by identity, because an interceptor that participates in PIT's
  * pre-scan sees a class more than once, and written on {@link #flush()} at every class boundary,
  * so a run killed by its deadline leaves a usable census of the classes it reached.
+ *
+ * <p>Writes append and never truncate. PIT may build its interceptor pipeline more than once in a
+ * run - a pre-scan pass and the analysis pass - and a census that truncated on construction would
+ * drop whatever the earlier pass recorded. Making the file fresh belongs to the reporter, which
+ * deletes it before the run; the reporter also deduplicates by identity when it reads it, so a
+ * record two passes both wrote is counted once.
  */
 public final class RestrictionCensus {
 
@@ -39,17 +45,15 @@ public final class RestrictionCensus {
     this.path = path;
   }
 
-  /** A census that writes to {@code path}, truncating whatever an earlier run left there. */
+  /** A census that appends to {@code path}, creating its directory if it does not exist yet. */
   public static RestrictionCensus at(final Path path) {
-    try {
-      final Path parent = path.getParent();
-      if (parent != null) {
+    final Path parent = path.getParent();
+    if (parent != null) {
+      try {
         Files.createDirectories(parent);
+      } catch (final IOException error) {
+        throw new UncheckedIOException("cannot create the census directory " + parent, error);
       }
-      Files.write(path, new byte[0], StandardOpenOption.CREATE,
-          StandardOpenOption.TRUNCATE_EXISTING);
-    } catch (final IOException error) {
-      throw new UncheckedIOException("cannot write the restriction census " + path, error);
     }
     return new RestrictionCensus(path);
   }

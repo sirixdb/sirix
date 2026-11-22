@@ -1181,6 +1181,22 @@ class FullScopeTest(unittest.TestCase):
             self.assertIn('proves stale (advisory)', summary)
             self.assertIn('remove or remap each entry', summary)
 
+    def test_a_broken_association_file_is_reported_without_deciding_anything(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / 'out'
+            output.mkdir()
+            (root / '.github').mkdir()
+            (root / mutation.ASSOCIATIONS_FILE).write_text('[[association]]\nclass = "a.*"\n')
+            with patch.object(mutation, 'window_base', return_value='a' * 40), \
+                 patch.object(mutation, 'current_commit', return_value='b' * 40), \
+                 patch.object(mutation, 'changed_sources', return_value=({}, {})):
+                self.assertEqual(mutation.full_scope(root, output, 30, 7), 0)
+            summary = (output / 'summary.md').read_text()
+            results = json.loads((output / 'results.json').read_text())
+            self.assertTrue(results['associations']['errors'])
+            self.assertIn('the lane would reject it', summary)
+
     def test_the_cli_runs_the_report_and_returns_zero(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / 'out'

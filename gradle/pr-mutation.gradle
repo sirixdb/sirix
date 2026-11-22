@@ -25,7 +25,7 @@ configure(mutationProject) {
             throw new GradleException("PR mutation mutant limit must be a positive integer: ${mutantLimit}")
         }
         // CONV-205: the lane mutates the PR's own lines only. The reporter writes the changed-line
-        // map and asks for a census of what the restriction removed. A focused rerun either omits
+        // map and reads the census the interceptor writes beside it. A focused rerun either omits
         // the map or passes -PprMutationAllLines to mutate every line of the same targets.
         def featureArgument = { String name, String value ->
             if (value.isBlank() || value =~ /[\[\](),\s]/) {
