@@ -42,6 +42,11 @@ superblocks embed it, and opening a data file with a different resource's settin
 restore) fails fast. A stored zero UUID is refused outright; the cross-check itself is skipped only
 on recovery paths that run before the settings identity is known. Compatibility checks before
 repair and recovery follow [FMT-401](../spec/FMT-disk-format.md#fmt-401--10-format-baseline).
+Current discovery checks the latest root, live roots in the bounded tail-log window, and the
+surviving framed prefix during beaconless bootstrap recovery. Unreadable settings are probed
+for a readable `binaryEncoding` by name before rebuilding. Complete envelope discovery before
+destructive repair remains task `sirix-repair-format-gate`; envelopes outside these subsets
+or beyond a malformed frame or unwritten gap are not covered.
 
 The resource settings file (`ressetting.obj`) requires the fields through `storeChildCount` in
 writer order. Tail fields are dispatched by name and may be reordered without shifting the

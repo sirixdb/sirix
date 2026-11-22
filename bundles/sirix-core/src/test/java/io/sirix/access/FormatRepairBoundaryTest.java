@@ -46,19 +46,26 @@ final class FormatRepairBoundaryTest {
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void derivedRepairRefusesForeignFormatsWithoutChangingFiles(final StorageType backend) throws IOException {
     for (final String site : new String[] {"settings", "data", "revisions", "data-missing-settings",
-        "revisions-missing-settings", "uber", "root-missing-settings"}) {
+        "revisions-missing-settings", "uber", "root-missing-settings", "historical-root-missing-settings",
+        "settings-after-unknown", "settings-after-unknown-truncated"}) {
       final Path database = createStore("derived-" + backend + "-" + site, backend, true);
       final Path fixture = resourcePath(database, "fixture");
       final Path derived = resourcePath(database, "source" + DerivedIndexMaintainer.SUFFIX);
       Files.move(fixture, derived);
-      if (site.equals("settings")) {
+      if (site.startsWith("settings")) {
         final Path settings = derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath());
         final String original = Files.readString(settings);
         final String patched = original.replace("\"binaryEncoding\":\"V0\"", "\"binaryEncoding\":\"V7\"");
         assertTrue(!original.equals(patched));
-        Files.writeString(settings, patched);
-      } else if (site.equals("root-missing-settings")) {
-        patchRoot(derived, 1);
+        if (site.equals("settings-after-unknown-truncated")) {
+          Files.writeString(settings, "{\"unexpected\":{},\"binaryEncoding\":\"V7\",");
+        } else {
+          Files.writeString(settings, site.equals("settings-after-unknown")
+              ? "{\"unexpected\":{\"nested\":[1,2]}," + patched.substring(1)
+              : patched);
+        }
+      } else if (site.endsWith("root-missing-settings")) {
+        patchRoot(derived, site.startsWith("historical") ? 0 : 1);
         Files.writeString(derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()), "{}");
       } else if (site.equals("uber")) {
         final Path data = file(derived, "data");
@@ -88,7 +95,7 @@ final class FormatRepairBoundaryTest {
           }
         });
         assertTrue(messageChain(refusal).contains("unsupported format version"), messageChain(refusal));
-        assertTrue(messageChain(refusal).contains(site.equals("settings") ? "V7" : "1"), messageChain(refusal));
+        assertTrue(messageChain(refusal).contains(site.startsWith("settings") ? "V7" : "1"), messageChain(refusal));
       }
       assertEquals(before, snapshot(derived), site);
       assertArrayEquals(dataBefore, Files.readAllBytes(file(derived, "data")));
@@ -127,6 +134,82 @@ final class FormatRepairBoundaryTest {
         assertArrayEquals(dataBefore, Files.readAllBytes(data), role + " " + defect);
         assertArrayEquals(revisionsBefore, Files.readAllBytes(revisions), role + " " + defect);
       }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void beaconlessForeignEnvelopePreventsBootstrapTruncation(final StorageType backend) throws IOException {
+    for (final boolean zeroHeader : new boolean[] {false, true}) {
+      final Path database = createStore("beaconless-" + backend + "-" + zeroHeader, backend, false);
+      final Path resource = resourcePath(database, "fixture");
+      patchRoot(resource, 0);
+      final byte[] data = Files.readAllBytes(file(resource, "data"));
+      Arrays.fill(data, zeroHeader ? 0 : (int) IOStorage.PRIMARY_BEACON_OFFSET,
+          (int) IOStorage.DATA_REGION_START, (byte) 0);
+      Files.write(file(resource, "data"), data);
+      Files.write(file(resource, "revisions"),
+          Arrays.copyOf(Files.readAllBytes(file(resource, "revisions")), (int) IOStorage.REVISIONS_RECORDS_START));
+      final Map<String, String> before = snapshot(resource);
+      Databases.clearGlobalCaches();
+      try (final var opened = Databases.openJsonDatabase(database)) {
+        final RuntimeException failure = assertThrows(RuntimeException.class,
+            () -> opened.beginResourceSession("fixture"));
+        assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
+      }
+      assertEquals(before, snapshot(resource));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void validHistoricalRootIsCheckedBeforeCleanupOrHealing(final StorageType backend) throws IOException {
+    for (final boolean tornLatest : new boolean[] {false, true}) {
+      final Path database = createStore("historical-" + backend + "-" + tornLatest, backend, false);
+      final Path resource = resourcePath(database, "fixture");
+      try (final var opened = Databases.openJsonDatabase(database);
+          final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+        writer.commit();
+        writer.commit();
+        writer.commit();
+      }
+      patchRoot(resource, 1);
+      if (tornLatest) {
+        final byte[] records = Files.readAllBytes(file(resource, "revisions"));
+        Arrays.fill(records, (int) IOStorage.revisionsFileOffset(3),
+            (int) IOStorage.revisionsFileOffset(4), (byte) 0);
+        Files.write(file(resource, "revisions"), records);
+      }
+      final Path spill = resource.resolve("projection-sort-spill/build-999999999-orphan");
+      Files.createDirectories(spill);
+      Files.writeString(spill.resolve("run.bin"), "must survive refusal");
+      final Map<String, String> before = snapshot(resource);
+      Databases.clearGlobalCaches();
+      try (final var opened = Databases.openJsonDatabase(database)) {
+        final RuntimeException failure = assertThrows(RuntimeException.class,
+            () -> opened.beginResourceSession("fixture"));
+        assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
+      }
+      assertEquals(before, snapshot(resource));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void derivedRepairStillRebuildsWhenNoForeignSettingsVersionIsReadable(final StorageType backend)
+      throws IOException {
+    for (final String version : new String[] {"\"V0\"", "null", "", "absent"}) {
+      final Path database = createStore("readable-settings-" + backend + "-" + version.replace('"', '_'), backend, true);
+      final Path derived = resourcePath(database, "source" + DerivedIndexMaintainer.SUFFIX);
+      Files.move(resourcePath(database, "fixture"), derived);
+      Files.writeString(derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()),
+          version.equals("absent") ? "{}" : "{\"unexpected\":{},\"binaryEncoding\":" + version + "}");
+      Databases.clearGlobalCaches();
+      try (final var opened = Databases.openJsonDatabase(database);
+          final var session = opened.beginResourceSession("source")) {
+        assertEquals(0, session.getMostRecentRevisionNumber());
+      }
+      assertEquals(StorageType.FILE_CHANNEL, ResourceConfiguration.deserialize(derived).storageType);
     }
   }
 

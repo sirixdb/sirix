@@ -4,6 +4,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.UnsupportedFormatVersionException;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandler.DecompressionResult;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -56,6 +57,7 @@ public final class ResourceFormatCompatibility {
 
   /** With unreadable settings, both files must still name the same nonzero resource UUID. */
   public static Proof verifyWithoutSettings(final ResourceConfiguration config) {
+    ResourceConfiguration.requireSupportedBinaryEncoding(config.resourcePath);
     return verify(config, false);
   }
 
@@ -86,6 +88,15 @@ public final class ResourceFormatCompatibility {
         uber.getFeatures().requireWritable();
       }
       if (uber.isBootstrap()) {
+        if (Files.exists(data)) {
+          try (final FileChannel channel = FileChannel.open(data, StandardOpenOption.READ)) {
+            requireFramedPrefix(channel, new ByteHandlerPipeline(config.byteHandlePipeline));
+          } catch (final UnsupportedFormatVersionException unsupported) {
+            throw unsupported;
+          } catch (final IOException | RuntimeException incomplete) {
+            return new Proof(config.resourcePath, uber);
+          }
+        }
         return new Proof(config.resourcePath, uber);
       }
       try (final FileChannel channel = FileChannel.open(data, StandardOpenOption.READ);
@@ -99,7 +110,7 @@ public final class ResourceFormatCompatibility {
         final RevisionFileData root;
         try {
           root = reader.getRevisionFileDataWithoutHealing(uber.getRevisionNumber());
-          reader.requireCompatibleSalvage(uber.getRevisionNumber());
+          reader.requireCompatibleRevisionRoots(uber.getRevisionNumber());
         } catch (final SirixIOException missing) {
           // A backend without a tail-log copy must inspect surviving envelopes before recovery.
           requireFramedPrefix(channel, reader.getByteHandler());
@@ -150,7 +161,7 @@ public final class ResourceFormatCompatibility {
     final UberPage uber = reader.readOpeningUberPage();
     uber.getFeatures().requireWritable();
     final RevisionFileData root = reader.getRevisionFileDataWithoutHealing(uber.getRevisionNumber());
-    reader.requireCompatibleSalvage(uber.getRevisionNumber());
+    reader.requireCompatibleRevisionRoots(uber.getRevisionNumber());
     root.requireReadable(uber.getRevisionNumber());
     requireRootEnvelope(data, root.offset(), reader.getByteHandler());
     return new RepairProof(data, revisions);

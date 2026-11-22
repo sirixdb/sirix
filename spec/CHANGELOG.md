@@ -91,6 +91,8 @@
   [FMT-401](FMT-disk-format.md#fmt-401--10-format-baseline), with strict identity checks under
   FMT-102/CONF-102 and history-preserving export/import under
   [FMT-402](FMT-disk-format.md#fmt-402--history-preserving-export-and-import).
+  FMT-401 remains partial: beaconless framed-prefix and bounded historical-root checks
+  do not replace the complete envelope scan deferred to `sirix-repair-format-gate`.
 
 - Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
   [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).

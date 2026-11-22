@@ -1145,7 +1145,7 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   /** Validate every record the bounded tail log could heal before any of them is written. */
-  public void requireCompatibleSalvage(final int lastRevision) throws IOException {
+  public void requireCompatibleRevisionRoots(final int lastRevision) throws IOException {
     final int first = Math.max(0, lastRevision - IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY + 1);
     final int count = lastRevision - first + 1;
     try (final ScratchLease lease = borrow(count * IOStorage.REVISIONS_FILE_RECORD_SIZE)) {
@@ -1157,9 +1157,12 @@ public final class FileChannelReader extends AbstractReader {
         if (base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= bytesRead) {
           final long offset = records.getLong(base);
           final long hash = records.getLong(base + 24);
-          if (offset == IOStorage.PRUNED_REVISION_OFFSET || hash == IOStorage.PRUNED_REVISION_TAG
-              || records.getLong(base + 16) == IOStorage.expectedRevisionRecordChecksum(offset,
-                  records.getLong(base + 8), hash)) {
+          if (offset == IOStorage.PRUNED_REVISION_OFFSET || hash == IOStorage.PRUNED_REVISION_TAG) {
+            continue;
+          }
+          if (records.getLong(base + 16) == IOStorage.expectedRevisionRecordChecksum(offset,
+              records.getLong(base + 8), hash)) {
+            ResourceFormatCompatibility.requireRootEnvelope(dataFileChannel, offset, byteHandler);
             continue;
           }
         }

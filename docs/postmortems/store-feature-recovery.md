@@ -221,3 +221,44 @@ This intermediate gap was resolved by the [foreign-root repair follow-up](#forei
   `SparseRevisionIndexWorkBudgetTest` and `CommitReinstantiationWorkBudgetTest` passed all eight
   tests (exit 0), without changing bounds. Verification stayed focused; broad regression and CI
   remain owned by the outer pipeline.
+
+
+## Beaconless and bounded-history discovery gaps
+
+- Symptom and trigger: with baseline file headers, zero beacon slots, no valid revision record
+  and a surviving foreign envelope, opening could authorize empty-bootstrap truncation. An
+  unknown settings member before `binaryEncoding=V7` could instead authorize derived rebuilding.
+  A checksum-valid historical root inside the tail window could escape checking before cleanup
+  or healing, even while the latest root was compatible.
+- Root cause: the proof boundary confused an absent committed beacon with absent format evidence;
+  its settings fallback relied on ordered deserialization; its bounded record loop treated a valid
+  checksum as proof of envelope compatibility. The invariant is that every readable foreign version
+  within discovery's stated scope must cause refusal before its consumers mutate any resource file.
+- Why tests missed it: bootstrap fixtures retained beacons or contained only garbage, settings
+  fixtures put the version first, and historical tests tore the foreign root's record rather than
+  leaving it checksum-valid.
+- Regression tests and oracle: FMT-401 requires the plain refusal naming the found version and an
+  unchanged whole resource. `FormatRepairBoundaryTest.beaconlessForeignEnvelopePreventsBootstrapTruncation`
+  removes both beacons and all records, with valid or zero data headers;
+  `validHistoricalRootIsCheckedBeforeCleanupOrHealing` retains a checksum-valid foreign historical
+  root and adds an orphan spill, with either a valid or torn latest record;
+  `derivedRepairRefusesForeignFormatsWithoutChangingFiles` now includes unknown fields preceding
+  the foreign settings version (also with a truncated suffix) and a valid foreign historical root.
+  Every case runs on FILE_CHANNEL and MEMORY_MAPPED and compares all resource file names, sizes
+  and SHA-256 content digests. These reject truncation, rebuilding, spill deletion or record healing
+  before refusal. `derivedRepairStillRebuildsWhenNoForeignSettingsVersionIsReadable` is the positive
+  control for V0, absent, null and unreadable versions; the existing interrupted-first-commit suite
+  covers baseline crash-tail recovery.
+- Verification: the pre-fix sequences were traced through the executable paths; no intermediate
+  verification was run, as required by this review phase. One focused Gradle test selection at the
+  end passed all 157 tests with no failures, errors or skips (exit 0), covering the boundary
+  regressions, baseline/error contract, both golden suites, bootstrap and feature recovery, lazy
+  record recovery, direct writer truncation and the three storage work-budget suites. Log:
+  `build/review-format-contained.log`; JUnit XML: `bundles/sirix-core/build/test-results/test/`.
+  The outer pipeline owns mutation, lint and broader validation.
+- Remaining gap: a complete envelope scan before destructive repair is deliberately deferred to
+  `sirix-repair-format-gate`. The latest root, bounded tail window and beaconless framed prefix
+  do not establish compatibility of envelopes outside those subsets or after malformed frames
+  or unwritten gaps. FMT-401 remains partial and the follow-up cannot close.
+- Lesson: extend the compatibility-before-repair lesson in [LESSONS.md](../LESSONS.md): distinguish
+  missing pointers from missing evidence, and checksum validity from format compatibility.

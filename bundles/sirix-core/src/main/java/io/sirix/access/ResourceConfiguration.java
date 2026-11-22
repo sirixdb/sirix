@@ -959,6 +959,24 @@ public final class ResourceConfiguration {
     }
   }
 
+  public static void requireSupportedBinaryEncoding(final Path resource) {
+    final Path configFile = resource.resolve(ResourcePaths.CONFIG_BINARY.getPath());
+    try (final FileReader fileReader = new FileReader(configFile.toFile());
+        final JsonReader reader = new JsonReader(fileReader)) {
+      reader.beginObject();
+      while (reader.hasNext()) {
+        final String name = reader.nextName();
+        if (name.equals(JSONNAMES[0]) && reader.peek() == JsonToken.STRING) {
+          parseBinaryEncodingVersion(reader.nextString(), configFile);
+        } else {
+          reader.skipValue();
+        }
+      }
+    } catch (final IOException | IllegalStateException unreadable) {
+      return;
+    }
+  }
+
   /**
    * Resolves the persisted format version. 1.0 is the only on-disk format (FMT-401), so any other
    * name is refused with a plain message instead of the raw enum lookup failure.
