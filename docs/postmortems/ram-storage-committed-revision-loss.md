@@ -45,10 +45,10 @@
   the fix.
   `RAMStorageContractTest` pins the storage-level contract, including a key-value leaf page that the
   writer closes after the write and that still reads back intact under the empty, Deflate and LZ4
-  pipelines. The TXN-615 acceptance criteria are derived from the spec text in
-  `LocalDatabaseInMemoryLifetimeTest`, `DatabasesInMemoryLifetimeTest` (with forked-JVM abrupt-exit
-  and small-heap memory checks) and `BackupManagerInMemoryResourcesTest`. 22 of their 28 cases
-  failed before the lifetime change; the other 6 guard behaviour the code already had. Run with
+  pipelines. The lifetime suites are mapped to acceptance criteria in
+  [TXN-615](../../spec/TXN-transactions-durability.md#txn-615--in-memory-state-lives-with-the-open-database).
+  In the initial lifetime regression run, 22 of 28 cases failed before the lifetime change;
+  the other 6 guarded behaviour the code already had. Run with
   `./gradlew :sirix-core:test --tests 'io.sirix.io.ram.*' --tests '*InMemory*'`. The mutation
   results are in the PR notes.
 - Found while implementing TXN-615: a plain recursive delete of a resource directory can remove
