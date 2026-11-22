@@ -444,8 +444,8 @@ final class LocalDatabaseInMemoryLifetimeTest {
         if (retryHiddenCreation) {
           Files.setPosixFilePermissions(resources, PosixFilePermissions.fromString("r-xr-xr-x"));
           database.removeResource(VOLATILE);
-          assertTrue(Files.exists(resourceDirectory(VOLATILE)
-              .resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath())));
+          assertTrue(Files.exists(
+              resourceDirectory(VOLATILE).resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath())));
           assertTrue(Files.exists(derived));
           assertFalse(database.existsResource(VOLATILE));
           Files.setPosixFilePermissions(resources, parentPermissions);
@@ -553,7 +553,8 @@ final class LocalDatabaseInMemoryLifetimeTest {
     assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
     createDatabase(model, databasePath());
     final Path resources = resourceDirectory(VOLATILE).getParent();
-    final Path settings = resourceDirectory(VOLATILE).resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath());
+    final Path settings =
+        resourceDirectory(VOLATILE).resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath());
     final Set<PosixFilePermission> parentPermissions = Files.getPosixFilePermissions(resources);
     try (Database<? extends ResourceSession<?, ?>> database = open(model, databasePath())) {
       createResource(database, VOLATILE, StorageType.IN_MEMORY);

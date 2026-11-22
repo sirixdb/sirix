@@ -320,8 +320,9 @@ final class DatabasesInMemoryLifetimeTest {
   }
 
   static Stream<Arguments> modelsAndResourceAdmissions() {
-    return Stream.of(Model.values()).flatMap(model -> Stream.of("exists", "list", "open", "create")
-                                                           .map(admission -> Arguments.of(model, admission)));
+    return Stream.of(Model.values())
+                 .flatMap(model -> Stream.of("exists", "list", "open", "create")
+                                         .map(admission -> Arguments.of(model, admission)));
   }
 
   @ParameterizedTest
@@ -451,7 +452,9 @@ final class DatabasesInMemoryLifetimeTest {
     try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
       commitFirstValue(session, model, "old");
     }
-    final Path denied = renameFails ? resources : resources.resolve(VOLATILE);
+    final Path denied = renameFails
+        ? resources
+        : resources.resolve(VOLATILE);
     final Set<PosixFilePermission> writable = Files.getPosixFilePermissions(denied);
     Files.setPosixFilePermissions(denied, PosixFilePermissions.fromString("r-xr-xr-x"));
     try {
@@ -516,7 +519,8 @@ final class DatabasesInMemoryLifetimeTest {
   @EnumSource(Model.class)
   void closedSessionsDoNotRetainCommittedHistories(final Model model) throws Exception {
     for (final String mode : new String[] {"close-retain-sessions", "remove-retain-sessions"}) {
-      final Process process = child("-Xmx160m", MemoryChild.class, directory.resolve(mode).toString(), model.name(), mode);
+      final Process process =
+          child("-Xmx160m", MemoryChild.class, directory.resolve(mode).toString(), model.name(), mode);
       try {
         assertEquals("COMPLETED", childResult(process));
         assertTrue(process.waitFor(300, TimeUnit.SECONDS));
@@ -531,7 +535,8 @@ final class DatabasesInMemoryLifetimeTest {
   @EnumSource(Model.class)
   void unreadableSettingsRemovalReleasesMemory(final Model model) throws Exception {
     final String mode = "remove-broken-settings-retain-sessions";
-    final Process process = child("-Xmx160m", MemoryChild.class, directory.resolve(mode).toString(), model.name(), mode);
+    final Process process =
+        child("-Xmx160m", MemoryChild.class, directory.resolve(mode).toString(), model.name(), mode);
     try {
       assertEquals("COMPLETED", childResult(process));
       assertTrue(process.waitFor(300, TimeUnit.SECONDS));
@@ -778,7 +783,9 @@ final class DatabasesInMemoryLifetimeTest {
         final String name;
         if (shared != null) {
           database = shared;
-          name = breakSettings ? VOLATILE : VOLATILE + "-" + i;
+          name = breakSettings
+              ? VOLATILE
+              : VOLATILE + "-" + i;
         } else {
           final Path path = root.resolve("database-" + i);
           createDatabase(model, path);
@@ -795,10 +802,12 @@ final class DatabasesInMemoryLifetimeTest {
           }
         }
         if (breakSettings) {
-          Files.writeString(database.getDatabaseConfig().getDatabaseFile()
+          Files.writeString(database.getDatabaseConfig()
+                                    .getDatabaseFile()
                                     .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
                                     .resolve(name)
-                                    .resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()), "invalid");
+                                    .resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()),
+              "invalid");
         }
         if (remove) {
           database.removeResource(name);

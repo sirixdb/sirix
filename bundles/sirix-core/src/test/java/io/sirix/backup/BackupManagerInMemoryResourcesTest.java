@@ -127,15 +127,15 @@ final class BackupManagerInMemoryResourcesTest {
       try (ResourceSession<?, ?> session = database.beginResourceSession(DURABLE)) {
         key = commit(session, model, -1L, "kept");
       }
-      Files.createDirectory(source.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-                                  .resolve("$retired-incomplete"));
+      Files.createDirectory(
+          source.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve("$retired-incomplete"));
       final BackupManager.BackupSummary summary = BackupManager.backupDatabase(source, backup);
       assertTrue(summary.notBackedUp().isEmpty());
       assertEquals(List.of(DURABLE),
           summary.resources().stream().map(BackupManager.ResourceSummary::resourceName).toList());
     }
-    Files.createDirectory(backup.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-                                .resolve("$retired-incomplete"));
+    Files.createDirectory(
+        backup.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve("$retired-incomplete"));
     final BackupManager.BackupSummary summary = BackupManager.restoreDatabase(backup, restored);
     assertTrue(summary.notBackedUp().isEmpty());
     assertEquals(List.of(DURABLE),
