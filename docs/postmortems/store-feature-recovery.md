@@ -81,3 +81,46 @@
 - Why tests missed it: the new lifecycle and codec checks asserted the distinct unsupported outcome; the older format suite was not included in their final focused verification.
 - Regression test: retain the existing hostile version fixture and require `UnsupportedStoreFeatureException` specifically. The initial focused run failed this assertion before the test-only repair; the repaired suite passed alongside the documented core/query/MCP work-budget block. Reproduce with `./gradlew :sirix-core:test --tests io.sirix.format.GoldenFormatTest`.
 - Lesson: when an intentional exception classification changes, execute both the new lifecycle regression and existing format-contract checks. No production logic changes in this repair; no new production mutants are introduced.
+
+
+## Format baseline: refusals through repair boundaries
+
+- Fix / issue: FMT-102/FMT-401 review findings R1/R2; FMT-402 evidence correction R3.
+- Symptom: a foreign-format derived resource could be deleted and rebuilt, or a foreign-format
+  revisions file truncated while recovering an interrupted bootstrap. Layout, uber and ordinary
+  page versions also used different diagnostics. A timestamp arithmetic helper asserted only its
+  own output rather than executing the importer.
+- Trigger: open a valid-time source whose derived sibling names `binaryEncoding=V7`, or patch either
+  file's layout version with a valid checksum; alternatively retain only bootstrap beacons and a
+  foreign revisions header with no valid revision records. Exercise FILE_CHANNEL and MEMORY_MAPPED.
+- Root cause: format refusals lacked a shared non-repairable classification. Derived fallback
+  checked feature words without validating file formats; bootstrap proof validated only the data
+  header before interpreting revisions records. The violated invariant is that no repair may
+  reinterpret, delete or truncate foreign-format bytes. Recovery additionally needs each nonzero
+  file identity to match its role and the configured resource UUID.
+- Why tests missed it: direct helper calls bypassed real page decoding and repair owners; bootstrap
+  cases had no foreign revisions header, and derived feature tests omitted foreign settings and
+  superblocks. A second test-only timestamp implementation could pass without an engine adjustment.
+- Regression tests and independent oracle: `FormatRepairBoundaryTest` opens real stores with
+  checksum-valid foreign versions, mismatched UUIDs/roles/strides and missing derived settings.
+  FMT-102/FMT-401 require refusal and byte-for-byte unchanged data, revisions and derived settings;
+  these tests reject rebuilding or truncating any such image. `FormatVersionBaselineTest` decodes
+  foreign uber and revision-root envelopes through cold store opens, including a compatible
+  secondary beacon; the observable oracle is the specified plain refusal and unchanged files.
+  `HistoryPreservingExportImportTest` imports exported timestamps directly and compares with the
+  fixture's known source timestamps, preserving all other history assertions.
+- Verification: the pre-fix failing sequences were traced through the repair branches, without a
+  counterfactual execution in this review phase. The focused run executed 131 tests: 130 passed,
+  with one test-only refusal-count error (20 fixtures were incorrectly counted as 36). After
+  correcting that count, all nine `FormatVersionBaselineTest` tests passed on the targeted rerun.
+  Thus every selected test passed across the initial run and rerun, including both golden suites,
+  `FormatRepairBoundaryTest`, history round-trip, binary-version, bootstrap and store-feature
+  recovery suites. The attached startup tasks also passed. The first compilation required moving
+  the repair fixture into the access package to use its package-private derived-resource builder.
+  Logs: `build/review-format-verification.log`, `build/review-format-baseline-verification.log`;
+  initial JUnit XML: `build/review-format-initial-results/`. Reproduce the full selection with
+  `./gradlew :sirix-core:test --tests io.sirix.format.FormatVersionBaselineTest --tests io.sirix.access.FormatRepairBoundaryTest --tests io.sirix.format.HistoryPreservingExportImportTest --tests io.sirix.format.GoldenFormatTest --tests io.sirix.format.GoldenCompositePageTest --tests io.sirix.BinaryEncodingVersionStrictTest --tests io.sirix.access.InterruptedFirstCommitRecoveryTest --tests io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest`.
+  The outer pipeline owns mutation, work-budget, lint and broader verification phases.
+- Lesson: extend the existing compatibility-before-repair lesson in [LESSONS.md](../LESSONS.md):
+  version refusals need the same repair immunity as required-feature refusals, and every persistent
+  file must establish its identity before interpreting records as evidence that deletion is safe.

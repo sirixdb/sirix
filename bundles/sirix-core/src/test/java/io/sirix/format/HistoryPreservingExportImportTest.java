@@ -43,8 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * this baseline and a test asserting today's behaviour would pin the gap as correct: the
  * one-microsecond adjustment of a tie or regression (commit timestamps persist at millisecond
  * precision) and the queryable original timestamp of an adjusted revision (no such metadata
- * exists). {@link #theTimestampRuleAdjustsOnlyTiesAndRegressions()} pins the decided arithmetic
- * itself, independent of the engine.
+ * exists).
  */
 final class HistoryPreservingExportImportTest {
 
@@ -73,11 +72,7 @@ final class HistoryPreservingExportImportTest {
     final List<Revision> exported = export(sourcePath);
     assertEquals(DOCUMENTS.length, exported.size(), "export dropped a revision");
 
-    final Instant[] effective = effectiveTimestamps(sourceTimestamps);
-    // This fixture's source timestamps already increase, so the rule must leave every one of them
-    // alone; the adjustment branch is pinned separately, by the oracle test.
-    assertArrayEquals(sourceTimestamps, effective, "the fixture needs no timestamp adjustment");
-    importHistory(targetPath, exported, effective);
+    importHistory(targetPath, exported);
 
     final List<Revision> imported = export(targetPath);
     assertEquals(exported.size(), imported.size(), "import dropped a revision");
@@ -90,7 +85,7 @@ final class HistoryPreservingExportImportTest {
       assertEquals(source.message(), destination.message(), where + ": commit message changed");
       assertEquals(source.author().getName(), destination.author().getName(), where + ": author name changed");
       assertEquals(source.author().getId(), destination.author().getId(), where + ": author id changed");
-      assertEquals(effective[index], destination.timestamp(), where + ": effective commit timestamp changed");
+      assertEquals(sourceTimestamps[index], destination.timestamp(), where + ": effective commit timestamp changed");
       if (index > 0) {
         assertTrue(destination.timestamp().isAfter(imported.get(index - 1).timestamp()),
             where + ": effective commit timestamps are not strictly increasing");
@@ -114,36 +109,6 @@ final class HistoryPreservingExportImportTest {
         "export mutated sirix.revisions");
   }
 
-  /**
-   * Captain decision 010's arithmetic, as an independent oracle: the first timestamp is kept, a
-   * strictly greater one is kept, and a tie or a regression becomes the preceding effective
-   * timestamp plus one microsecond. The example is VER-204's.
-   */
-  @Test
-  void theTimestampRuleAdjustsOnlyTiesAndRegressions() {
-    final Instant[] source = {micros(1000), micros(1000), micros(999), micros(1005)};
-    final Instant[] expected = {micros(1000), micros(1001), micros(1002), micros(1005)};
-    assertArrayEquals(expected, effectiveTimestamps(source));
-  }
-
-  // ==================== the rule under test ====================
-
-  /**
-   * The effective commit timestamps an import must use for a source sequence: the first value
-   * unchanged, every later value unchanged when it already increases, and the preceding effective
-   * value plus one microsecond when it would tie or go backwards.
-   */
-  private static Instant[] effectiveTimestamps(final Instant[] source) {
-    final Instant[] effective = new Instant[source.length];
-    effective[0] = source[0];
-    for (int index = 1; index < source.length; index++) {
-      effective[index] = source[index].isAfter(effective[index - 1])
-          ? source[index]
-          : effective[index - 1].plusNanos(1_000L);
-    }
-    return effective;
-  }
-
   // ==================== export / import ====================
 
   /** Reads every revision of a resource with its content and commit metadata. */
@@ -163,15 +128,14 @@ final class HistoryPreservingExportImportTest {
   }
 
   /** Loads an exported history into a newly created store, one cold writer per source revision. */
-  private static void importHistory(final Path databasePath, final List<Revision> exported,
-      final Instant[] effective) {
+  private static void importHistory(final Path databasePath, final List<Revision> exported) {
     for (int index = 0; index < exported.size(); index++) {
       final Revision revision = exported.get(index);
       try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath, revision.author());
           final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx wtx = session.beginNodeTrx()) {
         replaceContent(wtx, revision.content());
-        wtx.commit(revision.message(), effective[index]);
+        wtx.commit(revision.message(), revision.timestamp());
       }
     }
   }
@@ -230,10 +194,6 @@ final class HistoryPreservingExportImportTest {
       new JsonSerializer.Builder(session, writer, revision).build().call();
       return writer.toString();
     }
-  }
-
-  private static Instant micros(final long microseconds) {
-    return Instant.EPOCH.plusNanos(microseconds * 1_000L);
   }
 
   private static Path resourcePath(final Path databasePath) {

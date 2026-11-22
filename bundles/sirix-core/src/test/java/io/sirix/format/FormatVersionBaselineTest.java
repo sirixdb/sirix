@@ -6,9 +6,10 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Superblock;
+import io.sirix.io.StorageType;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -52,7 +53,9 @@ final class FormatVersionBaselineTest {
 
   @Test
   void unsupportedSuperblockLayoutVersionIsRefusedBeforeAnyMutation() throws IOException {
-    assertTrue(refuseUnsupportedLayoutVersion().contains("unsupported layout version"));
+    final String message = refuseUnsupportedLayoutVersion();
+    assertTrue(message.contains("unsupported format version"), message);
+    assertTrue(message.contains(Integer.toString(Superblock.LAYOUT_VERSION + 1)), message);
   }
 
   @Test
@@ -107,7 +110,7 @@ final class FormatVersionBaselineTest {
   }
 
   @Test
-  void everyPageFormatVersionButTheBaselineIsRefusedWithAPlainMessage() {
+  void foreignPageFormatVersionsAreRefusedThroughStoreDecoding() throws IOException {
     for (final String message : refusePageFormatVersions()) {
       assertTrue(message.contains("unsupported format version"), message);
     }
@@ -126,7 +129,7 @@ final class FormatVersionBaselineTest {
     collected.add(refuseUnsupportedSettingsVersion());
     collected.addAll(refusePageFormatVersions());
 
-    assertEquals(259, collected.size(), "every refusal the engine can produce for a foreign version");
+    assertEquals(20, collected.size(), "settings, identities, layout and both page decoding paths");
     for (final String message : collected) {
       final String normalized = message.toLowerCase(Locale.ROOT);
       for (final String forbidden : new String[] {"beta", "pre-1.0", "re-import", "migrat", "upgrade", "convert"}) {
@@ -165,15 +168,41 @@ final class FormatVersionBaselineTest {
     return assertRefusedWithoutMutating(databasePath);
   }
 
-  /** Every page-envelope version byte but the baseline, each naming the value it found. */
-  private static List<String> refusePageFormatVersions() {
-    final List<String> messages = new ArrayList<>(255);
-    for (int candidate = 1; candidate < 256; candidate++) {
-      final byte version = (byte) candidate;
-      final String message =
-          assertThrows(IllegalStateException.class, () -> BinaryEncodingVersion.fromByte(version)).getMessage();
-      assertTrue(message.contains(Byte.toString(version)), message);
-      messages.add(message);
+  private List<String> refusePageFormatVersions() throws IOException {
+    final List<String> messages = new ArrayList<>(16);
+    for (final StorageType backend : new StorageType[] {StorageType.FILE_CHANNEL, StorageType.MEMORY_MAPPED}) {
+      for (final int candidate : new int[] {1, 127, 128, 255}) {
+        for (final boolean uber : new boolean[] {true, false}) {
+          final Path databasePath = createStore("page-" + backend + "-" + candidate + "-" + uber, backend);
+          final byte[] data = Files.readAllBytes(dataFile(databasePath));
+          final ByteBuffer bytes = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+          if (uber) {
+            final int offset = (int) IOStorage.PRIMARY_BEACON_OFFSET;
+            final int length = bytes.getInt(offset);
+            data[offset + Integer.BYTES + 1] = (byte) candidate;
+            bytes.order(ByteOrder.BIG_ENDIAN).putLong(offset + Integer.BYTES + length,
+                LongHashFunction.xx3().hashBytes(data, offset + Integer.BYTES, length));
+          } else {
+            final byte[] revisions = Files.readAllBytes(revisionsFile(databasePath));
+            final ByteBuffer records = ByteBuffer.wrap(revisions).order(ByteOrder.LITTLE_ENDIAN);
+            final int record = (int) IOStorage.revisionsFileOffset(1);
+            final int offset = Math.toIntExact(records.getLong(record));
+            final int length = bytes.getInt(offset);
+            data[offset + Integer.BYTES + 1] = (byte) candidate;
+            final long hash = LongHashFunction.xx3().hashBytes(data, offset + Integer.BYTES, length);
+            records.putLong(record + 24, hash);
+            final byte[] identity = ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN)
+                .putLong(offset).putLong(records.getLong(record + 8)).putLong(hash).array();
+            records.putLong(record + 16, LongHashFunction.xx3().hashBytes(identity));
+            Files.write(revisionsFile(databasePath), revisions);
+          }
+          Files.write(dataFile(databasePath), data);
+          final String message = assertRefusedWithoutMutating(databasePath);
+          assertTrue(message.contains("unsupported format version"), message);
+          assertTrue(message.contains(Byte.toString((byte) candidate)), message);
+          messages.add(message);
+        }
+      }
     }
     return messages;
   }
@@ -182,10 +211,15 @@ final class FormatVersionBaselineTest {
 
   /** A committed single-resource store on the default backend. */
   private Path createStore(final String name) {
+    return createStore(name, StorageType.FILE_CHANNEL);
+  }
+
+  private Path createStore(final String name, final StorageType backend) {
     final Path databasePath = directory.resolve(name);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).storageType(backend)
+          .byteHandlerPipeline(new ByteHandlerPipeline()).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final var trx = session.beginNodeTrx()) {
         trx.commit();
@@ -206,7 +240,7 @@ final class FormatVersionBaselineTest {
     Databases.clearGlobalCaches();
     // Every stage is inside the refusal: opening the database, opening the resource and asking for
     // a writer are all before the first byte a mutation would write.
-    final SirixIOException refusal = assertThrows(SirixIOException.class, () -> {
+    final RuntimeException refusal = assertThrows(RuntimeException.class, () -> {
       try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
           final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final var trx = session.beginNodeTrx()) {

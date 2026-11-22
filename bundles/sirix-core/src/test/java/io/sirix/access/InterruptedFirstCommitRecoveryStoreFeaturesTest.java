@@ -1,6 +1,7 @@
 package io.sirix.access;
 
 import io.sirix.exception.UnsupportedStoreFeatureException;
+import io.sirix.exception.UnsupportedFormatVersionException;
 import io.sirix.backup.BackupManager;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.AbstractResourceSession;
@@ -808,9 +809,14 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
       replaceBeaconPayload(IOStorage.PRIMARY_BEACON_OFFSET, payload);
       Databases.clearGlobalCaches();
       final Map<Path, byte[]> before = snapshotResource();
-      try (final var database = Databases.openJsonDatabase(databasePath);
-          final var parent = database.beginResourceSession("resource")) {
-        assertEquals(null, ((AbstractResourceSession<?, ?>) parent).getDerivedResource());
+      try (final var database = Databases.openJsonDatabase(databasePath)) {
+        if (payload[1] != 0) {
+          assertThrows(UnsupportedFormatVersionException.class, () -> database.beginResourceSession("resource"));
+        } else {
+          try (final var parent = database.beginResourceSession("resource")) {
+            assertEquals(null, ((AbstractResourceSession<?, ?>) parent).getDerivedResource());
+          }
+        }
       }
       assertUnsupportedBackupAndRestore();
       assertResourceUnchanged(before);

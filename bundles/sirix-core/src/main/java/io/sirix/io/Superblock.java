@@ -1,5 +1,6 @@
 package io.sirix.io;
 
+import io.sirix.exception.UnsupportedFormatVersionException;
 import io.sirix.exception.SirixIOException;
 import net.openhft.hashing.LongHashFunction;
 
@@ -127,8 +128,8 @@ public final class Superblock {
     }
     final int version = buf.getInt();
     if (version != LAYOUT_VERSION) {
-      throw new SirixIOException(
-          fileLabel + ": unsupported layout version " + version + " (expected " + LAYOUT_VERSION + ")");
+      throw new UnsupportedFormatVersionException(
+          fileLabel + ": unsupported format version " + version + " (expected " + LAYOUT_VERSION + ")");
     }
     final byte role = buf.get();
     final int spareBytes = (buf.get() & 0xFF) | (buf.getShort() & 0xFFFF);

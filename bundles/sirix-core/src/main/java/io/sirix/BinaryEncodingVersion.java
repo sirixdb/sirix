@@ -28,6 +28,8 @@
 
 package io.sirix;
 
+import io.sirix.exception.UnsupportedFormatVersionException;
+
 /**
  * Determines the binary encoding version.
  *
@@ -91,6 +93,6 @@ public enum BinaryEncodingVersion {
     if (version == V0.versionAsAByte) {
       return V0;
     }
-    throw new IllegalStateException("unsupported format version " + version);
+    throw new UnsupportedFormatVersionException("unsupported format version " + version);
   }
 }

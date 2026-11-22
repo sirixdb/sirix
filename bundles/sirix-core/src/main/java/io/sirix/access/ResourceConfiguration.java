@@ -28,6 +28,7 @@
 
 package io.sirix.access;
 
+import io.sirix.exception.UnsupportedFormatVersionException;
 import io.sirix.utils.ToStringHelper;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
@@ -968,7 +969,7 @@ public final class ResourceConfiguration {
         return version;
       }
     }
-    throw new SirixIOException(configFile + ": unsupported format version '" + name + "'");
+    throw new UnsupportedFormatVersionException(configFile + ": unsupported format version '" + name + "'");
   }
 
   /** 1.0 settings MUST identify their resource with a nonzero UUID (FMT-102); there is no default. */

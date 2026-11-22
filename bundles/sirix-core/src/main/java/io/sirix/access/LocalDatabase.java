@@ -1,7 +1,7 @@
 package io.sirix.access;
 
 import io.sirix.cache.ShardedPageCache;
-
+import io.sirix.exception.UnsupportedFormatVersionException;
 import io.sirix.page.UberPage;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
@@ -312,6 +312,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
           shared.setDerivedResource(derivedMaintainer.register(source, derived));
         }
       }
+    } catch (final UnsupportedFormatVersionException unsupported) {
+      throw unsupported;
     } catch (final SirixException | SirixRuntimeException | UnsupportedStoreFeatureException | IllegalStateException
         | UncheckedIOException | SecurityException unavailable) {
       if (activation == DerivedActivation.DECLARED) {
@@ -362,6 +364,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       } catch (final UnsupportedStoreFeatureException unsupported) {
         throw unsupported;
       } catch (final RuntimeException unreadable) {
+        InterruptedFirstCommitRecovery.requireValidFileIdentities(derivedPath);
         // A missing/broken settings file must not bypass the binary feature check before deletion.
         // Derived stores use the default pipeline, or the source's pipeline when encrypted.
         if (derivedUberPage == null) {

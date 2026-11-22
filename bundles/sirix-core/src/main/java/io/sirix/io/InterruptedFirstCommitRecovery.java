@@ -1,5 +1,6 @@
 package io.sirix.io;
 
+import io.sirix.exception.UnsupportedFormatVersionException;
 import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -232,6 +233,10 @@ public final class InterruptedFirstCommitRecovery {
       if (!Files.isRegularFile(dataFile) || Files.size(dataFile) == 0) {
         return false;
       }
+      requireValidFileIdentity(dataFile, Superblock.ROLE_DATA,
+          resourceConfig.resourceUuid.getMostSignificantBits(), resourceConfig.resourceUuid.getLeastSignificantBits());
+      requireValidFileIdentity(revisionsFile, Superblock.ROLE_REVISIONS,
+          resourceConfig.resourceUuid.getMostSignificantBits(), resourceConfig.resourceUuid.getLeastSignificantBits());
       final byte[] header = readDataFileHeaderRegion(dataFile);
       if (!superblockRegionProvesNoCommit(header, dataFile)) {
         return false;
@@ -240,10 +245,42 @@ public final class InterruptedFirstCommitRecovery {
         return false;
       }
       return hasNoChecksumValidRevisionRecord(revisionsFile);
+    } catch (final UnsupportedFormatVersionException unsupported) {
+      throw unsupported;
     } catch (final IOException | RuntimeException probeFailure) {
       LOGGER.debug("Interrupted-first-commit probe could not prove anything — keeping the original open failure",
           probeFailure);
       return false;
+    }
+  }
+
+  public static void requireValidFileIdentities(final Path resourcePath) {
+    final Path data = resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath());
+    try {
+      requireValidFileIdentity(data.resolve(IOStorage.FILENAME), Superblock.ROLE_DATA, 0L, 0L);
+      requireValidFileIdentity(data.resolve(IOStorage.REVISIONS_FILENAME), Superblock.ROLE_REVISIONS, 0L, 0L);
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
+
+  private static void requireValidFileIdentity(final Path file, final byte role, final long expectedUuidMsb,
+      final long expectedUuidLsb) throws IOException {
+    if (!Files.isRegularFile(file) || Files.size(file) == 0) {
+      return;
+    }
+    final byte[] bytes = new byte[Superblock.BYTES];
+    final ByteBuffer header = ByteBuffer.wrap(bytes);
+    try (final FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
+      while (header.hasRemaining()) {
+        if (channel.read(header, header.position()) <= 0) {
+          break;
+        }
+      }
+    }
+    if (!isAllZero(bytes, 0, bytes.length)) {
+      header.flip();
+      Superblock.validate(header, role, file.getFileName().toString(), expectedUuidMsb, expectedUuidLsb);
     }
   }
 
