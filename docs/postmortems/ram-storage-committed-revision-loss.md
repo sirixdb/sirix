@@ -31,15 +31,9 @@
   `IOStorage.DATA_REGION_START`, so they never collide with the beacon offsets the writer re-reads
   as pages on close. File-backed read and write paths are unchanged, and `truncateTo` still
   refuses.
-- Lifetime, specified first as TXN-615 (captain decisions of 20 November 2026): the committed state
-  lives with the open database instance.
-  - Every writer, reader and session through any handle sees it. Only the last handle's close
-    discards it, together with the resource's on-disk footprint.
-  - A database reopened afterwards, in the same or a later process, holds none of its former
-    IN_MEMORY resources; their names are free again.
-  - If session teardown fails, the close keeps the instance, its ownership and its state for a
-    retry. If only removing leftovers fails, the close still ends the instance.
-  - Backups skip IN_MEMORY resources.
+- Lifetime, removal, teardown failures and backup exclusions are specified in
+  [TXN-615](../../spec/TXN-transactions-durability.md#txn-615--in-memory-state-lives-with-the-open-database)
+  (captain decisions of 20 November 2026).
 - Why tests missed it: no test committed through a real `IN_MEMORY` resource and read the value
   back; the only RAM tests drove `RAMStorage` directly with an uber page, or pinned the
   shared-instance behaviour itself (`DurableBatchReadFailureReleaseTest` asserted `assertSame` on a

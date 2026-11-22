@@ -106,8 +106,9 @@ public final class RAMStorage implements IOStorage {
   }
 
   /**
-   * Drop the committed state of every in-memory resource at or below {@code directory}: called when a
-   * resource or a whole database is removed.
+   * Drop and clear the committed state of every in-memory resource at or below {@code directory}.
+   * Resource removal and final database close call this only after session teardown has quiesced
+   * every user of those stores; retained closed sessions must not retain their committed payloads.
    *
    * @param directory a resource or database directory
    */
@@ -280,7 +281,9 @@ public final class RAMStorage implements IOStorage {
 
     RevisionRecord revision(final int revision) {
       final RevisionRecord committed = recordAt(revisions, revision);
-      final RevisionRecord revisionRecord = committed != null ? committed : recordAt(provisionalRevisions, revision);
+      final RevisionRecord revisionRecord = committed != null
+          ? committed
+          : recordAt(provisionalRevisions, revision);
       if (revisionRecord == null) {
         throw new SirixIOException("In-memory storage holds no revision " + revision);
       }

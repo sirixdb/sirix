@@ -129,7 +129,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   private final Map<Path, CleanupProof> pendingCleanup = new HashMap<>();
 
-  private record CleanupProof(@Nullable Path source, @Nullable UUID incarnation) {}
+  private record CleanupProof(@Nullable Path source, @Nullable UUID incarnation) {
+  }
 
   /**
    * Constructor.
@@ -170,9 +171,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   private boolean hasKnownInMemorySource(final Path resourceFile) {
     final String name = resourceFile.getFileName().toString();
-    return DerivedIndexMaintainer.isDerivedResourceName(name)
-        && knownInMemoryResources.containsKey(resourceFile.resolveSibling(
-            name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length())));
+    return DerivedIndexMaintainer.isDerivedResourceName(name) && knownInMemoryResources.containsKey(
+        resourceFile.resolveSibling(name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length())));
   }
 
   @Override
@@ -593,7 +593,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // This prevents cache pollution when resource is removed and recreated with same IDs
     try {
       final ResourceConfiguration known = knownInMemoryResources.get(resourceFile);
-      final ResourceConfiguration resourceConfig = known != null ? known : ResourceConfiguration.deserialize(resourceFile);
+      final ResourceConfiguration resourceConfig = known != null
+          ? known
+          : ResourceConfiguration.deserialize(resourceFile);
       long databaseId = dbConfig.getDatabaseId();
       long resourceId = resourceConfig.getID();
 
@@ -640,8 +642,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   /**
    * Discard the committed state and on-disk footprint of one resource proven to be IN_MEMORY
    * (TXN-615). The state is dropped even when the directory cannot be removed; such a directory stays
-   * hidden from this instance. Retirement renames it to {@code $retired-<uuid>}, independently of
-   * the original name length.
+   * hidden from this instance. Retirement renames it to {@code $retired-<uuid>}, independently of the
+   * original name length.
    *
    * @return the original directory or tombstone that remains, or {@code null} if neither remains
    */
@@ -699,7 +701,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       return resourceFile;
     }
     pendingCleanup.remove(resourceFile);
-    return removeTombstone(tombstone) ? null : tombstone;
+    return removeTombstone(tombstone)
+        ? null
+        : tombstone;
   }
 
   private void discardInMemoryResourceState(final Path resourceFile) {
@@ -725,7 +729,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         ? path.resolveSibling(name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length()))
         : path;
     final ResourceConfiguration known = knownInMemoryResources.get(source);
-    final ResourceConfiguration config = known != null ? known : ResourceConfiguration.deserialize(source);
+    final ResourceConfiguration config = known != null
+        ? known
+        : ResourceConfiguration.deserialize(source);
     pendingCleanup.put(path, new CleanupProof(source, config.resourceUuid));
   }
 
@@ -758,8 +764,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         try {
           if (!Objects.equals(proof.incarnation(), ResourceConfiguration.deserialize(proof.source()).resourceUuid)) {
             pendingCleanup.remove(path);
-          } else if (retireOriginals
-              && (pass == 0 || !pendingCleanup.containsKey(path.resolveSibling(name + DerivedIndexMaintainer.SUFFIX)))) {
+          } else if (retireOriginals && (pass == 0
+              || !pendingCleanup.containsKey(path.resolveSibling(name + DerivedIndexMaintainer.SUFFIX)))) {
             retireDirectory(path);
           }
         } catch (final RuntimeException failure) {

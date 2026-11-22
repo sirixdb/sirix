@@ -501,7 +501,7 @@ A derived resource MUST recover its own durable state and source-revision mappin
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
 - **Gap/note:** Current backup iterates listResources(), which hides $derived, and reads each current head only when its per-resource writer lock is acquired. It lacks the decided common start resource/revision pin set.
 
-Backup MUST copy hidden `$derived` resources as well as visible resources from the pinned start snapshot in TXN-614, including settings, catalogues, revision files and source-revision mapping through each pinned head. It MUST omit transient lock/log/temp files. The copied derived source-frontier mapping MUST NOT refer beyond the pinned copied source head. Restore MUST preserve the copied derived state and permit normal catch-up; silently omitting derived resources or copying a later head is not conforming.
+For resources included under TXN-615 clause 10, backup MUST copy hidden `$derived` resources as well as visible resources from the pinned start snapshot in TXN-614, including settings, catalogues, revision files and source-revision mapping through each pinned head. It MUST omit transient lock/log/temp files. The copied derived source-frontier mapping MUST NOT refer beyond the pinned copied source head. Restore MUST preserve the copied derived state and permit normal catch-up; silently omitting derived resources or copying a later head is not conforming.
 
 ### TXN-614 — Backup start snapshot and fail-fast resource drop
 
@@ -513,7 +513,7 @@ Backup MUST copy hidden `$derived` resources as well as visible resources from t
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
 - **Gap/note:** Current backup enumerates visible resources then copies each under its own writer semaphore, choosing the head at copy time. LocalDatabase.removeResource rejects open sessions generically, but has no backup pin registry or required diagnostic. Exact start pins and admission/failure cleanup remain implementation work.
 
-At backup start, backup MUST pin the set of resources and each resource’s current committed revision and MUST copy exactly that set at those pinned revisions. Resources created after the start MUST NOT enter the backup; commits after the start MUST NOT advance a copied head. Pins MUST keep the selected immutable revision data available until copying finishes or fails. Dropping a resource in any running backup’s pinned set MUST fail immediately with a clear "backup in progress" error, without waiting or changing anything. Snapshot capture and resource create/drop admission MUST be coordinated to avoid a membership race. Completion/failure MUST release only that backup’s pins; another active backup’s pins remain effective.
+At backup start, subject to TXN-615 clause 10, backup MUST pin the set of resources and each resource’s current committed revision and MUST copy exactly that set at those pinned revisions. Resources created after the start MUST NOT enter the backup; commits after the start MUST NOT advance a copied head. Pins MUST keep the selected immutable revision data available until copying finishes or fails. Dropping a resource in any running backup’s pinned set MUST fail immediately with a clear "backup in progress" error, without waiting or changing anything. Snapshot capture and resource create/drop admission MUST be coordinated to avoid a membership race. Completion/failure MUST release only that backup’s pins; another active backup’s pins remain effective.
 
 ### TXN-615 — In-memory state lives with the open database
 
@@ -607,11 +607,13 @@ the open database instance that holds it, in the process that opened it:
      of the former resource never apply to it (TXN-311).
 6. **Abrupt end.** The same holds when the process ends without closing the database. A later
    process MUST treat any directories or settings the former IN_MEMORY resources left behind as
-   absent, and MUST NOT expose them as resources without revisions. Before it hides or removes
-   such leftovers, it MUST verify from readable persisted settings that they belong to an
-   IN_MEMORY resource or its derived state (clause 8). Leftovers whose settings are missing,
-   empty or unreadable MUST be treated as a persistent resource under TXN-611, and never removed
-   by this cleanup. No other persistent resource may be hidden or removed by it.
+   absent, and MUST NOT expose them as resources without revisions. Reserved retirement names
+   containing `$retired-` identify tombstones, not resources, and do not require readable settings.
+   For other names, before hiding or removing leftovers, it MUST verify from readable persisted
+   settings that they belong to an IN_MEMORY resource or its derived state (clause 8). Leftovers
+   whose settings are missing, empty or unreadable MUST be treated as a persistent resource under
+   TXN-611, and never removed by this cleanup. No other persistent resource may be hidden or
+   removed by it.
 7. **Failed cleanup.** This clause extends TXN-503's teardown rule to the final database close.
    - If tearing down sessions and transactions fails, the close MUST throw that failure and discard
      nothing. The instance stays open, owned and complete, and a retry completes only the

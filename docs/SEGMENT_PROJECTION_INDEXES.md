@@ -1234,9 +1234,9 @@ evidence shows `groupDense=0` and `sortedGroupBys=1`.
 - Batched `read(PageReference[], ResourceConfiguration)`: `result[i]` belongs to `references[i]`, a reference
   without a disk key gives null, offsets need not be sorted; backends on a seekable file "should override this with
   COALESCED reads"; the default is a per-page loop (`:112-147`). **If the batch fails part way, the pages it already
-  decoded for that call are released before the failure propagates** — unless the reader
-  `returnsSharedPages()`, which is false for every built-in reader, `RAMStorage` included, whose reads decode a fresh
-  page from the stored payload (`:134-166`; `io/AbstractReader.java:75-104`). `MMFileReader.read(PageReference[])` does the same
+  decoded for that call are released before the failure propagates**, subject to the ownership contract in
+  [`Reader.returnsSharedPages()`](../bundles/sirix-core/src/main/java/io/sirix/io/Reader.java).
+  `MMFileReader.read(PageReference[])` does the same
   (`io/memorymapped/MMFileReader.java:204-219`). Without this, a member that decoded before the failure stranded its
   allocator frame.
 - `prefetch(PageReference[] references, int count)`, default no-op (`io/Reader.java:167-196`): "**Purely an I/O hint: it must not

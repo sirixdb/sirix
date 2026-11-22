@@ -942,9 +942,8 @@ Failure handling is explicit, because a partially completed batch would otherwis
 frames or leave guards nobody releases:
 
 - **In the reader.** `Reader.read(PageReference[], …)` releases the pages it already decoded for that
-  call before the failure propagates, unless the reader `returnsSharedPages()` — false for every
-  built-in reader, `RAMStorage` included, whose reads decode a fresh page from the stored payload
-  (`io/Reader.java:134-166`; `io/AbstractReader.java:75-104`).
+  call before the failure propagates, subject to the ownership contract in
+  [`Reader.returnsSharedPages()`](../bundles/sirix-core/src/main/java/io/sirix/io/Reader.java).
   `FileChannelReader` and `MMFileReader` do the same in their coalesced overrides
   (`io/filechannel/FileChannelReader.java:643-646`; `io/memorymapped/MMFileReader.java:204-219`).
 - **In the chain loader.** A `loadChainFragmentsGuarded` that throws part way releases exactly the

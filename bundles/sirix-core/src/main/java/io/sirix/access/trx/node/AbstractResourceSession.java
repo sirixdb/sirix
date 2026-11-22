@@ -898,9 +898,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // A backend that cannot truncate must not be ASKED to. This runs on the way into every
     // beginNodeTrx, and a commit marker only disappears on a successful commit or rollback — so a
     // throw here is not one failed transaction, it is a resource that can never open a write
-    // transaction again. In-memory storage cannot identify the pages to discard (no per-revision
-    // tracking, no retained previous uber page), and its data does not outlive the process, so the
-    // marker describes a commit whose pages are gone with it: log and carry on.
+    // transaction again. RAM storage retains only the newest uber page, so it cannot restore the
+    // previous commit boundary. TXN-607 exempts it from persistent marker recovery: log and carry on.
     if (!writer.supportsTruncateTo()) {
       LOGGER.warn(
           "Resource {} has a commit marker from an aborted commit, but {} cannot truncate —"

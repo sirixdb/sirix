@@ -12,27 +12,11 @@
   counterfactual evidence, or removal of the code. The development strategy states the same
   exception in [Development](../docs/DEVELOPMENT.md#4-mutation-testing-as-a-complement).
 
-- Add TXN-615: the committed state of an IN_MEMORY resource lives with its open database
-  instance. Every later writer, reader and session through any handle or alias path sees it.
-  JAPI-104 now allows several threads to share a database handle and resource session, each
-  with its own transactions. The last handle's close does the following:
-  - tears down sessions and aborts uncommitted work;
-  - discards the IN_MEMORY state, releasing its memory;
-  - removes its on-disk footprint and the state derived from it, whatever the derived state's
-    storage type;
-  - keeps the instance and its state for a retry if session teardown fails, but ends it if only
-    removing leftovers fails.
-
-  Persistent resources in a mixed database are untouched. After reopen, in the same or a later
-  process, including after an abrupt exit, former IN_MEMORY names are absent and fail as unknown
-  names. They can be recreated at bootstrap revision 0 with a fresh incarnation id. Leftover
-  cleanup verifies the storage type from readable settings, and treats unreadable settings as
-  persistent. FMT-101's IN_MEMORY sentence now cites TXN-615. Backups skip IN_MEMORY
-  resources, list them as not backed up, and restores never create them. Captain decisions of 20 November 2026; implemented except
-  the token check, which waits for FMT-209/TXN-311. Resource names containing `$retired-` are
-  reserved for retiring IN_MEMORY directories to bounded `$retired-<uuid>` names. Failed tombstone
-  deletion is reported by final close without holding the original name; backup and restore
-  preflights ignore tombstones, which are not resources.
+- Add [TXN-615](TXN-transactions-durability.md#txn-615--in-memory-state-lives-with-the-open-database)
+  for IN_MEMORY lifetime, cleanup, reserved retirement names and backup exclusions; FMT-101
+  references it. Implementation status and remaining token work are recorded there.
+  [JAPI-104](JAPI-java-api.md#japi-104--transaction-threading-boundary) clarifies shared handles
+  and sessions with independent transactions.
 
 - Add reviewed mutation dispositions, test associations and local refactoring helpers for the
   PR mutation lane in [CONV-201 to CONV-204](CONV-conventions.md#conv-201--mutation-disposition-record).

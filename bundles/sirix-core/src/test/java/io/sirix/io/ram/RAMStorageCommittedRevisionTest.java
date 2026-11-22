@@ -138,6 +138,8 @@ final class RAMStorageCommittedRevisionTest {
           writer.commit();
         }
         assertEquals(3, session.getMostRecentRevisionNumber());
+        // Historical content must come from its stored revision even after the page caches go cold.
+        Databases.clearGlobalCaches();
         try (NodeReadOnlyTrx revisionOne = session.beginNodeReadOnlyTrx(1)) {
           assertTrue(revisionOne.moveTo(first));
           assertValue(revisionOne, model, "0");
