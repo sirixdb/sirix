@@ -78,6 +78,44 @@ creating a database ([write-up](xml-store-resource-name.md), #1471). A failure w
 - Lesson: split lifecycle orchestration at whole-loop boundaries so method complexity can fall
   without adding per-operation dispatch; see [Lessons](../LESSONS.md).
 
+## CI follow-up: XML snapshot and writer-ownership coverage
+
+- Invariant: an apply-created XML writer starts from the target snapshot, whereas a caller-held
+  writer retains its current edits. Retained committed snapshots remain immutable (TXN-201,
+  TXN-204). This applies to current and historical targets under AUTO and EXPLICIT commits;
+  R4 separately requires failed applies to release only the writers they opened.
+- Behavioral oracle: start with revision 1 `<a><b/></a>` and revision 2
+  `<a><b/><head/></a>`, then insert `<e/>`. A newly opened writer targeting revision 1 must
+  publish the original tree plus `e`, without `head`; targeting revision 2 must retain `head`.
+  A caller-held writer with an additional `pending` element must retain both `head` and `pending`
+  for either target revision. Both original snapshots must remain unchanged. These literal trees,
+  rather than a copy of the writer-selection logic, define the expected results.
+- Root cause: the extracted historical-revision branch was selected by PIT, but the mapped
+  failed-apply tests only used newly created resources at their latest revision. Existing XML
+  alias/pending-update tests also did not distinguish an older update target from the latest head.
+  Negating the revision comparison therefore survived the CI sample.
+- Regression: `SirixQueryContextFailedApplyTest.xmlUpdatesPreserveSnapshotAndWriterOwnership`
+  exercises all eight snapshot/ownership/commit combinations through executable queries and
+  checks committed trees, writer lifecycle, and historical immutability. A wrong snapshot base
+  or loss of caller edits violates the independently specified trees above.
+- Verification: `./gradlew :sirix-query:test --tests io.sirix.query.SirixQueryContextFailedApplyTest
+  -PtestHeapMin=512m -PtestHeapMax=3g` passed all 14 cases. Selection against base
+  `5b29020fb5114399cf66f0a82ec4136b9139d2fa` and head
+  `814d73063fbed3ad06a0a2bf2bed85f4a5619930`, followed by
+  `python3 .github/scripts/pr_mutation.py run --output build/ci-1472/local-mutation
+  --seconds 1320 --blocking`, passed: 23/23 changed-line mutants killed, no changed-line
+  survivors or uncovered mutants, and no failing dispositions. In the downloaded CI report,
+  `beginXmlWriters` / `NegateConditionalsMutator` / instruction index 114 survived; in the local
+  report the same identity is killed by the new historical-snapshot case. Production sources
+  are unchanged. Full local reports remain under `build/ci-1472/`.
+- External failure: the CI merge checkout also contained two backup-CLI dispositions absent
+  from this PR's head and base. They were judged as new against the event's older base and failed
+  confirmation because only query sources were selected. The job checked out merge
+  `63c9b4f812b607c724494c86468a525e01a8a9fb` with main parent
+  `58ec1a784abfe54a9130ea287ebc2631faec6b7e`, while `BASE_SHA` still named `5b29020...`.
+  No backup or disposition changes belong to this correction; a fresh outer-executor run must
+  evaluate its actual merge/base pair.
+
 ## Review follow-up: empty interactive submissions
 
 - Invariant (R1): an empty submission preserves the session in explicit `-iq` and default

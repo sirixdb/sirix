@@ -19,13 +19,18 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBCollection;
+import io.sirix.query.node.XmlDBNode;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -128,6 +133,70 @@ final class SirixQueryContextFailedApplyTest {
       context.setContextItem(collection.getDocument());
       assertEquals("<a><b/><e xmlns=\"\"/></a>", serialize(chain, context));
     }
+  }
+
+  /** R4 ownership control and TXN-201/TXN-204: applying updates must preserve snapshot semantics. */
+  @ParameterizedTest
+  @MethodSource("xmlSnapshotCases")
+  void xmlUpdatesPreserveSnapshotAndWriterOwnership(final CommitStrategy strategy, final int targetRevision,
+      final boolean callerHeld, final String expected) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(directory).build();
+        final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
+        final SirixQueryContext context = SirixQueryContext.createWithNodeStoreAndCommitStrategy(store, strategy)) {
+      final XmlDBCollection collection = store.create("xml", new DocumentParser("<a><b/></a>"));
+      final XmlDBNode first = collection.getDocument(1);
+      final XmlResourceSession session = first.getTrx().getResourceSession();
+      try (final XmlNodeTrx writer = session.beginNodeTrx()) {
+        assertTrue(writer.moveToFirstChild());
+        assertTrue(writer.moveToLastChild());
+        writer.insertElementAsRightSibling(new QNm("head"));
+        writer.commit();
+      }
+      final XmlDBNode second = collection.getDocument(2);
+      try (final XmlNodeTrx held = callerHeld
+          ? session.beginNodeTrx()
+          : null) {
+        if (held != null) {
+          assertTrue(held.moveToFirstChild());
+          assertTrue(held.moveToLastChild());
+          held.insertElementAsRightSibling(new QNm("pending"));
+        }
+        context.setContextItem(collection.getDocument(targetRevision));
+        new Query(chain, "insert node <e/> into $$/a").execute(context);
+        if (strategy == CommitStrategy.EXPLICIT) {
+          assertEquals(2, session.getMostRecentRevisionNumber(), "EXPLICIT must not publish before commit");
+          try (final XmlNodeTrx writer = session.getNodeTrx().orElseThrow()) {
+            if (held != null) {
+              assertSame(held, writer);
+              assertFalse(held.isClosed());
+            }
+            writer.commit();
+          }
+        }
+        assertTrue(session.getNodeTrx().isEmpty());
+        if (held != null) {
+          assertTrue(held.isClosed());
+        }
+      }
+      assertEquals(3, session.getMostRecentRevisionNumber());
+      context.setContextItem(collection.getDocument(3));
+      assertEquals(expected, serialize(chain, context));
+      context.setContextItem(first);
+      assertEquals("<a><b/></a>", serialize(chain, context));
+      context.setContextItem(second);
+      assertEquals("<a><b/><head/></a>", serialize(chain, context));
+    }
+  }
+
+  private static List<Arguments> xmlSnapshotCases() {
+    final List<Arguments> cases = new ArrayList<>(8);
+    for (final CommitStrategy strategy : CommitStrategy.values()) {
+      cases.add(Arguments.of(strategy, 1, false, "<a><b/><e xmlns=\"\"/></a>"));
+      cases.add(Arguments.of(strategy, 2, false, "<a><b/><head/><e xmlns=\"\"/></a>"));
+      cases.add(Arguments.of(strategy, 1, true, "<a><b/><head/><pending/><e xmlns=\"\"/></a>"));
+      cases.add(Arguments.of(strategy, 2, true, "<a><b/><head/><pending/><e xmlns=\"\"/></a>"));
+    }
+    return cases;
   }
 
   @Test

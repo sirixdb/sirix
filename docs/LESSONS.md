@@ -158,6 +158,9 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   remain observable under PIT even though the independent lock holder is unmutated.
   [Ownership-retry follow-up](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-cleanup-retry-must-respect-independent-ownership).
   [Forked-contract follow-up](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-isolate-forked-lifetime-contracts-from-pit).
+  Writer-lifecycle regressions must also distinguish historical update targets from the latest
+  committed head, and caller-held edits from apply-created state, under both commit strategies.
+  [XML snapshot and ownership coverage](postmortems/shell-query-failure-recovery.md#ci-follow-up-xml-snapshot-and-writer-ownership-coverage).
 
 - **Check semantic state beyond scratch-capacity boundaries.** A lossless streaming
   renderer can still lose container context and style keys as values. Exercise
