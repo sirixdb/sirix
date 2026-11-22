@@ -488,7 +488,8 @@ public final class RAMStorage implements IOStorage {
       final RevisionRecord revisionRecord = store.revision(revision);
       final PageReference reference = new PageReference();
       reference.setKey(revisionRecord.key());
-      reference.setHash(revisionRecord.pageHash());
+      // This synthetic reference has no independent checksum: the private immutable payload and
+      // its hash were captured together. Caller-supplied references are verified by read().
       return (RevisionRootPage) read(reference, resourceConfiguration);
     }
 

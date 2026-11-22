@@ -27,6 +27,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.SplittableRandom;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CyclicBarrier;
@@ -276,6 +277,72 @@ final class DatabasesInMemoryLifetimeTest {
       if (database.isOpen()) {
         database.close();
       }
+    }
+  }
+
+  static Stream<Arguments> cleanupRetryOwners() {
+    return Stream.of(Model.values())
+                 .flatMap(
+                     model -> Stream.of("direct", "facade", "new-instance").map(owner -> Arguments.of(model, owner)));
+  }
+
+  /** TXN-615 clause 7: retry the ended instance's footprint without retiring a newer instance. */
+  @ParameterizedTest
+  @MethodSource("cleanupRetryOwners")
+  void repeatedCloseFinishesOnlyTheEndedInstancesCleanup(final Model model, final String owner) throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    final DatabaseConfiguration configuration;
+    try (Database<? extends ResourceSession<?, ?>> initialized = open(model, databasePath())) {
+      configuration = initialized.getDatabaseConfig();
+    }
+    final Database<? extends ResourceSession<?, ?>> database = owner.equals("direct")
+        ? configuration.getDatabaseType().createDatabase(configuration, new User("admin", UUID.randomUUID()))
+        : open(model, databasePath());
+    createResource(database, VOLATILE, StorageType.IN_MEMORY);
+    try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+      commitFirstValue(session, model, "old");
+    }
+    final Path resources = databasePath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Path resource = resources.resolve(VOLATILE);
+    final Set<PosixFilePermission> writable = Files.getPosixFilePermissions(resource);
+    Files.setPosixFilePermissions(resource, PosixFilePermissions.fromString("r-xr-xr-x"));
+    try {
+      assumeTrue(!Files.isWritable(resource), "running as a user who ignores permissions");
+      assertThrows(SirixIOException.class, database::close);
+      final Path tombstone;
+      try (var paths = Files.list(resources)) {
+        tombstone = paths.toList().getFirst();
+      }
+      if (owner.equals("new-instance")) {
+        try (Database<? extends ResourceSession<?, ?>> newer = open(model, databasePath())) {
+          createResource(newer, VOLATILE, StorageType.IN_MEMORY);
+          final long key;
+          try (ResourceSession<?, ?> session = newer.beginResourceSession(VOLATILE)) {
+            key = commitFirstValue(session, model, "new");
+          }
+          Files.setPosixFilePermissions(tombstone, writable);
+          database.close();
+          assertFalse(Files.exists(tombstone));
+          try (ResourceSession<?, ?> session = newer.beginResourceSession(VOLATILE)) {
+            assertEquals("new", valueAt(session, model, 1, key));
+          }
+        }
+      } else {
+        Files.setPosixFilePermissions(tombstone, writable);
+        database.close();
+        assertFalse(Files.exists(tombstone));
+      }
+      database.close();
+    } finally {
+      try (var paths = Files.list(resources)) {
+        for (final Path path : paths.toList()) {
+          if (Files.isDirectory(path)) {
+            Files.setPosixFilePermissions(path, writable);
+          }
+        }
+      }
+      database.close();
     }
   }
 

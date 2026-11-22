@@ -21,3 +21,16 @@ tests = ["io.sirix.query.scan.VectorizedReleaseCorrectnessTest"]
 [[association]]
 class = "io.sirix.query.scan.VectorizedRouteRefusedException"
 tests = ["io.sirix.query.scan.VectorizedReleaseCorrectnessTest"]
+
+# TXN-615 lifetime, storage ownership and backup contracts cross these entry points.
+[[association]]
+class = "io.sirix.access.DatabaseHandle"
+tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest"]
+
+[[association]]
+class = "io.sirix.access.InMemoryResources"
+tests = ["io.sirix.backup.BackupManagerInMemoryResourcesTest"]
+
+[[association]]
+class = "io.sirix.io.Reader"
+tests = ["io.sirix.io.ram.RAMStorageContractTest"]

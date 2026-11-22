@@ -145,7 +145,8 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   accessor coverage: a positive-wait integration failure cannot reject a constructor
   that wrongly refuses zero or an accessor that loses the page key. Evidence:
   [word-buffer mutation scope](postmortems/shell-pit-word-buffer-scope.md) and
-  [HOT retirement diagnostics](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#ci-follow-up-retirement-diagnostic-coverage).
+  [HOT retirement diagnostics](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#ci-follow-up-retirement-diagnostic-coverage) and
+  [RAM lifetime contracts](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-executable-contracts-and-mutation-selection).
 
 - **Check semantic state beyond scratch-capacity boundaries.** A lossless streaming
   renderer can still lose container context and style keys as values. Exercise

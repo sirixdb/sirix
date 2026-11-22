@@ -4,6 +4,8 @@
 package io.sirix.io.ram;
 
 import io.sirix.access.ResourceConfiguration;
+import com.sun.management.ThreadMXBean;
+import java.lang.management.ManagementFactory;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -13,6 +15,7 @@ import io.sirix.page.KeyValueLeafPage;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.Reader;
+import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.Writer;
 import io.sirix.node.Bytes;
@@ -23,6 +26,12 @@ import io.sirix.page.StoreFeatures;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
@@ -110,7 +119,7 @@ final class RAMStorageContractTest {
 
   @ParameterizedTest
   @EnumSource(Pipeline.class)
-  void closingTheWrittenLeafPageLeavesTheStoredPageIntact(final Pipeline kind) {
+  void closingTheWrittenLeafPageLeavesTheStoredPageIntact(final Pipeline kind) throws IOException {
     final ByteHandlerPipeline pipeline = switch (kind) {
       case NONE -> new ByteHandlerPipeline();
       case DEFLATE -> new ByteHandlerPipeline(new DeflateCompressor());
@@ -126,9 +135,27 @@ final class RAMStorageContractTest {
     configuration.resourcePath = directory.resolve("leaf-" + kind);
     final RAMStorage storage = new RAMStorage(configuration);
     final byte[] record = {3, 1, 4, 1, 5, 9};
+    if (pipeline.supportsMemorySegments()) {
+      final MemorySegment encoded = pipeline.compress(MemorySegment.ofArray(record));
+      try (var decoded = storage.getByteHandler().decompressScoped(encoded)) {
+        assertArrayEquals(record, decoded.segment().toArray(ValueLayout.JAVA_BYTE),
+            "the exposed handler decodes the configured encoding");
+      }
+    } else {
+      final ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+      try (OutputStream output = pipeline.serialize(encoded)) {
+        output.write(record);
+      }
+      try (InputStream input = storage.getByteHandler().deserialize(new ByteArrayInputStream(encoded.toByteArray()))) {
+        assertArrayEquals(record, input.readAllBytes(), "the exposed handler decodes the configured encoding");
+      }
+    }
     final PageReference reference = new PageReference();
     final KeyValueLeafPage written = new KeyValueLeafPage(41L, IndexType.DOCUMENT, configuration, 1, null, null, false);
     try (Writer writer = storage.createWriter(); BytesOut<MemorySegment> bytes = Bytes.elasticHeapByteBuffer()) {
+      // Non-leaf metadata must use the same configured encoding as leaf payloads.
+      writer.write(configuration, new PageReference(), revisionRoot(1_234L), bytes);
+      assertEquals(1_234L, writer.readRevisionRootPage(0, configuration).getRevisionTimestamp());
       written.setSlot(record, 7);
       writer.write(configuration, reference, written, bytes);
       assertFalse(written.isClosed(), "writing must leave the writer's page with the writer");
@@ -216,7 +243,8 @@ final class RAMStorageContractTest {
   void unknownKeysFailInsteadOfReturningNothing() {
     final RAMStorage storage = new RAMStorage(configuration("unknown", UUID.randomUUID()));
     try (Reader reader = storage.createReader()) {
-      for (final long key : new long[] {0L, 1L, -15L, 1L << 20, Long.MAX_VALUE}) {
+      for (final long key : new long[] {0L, 1L, -15L, IOStorage.DATA_REGION_START, IOStorage.DATA_REGION_START + 63,
+          IOStorage.DATA_REGION_START + 64, IOStorage.DATA_REGION_START + 65, 1L << 20, Long.MAX_VALUE}) {
         final PageReference reference = new PageReference();
         reference.setKey(key);
         assertThrows(SirixIOException.class, () -> reader.read(reference, null), "key " + key);
@@ -296,6 +324,72 @@ final class RAMStorageContractTest {
       assertEquals(2L, ((RevisionRootPage) writer.read(rewritten, configuration)).getRevisionTimestamp());
       assertEquals(Instant.ofEpochMilli(2L), writer.readRevisionRootPageCommitTimestamp(0));
     }
+  }
+
+  /** TXN-615 clauses 3/8: discarding one resource clears retained providers, not its neighbours. */
+  @Test
+  void discardClearsRetainedProvidersOnlyWithinTheRequestedDirectory() {
+    final ResourceConfiguration retired = configuration("retired", UUID.randomUUID());
+    final ResourceConfiguration neighbour = configuration("retired-neighbour", UUID.randomUUID());
+    final RAMStorage retiredStorage = new RAMStorage(retired);
+    final RAMStorage neighbourStorage = new RAMStorage(neighbour);
+    final PageReference retiredPage = new PageReference();
+    final PageReference neighbourPage = new PageReference();
+    try (Writer retiredWriter = retiredStorage.createWriter();
+        Writer neighbourWriter = neighbourStorage.createWriter();
+        BytesOut<MemorySegment> bytes = Bytes.elasticHeapByteBuffer()) {
+      retiredWriter.write(retired, retiredPage, revisionRoot(1L), bytes);
+      neighbourWriter.write(neighbour, neighbourPage, revisionRoot(2L), bytes);
+      retiredWriter.writeUberPageReference(retired, new PageReference(), new UberPage(), bytes);
+      neighbourWriter.writeUberPageReference(neighbour, new PageReference(), new UberPage(), bytes);
+    }
+    RAMStorage.discardUnder(retired.resourcePath);
+    assertFalse(retiredStorage.exists());
+    assertTrue(neighbourStorage.exists());
+    try (Reader retiredReader = retiredStorage.createReader();
+        Reader neighbourReader = neighbourStorage.createReader()) {
+      assertThrows(SirixIOException.class, () -> retiredReader.read(retiredPage, retired));
+      assertThrows(SirixIOException.class, () -> retiredReader.getRevisionFileData(0));
+      assertEquals(2L, ((RevisionRootPage) neighbourReader.read(neighbourPage, neighbour)).getRevisionTimestamp());
+    }
+    assertEquals(0, retiredStorage.getRevisionIndexHolder().get().size());
+  }
+
+  /**
+   * TXN-615 / low-allocation storage contract: adding small revision roots uses bounded bytes per
+   * revision, including both staged and published metadata. A full-history copy on each append
+   * violates the budget; the bound allows 8 KiB per small root, well above its encoded payload.
+   */
+  @Test
+  void revisionHistoryAllocationIsBoundedPerAppend() {
+    final var platform = ManagementFactory.getThreadMXBean();
+    assumeTrue(platform instanceof ThreadMXBean);
+    final ThreadMXBean bean = (ThreadMXBean) platform;
+    assumeTrue(bean.isThreadAllocatedMemorySupported());
+    bean.setThreadAllocatedMemoryEnabled(true);
+    appendHistory(configuration("warmup", UUID.randomUUID()), 1024);
+    final ResourceConfiguration configuration = configuration("bounded-history", UUID.randomUUID());
+    final long before = bean.getCurrentThreadAllocatedBytes();
+    appendHistory(configuration, 8192);
+    final long allocated = bean.getCurrentThreadAllocatedBytes() - before;
+    assertTrue(allocated <= 8192L * 8192,
+        "8192 small revisions allocated " + allocated + " bytes (8 KiB/revision budget)");
+  }
+
+  private static void appendHistory(final ResourceConfiguration configuration, final int count) {
+    final RAMStorage storage = new RAMStorage(configuration);
+    try (Writer writer = storage.createWriter(); BytesOut<MemorySegment> bytes = Bytes.elasticHeapByteBuffer()) {
+      final RevisionRootPage first = revisionRoot(0L);
+      for (int revision = 0; revision < count; revision++) {
+        final RevisionRootPage root = revision == 0
+            ? first
+            : new RevisionRootPage(first, revision);
+        root.setCommitTimestamp(Instant.ofEpochMilli(revision));
+        writer.write(configuration, new PageReference(), root, bytes);
+        writer.writeUberPageReference(configuration, new PageReference(), new UberPage(revision + 1), bytes);
+      }
+    }
+    assertEquals(count, storage.getRevisionIndexHolder().get().size());
   }
 
   private ResourceConfiguration configuration(final String name, final UUID identity) {

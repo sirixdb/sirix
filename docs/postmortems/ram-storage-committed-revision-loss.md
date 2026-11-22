@@ -197,3 +197,41 @@
 - Lesson: ownership already established by the open instance must reach every state-discard path;
   rereading persisted proof must not downgrade a known RAM resource to persistent deletion.
   Mutation and broader gates remain assigned to the outer executor.
+
+## CI follow-up: executable contracts and mutation selection
+
+The changed-source lane exposed missing contract evidence rather than another committed-value
+failure. Cleanup retry assertions had reopened the database, which could perform cleanup itself;
+they did not prove repeated close completed the old instance's pending work. Storage discard tests
+had not retained the provider, unknown-key cases missed the allocated-array boundary, and revision
+read-back alone could not detect quadratic metadata allocation. The CLI omission notice had no
+output test. The byte-handler matrix covered leaves but not non-leaf roots, missing the legacy
+Deflate metadata stream path. Some integration contracts also lacked explicit mutation-lane associations.
+
+TXN-615 clauses 3, 6, 7, 8 and 10 remain the oracles. The added tests exercise direct and facade close,
+old-handle retry beside a new live instance, retained providers and neighbouring resources,
+unknown-key boundaries, and quiet/verbose backup output. The revision append allocation budget
+allows 8 KiB per small revision, including staging and publication, and rejects repeated copies of
+full history without a timing assertion. `InMemoryResourcesTest` checks nameless/unknown paths and
+settings-free tombstones through the classifier's public interface. Explicit lane associations
+retain the cross-class ownership and reader contracts.
+
+The synthetic revision-root reference also redundantly carried a checksum copied from the same
+private immutable payload store. It supplied no independent integrity boundary and was removed;
+`read(PageReference, ...)` still verifies checksums supplied by a caller. Revision-file metadata
+still exposes the recorded payload hash.
+
+Verification commands: focused `:sirix-core:test` for `RAMStorageContractTest`,
+`InMemoryResourcesTest` and `DatabasesInMemoryLifetimeTest.repeatedCloseFinishesOnlyTheEndedInstancesCleanup`;
+`:sirix-kotlin-cli:test --tests '*BackupTest'`; and the bounded changed-source PIT lane.
+
+Local repair verification passed 26 focused core cases, four CLI output cases, the eight query
+cancellation cases both with and without coverage, and 326 core work-budget cases. After extending
+the root/leaf pipeline matrix, focused PIT killed all 43 sampled changed-line mutants in RAM storage
+and resource classification. CLI PIT resolved all five changed-line mutants: three killed, two
+compiler-generated null checks accepted as equivalent because the final record guarantees a
+nonnull list. The full core mutation run passed its baseline but exceeded its 1,200-second module
+share; its partial output recorded 24 killed changed-line mutants, including the direct/facade
+cleanup retries. That run is incomplete, not a green full-lane result. The original query CI failure
+was temporary-directory deletion after successful assertions and did not reproduce locally.
+CodeFactor's diagnostic page returned HTTP 403, leaving its findings unclassified.
