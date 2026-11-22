@@ -156,3 +156,31 @@ creating a database ([write-up](xml-store-resource-name.md), #1471). A failure w
   R2 supplies the one-line oracle; an unescaped terminator or a modified debug message violates it.
 - Lesson: enforce a report's framing at its shared presentation boundary rather than modifying
   diagnostic objects; see [Lessons](../LESSONS.md).
+
+## Review follow-up: retained JSON target memoization
+
+- Invariant (R4): after rollback of an apply-owned JSON writer, every affected retained object
+  reads its original committed snapshot rather than values from the failed apply. Insert,
+  replace and rename must obey this in JSON-only and mixed JSON/XML application, under AUTO
+  and EXPLICIT. Caller-owned writers and their pending state remain under caller control.
+- Trigger: retain the item for `{"a":1,"arr":[1,2]}`, run `FAILING_JSON_UPDATE`, clear the
+  pending update list, and execute `insert json {'c': if (exists($$.z)) then 9 else 3} into $$`
+  through the same item. Before recovery invalidated its memo, it committed `c=9` instead of `c=3`.
+- Root cause: JSON object insert, replace and rename update the target's field memo after changing
+  the writer. Writer rollback restored storage but never invalidated that separate retained state;
+  `get` returned the failed value without consulting the restored snapshot. Field values, cached
+  first-child position and child count all belong to the existing object memo reset.
+- Why tests missed it: the recovery test replaced the context item with a fresh snapshot before
+  the next query, bypassing the object whose memo was populated by the failed update.
+- Fix: at the shared application failure boundary, reset object memos for operation targets whose
+  sessions had no writer before the apply, after the existing writer cleanup. The normal read path,
+  successful applications, caller-owned writers and the XML application loops are unchanged.
+- Regressions: `SirixQueryContextFailedApplyTest.failedJsonApplyReleasesTheWriterItOpenedWithoutItsChanges`
+  now retains the context item across the failing and successful queries. Its insert, replace and
+  rename cases cover both application branches and commit strategies. Replacement and rename use
+  an invalid array deletion as a later failing operation, so update ordering cannot skip the mutation
+  under test. The R4 oracle is committed `c=3` and absence of the failed changes, not cache contents.
+  The caller-held JSON writer control also retains its original item and pending inserted value;
+  the eight XML snapshot/writer-ownership cases remain intact.
+- Lesson: rollback must reset retained query-item state as well as transactional storage; test
+  recovery through the exact objects the caller keeps. See [Lessons](../LESSONS.md).

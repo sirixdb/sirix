@@ -4,11 +4,18 @@ import io.brackit.query.Query;
 import io.brackit.query.QueryException;
 import io.brackit.query.node.parser.DocumentParser;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Int32;
+import io.brackit.query.update.json.op.DeleteArrayIndexOp;
+import io.brackit.query.update.json.op.ReplaceRecordValueOp;
+import io.brackit.query.update.json.op.RenameRecordFieldOp;
+import io.brackit.query.update.op.DeleteOp;
 import io.brackit.query.update.op.OpType;
 import io.brackit.query.update.op.UpdateOp;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.JsonDBArray;
+import io.sirix.query.json.JsonDBObject;
 import java.util.Optional;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -59,22 +66,47 @@ final class SirixQueryContextFailedApplyTest {
   Path directory;
 
   @ParameterizedTest
-  @EnumSource(CommitStrategy.class)
-  void failedJsonApplyReleasesTheWriterItOpenedWithoutItsChanges(final CommitStrategy strategy) {
+  @MethodSource("jsonRecoveryCases")
+  void failedJsonApplyReleasesTheWriterItOpenedWithoutItsChanges(final CommitStrategy strategy,
+      final boolean mixed, final String mutation) {
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
-        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
-        final SirixQueryContext context = SirixQueryContext.createWithJsonStoreAndCommitStrategy(store, strategy)) {
+        final BasicXmlDBStore xmlStore = BasicXmlDBStore.newBuilder().location(directory).build();
+        final SirixCompileChain chain = SirixCompileChain.createWithNodeAndJsonStore(xmlStore, store);
+        final SirixQueryContext context =
+            SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(xmlStore, store, strategy)) {
       final JsonDBCollection collection = store.create("json", "data", "{\"a\":1,\"arr\":[1,2]}");
-      context.setContextItem(collection.getDocument("data"));
-      assertThrows(QueryException.class, () -> new Query(chain, FAILING_JSON_UPDATE).execute(context));
+      final JsonDBObject retained = (JsonDBObject) collection.getDocument("data");
+      context.setContextItem(retained);
+      if (mixed) {
+        final XmlDBCollection xml = xmlStore.create("xml", new DocumentParser("<a/>"));
+        context.addPendingUpdate(new DeleteOp(xml.getDocument().getFirstChild()));
+      }
+      if (mutation.equals("insert")) {
+        assertThrows(QueryException.class, () -> new Query(chain, FAILING_JSON_UPDATE).execute(context));
+      } else {
+        final JsonDBArray array = (JsonDBArray) retained.get(new QNm("arr"));
+        context.addPendingUpdate(mutation.equals("replace")
+            ? new ReplaceRecordValueOp(retained, new QNm("a"), new Int32(9))
+            : new RenameRecordFieldOp(retained, new QNm("a"), new QNm("z")));
+        context.addPendingUpdate(new DeleteArrayIndexOp(array, 99));
+        assertThrows(QueryException.class, context::applyUpdates);
+      }
 
-      final JsonResourceSession session = collection.getDocument("data").getResourceSession();
+      final JsonResourceSession session = retained.getResourceSession();
       assertTrue(session.getNodeTrx().isEmpty(), "the failed apply's writer must be released");
       assertEquals(1, session.getMostRecentRevisionNumber());
+      assertSame(retained, context.getContextItem());
+      if (mixed) {
+        final XmlDBNode xml = xmlStore.lookup("xml").getDocument();
+        assertTrue(xml.getTrx().getResourceSession().getNodeTrx().isEmpty());
+        assertEquals(new QNm("a"), xml.getFirstChild().getName());
+      }
 
       context.setUpdateList(null);
-      context.setContextItem(collection.getDocument("data"));
-      new Query(chain, "insert json {'c':3} into $$").execute(context);
+      final String recovery = mutation.equals("replace")
+          ? "insert json {'c': if ($$.a = 1) then 3 else 9} into $$"
+          : "insert json {'c': if (exists($$.z)) then 9 else 3} into $$";
+      new Query(chain, recovery).execute(context);
       if (strategy == CommitStrategy.EXPLICIT) {
         try (final JsonNodeTrx writer = session.getNodeTrx().orElseThrow()) {
           writer.commit();
@@ -86,20 +118,36 @@ final class SirixQueryContextFailedApplyTest {
     }
   }
 
-  @Test
-  void failedJsonApplyLeavesACallerHeldWriterOpen() {
+  private static List<Arguments> jsonRecoveryCases() {
+    final List<Arguments> cases = new ArrayList<>(12);
+    for (final CommitStrategy strategy : CommitStrategy.values()) {
+      for (final boolean mixed : new boolean[] {false, true}) {
+        for (final String mutation : List.of("insert", "replace", "rename")) {
+          cases.add(Arguments.of(strategy, mixed, mutation));
+        }
+      }
+    }
+    return cases;
+  }
+
+  @ParameterizedTest
+  @EnumSource(CommitStrategy.class)
+  void failedJsonApplyLeavesACallerHeldWriterOpen(final CommitStrategy strategy) {
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
         final SirixQueryContext context =
-            SirixQueryContext.createWithJsonStoreAndCommitStrategy(store, CommitStrategy.EXPLICIT)) {
+            SirixQueryContext.createWithJsonStoreAndCommitStrategy(store, strategy)) {
       final JsonDBCollection collection = store.create("json", "data", "{\"a\":1,\"arr\":[1,2]}");
       final JsonResourceSession session = collection.getDocument("data").getResourceSession();
       final JsonNodeTrx held = session.beginNodeTrx();
       try {
-        context.setContextItem(collection.getDocument("data"));
+        final JsonDBObject retained = (JsonDBObject) collection.getDocument("data");
+        context.setContextItem(retained);
         assertThrows(QueryException.class, () -> new Query(chain, FAILING_JSON_UPDATE).execute(context));
         assertFalse(held.isClosed(), "a writer the caller held before the query is not the query's to close");
         assertSame(held, session.getNodeTrx().orElseThrow());
+        assertSame(retained, context.getContextItem());
+        assertEquals("1", retained.get(new QNm("z")).toString());
       } finally {
         held.rollback();
         held.close();

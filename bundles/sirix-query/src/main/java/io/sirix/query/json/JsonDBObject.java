@@ -671,7 +671,7 @@ public final class JsonDBObject extends AbstractItem
    * Drop every memoized field value. Any mutation invalidates them: without this a read after a write
    * keeps answering with the pre-write value.
    */
-  private void clearMemo() {
+  public void clearMemo() {
     childCount = -1L;
     if (fields != null) {
       fields.clear();

@@ -222,7 +222,8 @@ All notable changes to SirixDB are documented in this file.
   submissions also keep both interactive modes open until EOF or interrupt. A failed
   query's pending updates are discarded instead of being committed by the next updating query, and
   `SirixQueryContext` rolls back and closes the writers a failed update application opened, so
-  later queries neither commit partial changes nor meet a rollback-only writer
+  later queries neither commit partial changes nor meet a rollback-only writer. Retained JSON
+  update targets also discard memoized values from a rolled-back apply
   ([write-up](docs/postmortems/shell-query-failure-recovery.md), #1430).
 - **A HOT index range could start past its lower bound** — `HOTTrieReader.lowerBound` and
   `upperBound` returned the first entry of the leaf an absent search key was routed to even when the

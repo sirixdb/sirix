@@ -34,6 +34,7 @@ import io.sirix.query.compiler.optimizer.PlanCache;
 import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.JsonDBObject;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBNode;
@@ -270,6 +271,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
           release(opened.get(), failure);
         }
       }
+      clearRolledBackJsonTargets(pending.list(), jsonSessionsWithoutWriter);
       throw failure;
     }
 
@@ -406,6 +408,15 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
       }
     }
     return sessions;
+  }
+
+  private static void clearRolledBackJsonTargets(final List<UpdateOp> operations,
+      final Set<JsonResourceSession> sessions) {
+    for (final UpdateOp operation : operations) {
+      if (operation.getTarget() instanceof JsonDBObject target && sessions.contains(target.getResourceSession())) {
+        target.clearMemo();
+      }
+    }
   }
 
   private record XmlResourceId(long databaseId, long resourceId) {
