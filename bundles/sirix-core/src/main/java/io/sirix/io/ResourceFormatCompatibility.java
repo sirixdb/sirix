@@ -222,15 +222,8 @@ public final class ResourceFormatCompatibility {
   }
 
   /**
-   * Incomplete first-commit frame at the shared prefix boundary:
-   * <pre>
-   * Envelope header carrying the version | Version value | Outcome
-   * Present and readable                | Not 1.0's     | REFUSE, files unchanged
-   * Present and readable                | 1.0's         | RECOVERABLE
-   * Not present, or unreadable          | n/a           | RECOVERABLE
-   * </pre>
-   * No scan beyond the malformed frame; other envelopes remain the FMT-401
-   * sirix-repair-format-gate gap (captain decision A, 2026-11-22).
+   * Checks readable envelope versions before treating incomplete first-commit frames as recoverable
+   * (FMT-401). Stops at malformed frames or unwritten gaps; this is not complete envelope discovery.
    */
   private static void requireFramedPrefix(final FileChannel channel, final ByteHandler handler) throws IOException {
     final ByteBuffer length = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);

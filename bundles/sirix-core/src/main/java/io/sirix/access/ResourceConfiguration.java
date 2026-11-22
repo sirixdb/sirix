@@ -57,6 +57,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -961,7 +962,7 @@ public final class ResourceConfiguration {
 
   public static void requireSupportedBinaryEncoding(final Path resource) {
     final Path configFile = resource.resolve(ResourcePaths.CONFIG_BINARY.getPath());
-    try (final FileReader fileReader = new FileReader(configFile.toFile());
+    try (final FileReader fileReader = new FileReader(configFile.toFile(), Charset.defaultCharset());
         final JsonReader reader = new JsonReader(fileReader)) {
       reader.beginObject();
       while (reader.hasNext()) {

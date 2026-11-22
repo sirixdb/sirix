@@ -1160,8 +1160,8 @@ public final class FileChannelReader extends AbstractReader {
           if (offset == IOStorage.PRUNED_REVISION_OFFSET || hash == IOStorage.PRUNED_REVISION_TAG) {
             continue;
           }
-          if (records.getLong(base + 16) == IOStorage.expectedRevisionRecordChecksum(offset,
-              records.getLong(base + 8), hash)) {
+          if (records.getLong(base + 16) == IOStorage.expectedRevisionRecordChecksum(offset, records.getLong(base + 8),
+              hash)) {
             ResourceFormatCompatibility.requireRootEnvelope(dataFileChannel, offset, byteHandler);
             continue;
           }

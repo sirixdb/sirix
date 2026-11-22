@@ -40,16 +40,9 @@ whose settings contract is described below. It is
 cross-linked to the binary files by the **resource UUID**: the JSON persists it, both
 superblocks embed it, and opening a data file with a different resource's settings (wrong-backup
 restore) fails fast. A stored zero UUID is refused outright; the cross-check itself is skipped only
-on recovery paths that run before the settings identity is known. Compatibility checks before
-repair and recovery follow [FMT-401](../spec/FMT-disk-format.md#fmt-401--10-format-baseline).
-Current discovery checks the latest root, live roots in the bounded tail-log window, and the
-surviving framed prefix during beaconless bootstrap recovery. Unreadable settings are probed
-for a readable `binaryEncoding` by name before rebuilding. Complete envelope discovery before
-destructive repair remains task `sirix-repair-format-gate`; envelopes outside these subsets
-or beyond a malformed frame or unwritten gap are not covered. Explicit truncate validates its
-target and the bounded window ending at that target before publishing downgraded beacons. FILE_CHANNEL can recover an absent revisions
-header from the validated data identity and tail-log evidence, including with a commit marker;
-a present header still requires validation. MEMORY_MAPPED does not salvage lost revision records.
+on recovery paths that run before the settings identity is known. The enforced compatibility
+checks before repair and recovery, incomplete-tail recovery rule and remaining discovery gap
+are owned by [FMT-401](../spec/FMT-disk-format.md#fmt-401--10-format-baseline).
 
 The resource settings file (`ressetting.obj`) requires the fields through `storeChildCount` in
 writer order. Tail fields are dispatched by name and may be reordered without shifting the
@@ -622,8 +615,9 @@ through the same `FileChannelWriter` (superblock + UUID stamping included) and b
 run the same superblock validation (magic/version/endianness/role/geometry/UUID) at open. This
 is proven end-to-end by `io.sirix.io.StorageBackendInteropTest`: a resource written by either
 backend reads back byte-identically AND accepts further commits under the other, and a
-swapped-in foreign data file fails the resource-UUID cross-check under both. `IN_MEMORY`
-(RAMStorage) persists nothing and is exercised by `StorageTest` alongside the file-backed
+swapped-in foreign data file fails the resource-UUID cross-check under both. FILE_CHANNEL can
+salvage lost revision records from the beacon tail log; MEMORY_MAPPED does not salvage them.
+`IN_MEMORY` (RAMStorage) persists nothing and is exercised by `StorageTest` alongside the file-backed
 backends. The legacy `FILE` backend is removed (`StorageType.FILE` throws with a pointer to
 FILE_CHANNEL — it wrote an incompatible layout under the same version); `IO_URING`/`S3`
 resolve enterprise providers via SPI and fail fast with actionable errors when absent (also
