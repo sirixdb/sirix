@@ -350,7 +350,8 @@ final class RAMStorageContractTest {
         Reader neighbourReader = neighbourStorage.createReader()) {
       assertThrows(SirixIOException.class, () -> retiredReader.read(retiredPage, retired));
       assertThrows(SirixIOException.class, () -> retiredReader.getRevisionFileData(0));
-      assertEquals(2L, ((RevisionRootPage) neighbourReader.read(neighbourPage, neighbour)).getRevisionTimestampMicros());
+      assertEquals(2L,
+          ((RevisionRootPage) neighbourReader.read(neighbourPage, neighbour)).getRevisionTimestampMicros());
     }
     assertEquals(0, retiredStorage.getRevisionIndexHolder().get().size());
   }
