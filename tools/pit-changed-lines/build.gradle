@@ -1,0 +1,54 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// PIT plugins for the PR mutation lane (CONV-205, CONV-202):
+//   * CHANGEDLINES — removes every mutant whose line the PR did not change, before any
+//     per-class sampling, and records what it removed in a census.
+//   * STREAM       — writes every analysed class's results as they arrive, so a run killed
+//     by its deadline still reports what finished.
+// CI-only tooling: it ships with no Sirix artifact and is never published.
+// Scope and rules: spec/CONV-conventions.md, docs/VERIFICATION.md#pr-mutation-testing.
+// ═══════════════════════════════════════════════════════════════════════════
+
+import org.gradle.api.publish.maven.tasks.AbstractPublishToMaven
+import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.plugins.signing.Sign
+
+description = 'PIT interceptor and result listener for the SirixDB PR mutation lane (CI only).'
+
+def pitestVersion = '1.25.5'
+
+dependencies {
+    // PIT supplies these to its own tool classpath; shipping copies would risk a version skew.
+    compileOnly "org.pitest:pitest:${pitestVersion}"
+    compileOnly "org.pitest:pitest-entry:${pitestVersion}"
+
+    testImplementation "org.pitest:pitest:${pitestVersion}"
+    testImplementation "org.pitest:pitest-entry:${pitestVersion}"
+    testImplementation testLibraries.junitJupiterApi
+    testRuntimeOnly testLibraries.junitJupiterEngine
+    testRuntimeOnly testLibraries.junitPlatformLauncher
+}
+
+test {
+    useJUnitPlatform()
+    // Plain unit tests against PIT's own interfaces: no Sirix engine, no preview features.
+    jvmArgs = []
+}
+
+// The classes land on PIT's tool classpath, which runs them under the pinned PIT release on an
+// ordinary JVM. Preview features would pin the class files to one JDK build for no benefit, and
+// the incubator vector module is irrelevant here, so drop the root project's product flags.
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs = options.compilerArgs.findAll {
+        it != '--enable-preview' && it != '--add-modules=jdk.incubator.vector'
+    }
+}
+
+// Not a published artifact: it exists for CI and the local focused reruns documented in
+// docs/VERIFICATION.md. Keeping the tasks configured but disabled leaves the root project's
+// shared publishing block untouched.
+tasks.withType(AbstractPublishToMaven).configureEach {
+    enabled = false
+}
+tasks.withType(Sign).configureEach {
+    enabled = false
+}

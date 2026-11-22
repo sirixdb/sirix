@@ -97,6 +97,14 @@ def mutant(status, line, method='run', descriptor='(I)Z', indexes=(7,), descript
             f'<description>{html.escape(description)}</description></mutation>')
 
 
+def census_record(line, method='run', descriptor='(I)Z', indexes=(7,), description=DESCRIPTION,
+                  klass='a.Foo', source='Foo.java', mutator=MUTATOR):
+    """One line of the census the CHANGEDLINES interceptor writes: identity, never a status."""
+    return json.dumps({'class': klass, 'method': method, 'descriptor': descriptor,
+                       'mutator': mutator, 'indexes': list(indexes), 'description': description,
+                       'sourceFile': source, 'lineNumber': line})
+
+
 def toml_value(value):
     if isinstance(value, bool):
         return 'true' if value else 'false'
@@ -148,7 +156,8 @@ class Lane:
         test.write_text('package a;\nclass FooAllocationTest {}\n')
         (root / '.github').mkdir()
 
-    def run(self, mutants, head=None, base=None, changed=(11,), exit_code=0, baz_changed=()):
+    def run(self, mutants, head=None, base=None, changed=(11,), exit_code=0, baz_changed=(),
+            census=(), stream=(), report=True, timed_out=False, stream_unreadable=False):
         dispositions = self.root / mutation.DISPOSITIONS_FILE
         if head is None:
             dispositions.unlink(missing_ok=True)
@@ -160,9 +169,23 @@ class Lane:
             'dispositions_base': base}))
 
         def execute(command, root, log, timeout):
-            report = self.output / 'sirix-core/report/mutations.xml'
-            report.parent.mkdir(parents=True, exist_ok=True)
-            report.write_text('<mutations>' + ''.join(mutants) + '</mutations>')
+            directory = self.output / 'sirix-core'
+            (directory / 'report').mkdir(parents=True, exist_ok=True)
+            if report:
+                (directory / 'report/mutations.xml').write_text(
+                    '<mutations>' + ''.join(mutants) + '</mutations>')
+            if stream:
+                (directory / 'report' / mutation.STREAM_FILE).write_text(
+                    ''.join(record + '\n' for record in stream))
+            if stream_unreadable:
+                # Whatever stands where the stream belongs, the reporter must not pretend to
+                # have read it: a directory is the simplest unreadable thing.
+                (directory / 'report' / mutation.STREAM_FILE).mkdir()
+            if census:
+                (directory / mutation.CENSUS_FILE).write_text(
+                    ''.join(record + '\n' for record in census))
+            if timed_out:
+                raise subprocess.TimeoutExpired(command, timeout)
             return exit_code
         with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
              patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
@@ -413,13 +436,16 @@ class VerdictTest(unittest.TestCase):
                     self.assertTrue('--remap' in action or 'counterfactual' in action, action)
                     self.assertIn('Entries that fail this run', summary)
 
-    def test_sampled_lane_runs_do_not_judge_an_absent_mutant(self):
+    def test_an_absent_mutant_of_a_mutated_class_is_stale(self):
+        # CONV-202 rule 5: nothing was sampled and nothing else was restricted away, so a
+        # generated set that lists neither a report mutant nor a census identity is complete
+        # evidence that this mutant no longer exists.
         with lane() as work:
             code, results, summary = work.run([mutant('KILLED', 11)],
                                               head=entry(method='other', descriptor='()V'),
                                               base=entry(method='other', descriptor='()V'))
-            self.assertEqual((code, states(results)), (0, ['not judged']))
-            self.assertIn('Reported entries (not failing)', summary)
+            self.assertEqual((code, states(results)), (1, ['stale']))
+            self.assertIn('Entries that fail this run', summary)
 
     def test_an_invalid_file_disposes_of_nothing(self):
         with lane() as work:
@@ -646,6 +672,47 @@ class RefactorHelperTest(unittest.TestCase):
                 self.assertIn('[stale] a.Foo.run: PIT no longer generates', text)
                 failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, True)
                 self.assertIn('[not judged]', text)
+
+    def test_check_reaches_the_lane_states_when_it_is_given_the_lane_census(self):
+        # CONV-203: a local judgement of a lane report must reach the state the lane reached, so
+        # the helper reads the same census the lane's verdict read (CONV-205).
+        with lane() as work:
+            (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(indexes=[42]))
+            report = self.report(work.root, [mutant('SURVIVED', 11)])
+            census = work.root / mutation.CENSUS_FILE
+            census.write_text(census_record(21, indexes=(42,)) + '\n')
+            lines = {'sirix-core': {SOURCE: [5]}}  # no method of the entry changed
+            with patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=entry(indexes=[42])):
+                without, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+                self.assertTrue(without)
+                self.assertIn('[stale]', text)
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False,
+                                                            [str(census)])
+            self.assertFalse(failing)
+            self.assertIn('ok entry 1 [not judged]', text)
+            self.assertIn('removed off the diff', text)
+
+    def test_the_cli_passes_every_census_it_is_given(self):
+        with lane() as work:
+            (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(indexes=[42]))
+            report = self.report(work.root, [mutant('SURVIVED', 11)])
+            first = work.root / 'first.jsonl'
+            first.write_text(census_record(21, method='elsewhere') + '\n')
+            second = work.root / 'second.jsonl'
+            second.write_text(census_record(21, indexes=(42,)) + '\n')
+            args = ['pr_mutation.py', 'dispositions', '--root', str(work.root), '--report',
+                    str(report), '--check', '--base', 'f' * 40,
+                    '--census', str(first), '--census', str(second)]
+            lines = {'sirix-core': {SOURCE: [5]}}
+            with patch.object(sys, 'argv', args), \
+                 patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=entry(indexes=[42])), \
+                 patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
+                self.assertEqual(mutation.main(), 0)
+            self.assertIn('[not judged]', out.getvalue())
 
     def test_dispositions_cli_runs_check_and_remap_and_reports_failure(self):
         with lane() as work:
@@ -959,6 +1026,227 @@ class AssociationTest(unittest.TestCase):
             (REPOSITORY / mutation.DISPOSITIONS_FILE).read_text())
         self.assertEqual(errors, [])
         self.assertTrue(all(entry['kind'] in mutation.KINDS for entry in entries))
+
+
+class CensusVerdictTest(unittest.TestCase):
+    """CONV-205/CONV-202: what the changed-line restriction removed is evidence of existence.
+
+    A census identity proves the mutant exists and says nothing about its status, so an entry it
+    matches is neither stale nor unconfirmed and can never be accepted. The reporter also judges
+    the census again from its own changed-line index: a removed mutant on a changed line fails
+    the run, whatever the restriction decided.
+    """
+
+    OTHER = {'method': 'other', 'descriptor': '()V'}
+
+    def test_an_entry_matching_only_the_census_is_reported_without_a_status(self):
+        with lane() as work:
+            code, results, summary = work.run(
+                [mutant('KILLED', 11)], head=entry(**self.OTHER), base=entry(**self.OTHER),
+                census=[census_record(21, **self.OTHER)])
+            self.assertEqual((code, states(results)), (0, ['not judged']))
+            action = results['dispositions']['entries'][0]['action']
+            self.assertIn('removed off the diff', action)
+            self.assertIn('Foo.java:21', action)
+            self.assertIn('no status was measured', action)
+            self.assertIn('Reported entries (not failing)', summary)
+
+    def test_a_new_entry_matching_only_the_census_is_not_judged_rather_than_unconfirmed(self):
+        # CONV-202 rule 3: the mutant exists, which is what lets an author re-identify an entry
+        # after a refactor without the lane running a single off-diff mutant.
+        with lane() as work:
+            code, results, _ = work.run([mutant('KILLED', 11)], head=entry(**self.OTHER),
+                                        census=[census_record(21, **self.OTHER)])
+            self.assertEqual((code, states(results)), (0, ['not judged']))
+
+    def test_the_same_entry_is_stale_when_the_census_does_not_list_its_mutant(self):
+        with lane() as work:
+            code, results, _ = work.run([mutant('KILLED', 11)], head=entry(**self.OTHER),
+                                        base=entry(**self.OTHER),
+                                        census=[census_record(21, method='third')])
+            self.assertEqual((code, states(results)), (1, ['stale']))
+
+    def test_a_census_identity_accepts_no_changed_line_mutant(self):
+        # Rule 1 accepts a changed-line survivor only through an added entry that matches a
+        # reported SURVIVED mutant. An entry whose only evidence is a census identity has no
+        # measured status, so the survivor it does not match stays failing.
+        with lane() as work:
+            code, results, _ = work.run([mutant('SURVIVED', 11)], head=entry(**self.OTHER),
+                                        census=[census_record(21, **self.OTHER)])
+            failing = results['modules'][0]['changed']['failing']
+            self.assertEqual((code, states(results)), (1, ['not judged']))
+            self.assertEqual(len(failing), 1)
+            self.assertEqual(failing[0]['reason'], 'no disposition entry')
+
+    def test_a_removed_mutant_on_a_changed_line_fails_the_run(self):
+        with lane() as work:
+            code, results, summary = work.run([mutant('KILLED', 11)],
+                                              census=[census_record(11, **self.OTHER)])
+            census = results['modules'][0]['census']
+            self.assertEqual(code, 1)
+            self.assertEqual(census['count'], 1)
+            self.assertEqual(len(census['violations']), 1)
+            self.assertIn('a.Foo:11', census['violations'][0])
+            self.assertIn('is on a changed line', census['violations'][0])
+            self.assertIn('removed mutants on changed lines', summary)
+
+    def test_a_census_count_is_reported_but_never_as_a_score(self):
+        with lane() as work:
+            code, results, summary = work.run([mutant('KILLED', 11)],
+                                              census=[census_record(21, **self.OTHER),
+                                                      census_record(22, method='third')])
+            module = results['modules'][0]
+            self.assertEqual((code, module['census']['count'], module['total']), (0, 2, 1))
+            self.assertIn('Mutants removed off the diff: 2.', summary)
+            self.assertIn('carry no status and no score', summary)
+            self.assertIn('Killed: 1/1 (100.0%)', summary)
+
+    def test_a_census_record_the_reporter_cannot_read_fails_a_complete_run(self):
+        with lane() as work:
+            code, results, summary = work.run(
+                [mutant('KILLED', 11)], census=[census_record(21, **self.OTHER), '{"class":'])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state'], module['census']['malformed']),
+                             (1, 'error', 1))
+            self.assertIn('malformed census record', summary)
+
+    def test_an_absent_census_file_is_an_empty_census(self):
+        with lane() as work:
+            code, results, _ = work.run([mutant('KILLED', 11)])
+            self.assertEqual((code, results['modules'][0]['census']['count']), (0, 0))
+
+
+class EmptyScopeTest(unittest.TestCase):
+    """CONV-205: no mutant on a changed line is a measurement when the census explains it.
+
+    PIT generated mutants for the target classes and the restriction removed all of them: the
+    lane judged nothing and claims nothing, which is what a diff of comments, declarations or
+    lines PIT does not mutate always produced. An empty report the census cannot explain is a
+    broken run and stays incomplete.
+    """
+
+    def test_a_scope_the_census_explains_is_complete_and_clean(self):
+        with lane() as work:
+            code, results, summary = work.run([], census=[census_record(21),
+                                                          census_record(22, method='other',
+                                                                        descriptor='()V')])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state'], module['off_diff_only']),
+                             (0, 'complete', True))
+            self.assertEqual((module['total'], module['changed']['total']), (0, 0))
+            self.assertIn('No mutant of this module sits on a changed line', summary)
+            self.assertIn('generated 2 mutant(s)', summary)
+            self.assertIn('Changed lines: 1.', summary)
+
+    def test_an_empty_report_the_census_cannot_explain_is_still_incomplete(self):
+        with lane() as work:
+            code, results, _ = work.run([])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'error'))
+            self.assertNotIn('off_diff_only', module)
+
+    def test_a_failed_run_is_never_read_as_an_empty_scope(self):
+        with lane() as work:
+            code, results, _ = work.run([], exit_code=1, census=[census_record(21)])
+            self.assertEqual((code, results['modules'][0]['state']), (1, 'error'))
+
+    def test_a_malformed_census_is_never_read_as_an_empty_scope(self):
+        with lane() as work:
+            code, results, _ = work.run([], census=['{"class":'])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'error'))
+            self.assertNotIn('off_diff_only', module)
+
+    def test_an_explained_empty_scope_still_judges_the_dispositions_file(self):
+        # The entry names a method the compiled class does not declare, which is stale from the
+        # build alone: judging entries does not depend on this run having analysed a mutant.
+        with lane() as work:
+            code, results, summary = work.run([], head=entry(method='gone', descriptor='()V'),
+                                              census=[census_record(21)])
+            self.assertEqual((code, states(results)), (1, ['stale']))
+            self.assertIn('no longer exists in a.Foo', summary)
+
+
+class PartialResultTest(unittest.TestCase):
+    """CONV-202: a module its deadline killed reports every status recorded before the kill.
+
+    PIT's XML listener serialises at the end of a run, so a killed partition left a zero-byte
+    report and discarded finished mutants (PR 1353: 810 s of 975 s). The STREAM listener flushes
+    each analysed class, and a preserved status is evidence only - never a clean run.
+    """
+
+    def stream(self, status, line, **fields):
+        return mutant(status, line, **fields)
+
+    def test_a_killed_module_reports_what_its_stream_recorded_and_stays_incomplete(self):
+        with lane() as work:
+            code, results, summary = work.run(
+                [], report=False, timed_out=True,
+                stream=[self.stream('KILLED', 11), self.stream('SURVIVED', 21, method='other',
+                                                               descriptor='()V')])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state'], module.get('partial')),
+                             (1, 'timed out', True))
+            self.assertEqual((module['total'], module['killed']), (2, 1))
+            self.assertEqual(module['changed']['killed'], 1)
+            self.assertIn('Partial results', summary)
+            self.assertIn('never clean', summary)
+
+    def test_preserved_statuses_judge_entries_but_cannot_accept_a_changed_line_mutant(self):
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True, head=entry(),
+                                        stream=[self.stream('KILLED', 11)])
+            # An `equivalent` entry contradicted by a preserved KILLED status still fails.
+            self.assertEqual((code, states(results)), (1, ['contradicted']))
+
+    def test_a_record_the_kill_tore_is_dropped_rather_than_guessed_at(self):
+        with lane() as work:
+            torn = self.stream('SURVIVED', 21)[:40]
+            code, results, _ = work.run([], report=False, timed_out=True,
+                                        stream=[self.stream('KILLED', 11), torn])
+            module = results['modules'][0]
+            self.assertEqual((code, module['total'], module['killed']), (1, 1, 1))
+
+    def test_a_stream_with_no_intact_record_leaves_the_module_without_a_report(self):
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True, stream=['<mutation'])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'timed out'))
+            self.assertNotIn('total', module)
+
+    def test_a_killed_module_proves_no_generated_set_complete(self):
+        # The class was mutated, but by a run that did not finish: an unmatched entry of it is
+        # reported, never stale (CONV-202's definition of a mutated class).
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True,
+                                        head=entry(method='other', descriptor='()V'),
+                                        base=entry(method='other', descriptor='()V'),
+                                        stream=[self.stream('KILLED', 11)])
+            self.assertEqual((code, states(results)), (1, ['out of scope']))
+
+    def test_blank_lines_in_the_stream_and_the_census_are_ignored(self):
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True,
+                                        stream=['', self.stream('KILLED', 11), ''],
+                                        census=['', census_record(21), ''])
+            module = results['modules'][0]
+            self.assertEqual((code, module['total'], module['census']['count']), (1, 1, 1))
+            self.assertEqual(module['census']['malformed'], 0)
+
+    def test_a_stream_the_reporter_cannot_read_leaves_the_module_without_a_report(self):
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True,
+                                        stream_unreadable=True)
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'timed out'))
+            self.assertNotIn('total', module)
+
+    def test_a_complete_run_with_a_malformed_report_is_an_error_not_a_stream_fallback(self):
+        with lane() as work:
+            code, results, _ = work.run(['<mutation'], stream=[self.stream('KILLED', 11)])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'error'))
+            self.assertNotIn('total', module)
 
 
 class MergeBaseFileTest(unittest.TestCase):

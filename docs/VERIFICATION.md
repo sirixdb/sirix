@@ -169,8 +169,10 @@ Its **30-minute job limit** is below the Linux query test lane (45 minutes); PIT
 room for setup and report upload. Each module may use all the time still left except a
 `MIN_MODULE_SECONDS` floor for every module after it. Modules run in name order; a module that
 finishes early donates its remainder to those that follow. If the remaining budget cannot
-provide that floor for every pending module, it is divided equally among them. A deadline kills
-the process group and its detached descendants (including Gradle's single-use daemon), preserves partial reports and explicitly reports incomplete analysis. A large diff may need
+provide that floor for every pending module, it is divided equally among them. A deadline kills the
+process group and its detached descendants; the statuses of every class analysed before the kill
+survive, because the lane's own `STREAM` result listener flushes each class as PIT finishes it, and
+the module is still reported as incomplete analysis. A large diff may need
 follow-up focused runs; timeouts and missing evidence are never a clean score.
 
 Scope comes from `git diff --diff-filter=ACMRT <base>...<head>`: added, modified and renamed
@@ -205,12 +207,7 @@ Test selection is resolved **per changed source** and is never widened to the mo
 PIT's coverage phase has to execute every class in `targetTests`, and Sirix test classes open
 databases during JUnit 5 discovery, so whole-module coverage collection can exhaust the budget
 before mutation analysis starts. Explicit `LIFECYCLE_TESTS` associations select dedicated ownership,
-worker-fence and callback regressions instead of unrelated package histories. Large modules are
-partitioned at `PARTITION_SOURCE_LIMIT` sources or before exceeding the selected-test cap. Every
-source appears in exactly one partition; each partition receives a share of the module's remaining
-budget and writes separate evidence under `module/part-N`. Sampling remains based on the whole
-module's class count. A timed-out partition stays incomplete while later partitions still execute;
-no partial report becomes an assertion kill or a complete result.
+worker-fence and callback regressions instead of unrelated package histories.
 
 Test identities come from declared top-level Java/Kotlin type
 names and packages, not source
@@ -233,27 +230,43 @@ declared-class ownership rules, validation, test-cap rules and PIT baseline excl
 also owns the reviewed association inventory. The runner augments selection with its
 `CONTRACT_TESTS` release-contract mappings; those mappings count toward the same selection cap.
 
-PIT samples at most `MUTANT_BUDGET / changed classes` mutants per class, clamped to
-`[MIN_MUTANTS_PER_CLASS, MAX_MUTANTS_PER_CLASS]`, so a module's work scales with the size of the
-diff: one changed class gets every mutant the cap allows, while a 57-class diff samples a few
-per class. This is what keeps a large diff inside the budget once the test scope is correct - a
-mutant whose covering test hangs costs a whole minion restart, and those restarts, not the
-mutant count, are the dominant cost. The limit is PIT's `CLASSLIMIT` feature, which distributes
-the sample evenly across each class rather than taking the first mutants; it does not guarantee
-that every changed method is exercised. The job summary records the per-class limit per module.
-For every mutant of a class, omit `prMutationMaxMutations` in a focused Gradle rerun using the
-artifact's `targets.txt`, as in the example below.
+Mutants are generated **only on the PR's own lines**. The lane writes each module's changed-line
+map and activates `+CHANGEDLINES(file[...])`, the interceptor in
+[`tools/pit-changed-lines`](../tools/pit-changed-lines) on PIT's tool classpath, which removes
+every mutant of the analysed classes whose source file and line that map does not list. The
+feature takes that one parameter: PIT 1.25.5's parser reads a feature's first parameter and
+silently ignores the rest, so the census location is derived (`census.jsonl`, beside the map)
+rather than configured, and a test pins the parser behaviour that forced it. It runs
+before any sampling - PIT sorts a compound interceptor pipeline by `InterceptorType` and runs its
+`CLASSLIMIT` limit as a `FILTER`, and a test asserts that ordering against the pinned release - and
+the lane configures no per-class limit at all, so every mutant on a changed line is analysed and
+the changed-line counts are a complete measurement rather than a sample.
+[CONV-205](../spec/CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) owns these rules.
+
+The interceptor records what it removed in `census.jsonl`, beside the map - identity, class,
+source file and line, never a status. The reporter re-derives each census entry's attribution from its own changed-line
+index and **fails the run** when one of them is on a changed line, so a defect in the interceptor
+cannot silently drop a mutant the verdict reads. Dispositions entries are matched against the
+census as well as the report, which keeps existence, staleness and re-identification after a
+refactor judgeable without running a single unchanged-line mutant (CONV-202).
+
+This replaced per-class sampling, which cost almost the whole budget on mutants no verdict reads:
+on [PR 1353](https://github.com/sirixdb/sirix/pull/1353) 1,098 of 1,132 test-case executions served
+unchanged-line mutants, and three surviving return-value mutants on unchanged `commit()` default
+methods took 959 of them, while a killed mutant costs about 1.3 test cases. To obtain every mutant
+of a class, including those on unchanged lines, add `-PprMutationAllLines` to a focused Gradle
+rerun using the artifact's `targets.txt`, as in the example below; `prMutationMaxMutations` still
+limits such a rerun per class if you ask for it.
 
 A source that resolves to nothing never changes the scope chosen for the other changed sources;
-within each analysis partition, the union is capped at `MODULE_TEST_LIMIT` distinct declared test
-names. Named matches are admitted before related matches, then package fallbacks; any source whose full candidate set
+the union is capped at `MODULE_TEST_LIMIT` distinct declared test names. Named matches are admitted before related matches, then package fallbacks; any source whose full candidate set
 would exceed the cap is marked `over-limit`, including a named match. Selected names receive a
 trailing `*` to include nested classes; other classes sharing that prefix can also match.
-When any tests are selected, all changed classes in that partition remain in `targetClasses`;
+When any tests are selected, all changed classes remain in `targetClasses`;
 mutants without coverage from those tests report `NO_COVERAGE`. A source without its own mapping may still be
 covered by tests selected for another source. `results.json` records unresolved sources
 (`unmapped` or `over-limit`) and every source's resolution kind; the job summary lists unresolved
-sources. An analysis partition where nothing maps reports state `unmapped` instead of running PIT without a
+sources. A module where nothing maps reports state `unmapped` instead of running PIT without a
 baseline. This focused selection can omit integration assertions; if a survivor is
 already killed by a broader deterministic test, rerun with that test included and link the report.
 Random jqwik/property exploration, the random model oracle, HOT structural properties and soak
@@ -262,15 +275,16 @@ promote discovered seeds to deterministic regressions. The weekly curated core P
 
 The `pr-mutation` artifact contains source selection with its changed-line map, exact targets and
 test filters, every undetected mutant in `results.json`, HTML/XML reports, logs and `summary.md`.
-The job summary shows, per module/partition, the state, the number of mutated classes and test patterns, the
+The job summary shows, per module, the state, the number of mutated classes and test patterns, the
 unmapped sources, the changed-line counts that decide the outcome (changed lines, mutants on them,
 killed, survived, no coverage), the whole-report killed/total separately from PIT's detected/total
 score (which includes timed-out mutants), status counts, up to 100 failing changed-line mutants
-and - separately, marked advisory - the unchanged-line totals with the classes carrying the most
-undetected mutants; the artifact retains the full list. `results.json` holds `modules` (one
-result per module/partition, with that split under `changed` and `unchanged`), `dispositions` and
-`associations`; each result's `changed` lists its `failing`, `dispositioned_equivalent` and
-`dispositioned_out_of_lane` mutants. Each result's `unattributed` counts mutants whose source file
+and - separately and never as a score - how many mutants the restriction removed, with a pointer to
+the [scheduled full-scope report](#scheduled-full-scope-mutation-report) that measures them; the
+artifact retains the full census. `results.json` holds `modules` (one
+result per module, with that split under `changed` and `unchanged`), `dispositions` and
+`associations`; each module's `changed` lists its `failing`, `dispositioned_equivalent` and
+`dispositioned_out_of_lane` mutants. Each module's `unattributed` counts mutants whose source file
 never mapped to a changed source (normally zero, since `targetClasses` holds only changed classes).
 Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
 
@@ -285,28 +299,57 @@ anonymous and extra top-level classes and Kotlin file facades are therefore attr
 file they were compiled from. Use the [disposition helpers below](#reviewed-dispositions) to
 inspect claims alongside a local report.
 
-Mutants on **unchanged** lines of the same classes are advisory: the summary and `results.json`
-report their counts and the classes carrying the most of them. This debt alone never fails the
-job; disposition validation still applies to entries matching these mutants (CONV-202). They
-are pre-existing test debt the PR did not introduce. On
+Mutants on **unchanged** lines of the same classes are no longer analysed here: they are generated,
+listed in the census and removed before any test runs. They were always advisory - pre-existing
+test debt the PR did not introduce, never a reason to fail the job - and they were also where the
+budget went, because an undetected mutant has to run every covering test to the end. On
 [PR 1354](https://github.com/sirixdb/sirix/pull/1354) all 17 changed-line mutants were killed
 while 348 survivors and 2,828 uncovered mutants sat on unchanged lines of the same classes; a
-whole-class criterion leaves every larger PR red however completely its own change is tested.
-Reduce that debt in dedicated work rather than by widening a PR.
+whole-class criterion leaves every larger PR red however completely its own change is tested. That
+debt is now measured by the [scheduled full-scope report](#scheduled-full-scope-mutation-report)
+and reduced in dedicated work, never by widening a PR. Disposition validation still applies to
+entries matching censused mutants (CONV-202).
 
 Incomplete analysis still fails on its own, independently of any line: a module that timed out,
 errored, mapped to no test (`unmapped`), produced zero mutations, or attributed none of its
 mutants to a changed source is never clean - an empty attribution judges nothing and must not
-read as a pass. The Gradle `mutationThreshold`/`coverageThreshold` stay at 0, so PIT itself never
+read as a pass. One case is not incomplete: a run that executed, generated mutants for its target
+classes and had **none of them on a changed line**. Its census proves that, so the module is
+complete with zero mutants judged and claims nothing - the case of a diff that touches only
+comments, declarations or lines PIT does not mutate. Zero mutants with an empty census is still a
+broken run. The Gradle `mutationThreshold`/`coverageThreshold` stay at 0, so PIT itself never
 decides the outcome.
 
-**Known limitation.** Per-class mutant sampling is chosen before the line map is applied and,
-when the `CLASSLIMIT` limit binds, spreads its sample evenly over each class, so a large diff in a
-large class can leave zero mutants on changed lines - nothing to judge, and the job stays green.
-The summary always prints a module's changed-line count beside its changed-line mutant count,
-so `0` mutants judged out of many changed lines is visible rather than silent; a focused rerun
-without `prMutationMaxMutations` (below) includes every PIT-generated mutant of the changed
-classes, including those on unchanged lines.
+**Known limitation.** Sampling can no longer hide a changed line, since the lane applies no
+per-class limit and judges every mutant it generates on one. What remains is that PIT generates no
+mutant at all for some changed lines - a declaration, a line its own equivalence filters remove -
+so a module can still report `0` mutants judged out of many changed lines. The summary prints a
+module's changed-line count beside its changed-line mutant count and its census count, so that
+case stays visible rather than silent. Mutant-level staleness of an entry whose mutant sits on an
+unchanged line is also outside this lane's reach: the census proves the mutant still exists, and
+whether it still survives is answered by a focused rerun with `-PprMutationAllLines` or by the
+scheduled full-scope report.
+
+### Scheduled full-scope mutation report
+
+The debt the PR lane stopped analysing is measured once a week instead, by
+`PIT full-scope unchanged-line report` in
+[verification.yml](../.github/workflows/verification.yml) - the deep-verification workflow, whose
+only triggers are its Sunday 04:00 UTC cron and a manual dispatch. It never runs for a pull
+request and never decides an outcome;
+[CONV-206](../spec/CONV-conventions.md#conv-206--scheduled-full-scope-mutation-report) owns the
+rules.
+
+It reuses the lane's selection and reporting with the changed-line restriction disabled and no
+per-class limit: its base is the last commit on the default branch before the report's window
+(`--window-days`, 7 by default), its head is `HEAD`, so its scope is the sources the branch changed
+in that window, resolved by exactly the rules above. Its budget is its own and the PR lane's limits
+are untouched. The job summary and the `full-scope-mutation` artifact carry, per class, the mutants
+no test detected, and - advisory only - the dispositions entries this complete report proves stale,
+which the PR lane's restricted scope cannot judge. A run that did not finish says so; an incomplete
+report is not a clean debt report. The weekly curated `:sirix-core:pitest` job in the same workflow
+is a different measurement (three correctness-critical classes against their own suites) and is
+unchanged.
 
 ### Reviewed dispositions
 
@@ -338,7 +381,9 @@ python3 .github/scripts/pr_mutation.py counterfactual --patch mutant.patch -- \
   ./gradlew :sirix-core:test --tests 'io.sirix.SomeAllocationBudgetTest'
 ```
 
-Pass `--sampled` to `--check` when the reports came from a run with a per-class limit.
+Pass `--sampled` to `--check` when the reports came from a rerun with a per-class limit, and
+`--census /tmp/pr-mutation/sirix-core/census.jsonl` to judge entries whose mutants the lane
+removed off the diff exactly as the lane judges them.
 
 Measured churn of pure refactors (PIT 1.25.5 on a four-method sample class whose six surviving
 mutants were taken as reviewed entries): a line shift, an extract-method and a method reorder
@@ -380,8 +425,7 @@ python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 1
 # Add --blocking to enforce the clean-run criterion locally (CONV-202, CONV-204).
 ```
 
-For a broader deterministic test selection, reuse the artifact's `targets.txt` and run. For a
-partitioned module, substitute its `sirix-core/part-N` directory for `sirix-core` in these paths:
+For a broader deterministic test selection, reuse the artifact's `targets.txt` and run:
 
 ```bash
 ./gradlew :sirix-core:pitest -PprMutationModule=sirix-core \
@@ -390,9 +434,23 @@ partitioned module, substitute its `sirix-core/part-N` directory for `sirix-core
   -PprMutationReportDir=/tmp/pr-mutation-expanded
 ```
 
+That rerun passes no `-PprMutationChangedLinesFile`, so it mutates every line of its targets; add
+`-PprMutationAllLines` to drop the restriction from a command that does pass one, and
+`-PprMutationMaxMutations=<n>` to sample such a rerun per class. The lane itself passes the file
+and neither of the other two.
+
 The opt-in [Gradle configuration](../gradle/pr-mutation.gradle) uses the existing
-[Gradle PIT plugin](https://gradle-pitest-plugin.solidsoft.info/) and versions. Its absence from
-normal task graphs preserves existing test-lane timing.
+[Gradle PIT plugin](https://gradle-pitest-plugin.solidsoft.info/) and versions, and adds
+`tools/pit-changed-lines` to PIT's own `pitest` tool classpath. Its absence from normal task
+graphs preserves existing test-lane timing.
+
+Each module is analysed by exactly one PIT invocation, so its slow test scope is covered once per
+run. The invocations share one Gradle daemon with a fixed heap (`-Dorg.gradle.jvmargs`) instead of
+forking a single-use daemon each, which `--no-daemon` did for the workstation-sized heap
+`gradle.properties` requests, and the build-output cache carries Gradle's project-local `.gradle`
+task-history state next to `**/build`, so a restored output is up to date instead of recompiling
+`sirix-core` in the first invocation (measured at 45 s, and paid by every job that restores that
+cache).
 
 Minions reuse each module's final `test` task `opens`/`exports` and system properties, including
 late native-image properties and values containing commas or whitespace. The

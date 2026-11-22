@@ -1,5 +1,6 @@
 """Behavioral contracts for changed-source selection and honest PIT reporting (no JVM)."""
 import contextlib
+from datetime import datetime, timedelta, timezone
 import importlib.util
 import io
 import json
@@ -399,29 +400,6 @@ class SelectionTest(unittest.TestCase):
                 self.assertEqual(kinds[source], 'related')
                 self.assertNotIn('io.sirix.access.trx.node.json.JsonIdentityGraphGeneratedTest*', patterns)
 
-    def test_partitions_preserve_every_source_and_test_under_both_caps(self):
-        sources = {f'p{i}/Owner.java': f'p{i}' for i in range(3)}
-        tests = [f'p{i}/Suite{j}Test.java' for i in range(3)
-                 for j in range(mutation.PACKAGE_TEST_LIMIT)]
-        selected = ['src/main/java/' + path for path in sources]
-        with module_tree(sources, tests) as root:
-            parts = mutation.partition_sources(root, selected)
-            self.assertEqual([source for part in parts for source in part], selected)
-            self.assertEqual(len(parts), 2)
-            admitted = set()
-            for part in parts:
-                patterns, unmapped, _ = mutation.test_scope(root, part)
-                self.assertEqual(unmapped, [])
-                self.assertLessEqual(len(patterns), mutation.MODULE_TEST_LIMIT)
-                admitted.update(patterns)
-            self.assertEqual(len(admitted), 3 * mutation.PACKAGE_TEST_LIMIT)
-        sources = {f'a/Owner{i}.java': 'a' for i in range(mutation.PARTITION_SOURCE_LIMIT + 1)}
-        selected = ['src/main/java/' + path for path in sources]
-        with module_tree(sources, ['a/ReleaseTest.java']) as root:
-            parts = mutation.partition_sources(root, selected)
-            self.assertEqual([source for part in parts for source in part], selected)
-            self.assertEqual([len(part) for part in parts], [mutation.PARTITION_SOURCE_LIMIT, 1])
-
     def test_scope_caps_stay_small_enough_to_collect_baseline_coverage(self):
         # PIT executes every targetTests class to measure coverage, so the caps are what keeps
         # the job inside its budget. sirix-core's suite is ~3366 classes; these stay far below.
@@ -475,21 +453,6 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual([kinds[source] for source in selected[1:]],
                          ['package', 'package', 'package', 'over-limit'])
         self.assertEqual(unmapped, ['src/main/java/r/Alpha.java'])
-
-    def test_mutant_sampling_scales_with_the_diff_and_stays_within_bounds(self):
-        budget, low, high = (mutation.MUTANT_BUDGET, mutation.MIN_MUTANTS_PER_CLASS,
-                             mutation.MAX_MUTANTS_PER_CLASS)
-        # PR 1351's 57 changed sirix-core classes share the budget; one changed class gets all
-        # the mutants the cap allows; a very large diff still samples the floor per class.
-        self.assertEqual(mutation.mutants_per_class(['c'] * 57), budget // 57)
-        self.assertEqual(mutation.mutants_per_class(['c']), high)
-        self.assertEqual(mutation.mutants_per_class(['c'] * (budget * 2)), low)
-        self.assertEqual(mutation.mutants_per_class([]), high)  # never divides by zero
-        for count in (1, 2, 17, 57, 500):
-            with self.subTest(count=count):
-                sampled = mutation.mutants_per_class(['c'] * count)
-                self.assertGreaterEqual(sampled, low)
-                self.assertLessEqual(sampled, high)
 
     def test_unresolved_sources_are_still_mutated_when_any_test_maps(self):
         sources = {'a/Foo.java': 'a', 'c/Baz.java': 'c'}
@@ -672,14 +635,7 @@ class ReportingTest(unittest.TestCase):
             # The mocked first module returned at once, so it donates its remainder.
             self.assertGreater(timeouts[1], 9)
 
-    def test_timed_out_partition_does_not_omit_later_selected_work_or_turn_green(self):
-        with tempfile.TemporaryDirectory() as temp:
-            output = Path(temp)
-            sources = ['src/main/java/a/First.java', 'src/main/java/a/Second.java']
-            write_manifest(output, {'sirix-core': sources})
-            calls = []
-
-            def execute(command, root, log, timeout):
+    def execute(command, root, log, timeout):
                 calls.append((log, timeout))
                 if len(calls) == 1:
                     raise subprocess.TimeoutExpired(command, timeout)
@@ -997,13 +953,255 @@ class CommandLineTest(unittest.TestCase):
 
     def test_cli_rejects_missing_revisions_and_nonpositive_budget(self):
         with tempfile.TemporaryDirectory() as temp:
-            commands = [['select'], ['run', '--seconds', '0']]
+            commands = [['select'], ['run', '--seconds', '0'],
+                        ['full-scope', '--seconds', '0'],
+                        ['full-scope', '--window-days', '0'],
+                        ['full-scope', '--window-days', '-7']]
             for command in commands:
                 args = ['pr_mutation.py', *command, '--output', temp]
                 with patch.object(sys, 'argv', args), patch.object(sys, 'stderr', new_callable=io.StringIO), \
                      self.assertRaises(SystemExit) as exit_status:
                     mutation.main()
                 self.assertEqual(exit_status.exception.code, 2)
+
+
+class LaneCommandTest(unittest.TestCase):
+    """CONV-205: what the lane asks PIT for - the changed lines, unsampled, once per module."""
+
+    SOURCES = ['src/main/java/a/Foo.java']
+    INDEX = {('a', 'Foo.java'): {24, 11}, ('', 'Root.java'): {7}}
+
+    @contextlib.contextmanager
+    def prepared(self, restrict=True, index=None):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            directory = root / 'out/sirix-core'
+            directory.mkdir(parents=True)
+            result = {}
+            with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})):
+                command = mutation.prepare_analysis(
+                    root, directory, 'sirix-core', self.SOURCES, result, None,
+                    self.INDEX if index is None else index, restrict)
+            yield command, result, directory
+
+    def argument(self, command, prefix):
+        found = [value for value in command if value.startswith(prefix)]
+        self.assertEqual(len(found), 1, f'{prefix} in {command}')
+        return found[0].split('=', 1)[1]
+
+    def test_the_command_restricts_to_the_changed_lines_it_wrote(self):
+        with self.prepared() as (command, result, directory):
+            self.assertEqual(self.argument(command, '-PprMutationChangedLinesFile='),
+                             str(directory / mutation.CHANGED_LINES_FILE))
+            # The interceptor writes the census beside the map, which is where the reporter
+            # reads it; PIT 1.25.5 cannot carry a second feature parameter.
+            self.assertEqual((directory / mutation.CHANGED_LINES_FILE).parent,
+                             (directory / mutation.CENSUS_FILE).parent)
+            self.assertTrue(result['restricted'])
+            self.assertEqual((directory / mutation.CHANGED_LINES_FILE).read_text(),
+                             f'{mutation.CHANGED_LINES_HEADER}\n\tRoot.java\t7\n'
+                             'a\tFoo.java\t11 24\n')
+
+    def test_no_per_class_mutant_limit_is_ever_requested(self):
+        with self.prepared() as (command, result, _):
+            self.assertEqual([value for value in command
+                              if value.startswith('-PprMutationMaxMutations')], [])
+            self.assertIsNone(result['mutants_per_class'])
+            self.assertNotIn('-PprMutationAllLines', command)
+
+    def test_one_daemon_with_a_fixed_heap_is_reused_instead_of_a_single_use_one(self):
+        with self.prepared() as (first, _, _), self.prepared() as (second, _, _):
+            self.assertNotIn('--no-daemon', first)
+            self.assertEqual(self.argument(first, '-Dorg.gradle.jvmargs='),
+                             mutation.DAEMON_JVM_ARGS)
+            # Identical for every invocation of a run, or Gradle forks another daemon for each.
+            self.assertEqual(self.argument(first, '-Dorg.gradle.jvmargs='),
+                             self.argument(second, '-Dorg.gradle.jvmargs='))
+
+    def test_an_unrestricted_run_passes_no_changed_line_map(self):
+        with self.prepared(restrict=False) as (command, result, directory):
+            self.assertEqual([value for value in command if 'ChangedLines' in value], [])
+            self.assertFalse(result['restricted'])
+            self.assertFalse((directory / mutation.CHANGED_LINES_FILE).exists())
+
+    def test_a_source_without_a_changed_line_still_appears_in_the_map(self):
+        # A renamed-only file contributes no line; the map must still list it, so the interceptor
+        # distinguishes "no changed line" from "a file I was told nothing about".
+        with self.prepared(index={('a', 'Foo.java'): set()}) as (_, _, directory):
+            self.assertEqual((directory / mutation.CHANGED_LINES_FILE).read_text(),
+                             f'{mutation.CHANGED_LINES_HEADER}\na\tFoo.java\t\n')
+
+    def test_a_restricted_command_without_a_changed_line_map_is_refused(self):
+        # CONV-205: restricting to an empty map would mutate nothing and report success.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            directory = root / 'out'
+            directory.mkdir()
+            with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
+                 self.assertRaisesRegex(ValueError, 'refusing to restrict'):
+                mutation.prepare_analysis(root, directory, 'sirix-core', self.SOURCES, {}, None,
+                                          {}, True)
+
+    def test_coverage_is_collected_once_per_module_because_pit_runs_once_per_module(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / 'out'
+            output.mkdir()
+            modules = {'sirix-core': ['src/main/java/a/Foo.java'],
+                       'sirix-query': ['src/main/java/a/Bar.java']}
+            for module, sources in modules.items():
+                for source in sources:
+                    path = Path(temp) / 'bundles' / module / source
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(f'package a;\nclass {path.stem} {{}}\n')
+            write_manifest(output, modules,
+                           {module: {source: [2] for source in sources}
+                            for module, sources in modules.items()})
+            invocations = []
+
+            def execute(command, root, log, timeout):
+                invocations.append(command[1])
+                return 1
+            with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
+                 patch.object(mutation, 'execute', side_effect=execute):
+                mutation.run(Path(temp), output, 10, blocking=True)
+            self.assertEqual(invocations, [':sirix-core:pitest', ':sirix-query:pitest'])
+
+
+class FullScopeTest(unittest.TestCase):
+    """CONV-206: the scheduled debt report - every line, no verdict, no outcome."""
+
+    SOURCE = 'src/main/java/a/Foo.java'
+
+    def commit(self, root, name, days_ago):
+        stamp = (datetime.now(timezone.utc)
+                 - timedelta(days=days_ago)).strftime('%Y-%m-%dT%H:%M:%S+0000')
+        (root / name).write_text(name)
+        environment = {**os.environ, 'GIT_COMMITTER_DATE': stamp, 'GIT_AUTHOR_DATE': stamp,
+                       'GIT_COMMITTER_NAME': 'Test', 'GIT_AUTHOR_NAME': 'Test',
+                       'GIT_COMMITTER_EMAIL': 'test@example.invalid',
+                       'GIT_AUTHOR_EMAIL': 'test@example.invalid'}
+        subprocess.check_call(['git', '-C', str(root), 'add', name], env=environment)
+        subprocess.check_call(['git', '-C', str(root), 'commit', '-qm', name], env=environment)
+        return subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'],
+                                       env=environment).decode().strip()
+
+    def test_the_window_base_is_the_last_commit_before_the_window(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            git_repository(root)
+            old = self.commit(root, 'old', 30)
+            recent = self.commit(root, 'recent', 10)
+            self.commit(root, 'head', 0)
+            self.assertEqual(mutation.window_base(root, 7), recent)
+            self.assertEqual(mutation.window_base(root, 20), old)
+            with self.assertRaises(ValueError):
+                mutation.window_base(root, 0)
+            with self.assertRaises(ValueError):
+                mutation.window_base(root, 10_000)  # nothing on the branch is that old
+
+    @contextlib.contextmanager
+    def report(self, mutants, exit_code=0, dispositions=None):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / 'out'
+            output.mkdir()
+            (root / '.github').mkdir()
+            if dispositions is not None:
+                (root / mutation.DISPOSITIONS_FILE).write_text(dispositions)
+            commands = []
+
+            def execute(command, root_path, log, timeout):
+                commands.append(command)
+                target = output / 'sirix-core/report/mutations.xml'
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('<mutations>' + ''.join(mutants) + '</mutations>')
+                return exit_code
+            with patch.object(mutation, 'window_base', return_value='a' * 40), \
+                 patch.object(mutation, 'current_commit', return_value='b' * 40), \
+                 patch.object(mutation, 'changed_sources',
+                              return_value=({'sirix-core': [self.SOURCE]},
+                                            {'sirix-core': {self.SOURCE: [11]}})), \
+                 patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
+                 patch.object(mutation, 'execute', side_effect=execute):
+                code = mutation.full_scope(root, output, 30, 7)
+            yield (code, commands, json.loads((output / 'results.json').read_text()),
+                   (output / 'summary.md').read_text())
+
+    def mutant(self, status, line, klass='a.Foo', method='run', indexes=('7',)):
+        index_text = ''.join(f'<index>{index}</index>' for index in indexes)
+        detected = 'true' if status == 'KILLED' else 'false'
+        return (f"<mutation detected='{detected}' status='{status}' numberOfTestsRun='1'>"
+                f'<sourceFile>Foo.java</sourceFile><mutatedClass>{klass}</mutatedClass>'
+                f'<mutatedMethod>{method}</mutatedMethod><methodDescription>()V'
+                f'</methodDescription><lineNumber>{line}</lineNumber><mutator>m</mutator>'
+                f'<indexes>{index_text}</indexes><description>d</description></mutation>')
+
+    def test_every_line_is_mutated_with_no_restriction_no_limit_and_no_verdict(self):
+        with self.report([self.mutant('KILLED', 11), self.mutant('SURVIVED', 21)]) as (
+                code, commands, results, summary):
+            self.assertEqual(code, 0)
+            self.assertEqual([value for value in commands[0] if 'ChangedLines' in value
+                              or 'Census' in value or 'MaxMutations' in value], [])
+            self.assertNotIn('dispositions', results)
+            module = results['modules'][0]
+            self.assertEqual((module['state'], module['total']), ('complete', 2))
+            self.assertEqual(module['unchanged']['survived'], 1)
+            self.assertEqual(results['window']['days'], 7)
+            self.assertEqual((results['window']['base'], results['window']['head']),
+                             ('a' * 40, 'b' * 40))
+            self.assertIn('never decides an outcome', summary)
+            self.assertIn('last 7 day(s)', summary)
+
+    def test_the_debt_list_is_not_cut_short_the_way_the_pull_request_summary_is(self):
+        classes = [self.mutant('SURVIVED', 20 + index, klass=f'a.C{index}')
+                   for index in range(mutation.ADVISORY_CLASS_LIMIT + 3)]
+        with self.report(classes) as (_, _, results, summary):
+            self.assertEqual(len(results['modules'][0]['unchanged']['classes']), len(classes))
+            self.assertIn('a.C12', summary)
+
+    def test_an_incomplete_module_says_so_and_still_decides_nothing(self):
+        with self.report([self.mutant('KILLED', 11)], exit_code=1) as (
+                code, _, results, summary):
+            self.assertEqual((code, results['modules'][0]['state']), (0, 'error'))
+            self.assertIn('not a complete debt report', summary)
+
+    def test_entries_the_complete_report_proves_stale_are_advisory_only(self):
+        from test_pr_mutation_dispositions import entry as disposition_entry
+        with self.report([self.mutant('KILLED', 11)],
+                         dispositions=disposition_entry(**{'class': 'a.Foo', 'method': 'gone',
+                                                           'descriptor': '()V'})) as (
+                code, _, results, summary):
+            stale = results['stale_entries']
+            self.assertEqual((code, len(stale['entries'])), (0, 1))
+            self.assertEqual(stale['entries'][0]['method'], 'gone')
+            self.assertIn('proves stale (advisory)', summary)
+            self.assertIn('remove or remap each entry', summary)
+
+    def test_the_cli_runs_the_report_and_returns_zero(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / 'out'
+            args = ['pr_mutation.py', 'full-scope', '--root', temp, '--output', str(output),
+                    '--seconds', '30', '--window-days', '7']
+            with patch.object(sys, 'argv', args), \
+                 patch.object(mutation, 'window_base', return_value='a' * 40), \
+                 patch.object(mutation, 'current_commit', return_value='b' * 40), \
+                 patch.object(mutation, 'changed_sources', return_value=({}, {})):
+                self.assertEqual(mutation.main(), 0)
+            self.assertIn('Full-scope mutation report', (output / 'summary.md').read_text())
+            self.assertEqual(json.loads((output / 'results.json').read_text())['modules'], [])
+
+    def test_an_invalid_dispositions_file_judges_no_entry(self):
+        from test_pr_mutation_dispositions import entry as disposition_entry
+        with self.report([self.mutant('KILLED', 11)],
+                         dispositions=disposition_entry(kind='flaky')) as (
+                code, _, results, summary):
+            self.assertEqual((code, results['stale_entries']['entries']), (0, []))
+            self.assertTrue(results['stale_entries']['errors'])
+            self.assertIn('is invalid; no entry was judged', summary)
 
 
 class ChangedLineMapTest(unittest.TestCase):

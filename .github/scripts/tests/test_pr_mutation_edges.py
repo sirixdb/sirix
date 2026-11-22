@@ -16,8 +16,8 @@ import unittest
 from unittest.mock import patch
 
 from test_pr_mutation_dispositions import (EVIDENCE, JUSTIFICATION, REPOSITORY, SOURCE,
-                                           SOURCE_PATH, class_file, entry, lane, mutant,
-                                           mutation, states)
+                                           SOURCE_PATH, census_record, class_file, entry, lane,
+                                           mutant, mutation, states)
 
 
 def errors_of(text):
@@ -246,8 +246,13 @@ class VerdictEdgeTest(unittest.TestCase):
             self.assertIn('its class was not mutated', results['dispositions']['entries'][0]['action'])
             code, results, _ = work.run([mutant('KILLED', 11)], head=entry(**bar), base=entry(**bar))
             self.assertEqual((code, states(results)), (0, ['out of scope']))
+            # Nothing is sampled any more (CONV-205), so an unmatched entry of a mutated class
+            # is stale unless the census proves its mutant still exists.
             code, results, _ = work.run([mutant('KILLED', 11)], head=entry(indexes=[99]))
-            self.assertIn("not in this run's sample", results['dispositions']['entries'][0]['action'])
+            self.assertEqual((code, states(results)), (1, ['stale']))
+            code, results, _ = work.run([mutant('KILLED', 11)], head=entry(indexes=[99]),
+                                        census=[census_record(21, indexes=(99,))])
+            self.assertEqual((code, states(results)), (0, ['not judged']))
 
     def test_actions_name_what_resolves_each_state(self):
         with lane() as work:
@@ -318,7 +323,9 @@ class VerdictEdgeTest(unittest.TestCase):
                 with self.subTest(indexes=indexes):
                     code, results, _ = work.run([broken], head=entry(indexes=indexes))
                     self.assertEqual(code, 1)
-                    self.assertEqual(states(results), ['unconfirmed'])
+                    # The entry matches no reported mutant of a class whose generated set is
+                    # complete, so it is stale; what matters is that it never matched.
+                    self.assertEqual(states(results), ['stale'])
 
 
 class SummaryEdgeTest(unittest.TestCase):
@@ -367,8 +374,14 @@ class SummaryEdgeTest(unittest.TestCase):
             _, _, summary = work.run([mutant('KILLED', 11)],
                                      head=entry(method='other', descriptor='()V'),
                                      base=entry(method='other', descriptor='()V'))
+            _, _, summary = work.run([mutant('KILLED', 11)],
+                                      head=entry(method='other', descriptor='()V'),
+                                      base=entry(method='other', descriptor='()V'),
+                                      census=[census_record(21, method='other',
+                                                            descriptor='()V')])
             reported = summary[summary.index('### Reported entries (not failing)'):]
-            self.assertIn('| not judged: no reported mutant matches', reported)
+            self.assertIn('| not judged: matches a mutant the lane removed off the diff',
+                          reported)
             self.assertNotIn('Entries that fail this run', summary)
             _, _, summary = work.run([mutant('SURVIVED', 11)], head=entry(kind='flaky'))
             self.assertIn("- entry 1: `kind` must be one of", summary)
@@ -450,7 +463,8 @@ class RunWiringTest(unittest.TestCase):
             self.assertEqual(seen[0]['associations'],
                              {'file': mutation.ASSOCIATIONS_FILE, 'errors': [], 'count': 0})
             final = json.loads((work.output / 'results.json').read_text())
-            self.assertEqual(states(final), ['not judged'])
+            # sirix-query completed and neither reported nor censused this entry's mutant.
+            self.assertEqual(states(final), ['stale'])
 
 
 class CommandLineEdgeTest(unittest.TestCase):

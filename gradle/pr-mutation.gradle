@@ -8,6 +8,11 @@ if (mutationProject == null || mutationProject == rootProject) {
 }
 configure(mutationProject) {
     apply plugin: 'info.solidsoft.pitest'
+    dependencies {
+        // PIT's tool classpath: the lane's own interceptor (CHANGEDLINES) and result listener
+        // (STREAM). CI-only tooling, never a dependency of the module under analysis.
+        pitest project(':sirix-pit-changed-lines')
+    }
     // Configure after module scripts, so core's curated scope cannot overwrite the PR selection.
     afterEvaluate {
         def targets = rootProject.file(providers.gradleProperty('prMutationTargetsFile').get()).readLines()
@@ -18,6 +23,25 @@ configure(mutationProject) {
         def mutantLimit = providers.gradleProperty('prMutationMaxMutations').getOrNull()
         if (mutantLimit != null && !(mutantLimit ==~ /[1-9][0-9]*/)) {
             throw new GradleException("PR mutation mutant limit must be a positive integer: ${mutantLimit}")
+        }
+        // CONV-205: the lane mutates the PR's own lines only. The reporter writes the changed-line
+        // map and asks for a census of what the restriction removed. A focused rerun either omits
+        // the map or passes -PprMutationAllLines to mutate every line of the same targets.
+        def featureArgument = { String name, String value ->
+            if (value.isBlank() || value =~ /[\[\](),\s]/) {
+                throw new GradleException("PR mutation ${name} path must be non-blank and free of " +
+                        "brackets, commas, parentheses and whitespace: ${value}")
+            }
+            "${name}[${value}]"
+        }
+        def changedLinesFile = providers.gradleProperty('prMutationChangedLinesFile').getOrNull()
+        def allLines = providers.gradleProperty('prMutationAllLines').isPresent()
+        def pitFeatures = []
+        if (changedLinesFile != null && !allLines) {
+            // One parameter only: PIT 1.25.5's feature parser reads a feature's first parameter
+            // and silently ignores the rest, so the interceptor derives the census path from
+            // this one (census.jsonl beside the map).
+            pitFeatures.add("+CHANGEDLINES(${featureArgument('file', changedLinesFile)})".toString())
         }
         def standardTest = tasks.named('test').get()
         // Preserve each module's opens/exports and test properties, without its workstation-sized
@@ -43,15 +67,19 @@ configure(mutationProject) {
             junit5PluginVersion = '1.2.3'
             targetClasses = targets
             targetTests = providers.gradleProperty('prMutationTests').get().split(',').toList()
-            // Sampled per class by the reporter, so a large diff still finishes: a mutant whose
-            // covering test hangs costs a minion restart, and those dominate the budget. PIT has
-            // no maxMutationsPerClass setting; the limit is the CLASSLIMIT interceptor feature
+            // No per-class sample in the lane (CONV-205): once the scope is the changed lines
+            // there is nothing left worth sampling, and a sampled changed-line count could not be
+            // read as a complete measurement. The limit stays available for a manual focused
+            // rerun of every line of its targets. It is PIT's CLASSLIMIT interceptor feature
             // (org.pitest.mutationtest.filter.LimitNumberOfMutationsPerClassFilterFactory), whose
             // createEvenlyDistributedSampling strides across the class rather than taking the
-            // first N, without guaranteeing every method is reached. Optional on purpose:
-            // a manual focused rerun omits it and then mutates every mutant of its targets.
+            // first N, without guaranteeing every method is reached — and a FILTER, so the
+            // changed-line restriction above always runs before it.
             if (mutantLimit != null) {
-                features = ["+CLASSLIMIT(limit[${mutantLimit}])".toString()]
+                pitFeatures.add("+CLASSLIMIT(limit[${mutantLimit}])".toString())
+            }
+            if (!pitFeatures.isEmpty()) {
+                features = pitFeatures
             }
             // Fresh random exploration belongs in the ordinary test lanes, not PIT's baseline.
             // Isolated startup/allocation suites need their dedicated JVMs, just as for test.
@@ -60,10 +88,15 @@ configure(mutationProject) {
                     standardTest.excludes.collect { it.replace('/', '.').replace('.class', '') }
             threads = 2
             timestampedReports = false
-            outputFormats = ['HTML', 'XML']
+            // STREAM writes each analysed class as PIT finishes it, so a run killed by its
+            // deadline still reports what completed (CONV-202); XML is written only at the end.
+            outputFormats = ['HTML', 'XML', 'STREAM']
             reportDir = rootProject.file(providers.gradleProperty('prMutationReportDir').get())
-            // Missing/empty reports are treated as incomplete by the Python reporter.
-            failWhenNoMutations = true
+            // The reporter decides what an empty report means: with the scope restricted to
+            // changed lines, "no mutants" can mean the restriction removed every one, which its
+            // census proves and which is a measurement rather than a broken run (CONV-205).
+            // A missing or empty report the census cannot explain is still incomplete.
+            failWhenNoMutations = false
             mutationThreshold = 0
             coverageThreshold = 0
             timeoutConstInMillis = 10000
