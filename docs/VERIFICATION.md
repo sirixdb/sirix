@@ -179,9 +179,13 @@ artifact reads or the next module. Every invocation uses `--no-daemon`: its fres
 Gradle daemon is a descendant of that invocation's launcher. Daemon reuse was tried and dropped
 because a reused daemon could perform work outside the terminating launcher's ownership, including
 before publishing its identity during startup. The statuses of every class analysed before the kill
-survive, because the lane's own `STREAM` result listener flushes each class as PIT finishes it, and
-the module is still reported as
-incomplete analysis. A stream the reporter cannot read leaves the deadline as the module's state
+survive: the lane's controlling-JVM agent drains PIT 1.25.5 analysis units in completion order,
+then its `STREAM` listener flushes each delivered class. Without that adapter, PIT waits for
+earlier submitted units before invoking any result listener, even when later units have finished.
+Result interceptors and listeners still run serially on the reporting thread; the module remains
+incomplete analysis. The real-PIT `StreamingDeadlineTest` holds the leading unit open and verifies
+that a later killed mutant reaches disk before terminating the run. A stream the reporter cannot
+read leaves the deadline as the module's state
 and is reported beside it, rather than replacing it. A large diff may need
 follow-up focused runs; timeouts and missing evidence are never a clean score. Preserved statuses
 still contradict equivalent claims and supersede out-of-lane claims when a test detected the

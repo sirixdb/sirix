@@ -4,6 +4,7 @@
 //     per-class sampling, and records what it removed in a census.
 //   * STREAM       — writes every analysed class's results as they arrive, so a run killed
 //     by its deadline still reports what finished.
+//   * The controlling-JVM agent drains PIT units in completion order, before STREAM sees them.
 // CI-only tooling: it ships with no Sirix artifact and is never published.
 // Scope and rules: spec/CONV-conventions.md, docs/VERIFICATION.md#pr-mutation-testing.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -23,14 +24,23 @@ dependencies {
 
     testImplementation "org.pitest:pitest:${pitestVersion}"
     testImplementation "org.pitest:pitest-entry:${pitestVersion}"
+    testRuntimeOnly "org.pitest:pitest-command-line:${pitestVersion}"
+    testImplementation "junit:junit:4.13.2"
     testImplementation testLibraries.junitJupiterApi
     testRuntimeOnly testLibraries.junitJupiterEngine
     testRuntimeOnly testLibraries.junitPlatformLauncher
 }
 
+jar {
+    manifest { attributes('Premain-Class': 'io.sirix.pit.StreamingCompletionAgent') }
+}
+
 test {
     useJUnitPlatform()
-    // Plain unit tests against PIT's own interfaces: no Sirix engine, no preview features.
+    dependsOn tasks.named('jar')
+    systemProperty 'pit.regression.classpath', sourceSets.test.runtimeClasspath.asPath
+    systemProperty 'pit.regression.agent', tasks.named('jar').get().archiveFile.get().asFile.absolutePath
+    // PIT interface tests and real-PIT deadline regression: no Sirix engine or preview features.
     jvmArgs = []
     minHeapSize = '64m'
     maxHeapSize = '256m'

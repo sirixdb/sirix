@@ -87,8 +87,8 @@ configure(mutationProject) {
                     standardTest.excludes.collect { it.replace('/', '.').replace('.class', '') }
             threads = 2
             timestampedReports = false
-            // STREAM writes each analysed class as PIT finishes it, so a run killed by its
-            // deadline still reports what completed (CONV-202); XML is written only at the end.
+            // The controlling-JVM agent drains units in completion order: PIT 1.25.5
+            // otherwise waits for earlier units before delivering STREAM callbacks.
             outputFormats = ['HTML', 'XML', 'STREAM']
             reportDir = rootProject.file(providers.gradleProperty('prMutationReportDir').get())
             // The reporter decides what an empty report means: with the scope restricted to
@@ -105,7 +105,10 @@ configure(mutationProject) {
                              // oracle exhausts 1536 MiB during coverage discovery.
                              '-Xmx3g', '-XX:MaxDirectMemorySize=1g', '-Dsirix.stress.run.millis=200']
             }
-            mainProcessJvmArgs = ['--enable-preview', '-Xmx1536m']
+            mainProcessJvmArgs = rootProject.project(':sirix-pit-changed-lines').tasks.named('jar')
+                    .flatMap { it.archiveFile }.map { agent ->
+                        ['--enable-preview', '-Xmx1536m', "-javaagent:${agent.asFile.absolutePath}".toString()]
+                    }
         }
     }
 }

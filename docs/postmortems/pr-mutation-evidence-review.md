@@ -355,3 +355,38 @@ daemon's work, including during startup before identity publication. Each invoca
 uses a fresh single-use daemon with a bounded 3 GB heap. One coverage pass per module and reuse
 of the Build job's outputs with matching compiler inputs remain. This is a deliberate decision
 with its cost and correctness trade, not an omitted fix.
+
+### Test finding T1: completed units blocked behind an unfinished future
+
+- Symptom: real deadline runs left both XML and STREAM empty despite six fast-class mutant
+  assertions failing and their PIT workers exiting before the deadline.
+- Trigger: a slow mutation unit with more mutants was submitted first; another thread finished
+  later units while that first unit remained unfinished.
+- Root cause: PIT 1.25.5's `MutationAnalysisExecutor` drains futures in submission order. The
+  STREAM listener is downstream of that wait, so flushing every callback cannot preserve results
+  whose callbacks never arrive. Listener durability was insufficient without delivery durability.
+- Correction: the CI-only jar now supplies a controlling-JVM agent that replaces the pinned
+  executor's run loop with completion-service draining. It preserves the existing executor,
+  units, serial result interceptors, listener lifecycle and remaining-result handling. PIT
+  inherits agents into minions; copies on the client classpath, which has no executor, are inert.
+  The adapter refuses startup if the available executor lacks the pinned entry method.
+- Why tests missed it: listener unit tests invoked callbacks directly and simulated timeout
+  fixtures supplied their own stream records. Neither exercised real PIT's upstream scheduling.
+- Regression oracle: CONV-202/205 require finished work to survive an unfinished module.
+  `StreamingDeadlineTest.preservesFinishedUnitsWhenTheLeadingUnitMissesItsDeadline` compiles an
+  arithmetic fixture, launches real PIT 1.25.5 with two threads, holds the leading unit open,
+  observes the later mutant assertion and worker exit, and requires its KILLED record on disk
+  before stopping the process tree. It failed before the fix with an empty stream and passed
+  afterward. Its independent oracle is `7 + 1 = 8`; a submission-order drain fails this check.
+  A released-fixture control requires exactly the four specified arithmetic mutants, all killed,
+  with no duplicates and ordinary XML output retained. Both use a separate minion classpath.
+- Verification: the focused plugin test task passed all 36 tests, including the real-PIT deadline
+  and complete-run controls. The targeted Gradle/Python lane reproduction exited zero: the
+  50-second deadline recovered all six KILLED fast-class mutants, retained incomplete provenance,
+  and the following module completed with two KILLED mutants. Both invocations collected coverage
+  once; cached fixture compilation stayed up to date. Disposable workers stopped and fixture/build
+  outputs were removed. No repository-wide tests, lint, push, PR or CI phase ran here; remote CI
+  remains required.
+- Lesson: [test delivery before cancellation with real workers](../LESSONS.md#mutation-evidence-contracts).
+- Vision check: truthful bounded verification preserves evidence about correctness and cost;
+  this changes neither engine behavior nor mutant/test selection, budgets or thread count.

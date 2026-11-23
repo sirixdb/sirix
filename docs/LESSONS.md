@@ -411,7 +411,9 @@ See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-ope
   branch windows. Merging coverage passes must preserve the union of source selections; apply
   source limits before that union. Keep bounded work inside its launcher's ownership and await
   cleanup before consuming output or starting new work. A worker's late identity receipt cannot
-  establish ownership during startup; drop reuse when it defeats deadline enforcement.
+  establish ownership during startup; drop reuse when it defeats deadline enforcement. A flushing
+  listener cannot preserve results blocked upstream: hold the first real analysis unit open and
+  verify that later completed units reach disk before cancellation.
   Explicitly schedule new test tasks
   in CI; compilation alone supplies no regression protection. Evidence:
   [mutation reporter review](postmortems/pr-mutation-evidence-review.md).
