@@ -340,6 +340,10 @@ jobs:
     # sirix-core and sirix-query serialized behind each other, making it the critical path of the
     # whole workflow. The two groups are the natural cut — they were the two ~equal halves of that
     # 29 min — and they now run concurrently instead.
+    #
+    # Windows sirix-core is cut again because excluding heavy tests makes the Linux cut unbalanced.
+    # Complementary filters partition :sirix-core:test; its isolated prerequisite tasks run in both
+    # jobs. See docs/CI_CORE_HEADROOM.md for the selection contract and measurements.
     strategy:
       fail-fast: false
       matrix:
@@ -347,8 +351,25 @@ jobs:
         lane:
           - name: core
             tasks: ':sirix-core:test'
+          - name: core-index
+            tasks: ':sirix-core:test -PcoreTestLane=index'
+          - name: core-non-index
+            tasks: ':sirix-core:test -PcoreTestLane=non-index'
           - name: query
             tasks: ':sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test'
+        exclude:
+          - os: macos-latest
+            lane:
+              name: core-index
+              tasks: ':sirix-core:test -PcoreTestLane=index'
+          - os: macos-latest
+            lane:
+              name: core-non-index
+              tasks: ':sirix-core:test -PcoreTestLane=non-index'
+          - os: windows-latest
+            lane:
+              name: core
+              tasks: ':sirix-core:test'
         # Heap budgets differ per runner: macOS arm64 has 7 GB total, windows-latest 16 GB.
         include:
           - os: macos-latest

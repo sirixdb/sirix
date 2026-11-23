@@ -136,12 +136,22 @@ test {
     // current and future test class, including the property test's nested classes.
     def coreTestLane = providers.gradleProperty('coreTestLane').orNull
     def hotPropertyClasses = 'io/sirix/index/hot/HOTStructuralPropertyTest*.class'
+    // The Windows lanes run with -PexcludeHeavyTests, which removes most of the HOT property
+    // work, so the Linux cut above is lopsided there. They cut on the io.sirix.index package tree
+    // instead; docs/CI_CORE_HEADROOM.md owns the measurements. Only this task is partitioned;
+    // its isolated prerequisite test tasks still run in every lane.
+    def indexPackageClasses = 'io/sirix/index/**/*.class'
     if (coreTestLane == 'hot-property') {
         include hotPropertyClasses
     } else if (coreTestLane == 'remaining') {
         exclude hotPropertyClasses
+    } else if (coreTestLane == 'index') {
+        include indexPackageClasses
+    } else if (coreTestLane == 'non-index') {
+        exclude indexPackageClasses
     } else if (coreTestLane != null) {
-        throw new GradleException("Unknown coreTestLane '${coreTestLane}'; expected hot-property or remaining")
+        throw new GradleException(
+            "Unknown coreTestLane '${coreTestLane}'; expected hot-property, remaining, index or non-index")
     }
 
     useJUnitPlatform {
