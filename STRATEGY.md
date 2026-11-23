@@ -64,7 +64,7 @@ A change is reviewed against its written intent, and only the owner of that inte
 ### One format, one route
 
 1.0 has exactly one on-disk format, and the engine contains no code for reading anything older.
-The refusal and history export/import contracts are owned by [FMT-401–402](spec/FMT-disk-format.md#fmt-401--10-format-baseline).
+A store in any other format version is refused with a clear unsupported-format-version error; 1.0 databases move between installations by exporting and re-importing their history.
 From 1.0 on, every release reads every store that a released version wrote: when an encoding is replaced the reader keeps the old one, as other databases do, and a frozen corpus of stores that every later reader must pass holds it to that.
 A new encoding is gated for one release, the way MongoDB, CockroachDB, Cassandra, RocksDB and DuckDB gate theirs: the release that introduces it reads it, and a resource writes it only after its owner switches it on, a persisted switch that cannot be undone.
 The release after that switches every resource on its first write and deletes the old writer, so an operator can go back for one release and no old writer lives for good.
