@@ -1344,20 +1344,9 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
   signature `jint(jint, jlong, jlong, jint)`** — added by this PR, so the open question of whether the hints
   silently turn off in a native image no longer arises from a missing registration — and `:95-102` the resource glob
   `native/**/libsirix_lz77.so`.
-- **FFM downcall initialization.** `.../sirix-core/native-image.properties:5` build-time-initializes **only**
-  `io.sirix.node.LE` and `io.sirix.node.SegmentAccess`. The two downcall-handle holders
-  `SirixLZ77NativeDecoder$DecodeCall` and `PosixFadvise$AdviceCall` are **run-time initialized by default**: the
-  GraalVM 25.0.x LTS line that CI resolved at the time aborts image analysis with `linkToNative` when a downcall handle is
-  created at build time, so listing them there made every native image fail to build. An optimized image can opt in
-  with `-Pnative.preinitializeDowncalls=true`, which adds
-  `--initialize-at-build-time=io.sirix.page.SirixLZ77NativeDecoder$DecodeCall,io.sirix.io.filechannel.PosixFadvise$AdviceCall`
-  to the **main binary only** — not the smoke-test or test binaries, not the shared properties file, and nothing
-  selects it by version string, toolchain autodetection or workload
-  (`bundles/sirix-query/build.gradle:203-212`, `:814`). It needs a GraalVM 25 **innovation** release 25.1.3 or later
-  (upstream [oracle/graal#13309](https://github.com/oracle/graal/pull/13309)); on 25.0.x it fails with
-  `linkToNative`. Measured on identical bytecode, an unchanged database and unchanged PGO profiles with only that
-  setting changed, run-time adapters cost roughly **160 ms per Q3 query and 90-120 ms per Q2 query** — ongoing
-  call-path cost, not the 0.6-0.9 ms of one-time adapter construction (PR #1214, "Follow-up 2").
+- **FFM downcall initialization.** The portable default, optimized-build opt-in, toolchain
+  constraints and measured Q2/Q3 call-path cost are documented in
+  [Optional constant FFM adapters for optimized builds](NATIVE_IMAGE.md#optional-constant-ffm-adapters-for-optimized-builds).
 - The §9.4 native-binary measurements show higher cold read concurrency with tier A (in-flight maxima 50-61 against
   21-47), which already suggested the `posix_fadvise` hints reach the kernel; that was never confirmed by a native
   smoke test, and still is not.

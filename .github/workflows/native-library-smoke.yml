@@ -35,10 +35,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: graalvm/setup-graalvm@60e76998d25690099182b796e99b8804da582d90 # v1.6.10
         with:
-          # Oracle GraalVM 25i5 GA: GRAALVM_VERSION 25.5.5.0.3, JAVA_VERSION 25.0.5.0.3.
-          # The native build follows the GraalVM innovation line because Native Image on
-          # the 25.0.x LTS line cannot build build-time-initialized, address-less FFM
-          # downcall handles (oracle/graal#14860). See docs/NATIVE_IMAGE.md, "Toolchain".
+          # Toolchain rationale and support policy: docs/NATIVE_IMAGE.md, "Toolchain".
           version: '25.5.5.0.3'
           java-version: '25'
           distribution: 'graalvm'

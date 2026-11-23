@@ -182,11 +182,11 @@ to the main image, and hands the test what Gradle itself evaluated. So it checks
 produces exactly one argument naming the two holders and the default produces none; that the main
 image really initializes the two holders early when, and only when, the build asked for it (run the
 suite with `-Pnative.preinitializeDowncalls=true` to check the other state); that the smoke-test
-image, which keeps the portable run-time configuration on every toolchain, never does; that the documented `-P` switch is the
-property the build really consults, so a rename cannot leave it silently doing nothing; that the
-argument names two classes that exist and still hold nothing but their call signature, so
-initializing them at build time is legal; and that no shared `native-image.properties` initializes a
-holder early, by name, outer class or package. It asserts on nothing a document says: prose is
+image, which keeps the portable run-time configuration on every toolchain, never does; that the
+documented `-P` switch is the property the build really consults, so a rename cannot leave it silently
+doing nothing; that the argument names two classes that exist and still hold nothing but their call
+signature, so initializing them at build time is legal; and that no shared `native-image.properties`
+initializes a holder early, by name, outer class or package. It asserts on nothing a document says: prose is
 reworded without changing a build, and a test that breaks on that points at the wrong file.
 
 What it **cannot** catch, stated plainly because it is the larger part:
