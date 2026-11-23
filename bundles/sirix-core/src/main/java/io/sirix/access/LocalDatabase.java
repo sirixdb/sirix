@@ -358,7 +358,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
             }
           }
         }
-        final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name, derivedCompatibility).session();
+        final JsonResourceSession derived =
+            (JsonResourceSession) beginResourceSession(name, derivedCompatibility).session();
         DerivedIndexMaintainer.validateSnapshot(derived);
         return derived;
       } catch (final UnsupportedStoreFeatureException unsupported) {
