@@ -72,9 +72,11 @@ paths; it does not mean nothing got slower.
 they run the code and check something trivially true. PIT mutates the production code and reports
 which mutants the tests fail to kill. The weekly core task's scope is deliberately curated (see
 the `pitest` block in `bundles/sirix-core/build.gradle`); a whole-module run would take hours.
-The separate [PR lane](#pr-mutation-testing) selects changed sources. Both tasks' `targetTests` must
-contain only DETERMINISTIC tests: PIT requires a suite that is green without mutation, and a
-randomly-seeded run (jqwik defaults, `JsonModelBasedOracleRandomTest`) can legitimately fail by
+The separate [PR lane](#pr-mutation-testing) and its
+[scheduled full-scope report](#scheduled-full-scope-mutation-report) select changed sources.
+Every task's `targetTests` must contain only DETERMINISTIC tests: PIT requires a suite that is
+green without mutation, and a randomly-seeded run (jqwik defaults,
+`JsonModelBasedOracleRandomTest`) can legitimately fail by
 discovering a real, previously unknown bug — which aborts the whole mutation analysis. When a
 random run finds a failing seed, add it to the fixed-seed regression list and PIT inherits the
 coverage.
@@ -82,13 +84,15 @@ coverage.
 **Error Prone** rejects bug patterns at compile time (bad equals/format strings/self-assignment
 and ~500 more); **NullAway** checks nullness contracts against the JSpecify annotations already
 used in the codebase. Local builds opt in with `-PerrorProne`. The main PR/push CI workflow sets
-`ORG_GRADLE_PROJECT_errorProne=true` only on its `Compile and package` job, which compiles all
-main, test and JMH benchmark source sets. The release workflow runs the same gated compile
-before importing signing credentials or publishing, covering tag pushes, release branches and
-manually selected refs. The stress workflow enables the gate on its core test compile, including
+`ORG_GRADLE_PROJECT_errorProne=true` on its `Compile and package` job, which compiles all
+main, test and JMH benchmark source sets, and on `MutationTesting` so its compiler inputs match
+the cached producer output (see [compilation reuse below](#pr-mutation-testing)). The release
+workflow runs the same gated compile before importing signing credentials or publishing, covering
+tag pushes, release branches and manually selected refs. The stress workflow enables the gate on
+its core test compile, including
 manual runs against refs outside main CI's branch filters. Deep verification gates its dedicated
-core and MCP compile with `-PerrorProne`. Each of these four workflows runs one gated compile;
-other jobs, including Sonar, avoid repeating static analysis. Error Prone errors fail compilation;
+core and MCP compile with `-PerrorProne`. The mutation consumer retains the gate when compilation
+is needed; other jobs, including Sonar, do not enable it. Error Prone errors fail compilation;
 NullAway also runs at `ERROR`, with `NullAway:OnlyNullMarked=true`. Every MCP main/test package
 and the query shell's main/test packages have a JSpecify `@NullMarked` package default.
 Legacy unmarked core and query packages are outside NullAway checking, even where individual

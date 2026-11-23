@@ -129,7 +129,7 @@ public final class ChangedLineMap {
     return Arrays.binarySearch(changed, line) >= 0;
   }
 
-  /** The number of sources the map lists, for the log line the factory writes. */
+  /** The number of sources the map lists. */
   public int sources() {
     return lines.size();
   }
