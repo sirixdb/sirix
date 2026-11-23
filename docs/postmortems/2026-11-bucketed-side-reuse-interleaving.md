@@ -13,7 +13,8 @@
   background packing of the probe side published and left the in-flight map in the window between
   the second execution's resident lookup and its in-flight lookup. No input or revision shape is
   needed beyond the one the budget test already uses; what varies is the completion order of a
-  background task, which is why the failure was confined to one loaded runner.
+  background task. This completion window is consistent with the intermittent macOS failure;
+  the CI counter alone does not establish the exact interleaving or runner load.
 - Root cause: `SirixJoinedGroupAggregateExpr.BucketedSideCache.get` decided "no side available"
   from two lookups made in sequence — first the published sides, then the in-flight builds — while
   `packAsync`'s task moves the side from the second set to the first in exactly that order: it
@@ -24,15 +25,14 @@
   second. The reader then packed a second copy. The broken invariant is that the published set is
   authoritative only once no build is in flight; reading it *before* observing that no build is in
   flight proves nothing.
-- Why tests missed it: every existing test pinned one of the two orders and so could not reach the
-  window. `IntervalRangeJoinWorkBudgetTest` lets the real executor run the packing and only ever
-  observed "finished long before" or "still in flight", the two outcomes the sequence handles;
+- Why tests missed it: existing tests did not deterministically drive this completion window.
+  `IntervalRangeJoinWorkBudgetTest` lets the real executor run the packing, so reaching the window
+  depends on scheduling;
   `concurrentReaderReusesReservedPackingWithoutDuplicatingItsConstruction` holds the task and runs
   it while a second reader is parked on the future, which exercises the in-flight branch; and
   `PackingOwnershipFailureTest` drives the producer's failure paths. None of them could place a
-  completed publication between a reader's two lookups, so the only oracle that saw it was a work
-  budget on a loaded macOS runner — which is the one oracle that cannot say which path grew, only
-  that one did.
+  completed publication between a reader's two lookups by construction. The macOS work-budget
+  failure identified an extra bucketed-side build, but could not identify the exact interleaving.
 - Regression test: `BucketedSideReuseInterleavingTest`
   `aSidePublishedBetweenTheTwoLookupsIsReusedRatherThanPackedAgain` (`./gradlew :sirix-query:test
   --tests 'io.sirix.query.compiler.translator.BucketedSideReuseInterleavingTest'`). It holds the
@@ -42,9 +42,5 @@
   Before the fix the repeat reports `joinGroup.bucketedSidesBuilt = 1` against a budget of exactly
   0 and submits a second packing of the same side; after it, 0 and none. The interleaving is driven,
   not awaited: there is no sleep, no timeout and no wall-clock assertion.
-- Lesson: a cache whose lookup spans two sets must read them in the order the producer fills them,
-  or re-read the first set once the second says nothing is pending; otherwise the work it saves
-  depends on a completion order, and a work budget over it reads differently on a loaded machine.
-  See [LESSONS.md](../LESSONS.md) (fragment
-  `docs/lessons.d/bucketed-side-reuse-interleaving.md`, per the
-  [fragment convention](../../changelog.d/README.md)).
+- Lesson: see [LESSONS.md](../LESSONS.md) for the two-set cache lookup lesson, collected per the
+  [fragment convention](../../changelog.d/README.md).

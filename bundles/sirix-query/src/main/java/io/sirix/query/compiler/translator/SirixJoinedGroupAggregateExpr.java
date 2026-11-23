@@ -1054,13 +1054,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
      * The leased cached side, or {@code null}; the caller releases the entry.
      *
      * <p>
-     * A build publishes its side before it leaves {@link #IN_FLIGHT} ({@link #finishPacking}), so
-     * finding neither a resident side nor a build in flight does not prove there is none: a build
-     * that completed between the two lookups is gone from the in-flight map and present in the
-     * published set, which this reader already read. The published set is authoritative exactly
-     * once no build is in flight, so that case re-reads it rather than packing a resident side.
-     * Without that second read the work this cache saves would depend on the interleaving of the
-     * background packing, which is how a reused side became a rebuilt one on a loaded runner.
+     * A build publishes its side before {@link #finishPacking} removes it from {@link #IN_FLIGHT}. If
+     * completion falls between the resident and in-flight lookups, both lookups miss. Re-read the
+     * resident set after an in-flight miss so that completion cannot cause duplicate packing.
      */
     static @Nullable PackedSide get(final MaskedColumns columns, final long[] signature) {
       if (!columns.isImmutableRevision()) {

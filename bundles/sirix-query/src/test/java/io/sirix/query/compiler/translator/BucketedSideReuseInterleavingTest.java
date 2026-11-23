@@ -38,9 +38,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 /**
  * A background packing publishes its side before it leaves the in-flight map, so a reader that
  * found no resident side must re-read the published sides once the map says nothing is in flight.
- * The interleaving this test drives is the one a loaded runner produced by itself: the packing
- * completed between a reader's two lookups, and the reader packed the resident side a second time.
- * See {@code docs/postmortems/2026-11-bucketed-side-reuse-interleaving.md}.
+ * This test forces completion between a reader's two lookups, a window in which the reader could
+ * pack the resident side a second time. See
+ * {@code docs/postmortems/2026-11-bucketed-side-reuse-interleaving.md}.
  */
 @Isolated
 final class BucketedSideReuseInterleavingTest {
@@ -72,17 +72,15 @@ final class BucketedSideReuseInterleavingTest {
   /**
    * The repeat must reuse the side whatever the packing's completion order is: here the packing
    * publishes and leaves the in-flight map exactly between the repeat's resident lookup and its
-   * in-flight lookup, the window that made the work budget depend on the machine.
+   * in-flight lookup, making the regression independent of scheduling.
    */
   @Test
   void aSidePublishedBetweenTheTwoLookupsIsReusedRatherThanPackedAgain() throws Exception {
     build(VersioningType.FULL, ROWS);
-    final DerivedCacheBudget budget =
-        new DerivedCacheBudget(Allocators.getInstance(), BUDGET_BYTES * 8, BUDGET_BYTES);
+    final DerivedCacheBudget budget = new DerivedCacheBudget(Allocators.getInstance(), BUDGET_BYTES * 8, BUDGET_BYTES);
     final DerivedCacheBudget previousBudget = DerivedCacheBudget.setForTesting(budget);
     final AtomicReference<Runnable> pending = new AtomicReference<>();
-    final Executor previousExecutor =
-        SirixJoinedGroupAggregateExpr.setPackingExecutorForTesting(pending::set);
+    final Executor previousExecutor = SirixJoinedGroupAggregateExpr.setPackingExecutorForTesting(pending::set);
     final AtomicInteger residentMisses = new AtomicInteger();
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
