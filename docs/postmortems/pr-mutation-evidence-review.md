@@ -19,8 +19,11 @@
   redundant fields. R3 demanded explicit Python syntax where omission preserves default behavior;
   literal arguments, captured output and restored files now supply behavioral evidence instead.
   R5 assumed cached task history implied matching compile inputs, although Error Prone differs
-  between producer and consumers. All six new task-history cache entries and the associated
-  recompilation claim are withdrawn, retaining one invocation per module and daemon reuse.
+  between producer and consumers. All six task-history cache additions and the unsupported
+  recompilation claim were correctly withdrawn at that stage. R14 now implements reuse narrowly:
+  the mutation consumer matches Build's compiler inputs and restores a separate task-history
+  archive; other consumers retain their existing restores. One invocation per module and daemon
+  reuse remain in place, with the effect to be read from this PR's CI task outcomes.
 - Why tests missed it: XML read failures were never combined with an explanatory census; truncated
   fixtures were ASCII; weekly survivors lived only off the diff; selector fixtures had one target;
   cutoff tests did not assert the external date representation. The AST test could reject a correct
@@ -137,3 +140,39 @@
   transport existing provenance across serialization boundaries as well as in-memory judgment.
 - Vision check: consistent verification claims protect confidence in the engine's results and
   cost; there is no product behavior or default change.
+
+
+## Follow-up: complete target scope and valid mutation-only output reuse
+
+- Fix / issue: review findings R13 and R14; the later R14 decision supersedes withdrawal of the
+  mutation consumer's cache reuse, while keeping every other consumer out of scope.
+- Symptom and trigger: a completed module targeting Foo and Bar could emit a killed Foo mutant
+  and no Bar mutant. The lane called a re-confirmed Bar entry stale, while the local checker
+  rebuilt scope from emitted records and reported not judged. Separately, the required reuse of
+  Build's compilation remained unimplemented after the earlier cache claim was withdrawn.
+- Root cause: R13 loaded completion but discarded target membership. The same metadata boundary
+  now loads validated `targets` with their completeness; both XML and census consumers merge that
+  scope, including silent targets, instead of deriving it from emitted identities. R14 omitted
+  Error Prone in the mutation consumer, changing compiler arguments and annotation processors.
+  MutationTesting now sets the same project property as Build and restores project task history
+  beside the existing output archive. A separate history key avoids changing the shared output
+  cache's path/version contract or duplicating its large output payload for other consumers.
+- Why tests missed it: local fixtures had one selected class and inferred scope from at least one
+  emitted identity. Cache assertions had no matching-input proof. The current follow-up explicitly
+  leaves core/query tests, Sonar, REST and platform compiler/cache policy unchanged; matching the
+  other output consumers to Build remains follow-up work. Platform jobs currently compile cold.
+- Regression tests: `RefactorHelperTest.test_check_and_lane_judge_a_completed_silent_target_stale`
+  compares actual lane output with local judgment for a silent completed target; a companion test
+  obtains the same silent target solely through census-module metadata. Invalid target metadata
+  cannot prove staleness. Focused verification covers the reporter tests, parsed workflow cache
+  producer/consumer contracts and Gradle JavaCompile configuration under both producer and mutation
+  settings. CI task outcomes from this PR remain the evidence of actual restored compilation;
+  no time-saving figure is claimed. Both silent-target regressions rejected the starting
+  reporter, and all 249 focused Python tests passed. Parsed workflow checks confirmed matching
+  compiler properties, paired history cache keys/paths and unchanged other jobs. Gradle
+  configuration comparisons matched compiler arguments, toolchains, fork settings and dependency
+  declarations across 20 JavaCompile task models; this did not measure restored task outcomes.
+- Lesson: [carry selected scope with evidence provenance](../LESSONS.md#mutation-evidence-contracts),
+  and compare compiler inputs before claiming reuse of compiled outputs.
+- Vision check: these changes preserve trustworthy verification at bounded cost, without changing
+  engine behavior or defaults.

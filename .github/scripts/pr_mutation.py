@@ -1850,23 +1850,28 @@ def evidence_provenance(path):
     elif path.name == CENSUS_FILE:
         directory = path.parent
     else:
-        return False, False
+        return False, {}
     if directory.name not in DIRECTORIES:
-        return False, False
+        return False, {}
     try:
         document = json.loads((directory.parent / 'results.json').read_text())
         modules = document['modules']
         if not isinstance(modules, list):
-            return False, False
+            return False, {}
         matching = [module for module in modules if isinstance(module, dict)
                     and module.get('module') == directory.name]
     except (OSError, ValueError, KeyError, TypeError):
-        return False, False
+        return False, {}
     if len(matching) != 1:
-        return False, False
+        return False, {}
     module = matching[0]
     completed = module.get('state') == 'complete' and module.get('partial', False) is False
-    return completed, completed and module.get('mutants_per_class', False) is None
+    targets = module.get('targets', [])
+    if not isinstance(targets, list) or any(
+            not isinstance(name, str) or not QUALIFIED_NAME.fullmatch(name) for name in targets):
+        targets = []
+    complete = completed and module.get('mutants_per_class', False) is None
+    return completed, dict.fromkeys(targets, complete)
 
 
 def report_records(paths, index):
@@ -1874,7 +1879,9 @@ def report_records(paths, index):
     classes = {}
     incomplete = []
     for path in paths:
-        completed, unsampled = evidence_provenance(path)
+        completed, targets = evidence_provenance(path)
+        for name, complete in targets.items():
+            classes[name] = classes.get(name, True) and complete
         if not completed:
             incomplete.append(str(path))
         for element in ET.parse(path).getroot().findall('mutation'):
@@ -1882,8 +1889,6 @@ def report_records(paths, index):
             record = mutant_record(element, kind == 'changed')
             record['completed_run'] = completed
             records.append(record)
-            name = record['identity'][0]
-            classes[name] = classes.get(name, True) and unsampled
     return records, classes, incomplete
 
 
@@ -1913,10 +1918,9 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
         summary, found = read_census(Path(path), index)
         census_summaries.append(summary)
         census_valid = census_valid and not summary['malformed'] and not summary['violations']
-        _, unsampled = evidence_provenance(path)
-        for identity in found:
-            name = identity[0]
-            classes[name] = classes.get(name, True) and unsampled
+        _, targets = evidence_provenance(path)
+        for name, complete in targets.items():
+            classes[name] = classes.get(name, True) and complete
         for identity, record in found.items():
             census.setdefault(identity, record)
     entries, errors = read_dispositions(root)

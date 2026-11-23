@@ -131,14 +131,15 @@ def entry(kind='equivalent', **fields):
                                     for key, value in values.items() if value is not None)
 
 
-def lane_report(root, mutants, state='complete', limit=None, partial=False):
+def lane_report(root, mutants, state='complete', limit=None, partial=False, targets=('a.Foo',)):
     """The lane artifact contract: module XML plus results.json completion and sampling."""
     output = root / 'out'
     path = output / 'sirix-core/report/mutations.xml'
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('<mutations>' + ''.join(mutants) + '</mutations>')
     (output / 'results.json').write_text(json.dumps({'modules': [
-        {'module': 'sirix-core', 'state': state, 'mutants_per_class': limit, 'partial': partial}]}))
+        {'module': 'sirix-core', 'state': state, 'mutants_per_class': limit, 'partial': partial,
+         'targets': list(targets)}]}))
     return path
 
 
@@ -169,7 +170,7 @@ class Lane:
 
     def run(self, mutants, head=None, base=None, changed=(11,), exit_code=0, baz_changed=(),
             census=(), stream=(), report=True, timed_out=False, stream_unreadable=False,
-            report_bytes=None, census_unreadable=False):
+            report_bytes=None, census_unreadable=False, targets=('a.Foo',)):
         dispositions = self.root / mutation.DISPOSITIONS_FILE
         if head is None:
             dispositions.unlink(missing_ok=True)
@@ -205,7 +206,7 @@ class Lane:
             if timed_out:
                 raise subprocess.TimeoutExpired(command, timeout)
             return exit_code
-        with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+        with patch.object(mutation, 'resolve_targets', return_value=(list(targets), [])), \
              patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
              patch.object(mutation, 'execute', side_effect=execute):
             code = mutation.run(self.root, self.output, 10, blocking=True)
@@ -609,6 +610,68 @@ class RefactorHelperTest(unittest.TestCase):
     def report(self, root, mutants):
         return lane_report(root, mutants)
 
+    def test_check_and_lane_judge_a_completed_silent_target_stale(self):
+        """CONV-203: a completed generated set includes targets that emitted no mutant."""
+        with lane() as work:
+            old = entry(**{'class': 'a.Bar', 'checked_at': 'b' * 40})
+            head = entry(**{'class': 'a.Bar'})
+            _, results, _ = work.run([mutant('KILLED', 11)], head=head, base=old,
+                                      targets=('a.Foo', 'a.Bar'))
+            self.assertEqual(states(results), ['stale'])
+            report = work.output / 'sirix-core/report/mutations.xml'
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [11]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+            self.assertTrue(failing)
+            self.assertIn('FAIL entry 1 [stale] a.Bar.run', text)
+            self.assertNotIn('[not judged]', text)
+
+    def test_check_loads_silent_targets_from_census_module_metadata(self):
+        """CONV-203: report and census inputs load the same complete target membership."""
+        with lane() as work:
+            old = entry(**{'class': 'a.Bar', 'checked_at': 'b' * 40})
+            (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(**{'class': 'a.Bar'}))
+            lane_report(work.root, [], targets=('a.Foo', 'a.Bar'))
+            census = work.output / 'sirix-core/census.jsonl'
+            census.write_text(census_record(21) + '\n')
+            report = work.output / 'sirix-query/report/mutations.xml'
+            report.parent.mkdir(parents=True)
+            report.write_text('<mutations>' + mutant('KILLED', 5, klass='a.b.Baz',
+                source='Baz.java', method='go', descriptor='()V') + '</mutations>')
+            manifest = work.output / 'results.json'
+            document = json.loads(manifest.read_text())
+            document['modules'].append({'module': 'sirix-query', 'state': 'complete',
+                                        'mutants_per_class': None, 'targets': ['a.b.Baz']})
+            manifest.write_text(json.dumps(document))
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [11], BAZ: [5]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                            False, [census])
+            self.assertTrue(failing)
+            self.assertIn('FAIL entry 1 [stale] a.Bar.run', text)
+
+    def test_check_unknown_target_membership_cannot_prove_staleness(self):
+        """CONV-203: completion alone cannot prove a class was selected."""
+        for targets in (None, 'a.Bar', ['*'], [7]):
+            with self.subTest(targets=targets), lane() as work:
+                old = entry(**{'class': 'a.Bar', 'checked_at': 'b' * 40})
+                (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(**{'class': 'a.Bar'}))
+                report = lane_report(work.root, [mutant('KILLED', 11)])
+                manifest = work.output / 'results.json'
+                document = json.loads(manifest.read_text())
+                document['modules'][0]['targets'] = targets
+                manifest.write_text(json.dumps(document))
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=old):
+                    _, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+                self.assertNotIn('[stale]', text)
+
     def test_check_preserves_lane_completion_for_both_disposition_kinds(self):
         """CONV-203: identical XML cannot promote failed-run evidence to accepted."""
         for kind in ('equivalent', 'killed-out-of-lane'):
@@ -662,7 +725,7 @@ class RefactorHelperTest(unittest.TestCase):
             manifest = work.output / 'results.json'
             document = json.loads(manifest.read_text())
             document['modules'].append({'module': 'sirix-query', 'state': 'error',
-                                        'mutants_per_class': None})
+                                        'mutants_per_class': None, 'targets': ['a.b.Baz']})
             manifest.write_text(json.dumps(document))
             for reports in ([complete, failed], [failed, complete]):
                 with self.subTest(reports=reports), \

@@ -49,6 +49,15 @@ jobs:
             **/build
           key: build-${{ github.run_id }}
 
+      - name: Cache mutation task history
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .gradle
+            **/.gradle
+          key: mutation-task-history-${{ github.run_id }}
+
   TestCore:
     name: Test sirix-core (${{ matrix.lane }})
     needs: Build
@@ -185,6 +194,8 @@ jobs:
 
   MutationTesting:
     name: PIT changed-source mutation testing
+    env:
+      ORG_GRADLE_PROJECT_errorProne: 'true'
     needs: [Build, PythonTooling]
     if: github.event_name == 'pull_request'
     # Advisory rollout policy and blocking switch: docs/VERIFICATION.md#pr-mutation-testing.
@@ -224,6 +235,14 @@ jobs:
           path: |
             **/build
           key: build-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: Restore mutation task history
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .gradle
+            **/.gradle
+          key: mutation-task-history-${{ github.run_id }}
           fail-on-cache-miss: true
       - name: Run bounded PIT analysis
         # Always enforce internally so incomplete runs remain visible as a failed informational

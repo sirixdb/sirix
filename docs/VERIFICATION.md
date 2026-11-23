@@ -400,7 +400,9 @@ timed-out, partial or unknown runs cannot authorize a disposition, and cannot pr
 generated set. Standalone XML without matching completion metadata is reported as unknown and
 fails the check; its detected statuses still contradict or supersede entries, and remap can
 still propose identities. A report from a completed sampled run can authorize its measured
-survivors, but cannot prove a missing mutant stale.
+survivors, but cannot prove a missing mutant stale. Target membership is loaded together
+with completeness from each module's saved `targets`, including classes that emitted no mutant;
+it is never reconstructed from XML or census identities alone.
 
 Measured churn of pure refactors (PIT 1.25.5 on a four-method sample class whose six surviving
 mutants were taken as reviewed entries): a line shift, an extract-method and a method reorder
@@ -465,7 +467,18 @@ against the pinned PIT release, without allocating another runner.
 Each module is analysed by exactly one PIT invocation, so its slow test scope is covered once per
 run. The invocations share one Gradle daemon with a fixed heap (`-Dorg.gradle.jvmargs`) instead of
 forking a single-use daemon each, which `--no-daemon` did for the workstation-sized heap
-`gradle.properties` requests.
+`gradle.properties` requests. The PR mutation job uses the Build job's Error Prone compiler
+inputs and restores its compiled output plus project-local Gradle task history. The existing
+output cache remains shared as before; a separate PR-only history archive supplies `.gradle`
+and `**/.gradle` only to the mutation consumer, so the other restores remain unchanged. Matching
+inputs and history keep compilation up to date; this pull request's own CI task outcomes provide
+the evidence of reuse and its effect, with no measured saving claimed here.
+
+Follow-up outside this change: the core/query test, Sonar and REST output-cache consumers still
+omit the producer's Error Prone setting, so their compiler inputs differ. Their restores and
+compiler policy are unchanged. Platform lanes also keep their existing compiler/cache policy;
+they currently compile cold rather than restore the Linux output archive. The scheduled mutation
+job compiles its own output with matching inputs in the same job and restores no Build archive.
 
 Minions reuse each module's final `test` task `opens`/`exports` and system properties, including
 late native-image properties and values containing commas or whitespace. The
