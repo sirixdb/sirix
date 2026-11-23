@@ -1008,13 +1008,14 @@ class LaneCommandTest(unittest.TestCase):
     INDEX = {('a', 'Foo.java'): {24, 11}, ('', 'Root.java'): {7}}
 
     @contextlib.contextmanager
-    def prepared(self, restrict=True, index=None):
+    def prepared(self, restrict=True, index=None, targets=None):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             directory = root / 'out/sirix-core'
             directory.mkdir(parents=True)
             result = {}
-            with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+            resolved = ['a.Foo'] if targets is None else targets
+            with patch.object(mutation, 'resolve_targets', return_value=(resolved, [])), \
                  patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})):
                 command = mutation.prepare_analysis(
                     root, directory, 'sirix-core', self.SOURCES, result, None,
@@ -1025,6 +1026,17 @@ class LaneCommandTest(unittest.TestCase):
         found = [value for value in command if value.startswith(prefix)]
         self.assertEqual(len(found), 1, f'{prefix} in {command}')
         return found[0].split('=', 1)[1]
+
+    def test_pit_targets_and_report_location_follow_the_artifact_contract(self):
+        """The documented targets.txt is PIT's exact newline-delimited selector input."""
+        for restrict in (True, False):
+            with self.subTest(restrict=restrict), self.prepared(
+                    restrict=restrict, targets=['a.Foo', 'a.Bar']) as (command, _, directory):
+                self.assertEqual(self.argument(command, '-PprMutationTargetsFile='),
+                                 str(directory / 'targets.txt'))
+                self.assertEqual((directory / 'targets.txt').read_bytes(), b'a.Foo\na.Bar\n')
+                self.assertEqual(self.argument(command, '-PprMutationReportDir='),
+                                 str(directory / 'report'))
 
     def test_the_command_restricts_to_the_changed_lines_it_wrote(self):
         with self.prepared() as (command, result, directory):
@@ -1194,6 +1206,28 @@ class FullScopeTest(unittest.TestCase):
         return subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'],
                                        env=environment).decode().strip()
 
+    def test_git_interfaces_keep_shell_metacharacters_literal(self):
+        """The lane's literal-argument contract applies to every read-only Git caller."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'repo; touch OWNED; #'
+            root.mkdir()
+            git_repository(root)
+            source = 'bundles/sirix-core/src/main/java/a/Foo.java'
+            (root / source).parent.mkdir(parents=True)
+            old = self.commit(root, source, 30, 'package a;\nclass Foo {}\n')
+            note = 'note; touch OWNED; #'
+            base = self.commit(root, note, 20, 'literal file contents\n')
+            head = self.commit(root, source, 1, 'package a;\nclass Foo { int x; }\n')
+            self.assertEqual(mutation.current_commit(root), head)
+            self.assertEqual(mutation.window_base(root, 7), base)
+            self.assertEqual(mutation.merge_base_file(root, base, note), 'literal file contents\n')
+            self.assertIsNone(mutation.merge_base_file(root, old, note))
+            selected, lines = mutation.changed_sources(root, base, head)
+            self.assertEqual(selected, {'sirix-core': [self.SOURCE]})
+            self.assertEqual(lines, {'sirix-core': {self.SOURCE: [2]}})
+            self.assertFalse((root / 'OWNED').exists())
+            self.assertFalse((Path(temp) / 'OWNED').exists())
+
     def test_the_window_base_is_the_last_commit_before_the_window(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -1217,6 +1251,9 @@ class FullScopeTest(unittest.TestCase):
             (root / '.github').mkdir()
             if dispositions is not None:
                 (root / mutation.DISPOSITIONS_FILE).write_text(dispositions)
+            source = root / 'bundles/sirix-core' / self.SOURCE
+            source.parent.mkdir(parents=True)
+            source.write_text('package a;\nclass Foo {}\n')
             commands = []
 
             def execute(command, root_path, log, timeout):
@@ -1261,6 +1298,39 @@ class FullScopeTest(unittest.TestCase):
                              ('a' * 40, 'b' * 40))
             self.assertIn('never decides an outcome', summary)
             self.assertIn('last 7 day(s)', summary)
+
+    def test_changed_line_survivors_are_in_the_scheduled_class_debt(self):
+        """CONV-206 includes all undetected mutants, including recent changed lines."""
+        mutants = [self.mutant('SURVIVED', 11), self.mutant('NO_COVERAGE', 21),
+                   self.mutant('KILLED', 11, klass='a.Killed')]
+        with self.report(mutants) as (code, _, results, summary):
+            module = results['modules'][0]
+            self.assertEqual(code, 0)
+            self.assertIn('- a.Foo: 2', summary)
+            self.assertEqual(module['classes'], [['a.Foo', 2]])
+            self.assertEqual(module['unchanged']['classes'], [['a.Foo', 1]])
+            self.assertEqual(module['changed']['survived'], 1)
+        with self.report([self.mutant('SURVIVED', 11)]) as (_, _, results, summary):
+            self.assertEqual(results['modules'][0]['classes'], [['a.Foo', 1]])
+            self.assertIn('- a.Foo: 1', summary)
+
+    def test_complete_scheduled_reports_are_never_labelled_incomplete(self):
+        """CONV-206 labels the module by its actual completion state."""
+        with self.report([self.mutant('KILLED', 11)]) as (_, _, results, summary):
+            self.assertEqual(results['modules'][0]['state'], 'complete')
+            self.assertIn('## sirix-core: complete', summary)
+            self.assertNotIn('Incomplete:', summary)
+
+    def test_git_receives_the_exact_utc_cutoff(self):
+        """CONV-206's seven-day window uses Git's ISO-8601 UTC date contract."""
+        instant = datetime(2026, 11, 23, 12, 34, 56, tzinfo=timezone.utc)
+        with patch.object(mutation, 'datetime') as clock, patch.object(
+                mutation.subprocess, 'check_output', return_value=b'a' * 40) as git:
+            clock.now.return_value = instant
+            self.assertEqual(mutation.window_base(Path('/repo'), 7), 'a' * 40)
+        self.assertEqual(git.call_args.args[0],
+                         ['git', '-C', '/repo', 'rev-list', '-1',
+                          '--before=2026-11-16T12:34:56Z', 'HEAD'])
 
     def test_the_debt_report_records_every_class_and_shows_what_it_left_out(self):
         classes = [self.mutant('SURVIVED', 20 + index, klass=f'a.C{index}')
@@ -1457,32 +1527,6 @@ class FullScopeTest(unittest.TestCase):
             else:
                 os.environ['TZ'] = previous
             time.tzset()
-
-    def test_every_subprocess_of_the_reporter_states_shell_false(self):
-        """A documented invariant of the lane: every subprocess runs an argument list with
-        `shell=False` (docs/VERIFICATION.md). It is Python's default, so only the source says
-        whether each call states it - and a call that stops stating it is a silent regression.
-        """
-        import ast
-        source = ast.parse(SCRIPT.read_text())
-        launchers = {'run', 'check_output', 'check_call', 'Popen'}
-        calls = 0
-        for node in ast.walk(source):
-            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-                continue
-            owner = node.func.value
-            if not (isinstance(owner, ast.Name) and owner.id == 'subprocess'):
-                continue
-            if node.func.attr not in launchers:
-                continue
-            calls += 1
-            keywords = {word.arg: word.value for word in node.keywords}
-            self.assertIn('shell', keywords,
-                          f'subprocess.{node.func.attr} at line {node.lineno} omits shell')
-            self.assertIsInstance(keywords['shell'], ast.Constant)
-            self.assertIs(keywords['shell'].value, False,
-                          f'subprocess.{node.func.attr} at line {node.lineno} is not shell=False')
-        self.assertGreaterEqual(calls, 6, 'every launcher of the reporter is inspected')
 
     def test_a_manifest_without_changed_lines_names_every_module_it_misses(self):
         with tempfile.TemporaryDirectory() as temp:

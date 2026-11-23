@@ -391,3 +391,12 @@ must all collect its first unreported failure before replacing the worker or clo
 Use first-close-only failures to distinguish worker error retention from a later close retry.
 Keep process-exit ordering with the embedding application through explicit shutdown.
 See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-open-worker-failure.md).
+
+<a id="mutation-evidence-contracts"></a>
+
+- **Separate evidence, protocol and presentation.** Prove a report empty before promoting it to
+  complete; recover append-only evidence record by record, including torn UTF-8. Aggregate debt
+  over the report's declared scope. Classify a mutation by what consumes its value, and assert
+  serialized contracts and literal subprocess behavior instead of implementation syntax. Cached
+  outputs imply reuse only with matching task inputs. Evidence:
+  [mutation reporter review](postmortems/pr-mutation-evidence-review.md).

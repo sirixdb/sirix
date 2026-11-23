@@ -157,7 +157,8 @@ class Lane:
         (root / '.github').mkdir()
 
     def run(self, mutants, head=None, base=None, changed=(11,), exit_code=0, baz_changed=(),
-            census=(), stream=(), report=True, timed_out=False, stream_unreadable=False):
+            census=(), stream=(), report=True, timed_out=False, stream_unreadable=False,
+            report_bytes=None, census_unreadable=False):
         dispositions = self.root / mutation.DISPOSITIONS_FILE
         if head is None:
             dispositions.unlink(missing_ok=True)
@@ -174,16 +175,22 @@ class Lane:
             if report:
                 (directory / 'report/mutations.xml').write_text(
                     '<mutations>' + ''.join(mutants) + '</mutations>')
+            if report_bytes is not None:
+                (directory / 'report/mutations.xml').write_bytes(report_bytes)
             if stream:
-                (directory / 'report' / mutation.STREAM_FILE).write_text(
-                    ''.join(record + '\n' for record in stream))
+                (directory / 'report' / mutation.STREAM_FILE).write_bytes(
+                    stream if isinstance(stream, bytes) else
+                    ''.join(record + '\n' for record in stream).encode())
             if stream_unreadable:
                 # Whatever stands where the stream belongs, the reporter must not pretend to
                 # have read it: a directory is the simplest unreadable thing.
                 (directory / 'report' / mutation.STREAM_FILE).mkdir()
             if census:
-                (directory / mutation.CENSUS_FILE).write_text(
-                    ''.join(record + '\n' for record in census))
+                (directory / mutation.CENSUS_FILE).write_bytes(
+                    census if isinstance(census, bytes) else
+                    ''.join(record + '\n' for record in census).encode())
+            if census_unreadable:
+                (directory / mutation.CENSUS_FILE).mkdir()
             if timed_out:
                 raise subprocess.TimeoutExpired(command, timeout)
             return exit_code
@@ -799,6 +806,28 @@ class CounterfactualTest(unittest.TestCase):
             self.assertEqual(document['mutant'][0]['evidence'], evidence)
             self.assertEqual(mutation.evidence_problems(evidence), [])
 
+    def test_helper_commands_and_patch_paths_keep_shell_metacharacters_literal(self):
+        """CONV-203's executable interface preserves literal argv and restores the patch."""
+        with tempfile.TemporaryDirectory() as temp:
+            root, patch_file = self.repository(temp)
+            payload = '; touch OWNED; #'
+            echo = mutation.run_test_command(
+                [sys.executable, '-c', 'import sys; print(sys.argv[1])', payload], root)
+            self.assertEqual((echo.returncode, echo.stdout), (0, (payload + '\n').encode()))
+            literal_patch = patch_file.with_name('mutant; touch OWNED; #.patch')
+            patch_file.rename(literal_patch)
+            command = [sys.executable, '-c',
+                       'import sys; from pathlib import Path; '
+                       'assert sys.argv[1] == "; touch OWNED; #"; '
+                       'sys.exit(0 if "bound = 4" in Path("Foo.java").read_text() else 7)',
+                       payload]
+            before = (root / 'Foo.java').read_bytes()
+            evidence = mutation.counterfactual(root, literal_patch, command)
+            self.assertEqual((evidence['baseline_exit'], evidence['injected_exit']), (0, 7))
+            self.assertEqual((root / 'Foo.java').read_bytes(), before)
+            self.assertFalse((root / 'OWNED').exists())
+            self.assertFalse((Path(temp) / 'OWNED').exists())
+
     def test_runner_refuses_evidence_that_proves_nothing(self):
         with tempfile.TemporaryDirectory() as temp:
             root, patch_file = self.repository(temp)
@@ -1230,6 +1259,28 @@ class EmptyScopeTest(unittest.TestCase):
     broken run and stays incomplete.
     """
 
+    def test_report_failures_cannot_be_resolved_by_an_off_diff_census(self):
+        """CONV-202/205: removed mutants cannot prove unreadable results empty."""
+        for report in (b'<mutation', b'\xff'):
+            with self.subTest(report=report), lane() as work:
+                code, results, summary = work.run([], report_bytes=report,
+                                                  census=[census_record(21)])
+                module = results['modules'][0]
+                self.assertEqual((code, module['state']), (1, 'error'))
+                self.assertIn('cannot read mutations.xml', module['error'])
+                self.assertIn(mutation.escape(module['error']), summary)
+                self.assertNotIn('off_diff_only', module)
+
+    def test_verified_empty_report_forms_can_resolve_an_off_diff_scope(self):
+        """CONV-205: absent, zero-byte and well-formed empty XML are empty evidence."""
+        for report in (None, b'', b'<mutations/>'):
+            with self.subTest(report=report), lane() as work:
+                code, results, _ = work.run([], report=False, report_bytes=report,
+                                            census=[census_record(21)])
+                module = results['modules'][0]
+                self.assertEqual((code, module['state'], module['total']), (0, 'complete', 0))
+                self.assertTrue(module['off_diff_only'])
+
     def test_a_scope_the_census_explains_is_complete_and_clean(self):
         with lane() as work:
             code, results, summary = work.run([], census=[census_record(21),
@@ -1325,6 +1376,43 @@ class PartialResultTest(unittest.TestCase):
                                         stream=[self.stream('KILLED', 11), torn])
             module = results['modules'][0]
             self.assertEqual((code, module['total'], module['killed']), (1, 1, 1))
+
+    def test_a_torn_utf8_stream_tail_preserves_finished_statuses(self):
+        """CONV-202: kill during a UTF-8 write must preserve the complete prefix."""
+        prefix = (self.stream('KILLED', 11) + '\n').encode()
+        tail = self.stream('SURVIVED', 21, description='torn é').encode().split(b'\xc3')[0] + b'\xc3'
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True, stream=prefix + tail)
+            module = results['modules'][0]
+            self.assertEqual((code, module['state'], module['total'], module['killed']),
+                             (1, 'timed out', 1, 1))
+            self.assertTrue(module['partial'])
+
+    def test_an_unreadable_census_fails_without_losing_the_mutant_report(self):
+        """CONV-202/205: unreadable evidence is an error with its concrete reason."""
+        with lane() as work:
+            code, results, summary = work.run([mutant('KILLED', 11)], census_unreadable=True)
+            module = results['modules'][0]
+            self.assertEqual((code, module['state'], module['total']), (1, 'error', 1))
+            self.assertEqual(module['census']['malformed'], 1)
+            self.assertIn('Is a directory', module['census']['unreadable'][0])
+            self.assertIn('Is a directory', summary)
+
+    def test_a_torn_utf8_census_tail_preserves_identities_and_reports_the_failure(self):
+        """CONV-202/205: intact census evidence survives, unreadable evidence fails."""
+        prefix = (census_record(21) + '\n').encode()
+        tail = census_record(22, description='torn é').replace('\\u00e9', 'é').encode()
+        tail = tail.split(b'\xc3')[0] + b'\xc3'
+        for timed_out in (False, True):
+            with self.subTest(timed_out=timed_out), lane() as work:
+                code, results, summary = work.run([mutant('KILLED', 11)],
+                                                  timed_out=timed_out, census=prefix + tail)
+                module = results['modules'][0]
+                self.assertEqual((code, module['census']['count'], module['census']['malformed']),
+                                 (1, 1, 1))
+                self.assertEqual(module['state'], 'timed out' if timed_out else 'error')
+                self.assertIn('line 2:', module['census']['unreadable'][0])
+                self.assertIn('utf-8', summary)
 
     def test_a_stream_with_no_intact_record_leaves_the_module_without_a_report(self):
         with lane() as work:

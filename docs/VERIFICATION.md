@@ -449,10 +449,7 @@ graphs preserves existing test-lane timing.
 Each module is analysed by exactly one PIT invocation, so its slow test scope is covered once per
 run. The invocations share one Gradle daemon with a fixed heap (`-Dorg.gradle.jvmargs`) instead of
 forking a single-use daemon each, which `--no-daemon` did for the workstation-sized heap
-`gradle.properties` requests, and the build-output cache carries Gradle's project-local `.gradle`
-task-history state next to `**/build`, so a restored output is up to date instead of recompiling
-`sirix-core` in the first invocation (measured at 45 s, and paid by every job that restores that
-cache).
+`gradle.properties` requests.
 
 Minions reuse each module's final `test` task `opens`/`exports` and system properties, including
 late native-image properties and values containing commas or whitespace. The

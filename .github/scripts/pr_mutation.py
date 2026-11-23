@@ -535,8 +535,8 @@ def tally(elements):
             'detected': sum(element.get('detected') == 'true' for element in elements)}
 
 
-def read_report(path, index):
-    return build_report(ET.parse(path).getroot().findall('mutation'), index)
+def read_report(path, index, allow_empty=False):
+    return build_report(ET.parse(path).getroot().findall('mutation'), index, allow_empty)
 
 
 def read_stream(path, index):
@@ -547,12 +547,12 @@ def read_stream(path, index):
     guessed at, and `None` means nothing survived (CONV-202).
     """
     mutations = []
-    for record in path.read_text().splitlines():
+    for record in path.read_bytes().splitlines():
         if not record.strip():
             continue
         try:
-            mutations.append(ET.fromstring(record))
-        except ET.ParseError:
+            mutations.append(ET.fromstring(record.decode('utf-8')))
+        except (UnicodeError, ET.ParseError):
             break  # only the last write can be torn; stop rather than read past it
     if not mutations:
         return None
@@ -585,6 +585,8 @@ def build_report(mutations, index, allow_empty=False):
                    for element in undetected(groups['unchanged']))
     advisory['classes'] = [[name, count] for name, count in debt.most_common()]
     report = tally(mutations)
+    report['classes'] = [[name, count] for name, count in Counter(
+        element.findtext('mutatedClass', '?') for element in undetected(mutations)).most_common()]
     report.update(statuses=dict(sorted(Counter(element.get('status', 'UNKNOWN')
                                                for element in mutations).items())),
                   survivors=[describe_mutant(element) for element in undetected(mutations)],
@@ -1226,17 +1228,19 @@ def format_census(result):
     return lines
 
 
-def format_advisory(result):
-    """Unchanged-line debt, as the scheduled full-scope report measures it. Never blocking."""
-    advisory = result.get('unchanged')
-    if not advisory or not advisory['total']:
+def format_advisory(result, full_scope=False):
+    """Undetected class debt in the requested scope. Never blocking."""
+    advisory = result if full_scope else result.get('unchanged')
+    if not advisory or not advisory.get('total'):
         return []
-    lines = [f"Unchanged lines of the same classes (advisory, never blocking). "
+    scope = 'All lines' if full_scope else 'Unchanged lines of the same classes'
+    lines = [f"{scope} (advisory, never blocking). "
              f"Mutants: {advisory['total']}. Killed: {advisory['killed']}. "
              f"Survived: {advisory['survived']}. No coverage: {advisory['no_coverage']}.", '']
     shown = advisory['classes'][:ADVISORY_CLASS_LIMIT]
     if shown:
-        lines.extend(['Classes with the most undetected unchanged-line mutants:', ''])
+        scope = '' if full_scope else 'unchanged-line '
+        lines.extend([f'Classes with the most undetected {scope}mutants:', ''])
         lines.extend(f'- {escape(name)}: {escape(count)}' for name, count in shown)
         if len(advisory['classes']) > len(shown):
             lines.append(f"- and {len(advisory['classes']) - len(shown)} more; see "
@@ -1309,7 +1313,7 @@ def format_full_scope(window, results, stale, associations):
         if result['state'] != 'complete':
             lines.extend(['Incomplete: this is not a complete debt report for the module.', ''])
         lines.extend(format_report(result))
-        lines.extend(format_advisory(result))
+        lines.extend(format_advisory(result, full_scope=True))
     if associations['errors']:
         # It changes no outcome here, but a broken file silently narrows the lane's test scope.
         lines.extend([f"`{associations['file']}` is invalid; the lane would reject it:", '']
@@ -1501,11 +1505,16 @@ def read_census(path, index):
     records = {}
     if not path.exists():
         return census, records
-    for number, line in enumerate(path.read_text().splitlines(), start=1):
+    try:
+        lines = path.read_bytes().splitlines()
+    except OSError as error:
+        census.update(malformed=1, unreadable=[reason(error)])
+        return census, records
+    for number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
         try:
-            record = json.loads(line)
+            record = json.loads(line.decode('utf-8'))
             identity = census_identity(record)
         except (ValueError, TypeError, KeyError) as error:
             census['malformed'] += 1
@@ -1515,8 +1524,7 @@ def read_census(path, index):
                 census['unreadable'].append(f'line {number}: {reason(error)}')
             continue
         records.setdefault(identity, {'line': record['lineNumber'],
-                                      'source': record['sourceFile'],
-                                      'class': record['class'], 'mutator': record['mutator']})
+                                      'source': record['sourceFile']})
         # Every record is attributed, not only the first of an identity: a line is not part of a
         # mutant's identity (CONV-201), so judging the deduplicated map could miss a violation.
         package = record['class'].rpartition('.')[0]
@@ -1553,9 +1561,16 @@ def resolve_empty_scope(result, index):
 
 
 def attach_report(result, report, index, stream=None):
+    empty_report = False
     try:
-        result.update(read_report(report, index))
-        return
+        empty_report = not report.exists() or report.stat().st_size == 0
+        if not empty_report:
+            parsed = read_report(report, index, allow_empty=True)
+            empty_report = parsed['total'] == 0
+            if not empty_report:
+                result.update(parsed)
+                return False
+        failure = ValueError(NO_MUTANTS)
     except (OSError, ValueError, ET.ParseError) as error:
         failure = error
     recovered = None
@@ -1568,10 +1583,11 @@ def attach_report(result, report, index, stream=None):
             result['stream_error'] = str(stream_error)
     if recovered:
         result.update(recovered)
-        return
+        return False
     if result['state'] == 'complete':
         # Name the file: a parse error carries only a line and column, and this run reads two.
         result.update(state='error', error=f'cannot read {Path(report).name}: {failure}')
+    return empty_report
 
 
 def analyze_module(root, output, module, sources, lines, deadline, seconds, associations,
@@ -1608,10 +1624,10 @@ def analyze_module(root, output, module, sources, lines, deadline, seconds, asso
         result.update(state='unmapped', error=str(error))
     except (OSError, ValueError, IndexError, struct.error) as error:
         result.update(state='error', error=str(error))
-    attach_report(result, report, index, stream)
+    empty_report = attach_report(result, report, index, stream)
     if restrict:
         attach_census(result, census, index)
-        if (executed and 'total' not in result and result['census']['count']
+        if (executed and empty_report and result['census']['count']
                 and not result['census']['malformed']):
             resolve_empty_scope(result, index)
     return result

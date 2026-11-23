@@ -304,9 +304,50 @@ Run: mutmut 3.8.1 against `test_pr_mutation*.py`, scoped by mutant-name glob to 
 
 Four rounds ran: each one's survivors were resolved by a behaviour test derived from the requirement, or by removing code with no observable effect (the `debt_limit` parameter threading, three dead defaults, a capacity hint, and one redundant guard in `is_clean`), and the next round measured the result. In-scope survivors fell 161 -> 154 -> 116 -> 89 -> 81. What the rounds found, rather than the counts, is in the pull request.
 
-**Every survivor below was verified by injection.** mutmut selects the tests for a mutant from its own coverage stats, and on this change it reported three mutants of `reason` as surviving that the suite in fact kills (`error.args[1]`, and two mutations of `str(error) or error.__class__.__name__`); the same three reproduced in every round. So each survivor was injected into a copy of the reporter and judged by running the whole suite, with no coverage selection. A disposition claiming "no test detects this" would have been false for those three.
+**Every survivor in the original measured tables was verified by injection.** mutmut selects the tests for a mutant from its own coverage stats, and on this change it reported three mutants of `reason` as surviving that the suite in fact kills (`error.args[1]`, and two mutations of `str(error) or error.__class__.__name__`); the same three reproduced in every round. So each survivor was injected into a copy of the reporter and judged by running the whole suite, with no coverage selection. A disposition claiming "no test detects this" would have been false for those three.
 
-### equivalent (wording): 78
+Review correction: the measured run metadata and historical counts above are unchanged.
+Nine claims are withdrawn and now covered by behaviour tests rather than dispositioned:
+`x_format_full_scope__mutmut_46`, `47` (actual completion labels),
+`x_prepare_analysis__mutmut_49`, `50` (the documented `targets.txt` artifact), `54`, `55`
+(exact newline-delimited PIT class selectors), `62`, `63` (the report directory the reporter
+reads), and `x_window_base__mutmut_11` (Git's exact UTC cutoff). The oracles are
+`LaneCommandTest.test_pit_targets_and_report_location_follow_the_artifact_contract` and
+`FullScopeTest.test_complete_scheduled_reports_are_never_labelled_incomplete` /
+`test_git_receives_the_exact_utc_cutoff`.
+
+The four `x_read_census__mutmut_53`, `54`, `57`, `58` claims also leave the wording table:
+they rename unused dictionary keys, not prose. The redundant stored `class` and `mutator`
+fields are now removed; identity already owns both, and consumers read only source and line
+from the value. Review of the remaining rows found prose, layout, argparse help and the
+three narrowly justified non-wording equivalents below. Thus 68 of the historically measured
+81 remain dispositioned here (65 wording, three other equivalents); nine now have contract
+tests and four disappeared with unused fields. No new mutation run is claimed.
+
+The source-inspection test that demanded explicit `shell=False` has been removed. The
+14 shell-default equivalents in the earlier section remain valid. The following ten additional
+variants are likewise equivalent, individually identified by caller, executable boundary and
+keyword transformation rather than unavailable mutmut run IDs. Python defaults to
+`shell=False`; `None` is also falsy, so none changes behavior. The explicit keyword documents
+the invariant in docs/VERIFICATION.md, and no behaviour test can detect its removal. Real
+Git repositories and helper commands with literal shell metacharacters now exercise these
+boundaries behaviorally; `execute` already has its literal-argument and log contract test.
+These ten reviewed variants are additional dispositions, not additions to the measured 81.
+
+| Caller / boundary | Original | Mutated |
+|---|---|---|
+| `changed_line_map` / Git diff | `shell=False` | keyword omitted |
+| `changed_line_map` / Git diff | `shell=False` | `shell=None` |
+| `changed_sources` / Git name-only diff | `shell=False` | keyword omitted |
+| `changed_sources` / Git name-only diff | `shell=False` | `shell=None` |
+| `changed_sources` / Git ls-tree | `shell=False` | keyword omitted |
+| `changed_sources` / Git ls-tree | `shell=False` | `shell=None` |
+| `execute` / Popen | `shell=False` | keyword omitted |
+| `execute` / Popen | `shell=False` | `shell=None` |
+| `window_base` / Git rev-list | `shell=False` | keyword omitted |
+| `window_base` / Git rev-list | `shell=False` | `shell=None` |
+
+### equivalent (wording): 65
 
 CONV-202 fixes what the lane's text must carry - the entry position, the violated rule, the resolving action, the counts, the kind, the census reasons and the violations - and CONV-206 what the scheduled report must state. Headings, argparse help texts, blank lines and the exact wording around those elements are not specified. Each mutant below changes only wording, letter case or an added `XX` decoration while keeping every specified element, so no specified behaviour differs. Tests for the wording itself are what CONV-202 forbids.
 
@@ -344,8 +385,6 @@ CONV-202 fixes what the lane's text must carry - the entry position, the violate
 | `x_format_full_scope__mutmut_26` | 1239 | 'A class nothing changed in the window is absent from this report.', ''] | 'A class nothing changed in the window is absent from this report.', 'XXXX'] |
 | `x_format_full_scope__mutmut_34` | 1241 | lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", '']) | lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", 'XXXX']) |
 | `x_format_full_scope__mutmut_42` | 1243 | lines.extend([escape(result['error']), '']) | lines.extend([escape(result['error']), 'XXXX']) |
-| `x_format_full_scope__mutmut_46` | 1244 | if result['state'] != 'complete': | if result['state'] != 'XXcompleteXX': |
-| `x_format_full_scope__mutmut_47` | 1244 | if result['state'] != 'complete': | if result['state'] != 'COMPLETE': |
 | `x_format_full_scope__mutmut_49` | 1245 | lines.extend(['Incomplete: this is not a complete debt report for the module.', '']) | lines.extend(['XXIncomplete: this is not a complete debt report for the module.XX', '']) |
 | `x_format_full_scope__mutmut_50` | 1245 | lines.extend(['Incomplete: this is not a complete debt report for the module.', '']) | lines.extend(['incomplete: this is not a complete debt report for the module.', '']) |
 | `x_format_full_scope__mutmut_52` | 1245 | lines.extend(['Incomplete: this is not a complete debt report for the module.', '']) | lines.extend(['Incomplete: this is not a complete debt report for the module.', 'XXXX']) |
@@ -373,23 +412,12 @@ CONV-202 fixes what the lane's text must carry - the entry position, the violate
 | `x_prepare_analysis__mutmut_21` | 1347 | raise ValueError('Empty target selection; refusing whole-module mutation') | raise ValueError('XXEmpty target selection; refusing whole-module mutationXX') |
 | `x_prepare_analysis__mutmut_44` | 1354 | raise Unmapped('No test maps to any changed source; PIT has no baseline to collect') | raise Unmapped('XXNo test maps to any changed source; PIT has no baseline to collectXX') |
 | `x_prepare_analysis__mutmut_45` | 1354 | raise Unmapped('No test maps to any changed source; PIT has no baseline to collect') | raise Unmapped('no test maps to any changed source; pit has no baseline to collect') |
-| `x_prepare_analysis__mutmut_49` | 1355 | target_file = directory / 'targets.txt' | target_file = directory / 'XXtargets.txtXX' |
-| `x_prepare_analysis__mutmut_50` | 1355 | target_file = directory / 'targets.txt' | target_file = directory / 'TARGETS.TXT' |
-| `x_prepare_analysis__mutmut_54` | 1356 | target_file.write_text('\n'.join(targets) + '\n') | target_file.write_text('XX\nXX'.join(targets) + '\n') |
-| `x_prepare_analysis__mutmut_55` | 1356 | target_file.write_text('\n'.join(targets) + '\n') | target_file.write_text('\n'.join(targets) + 'XX\nXX') |
-| `x_prepare_analysis__mutmut_62` | 1362 | f'-PprMutationReportDir={directory / "report"}', | f'-PprMutationReportDir={directory / "XXreportXX"}', |
-| `x_prepare_analysis__mutmut_63` | 1362 | f'-PprMutationReportDir={directory / "report"}', | f'-PprMutationReportDir={directory / "REPORT"}', |
 | `x_prepare_analysis__mutmut_68` | 1367 | raise ValueError('No changed-line map for this module; refusing to restrict the scope') | raise ValueError('XXNo changed-line map for this module; refusing to restrict the scopeXX') |
 | `x_prepare_analysis__mutmut_69` | 1367 | raise ValueError('No changed-line map for this module; refusing to restrict the scope') | raise ValueError('no changed-line map for this module; refusing to restrict the scope') |
-| `x_read_census__mutmut_53` | 1434 | 'class': record['class'], 'mutator': record['mutator']}) | 'XXclassXX': record['class'], 'mutator': record['mutator']}) |
-| `x_read_census__mutmut_54` | 1434 | 'class': record['class'], 'mutator': record['mutator']}) | 'CLASS': record['class'], 'mutator': record['mutator']}) |
-| `x_read_census__mutmut_57` | 1434 | 'class': record['class'], 'mutator': record['mutator']}) | 'class': record['class'], 'XXmutatorXX': record['mutator']}) |
-| `x_read_census__mutmut_58` | 1434 | 'class': record['class'], 'mutator': record['mutator']}) | 'class': record['class'], 'MUTATOR': record['mutator']}) |
 | `x_read_selection__mutmut_31` | 1620 | raise ValueError('selection.json carries a malformed dispositions_base') | raise ValueError('XXselection.json carries a malformed dispositions_baseXX') |
 | `x_read_selection__mutmut_46` | 1629 | raise ValueError('Selection manifest has no changed lines for: ' + ', '.join(missing)) | raise ValueError('XXSelection manifest has no changed lines for: XX' + ', '.join(missing)) |
 | `x_read_selection__mutmut_50` | 1629 | raise ValueError('Selection manifest has no changed lines for: ' + ', '.join(missing)) | raise ValueError('Selection manifest has no changed lines for: ' + 'XX, XX'.join(missing)) |
 | `x_window_base__mutmut_4` | 1672 | raise ValueError('--window-days must be positive') | raise ValueError('XX--window-days must be positiveXX') |
-| `x_window_base__mutmut_11` | 1673 | cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ') | cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('XX%Y-%m-%dT%H:%M:%SZXX') |
 
 ### equivalent (short circuit): 1
 

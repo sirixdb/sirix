@@ -47,8 +47,6 @@ jobs:
         with:
           path: |
             **/build
-            .gradle
-            **/.gradle
           key: build-${{ github.run_id }}
 
   TestCore:
@@ -81,8 +79,6 @@ jobs:
         with:
           path: |
             **/build
-            .gradle
-            **/.gradle
           key: build-${{ github.run_id }}
       - name: Test sirix-core
         run: >-
@@ -124,8 +120,6 @@ jobs:
         with:
           path: |
             **/build
-            .gradle
-            **/.gradle
           key: build-${{ github.run_id }}
       - name: Test sirix-query, sirix-kotlin-api, and sirix-kotlin-cli
         run: >-
@@ -228,8 +222,6 @@ jobs:
         with:
           path: |
             **/build
-            .gradle
-            **/.gradle
           key: build-${{ github.run_id }}
           fail-on-cache-miss: true
       - name: Run bounded PIT analysis
@@ -294,8 +286,6 @@ jobs:
         with:
           path: |
             **/build
-            .gradle
-            **/.gradle
           key: build-${{ github.run_id }}
           fail-on-cache-miss: true
       - name: Download core coverage
@@ -477,8 +467,6 @@ jobs:
         with:
           path: |
             **/build
-            .gradle
-            **/.gradle
           key: build-${{ github.run_id }}
       # The JVM suite must tear down its Compose project before the Python client starts the root
       # project: both publish Keycloak on host port 8080 and must not overlap.
