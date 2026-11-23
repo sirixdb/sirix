@@ -105,3 +105,35 @@
   including positive acceptance and accounting rather than only the overall gate verdict.
 - Vision check: the change prevents unsupported verification claims about the engine's results
   and cost, with no product behavior or default change.
+
+
+## Follow-up: local evidence loading must not assume completion
+
+- Fix / issue: review finding R12.
+- Symptom: the lane reported a failed run's added survivor entry as not judged, while checking
+  the same XML locally reconstructed it as completed, accepted the entry and could exit zero.
+  The same assumption could declare absent mutants stale from an unfinished generated set.
+- Root cause: `mutant_record` defaulted to completed and `report_records` discarded the lane's
+  existing completion metadata. The checker independently rebuilt class completeness from XML
+  presence and a CLI sampling flag. Record construction now defaults to unknown; one shared
+  loader reads completion and sampling from the artifact's existing `results.json` for the
+  canonical module report/census paths. The checker uses that provenance for matched entries
+  and class completeness, and fails unfinished or unknown reports. Remap consumes the same
+  records without claiming completeness. Stream records need no redundant unfinished assignment;
+  live XML attachment supplies its known run state, final lane judgment also withholds acceptance
+  if later census validation failed, and scheduled stale checks exclude partial module results.
+- Why tests missed it: local checker fixtures supplied bare XML and implicitly treated file
+  presence as a successful process exit; they tested statuses and census validity without carrying
+  the completion evidence the lane already wrote.
+- Regression tests: `RefactorHelperTest.test_check_preserves_lane_completion_for_both_disposition_kinds`
+  checks actual lane output from failed/completed runs through the CLI. Companion cases cover
+  unknown/missing/malformed/duplicate metadata, sampled runs, partial runs, detected-status rules,
+  withheld stale judgments and mixed-module input in either order. Existing positive local-check
+  fixtures now include explicit completed artifact metadata rather than relying on XML presence.
+  Focused command: `python3 -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'`.
+  All five new regression cases rejected the starting reporter; all 246 focused tests passed
+  after the fix, including the existing lane, local checker and remap contracts.
+- Lesson: [default unknown evidence to unproven](../LESSONS.md#mutation-evidence-contracts) and
+  transport existing provenance across serialization boundaries as well as in-memory judgment.
+- Vision check: consistent verification claims protect confidence in the engine's results and
+  cost; there is no product behavior or default change.

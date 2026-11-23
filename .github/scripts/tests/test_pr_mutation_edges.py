@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 from test_pr_mutation_dispositions import (EVIDENCE, JUSTIFICATION, REPOSITORY, SOURCE,
                                            SOURCE_PATH, census_record, class_file, entry, lane,
-                                           mutant, mutation, states)
+                                           lane_report, mutant, mutation, states)
 
 
 def errors_of(text):
@@ -619,9 +619,8 @@ class RealRepositoryTest(unittest.TestCase):
 
     def test_check_judges_entries_against_the_real_diff(self):
         with repository() as (root, base, git):
-            report = root / 'mutations.xml'
-            report.write_text('<mutations>' + mutant('SURVIVED', 11)
-                              + mutant('SURVIVED', 12, indexes=(9,)) + '</mutations>')
+            report = lane_report(root, [mutant('SURVIVED', 11),
+                                        mutant('SURVIVED', 12, indexes=(9,))])
             (root / mutation.DISPOSITIONS_FILE).write_text(
                 entry() + entry('killed-out-of-lane', indexes=[9]))
             failing, text = mutation.check_dispositions(root, [str(report)], base, False)
@@ -858,8 +857,7 @@ class SecondRoundTest(unittest.TestCase):
 
     def test_check_cli_against_a_real_history(self):
         with repository() as (root, base, _):
-            report = root / 'mutations.xml'
-            report.write_text('<mutations>' + mutant('SURVIVED', 11) + '</mutations>')
+            report = lane_report(root, [mutant('SURVIVED', 11)])
             (root / mutation.DISPOSITIONS_FILE).write_text(entry())
             args = ['pr_mutation.py', 'dispositions', '--root', str(root), '--report', str(report),
                     '--check', '--base', base]

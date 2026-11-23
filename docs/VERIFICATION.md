@@ -393,6 +393,15 @@ removed off the diff exactly as the lane judges them. Census validation failures
 fail the checker; invalid evidence never proves a complete generated set. Valid census-only classes
 are included when checking staleness.
 
+Keep the lane artifact layout intact when checking its reports: `results.json` at the output
+root, `<module>/report/mutations.xml`, and `<module>/census.jsonl`. The shared evidence loader
+reads the matching module's completion and sampling state from that existing manifest. Failed,
+timed-out, partial or unknown runs cannot authorize a disposition, and cannot prove a complete
+generated set. Standalone XML without matching completion metadata is reported as unknown and
+fails the check; its detected statuses still contradict or supersede entries, and remap can
+still propose identities. A report from a completed sampled run can authorize its measured
+survivors, but cannot prove a missing mutant stale.
+
 Measured churn of pure refactors (PIT 1.25.5 on a four-method sample class whose six surviving
 mutants were taken as reviewed entries): a line shift, an extract-method and a method reorder
 touch no entry; a rename leaves two entries stale, each remapped to one candidate marked as

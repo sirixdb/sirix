@@ -557,8 +557,6 @@ def read_stream(path, index):
     if not mutations:
         return None
     report = build_report(mutations, index)
-    for mutant in report['_mutants']:
-        mutant['completed_run'] = False
     report['partial'] = True
     return report
 
@@ -975,7 +973,7 @@ def mutant_record(element, changed):
     return {'identity': mutant_identity(element), 'status': element.get('status', 'UNKNOWN'),
             'detected': element.get('detected') == 'true', 'line': mutant_line(element),
             'changed': changed, 'text': describe_mutant(element),
-            'killing_test': element.findtext('killingTest'), 'completed_run': True}
+            'killing_test': element.findtext('killingTest'), 'completed_run': False}
 
 
 def method_changed(found, entry, changed_index):
@@ -1679,10 +1677,10 @@ def mutated_classes(results):
     """
     mutated = {}
     for result in results:
-        if result['state'] != 'complete':
+        if result['state'] != 'complete' or result.get('partial'):
             continue
         for target in result.get('targets', ()):
-            mutated[target] = result.get('mutants_per_class') is None
+            mutated[target] = result.get('mutants_per_class', False) is None
     return mutated
 
 
@@ -1701,6 +1699,7 @@ def judge_run(root, results, changed, base_text):
     mutants = {}
     for result in results:
         for mutant in result.get('_mutants', ()):
+            mutant['completed_run'] = mutant['completed_run'] and result['state'] == 'complete'
             mutants.setdefault(mutant['identity'], mutant)
     # Census identities prove a mutant exists without proving anything about its status, which is
     # what keeps staleness and re-identification judgeable in a changed-line-only run (CONV-202).
@@ -1844,13 +1843,48 @@ class CounterfactualError(Exception):
     """The counterfactual run produced no valid evidence; the message says why."""
 
 
+def evidence_provenance(path):
+    path = Path(path)
+    if path.name == 'mutations.xml' and path.parent.name == 'report':
+        directory = path.parent.parent
+    elif path.name == CENSUS_FILE:
+        directory = path.parent
+    else:
+        return False, False
+    if directory.name not in DIRECTORIES:
+        return False, False
+    try:
+        document = json.loads((directory.parent / 'results.json').read_text())
+        modules = document['modules']
+        if not isinstance(modules, list):
+            return False, False
+        matching = [module for module in modules if isinstance(module, dict)
+                    and module.get('module') == directory.name]
+    except (OSError, ValueError, KeyError, TypeError):
+        return False, False
+    if len(matching) != 1:
+        return False, False
+    module = matching[0]
+    completed = module.get('state') == 'complete' and module.get('partial', False) is False
+    return completed, completed and module.get('mutants_per_class', False) is None
+
+
 def report_records(paths, index):
     records = []
+    classes = {}
+    incomplete = []
     for path in paths:
+        completed, unsampled = evidence_provenance(path)
+        if not completed:
+            incomplete.append(str(path))
         for element in ET.parse(path).getroot().findall('mutation'):
             kind, _ = classify_mutant(element, index)
-            records.append(mutant_record(element, kind == 'changed'))
-    return records
+            record = mutant_record(element, kind == 'changed')
+            record['completed_run'] = completed
+            records.append(record)
+            name = record['identity'][0]
+            classes[name] = classes.get(name, True) and unsampled
+    return records, classes, incomplete
 
 
 def current_commit(root):
@@ -1871,8 +1905,7 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
     """
     _, lines = changed_sources(root, base, current_commit(root))
     index = global_changed_index(root, lines)
-    records = report_records(reports, index)
-    classes = {record['identity'][0] for record in records}
+    records, classes, incomplete = report_records(reports, index)
     census = {}
     census_summaries = []
     census_valid = True
@@ -1880,20 +1913,26 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
         summary, found = read_census(Path(path), index)
         census_summaries.append(summary)
         census_valid = census_valid and not summary['malformed'] and not summary['violations']
-        classes.update(identity[0] for identity in found)
+        _, unsampled = evidence_provenance(path)
+        for identity in found:
+            name = identity[0]
+            classes[name] = classes.get(name, True) and unsampled
         for identity, record in found.items():
             census.setdefault(identity, record)
     entries, errors = read_dispositions(root)
     context = {'compiled': CompiledClasses(root), 'tests': lambda: declared_tests(root),
                'mutants': {record['identity']: record for record in records}, 'census': census,
                'changed_index': index,
-               'mutated': dict.fromkeys(classes, not sampled and census_valid)}
+               'mutated': {name: complete and not sampled and census_valid
+                           for name, complete in classes.items()}}
     verdict, accepted = judge_dispositions([] if errors else entries, errors,
                                            merge_base_file(root, base, DISPOSITIONS_FILE), context)
     module = {'changed': {}, '_mutants': records}
     apply_dispositions(module, accepted, verdict['entries'])
     lines_out = [f'{DISPOSITIONS_FILE}: {len(entries)} valid entries, {len(errors)} errors']
     lines_out.extend(f'error: {error}' for error in errors)
+    lines_out.extend(f'Run completion is unfinished or unknown for {path}; '
+                     'no disposition can be authorized by this report' for path in incomplete)
     for summary in census_summaries:
         lines_out.extend(format_census({'census': summary}))
     for record in verdict['entries']:
@@ -1903,7 +1942,8 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
                              f"{record['class']}.{record['method']}: {record['action']}")
     lines_out.extend(f"FAIL mutant {value['mutant']}: {value['reason']}"
                      for value in module['changed']['failing'])
-    failing = bool(errors or not census_valid or verdict['failing'] or module['changed']['failing'])
+    failing = bool(errors or incomplete or not census_valid or verdict['failing']
+                   or module['changed']['failing'])
     return failing, '\n'.join(lines_out)
 
 
@@ -1930,7 +1970,7 @@ def remap_candidates(entry, records):
 
 def remap_dispositions(root, reports):
     """Propose identities for every entry no report mutant matches; never writes the file."""
-    records = report_records(reports, {})
+    records, _, _ = report_records(reports, {})
     present = {record['identity'] for record in records}
     entries, errors = read_dispositions(root)
     lines = [f'error: {error}' for error in errors]
