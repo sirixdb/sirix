@@ -341,21 +341,36 @@ jobs:
     # whole workflow. The two groups are the natural cut — they were the two ~equal halves of that
     # 29 min — and they now run concurrently instead.
     #
-    # sirix-core is cut once more, on the io.sirix.index package tree (-PcoreTestLane=index vs
+    # Windows sirix-core is cut once more, on the io.sirix.index package tree (-PcoreTestLane=index vs
     # non-index, defined in bundles/sirix-core/build.gradle): that one job was still 25-35 min on
-    # both runners. The two cuts are complementary class filters on the one :sirix-core:test task,
+    # Windows. The two cuts are complementary class filters on the one :sirix-core:test task,
     # so every test class runs in exactly one of them; docs/CI_CORE_HEADROOM.md has the numbers.
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
         lane:
+          - name: core
+            tasks: ':sirix-core:test'
           - name: core-index
             tasks: ':sirix-core:test -PcoreTestLane=index'
           - name: core-non-index
             tasks: ':sirix-core:test -PcoreTestLane=non-index'
           - name: query
             tasks: ':sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test'
+        exclude:
+          - os: macos-latest
+            lane:
+              name: core-index
+              tasks: ':sirix-core:test -PcoreTestLane=index'
+          - os: macos-latest
+            lane:
+              name: core-non-index
+              tasks: ':sirix-core:test -PcoreTestLane=non-index'
+          - os: windows-latest
+            lane:
+              name: core
+              tasks: ':sirix-core:test'
         # Heap budgets differ per runner: macOS arm64 has 7 GB total, windows-latest 16 GB.
         include:
           - os: macos-latest
@@ -420,29 +435,6 @@ jobs:
       # invisible for five rounds. One module's failure must not mask another's result.
       - name: Test ${{ matrix.lane.name }} modules
         run: ./gradlew ${{ matrix.lane.tasks }} -PexcludeHeavyTests=true -PtestHeapMin=512m -PtestHeapMax=${{ matrix.testHeap }} --continue --build-cache --stacktrace
-      # Executed totals per core cut, so the two cuts can be summed and compared with the
-      # unpartitioned count (docs/CI_CORE_HEADROOM.md). Reads only the XML Gradle already wrote.
-      - name: Summarize core test counts
-        if: always() && startsWith(matrix.lane.name, 'core')
-        shell: bash
-        run: |
-          shopt -s nullglob
-          files=(bundles/sirix-core/build/test-results/test/TEST-*.xml)
-          summary="core test results (${{ matrix.os }} / ${{ matrix.lane.name }}): ${#files[@]} classes"
-          if [ "${#files[@]}" -gt 0 ]; then
-            totals=$(grep -h '<testsuite ' "${files[@]}" | awk '{
-              for (i = 1; i <= NF; i++) {
-                n = $i; gsub(/[^0-9]/, "", n)
-                if ($i ~ /^tests="/) t += n
-                else if ($i ~ /^skipped="/) s += n
-                else if ($i ~ /^failures="/) f += n
-                else if ($i ~ /^errors="/) e += n
-              }
-            } END { printf "%d tests, %d skipped, %d failures, %d errors", t, s, f, e }')
-            summary="$summary, $totals"
-          fi
-          echo "$summary"
-          echo "$summary" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
