@@ -89,7 +89,7 @@ individual members below may be weaker. This is not a compiled API artifact.
 | `io.sirix.exception.SirixUsageException` | stable | [SirixUsageException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/SirixUsageException.java) | `b0eeff956e852e311e807a51aab8bbdf4c0dca1f52e493813a68a4f510a5fc15` |
 | `io.sirix.exception.SirixIOException` | stable | [SirixIOException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/SirixIOException.java) | `b189cb7a4f0e4351821972388f8da11d09c8e3b152e4b18834f28b26b736f9d7` |
 | `io.sirix.exception.SirixRevisionPrunedException` | stable | [SirixRevisionPrunedException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/SirixRevisionPrunedException.java) | `6c9334f9a82dde5bebc7659aa616465558342316594a0a6b66a6b941ff494265` |
-| `io.sirix.exception.UnsupportedStoreFeatureException` | stable | [UnsupportedStoreFeatureException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/UnsupportedStoreFeatureException.java) | `9cf65f51ad6003e72283510449b27c46dc11f9ad54ae211a18a928c966a143ef` |
+| `io.sirix.exception.UnsupportedStoreFeatureException` | stable | [UnsupportedStoreFeatureException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/UnsupportedStoreFeatureException.java) | `72e71d48acd6eb597490cee052fb1ee5097cb57e8b186cc1bc7791315ddb1ccb` |
 | `io.sirix.query.SirixQueryContext` | stable | [SirixQueryContext.java](../bundles/sirix-query/src/main/java/io/sirix/query/SirixQueryContext.java) | `00781b3879734a6ec48eccbba7703803343534b7f91a55b03a5ae7ed047d6c1c` |
 | `io.sirix.query.SirixCompileChain` | stable | [SirixCompileChain.java](../bundles/sirix-query/src/main/java/io/sirix/query/SirixCompileChain.java) | `4dc1e47daced4b045793a897b8afa1866357e42d3c6771e41567261533667607` |
 | `io.sirix.query.json.JsonDBStore` | stable | [JsonDBStore.java](../bundles/sirix-query/src/main/java/io/sirix/query/json/JsonDBStore.java) | `8ff003ee1fc93a0823ccb4d39488eaf9a089c62e259a095962f13c2c2012de63` |
@@ -1337,7 +1337,7 @@ Source: [SirixRevisionPrunedException.java](../bundles/sirix-core/src/main/java/
 Source: [UnsupportedStoreFeatureException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/UnsupportedStoreFeatureException.java).
 
 ```text
-[stable] public final class UnsupportedStoreFeatureException extends UnsupportedOperationException
+[stable] public class UnsupportedStoreFeatureException extends UnsupportedOperationException
 [stable] public UnsupportedStoreFeatureException(final String message);
 ```
 

@@ -47,13 +47,12 @@ import java.nio.file.StandardOpenOption;
  *
  * <p>
  * <b>The gap, variant two (lost revision record of the bootstrap commit):</b> resource creation
- * itself runs the EMPTY bootstrap commit (revision 0). Its 32-byte revision record is the ONLY path
- * from the (durably written) uber beacons to the revision's root page, and the record lives in a
- * DIFFERENT, just-created file — an environment-level loss (e.g. the new {@code sirix.revisions}
- * directory entry dropped by a power cut, or the file truncated by filesystem repair) leaves
- * checksum-valid beacons advertising revision 0 with no record to dereference. The next open then
- * fails with "Truncated revisions record for revision 0" — permanently, although the only revision
- * ever acknowledged is the empty bootstrap one and nothing on disk is reachable.
+ * itself runs the EMPTY bootstrap commit (revision 0). Its 32-byte revision record lives in a
+ * DIFFERENT, just-created file. If that record is lost (e.g. the new {@code sirix.revisions}
+ * directory entry dropped by a power cut, or the file truncated by filesystem repair) and no usable
+ * beacon tail-log copy survives, checksum-valid beacons advertise revision 0 with no record to
+ * dereference. Without recovery, open fails permanently even though the only acknowledged revision
+ * is the empty bootstrap one and nothing on disk is reachable.
  *
  * <p>
  * <b>The heal:</b> when the open fails, the resource is re-initialized empty if and only if the
