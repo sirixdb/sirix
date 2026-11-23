@@ -152,13 +152,12 @@ test {
         exclude hotPropertyClasses
     } else if (coreTestLane == 'index') {
         include indexPackageClasses
-    } else if (coreTestLane == 'non-index' || coreTestLane == 'remaining-non-index') {
-        // The HOT property classes sit in the index tree, so the non-index side is already
-        // free of them and is both the non-index lane and the Linux remaining-non-index lane.
+    } else if (coreTestLane == 'non-index') {
+        // Also the Linux non-index shard: the HOT property classes sit in the index tree.
         exclude indexPackageClasses
     } else if (coreTestLane != null) {
         throw new GradleException("Unknown coreTestLane '${coreTestLane}'; expected hot-property, remaining, " +
-            "remaining-index, remaining-non-index, index or non-index")
+            "remaining-index, index or non-index")
     }
 
     useJUnitPlatform {
@@ -497,7 +496,7 @@ tasks.register('jacocoMergedReport', JacocoReport) {
         html.required = false
     }
     doFirst {
-        for (final String lane : ['hot-property', 'remaining-index', 'remaining-non-index']) {
+        for (final String lane : ['hot-property', 'remaining-index', 'non-index']) {
             for (final String suite : ['test', 'validTimeDisabledLookupCacheTest',
                                        'dictionaryReadViewAllocationTest', 'storageEpochStoreIdentityTest']) {
                 final File data = rootProject.layout.buildDirectory

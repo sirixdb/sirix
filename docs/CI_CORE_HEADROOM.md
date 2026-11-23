@@ -135,27 +135,27 @@ build, like the other cross-platform jobs, because the restored Linux x86 build 
 an x86 `libsirix_lz77.so`.
 
 **Linux x86 `remaining`** cannot use `index` and `non-index` unchanged, because the HOT property
-classes sit in the index tree. Two more `coreTestLane` values do the cut on the set that
-`remaining` already selects:
+classes sit in the index tree. The new `remaining-index` value and the existing `non-index`
+value cut the set that `remaining` already selects:
 
 | Lane | Selects |
 | --- | --- |
 | `hot-property` | `HOTStructuralPropertyTest*` |
 | `remaining-index` | `io/sirix/index/**` except `HOTStructuralPropertyTest*` |
-| `remaining-non-index` | everything outside `io/sirix/index/**` |
+| `non-index` | everything outside `io/sirix/index/**` |
 
-`remaining-non-index` is the `non-index` filter (the property classes are not in it), and
-`remaining-index` ∪ `remaining-non-index` = `remaining`. So `hot-property`, `remaining-index`
-and `remaining-non-index` have an empty pairwise intersection and their union is the
+The property classes are outside `non-index`, and
+`remaining-index` ∪ `non-index` = `remaining`. So `hot-property`, `remaining-index`
+and `non-index` have an empty pairwise intersection and their union is the
 unpartitioned set. The measure used above, applied to the log of the
 [last pull-request run's `remaining` job](https://github.com/sirixdb/sirix/actions/runs/45271088107),
-gives about 875 s for `remaining-index` and 915 s for `remaining-non-index` (plus about 4 minutes
+gives about 875 s for `remaining-index` and 915 s for `non-index` (plus about 4 minutes
 of compile and isolated tasks in each), against 1,820 s together. The Sonar job merges the three
 `coverage-core-*` artifacts (`jacocoMergedReport` checks that each lane produced its execution
 data).
 
 Check the partition with the dry-run count from [Verification](#verification), once per
-platform filter set (Linux: `hot-property`, `remaining-index`, `remaining-non-index` against no
+platform filter set (Linux: `hot-property`, `remaining-index`, `non-index` against no
 lane; cross-platform: `index`, `non-index` against no lane, with `-PexcludeHeavyTests`).
 
 Cross-platform job names become `Cross-platform tests (macos-latest / core-index)`,

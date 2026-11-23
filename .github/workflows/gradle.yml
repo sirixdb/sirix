@@ -68,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [hot-property, remaining-index, remaining-non-index]
+        lane: [hot-property, remaining-index, non-index]
     timeout-minutes: 35
     steps:
       - name: Checkout
@@ -362,7 +362,7 @@ jobs:
         run: |
           test -s build/reports/python/python-coverage.xml
           test -s tools/pit-changed-lines/build/reports/jacoco/test/jacocoTestReport.xml
-          for lane in hot-property remaining-index remaining-non-index; do
+          for lane in hot-property remaining-index non-index; do
             cp -a "build/sonar-coverage/coverage-core-$lane/test-results" bundles/sirix-core/build/
           done
           ./gradlew :sirix-core:jacocoMergedReport --info --stacktrace --max-workers=2 \
