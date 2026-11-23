@@ -636,36 +636,6 @@ class ReportingTest(unittest.TestCase):
             # The mocked first module returned at once, so it donates its remainder.
             self.assertGreater(timeouts[1], 9)
 
-    def execute(command, root, log, timeout):
-                calls.append((log, timeout))
-                if len(calls) == 1:
-                    raise subprocess.TimeoutExpired(command, timeout)
-                report = log.parent / 'report/mutations.xml'
-                report.parent.mkdir(parents=True)
-                report.write_text('<mutations><mutation status="KILLED" detected="true">'
-                                  '<sourceFile>Second.java</sourceFile><mutatedClass>a.Second</mutatedClass>'
-                                  '<lineNumber>1</lineNumber></mutation></mutations>')
-                return 0
-
-            def prepare(root, directory, module, selected, result, associations):
-                result.update(targets=['a.First' if selected == sources[:1] else 'a.Second'],
-                              tests=['a.ReleaseTest*'], unmapped=[], resolution={})
-                return ['unused']
-
-            with patch.object(mutation, 'partition_sources', return_value=[[sources[0]], [sources[1]]]), \
-                 patch.object(mutation, 'resolve_targets', return_value=(['a.First', 'a.Second'], [])), \
-                 patch.object(mutation, 'changed_line_index', return_value={('a', 'Second.java'): {1}}), \
-                 patch.object(mutation, 'prepare_analysis', side_effect=prepare), \
-                 patch.object(mutation, 'execute', side_effect=execute):
-                self.assertEqual(mutation.run(output, output, 10, blocking=True), 1)
-            results = json.loads((output / 'results.json').read_text())['modules']
-            self.assertEqual([result['state'] for result in results], ['timed out', 'complete'])
-            self.assertEqual([source for result in results for source in result['sources']], sources)
-            self.assertNotEqual(calls[0][0], calls[1][0], 'partition evidence must never overwrite a sibling')
-            self.assertLessEqual(calls[0][1], 5)
-            self.assertGreater(calls[1][1], 9)
-            self.assertEqual(results[0]['mutants_per_class'], results[1]['mutants_per_class'])
-
     def test_a_real_budget_reserves_a_floor_without_capping_the_first_module(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
