@@ -1,6 +1,22 @@
 # Lifecycle mutation accounting
 
-## Current candidate closure (round 101)
+## Rebase evidence boundary (round 102)
+
+The lifecycle branch was rebased from `cba6a47371fee5026c5debbdf551098b75d93b84`
+onto main at `f4b392e72955c4b08487bb381af1ca5160c32172`. Main's microsecond timestamp
+contracts and split derived-history tests are retained alongside every lifecycle fix,
+including the maintenance-ownership regression and the unchanged 37 budget cases.
+The round-101 reports below remain evidence for their frozen candidate: 49 of their
+3,052 source/configuration files changed during integration, so neither that PIT verdict
+nor the 51-class compiled comparison attests the rebased head. Required pipeline
+revalidation and final publication remain with the outer executor; no raw mutation
+status, sampling limit, work ceiling or historical disposition is changed by this repair.
+Focused rebase checks passed: 466 core cases, all 37 lifecycle budget cases, 163 Python
+mutation-tooling cases, and query/REST test compilation. JVM checks ran through the
+existing resource-admission wrapper and Docker-free task-graph guard; they do not replace
+full pipeline revalidation or establish new mutation or latency results.
+
+## Prior candidate closure (round 101)
 
 TXN-804 now has behavior coverage for null creation arguments and closed peer handles
 across JSON/XML pre-hooks, post-hooks and revision listeners. The early creation guard
