@@ -102,8 +102,6 @@ CENSUS_FILE = 'census.jsonl'
 # and discarded every finished mutant. The STREAM listener flushes each analysed class as it
 # arrives; the reporter falls back to it and tolerates a record torn by the kill (CONV-202).
 STREAM_FILE = 'mutations-stream.xml'
-# One reused daemon with a fixed heap instead of a single-use daemon per invocation. The value
-# must be identical for every invocation of a run, or Gradle forks another daemon for each.
 DAEMON_JVM_ARGS = '-Xmx3g'
 # CONV-206: the scheduled full-scope report mutates every line of the sources the default branch
 # changed within its window, which is stated in the report rather than fixed by the criterion.
@@ -1385,59 +1383,41 @@ def format_summary(results, dispositions=None, associations=None):
     return '\n'.join(lines)
 
 
-DAEMON_PID_ARGUMENT = '-Dsirix.prMutationDaemonPidFile='
-
-
-def process_table():
-    return {int(pid): (int(parent), state) for pid, parent, state in
-            (line.split() for line in subprocess.check_output(
-                ['ps', '-e', '-o', 'pid=,ppid=,stat='], text=True).splitlines())}
-
-
-def terminate_work(process, receipt):
-    """Stop owned parents before discovering workers, then await their termination."""
-    owned = {process.pid}
-    if receipt is not None and receipt.is_file():
-        value = receipt.read_text().strip()
-        if value.isdecimal() and int(value) > 1 and int(value) != os.getpid():
-            owned.add(int(value))
-    pending = owned
-    while pending:
-        for pid in pending:
-            try:
-                os.kill(pid, signal.SIGSTOP)
-            except ProcessLookupError:
-                pass
-        processes = process_table()
-        while any(pid in processes and not processes[pid][1].startswith(('T', 't', 'Z'))
-                  for pid in pending):
-            time.sleep(.01)
-            processes = process_table()
-        pending = {pid for pid, (parent, _) in processes.items() if parent in owned} - owned
-        owned.update(pending)
-    for pid in owned:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    process.wait()
-    while any(pid in processes and not processes[pid][1].startswith('Z') for pid in owned):
-        time.sleep(.01)
-        processes = process_table()
-
-
 def execute(command, root, log, timeout):
-    receipt = next((Path(value[len(DAEMON_PID_ARGUMENT):]) for value in command
-                    if value.startswith(DAEMON_PID_ARGUMENT)), None)
-    if receipt is not None:
-        receipt.unlink(missing_ok=True)
     with log.open('w') as stream, subprocess.Popen(
             command, cwd=root, stdout=stream, stderr=subprocess.STDOUT,
             start_new_session=True, shell=False) as process:
         try:
             return process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            terminate_work(process, receipt)
+            parents = {int(pid): int(parent) for pid, parent in
+                       (line.split() for line in subprocess.check_output(
+                           ['ps', '-e', '-o', 'pid=,ppid='], text=True).splitlines())}
+            descendants = {process.pid}
+            while True:
+                children = {pid for pid, parent in parents.items() if parent in descendants}
+                if children <= descendants:
+                    break
+                descendants.update(children)
+            for pid in descendants - {process.pid}:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            pending = descendants - {process.pid}
+            while pending:
+                active = {int(pid) for pid, state in
+                          (line.split() for line in subprocess.check_output(
+                              ['ps', '-e', '-o', 'pid=,stat='], text=True).splitlines())
+                          if not state.startswith('Z')}
+                pending.intersection_update(active)
+                if pending:
+                    time.sleep(.01)
             raise
 
 
@@ -1473,12 +1453,9 @@ def prepare_analysis(root, directory, module, sources, result, associations=None
         raise Unmapped('No test maps to any changed source; PIT has no baseline to collect')
     target_file = directory / 'targets.txt'
     target_file.write_text('\n'.join(targets) + '\n')
-    # One daemon with a fixed heap, reused across the run's invocations, instead of forking a
-    # single-use daemon per module for the workstation-sized heap `gradle.properties` requests.
     command = [str(root / 'gradlew'), f':{module}:pitest',
                f'-Dorg.gradle.jvmargs={DAEMON_JVM_ARGS}',
-               '--init-script', str(root / '.github/scripts/pr_mutation_worker.gradle'),
-               DAEMON_PID_ARGUMENT + str(directory / 'daemon.pid'),
+               '--no-daemon',
                f'-PprMutationModule={module}', f'-PprMutationTargetsFile={target_file}',
                f'-PprMutationReportDir={directory / "report"}',
                f'-PprMutationTests={",".join(tests)}']

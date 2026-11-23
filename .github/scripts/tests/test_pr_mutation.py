@@ -822,6 +822,77 @@ class ReportingTest(unittest.TestCase):
                     except ProcessLookupError:
                         pass
 
+    def test_single_use_work_stops_before_artifacts_and_the_next_module(self):
+        """CONV-205: model single-use Gradle ancestry with real detached processes, not Gradle."""
+        worker_code = ('import os,time; from pathlib import Path; '
+                       'Path("worker-observed.pid").write_text(str(os.getpid())); time.sleep(60)')
+        daemon_code = ('import os,subprocess,sys,time; from pathlib import Path; '
+                       'Path("child-observed.pid").write_text(str(os.getpid())); '
+                       f'subprocess.Popen([sys.executable,"-c",{worker_code!r}],start_new_session=True); '
+                       'time.sleep(60)')
+        report_text = ('<mutations><mutation status="KILLED" detected="true">'
+                       '<sourceFile>Foo.java</sourceFile><mutatedClass>a.Foo</mutatedClass>'
+                       '<lineNumber>11</lineNumber></mutation></mutations>')
+        for phase in ('startup', 'analysis'):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                output = root / 'out'
+                output.mkdir()
+                wrapper = root / 'gradlew'
+                wrapper.write_text(
+                    '#!' + sys.executable + '\n'
+                    'import subprocess,sys,time\nfrom pathlib import Path\n'
+                    'assert "--no-daemon" in sys.argv, "single-use Gradle required"\n'
+                    'report = Path(next(a.split("=",1)[1] for a in sys.argv '
+                    'if a.startswith("-PprMutationReportDir="))) / "mutations.xml"\n'
+                    'if sys.argv[1] == ":sirix-core:pitest":\n'
+                    f'    subprocess.Popen([sys.executable,"-c",{daemon_code!r}],start_new_session=True)\n'
+                    + ('    report.parent.mkdir(parents=True,exist_ok=True)\n'
+                       f'    report.write_text({report_text!r})\n' if phase == 'analysis' else '')
+                    + '    time.sleep(60)\n'
+                    'else:\n'
+                    '    for name in ("child-observed.pid", "worker-observed.pid"):\n'
+                    '        pid = Path(name).read_text()\n'
+                    '        state = subprocess.run(["ps","-p",pid,"-o","stat="], '
+                    'capture_output=True,text=True).stdout.strip()\n'
+                    '        assert not state or state.startswith("Z"), "previous work still running"\n'
+                    '    Path("next.started").write_text("stopped")\n'
+                    '    report.parent.mkdir(parents=True,exist_ok=True)\n'
+                    f'    report.write_text({report_text!r})\n')
+                wrapper.chmod(0o755)
+                attach = mutation.attach_report
+
+                def running(pid):
+                    state = subprocess.run(['ps', '-p', str(pid), '-o', 'stat='],
+                                           capture_output=True, text=True).stdout.strip()
+                    return bool(state and not state.startswith('Z'))
+
+                def attach_after_termination(*args, **kwargs):
+                    for name in ('child-observed.pid', 'worker-observed.pid'):
+                        self.assertTrue((root / name).exists(), 'single-use work did not start')
+                        self.assertFalse(running(int((root / name).read_text())),
+                                         'artifact access preceded worker termination')
+                    return attach(*args, **kwargs)
+
+                selected = {'sirix-core': ['Foo.java'], 'sirix-query': ['Foo.java']}
+                try:
+                    with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                         patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
+                         patch.object(mutation, 'changed_line_index', return_value={}), \
+                         patch.object(mutation, 'attach_report', side_effect=attach_after_termination):
+                        results = mutation.analyze_modules(root, output, selected,
+                                                          {name: {} for name in selected},
+                                                          4, None, False)
+                    self.assertEqual([r['state'] for r in results], ['timed out', 'complete'])
+                    self.assertEqual((root / 'next.started').read_text(), 'stopped')
+                    self.assertEqual('total' in results[0], phase == 'analysis')
+                finally:
+                    for name in ('child-observed.pid', 'worker-observed.pid'):
+                        if (root / name).exists():
+                            pid = int((root / name).read_text())
+                            if running(pid):
+                                os.kill(pid, signal.SIGKILL)
+
     def test_the_child_runs_in_the_repository_in_its_own_session_without_a_shell(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -992,14 +1063,6 @@ class LaneCommandTest(unittest.TestCase):
         self.assertEqual(len(found), 1, f'{prefix} in {command}')
         return found[0].split('=', 1)[1]
 
-    def test_each_invocation_requests_a_fresh_serving_daemon_receipt(self):
-        for restrict in (False, True):
-            with self.subTest(restrict=restrict), self.prepared(restrict=restrict) as (command, _, directory):
-                self.assertEqual(self.argument(command, '-Dsirix.prMutationDaemonPidFile='),
-                                 str(directory / 'daemon.pid'))
-                self.assertEqual(Path(command[command.index('--init-script') + 1]),
-                                 directory.parents[1] / '.github/scripts/pr_mutation_worker.gradle')
-
     def test_pit_targets_and_report_location_follow_the_artifact_contract(self):
         """The documented targets.txt is PIT's exact newline-delimited selector input."""
         for restrict in (True, False):
@@ -1044,14 +1107,11 @@ class LaneCommandTest(unittest.TestCase):
                               if value.startswith('-PprMutationMaxMutations')], [])
             self.assertIsNone(result['mutants_per_class'])
 
-    def test_one_daemon_with_a_fixed_heap_is_reused_instead_of_a_single_use_one(self):
-        with self.prepared() as (first, _, _), self.prepared() as (second, _, _):
-            self.assertNotIn('--no-daemon', first)
-            self.assertEqual(self.argument(first, '-Dorg.gradle.jvmargs='),
-                             mutation.DAEMON_JVM_ARGS)
-            # Identical for every invocation of a run, or Gradle forks another daemon for each.
-            self.assertEqual(self.argument(first, '-Dorg.gradle.jvmargs='),
-                             self.argument(second, '-Dorg.gradle.jvmargs='))
+    def test_pr_and_full_scope_invocations_use_single_use_daemons_with_bounded_heaps(self):
+        for restrict in (True, False):
+            with self.subTest(restrict=restrict), self.prepared(restrict=restrict) as (command, _, _):
+                self.assertIn('--no-daemon', command)
+                self.assertEqual(self.argument(command, '-Dorg.gradle.jvmargs='), '-Xmx3g')
 
     def test_an_unrestricted_run_passes_no_changed_line_map(self):
         with self.prepared(restrict=False) as (command, result, directory):

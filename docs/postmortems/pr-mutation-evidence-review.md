@@ -273,7 +273,7 @@
   no product behavior or default changes.
 
 
-### Review round 10: preserve selection and own reused workers
+### Review round 10: preserve selection and own reused workers (R19 superseded below)
 
 - R18 failure: merging three 25-test package scopes into one invocation selected only 50 of the
   75 tests the former partitions selected. Existing coverage could become `NO_COVERAGE`.
@@ -289,11 +289,10 @@
 - R19 failure: a later launcher connected to a daemon from an earlier module. On timeout,
   walking only the new launcher's descendants missed the daemon and its PIT workers, and the
   runner could read artifacts or launch another module while those processes were still active.
-- R19 root cause: lifetime reuse severed process ancestry as an ownership proof. A Gradle init
-  script now publishes an atomic serving-daemon PID receipt for every invocation; the executor
-  clears stale receipts before launch. Timeout cleanup stops the owned parents before discovering
-  descendants, kills that stopped tree and waits until every owned process is absent or a zombie
-  (terminated, no executable work or resources) before returning. Successful runs keep the daemon.
+- R19 root cause: lifetime reuse severed process ancestry as an ownership proof. This round tried
+  an atomic serving-daemon PID receipt and stopped-tree cleanup while retaining reuse. That scheme
+  was later rejected: startup work preceded the receipt, so the apparent ownership proof excluded
+  the very window it needed to cover. The removal decision below supersedes this attempt.
 - R19 regression oracle: the documented hard deadline and CONV-205 require completed termination
   before artifact consumption or the next module. `ReusedDaemonTimeoutTest` uses a real reused
   daemon outside the launcher tree and a detached worker. It checks termination immediately on
@@ -312,3 +311,47 @@
 - Vision check: preserving coverage and enforcing the stated execution budget supports trustworthy
   evidence about engine correctness and cost. The union-cap removal implements the recorded
   maintainer decision; no product behavior or default changes.
+
+
+### Review round 13: drop reuse to enforce deadline ownership
+
+- Failure: module B could connect to module A's still-running daemon, then time out before its
+  init script published a PID receipt. Cleanup owned only B's launcher while that daemon could
+  continue modifying artifacts or overlap a later module.
+- Root cause: process reuse made launcher ancestry cease to establish ownership. Self-reported
+  identity arrived after startup work had already begun. Repeated attempts to repair receipt
+  discovery retained that structural gap.
+- Decision and correction: the maintainer chose to drop daemon reuse. PR and scheduled full-scope
+  invocations now pass `--no-daemon`; each invocation's single-use daemon is its own launcher's
+  descendant. The PID receipt, init script, identity constants/helpers, stopped-tree cleanup and
+  reuse fixtures were removed. Timeout cleanup again kills the launcher's group and detached
+  descendants and waits for that invocation's work to terminate before returning.
+- Retained improvements: `-Dorg.gradle.jvmargs=-Xmx3g` independently bounds Gradle's heap on the
+  runner. One PIT invocation per module, full selection unions, changed-line generation, streamed
+  partial results and Build outputs restored with matching compiler inputs remain in place.
+- Regression oracle: CONV-205's deadline and coverage contracts. `LaneCommandTest` asserts the
+  executable command interface requests a single-use daemon and the literal 3 GB heap for both
+  restricted and unrestricted invocations. `ReportingTest` executes real launchers with detached
+  daemon/worker descendants during startup and analysis; artifact consumers and the next module
+  assert that those processes have terminated. This models Gradle's single-use process topology,
+  without running Gradle. The old reuse fixture, which published identity before work, is deleted.
+- Why tests missed it: the receipt fixture made identification happen before simulated work and
+  therefore excluded expiry during initialization. The new process tests require no receipt.
+- Verification: both new regression methods rejected the starting implementation; all 266 focused
+  reporter tests passed with `python3 -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'`.
+  The remote PR body is reserved for the outer executor's PR phase; the exact decision wording
+  below is the worktree handoff for that update.
+- Lesson: [ownership must precede bounded work](../LESSONS.md#mutation-evidence-contracts).
+- Vision check: a hard work budget is part of trustworthy evidence about engine cost. Dropping
+  reuse is the maintainer's explicit trade; it changes no engine behavior or mutation criterion.
+
+#### Pull-request body decision text for the outer executor
+
+Of the four named cost fixes, "reuse the build cache and a daemon" ships only in its build-cache
+half. Daemon reuse was tried and deliberately dropped. After collapsing six Gradle invocations
+per run into one per module, reuse saved about thirty seconds of the 1,320 second execution
+budget, but broke the hard execution limit: the terminating launcher could not own the reused
+daemon's work, including during startup before identity publication. Each invocation therefore
+uses a fresh single-use daemon with a bounded 3 GB heap. One coverage pass per module and reuse
+of the Build job's outputs with matching compiler inputs remain. This is a deliberate decision
+with its cost and correctness trade, not an omitted fix.

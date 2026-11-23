@@ -174,11 +174,11 @@ room for setup and report upload. Each module may use all the time still left ex
 `MIN_MODULE_SECONDS` floor for every module after it. Modules run in name order; a module that
 finishes early donates its remainder to those that follow. If the remaining budget cannot
 provide that floor for every pending module, it is divided equally among them. A deadline kills the
-launcher, the daemon serving that invocation (including a reused daemon), and that daemon's
-workers. A Gradle init script atomically records the serving daemon's PID for each invocation;
-the executor clears any previous receipt, stops owned parents before discovering descendants,
-then kills and waits for the owned processes to terminate. Artifact reads and the next module
-follow that wait. Successful invocations retain the daemon. The statuses of every class analysed before the kill
+launcher's process group and detached descendants, then waits for their termination before
+artifact reads or the next module. Every invocation uses `--no-daemon`: its fresh, single-use
+Gradle daemon is a descendant of that invocation's launcher. Daemon reuse was tried and dropped
+because a reused daemon could perform work outside the terminating launcher's ownership, including
+before publishing its identity during startup. The statuses of every class analysed before the kill
 survive, because the lane's own `STREAM` result listener flushes each class as PIT finishes it, and
 the module is still reported as
 incomplete analysis. A stream the reporter cannot read leaves the deadline as the module's state
@@ -493,9 +493,10 @@ executes `:sirix-pit-changed-lines:test`, including its adversarial tests and or
 against the pinned PIT release, without allocating another runner.
 
 Each module is analysed by exactly one PIT invocation, so its slow test scope is covered once per
-run. The invocations share one Gradle daemon with a fixed heap (`-Dorg.gradle.jvmargs`) instead of
-forking a single-use daemon each, which `--no-daemon` did for the workstation-sized heap
-`gradle.properties` requests. The PR mutation job uses the Build job's Error Prone compiler
+run. Every invocation uses a fresh single-use daemon (`--no-daemon`) with a bounded heap
+(`-Dorg.gradle.jvmargs=-Xmx3g`), rather than the workstation-sized heap in `gradle.properties`.
+The fresh daemon keeps the deadline's work within its launcher's ownership; reuse was tried
+and deliberately dropped because it broke that hard execution limit. The PR mutation job uses the Build job's Error Prone compiler
 inputs and restores its compiled output plus project-local Gradle task history. The existing
 output cache remains shared as before; a separate PR-only history archive supplies `.gradle`
 and `**/.gradle` only to the mutation consumer, so the other restores remain unchanged. Matching

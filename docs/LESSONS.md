@@ -409,8 +409,9 @@ See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-ope
   Enumerate rejection facts and completion-dependent claims together; cross every fact with every
   claim in behavioral tests, preserving partial-status verdicts as independent controls. Use first-parent history for
   branch windows. Merging coverage passes must preserve the union of source selections; apply
-  source limits before that union. When reusing a detached worker, identify the serving process
-  independently of the launcher and await cleanup before consuming output or starting new work.
+  source limits before that union. Keep bounded work inside its launcher's ownership and await
+  cleanup before consuming output or starting new work. A worker's late identity receipt cannot
+  establish ownership during startup; drop reuse when it defeats deadline enforcement.
   Explicitly schedule new test tasks
   in CI; compilation alone supplies no regression protection. Evidence:
   [mutation reporter review](postmortems/pr-mutation-evidence-review.md).
