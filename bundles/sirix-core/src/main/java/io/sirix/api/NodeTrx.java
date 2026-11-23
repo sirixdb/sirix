@@ -133,12 +133,14 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   }
 
   /**
-   * Truncate to a revision after fencing pending hardening and establishing bounded quiescence of
-   * revision-pinned notification views. A callback timeout retains history and reports failure.
-   * Notification delivery pauses while history is invalidated. Calls from commit hooks/listeners of
-   * the same database are rejected before locking, including through another user session. Invoke
-   * outside an enclosing {@link #runLocked(Runnable)} scope. The cursor still refers to the truncated
-   * revision afterwards; close or roll back the transaction without committing through it.
+   * Truncate to a revision after fencing pending hardening and asynchronous flush work and
+   * establishing bounded quiescence of revision-pinned notification views. A callback timeout retains
+   * history and reports failure. Deferred notifications that require a removed revision cause
+   * rejection without changing history; retry after delivery. Notification delivery pauses while
+   * history is invalidated. Calls from commit hooks/listeners of the same database are rejected
+   * before locking, including through another user session. Invoke outside an enclosing
+   * {@link #runLocked(Runnable)} scope. The cursor still refers to the truncated revision afterwards;
+   * close or roll back the transaction without committing through it.
    *
    * @param revision the revision to truncate to
    * @return NodeTrx return current instance

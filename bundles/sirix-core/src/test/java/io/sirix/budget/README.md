@@ -239,6 +239,11 @@ maintains, so a budget quotes the same numbers an investigation would:
   production; the core test fork enables it, and captures require that gate to be live. The sidecar
   zero budget has a positive read control. These totals include lifecycle work during the capture;
   they do not represent unique records, allocated bytes, or physical disk reads.
+- `EngineWorkCounters.LIFECYCLE_DOCUMENT_VISITS` (`lifecycle.documentVisits`): the document-only
+  refinement of `replay.recordVisits`, counting cursor moves, storage lookups and preparations,
+  including nested delegations. It excludes name-dictionary and other index records, preserves the
+  all-index total, and uses the same `sirix.replay.workDiag` gate. The normative lifecycle fixture,
+  exclusions and bounds are in [CONV-301](../../../../../../../../spec/CONV-conventions.md#conv-301--official-work-budgets).
 - `EngineWorkCounters.REPLAY_PROJECTION_ROWS` and `REPLAY_PROJECTION_LABEL_BYTES`: old row removals
   and final row insertions queued by an identity epoch, and bytes allocated for its final row labels.
   The zero budgets for empty boundary changes have a positive indexed insertion control. These use

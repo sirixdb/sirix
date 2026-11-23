@@ -197,7 +197,9 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
     if (executorService != null) {
       WorkerTermination.shutdownAndAwait(executorService, cancel);
     }
-    return task == null ? null : task.takeFailure(cancel);
+    return task == null
+        ? null
+        : task.takeFailure(cancel);
   }
 
   /**
