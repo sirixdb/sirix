@@ -633,13 +633,13 @@ class RealRepositoryTest(unittest.TestCase):
             self.assertIn('0 valid entries, 1 errors', text)
             self.assertNotIn('[accepted]', text)
             (root / mutation.DISPOSITIONS_FILE).write_text(entry())
-            report.write_text('<mutations>' + mutant('SURVIVED', 11)
-                              + mutant('SURVIVED', 11, indexes=(9,)) + '</mutations>')
+            report = lane_report(root, [mutant('SURVIVED', 11),
+                                        mutant('SURVIVED', 11, indexes=(9,))])
             failing, text = mutation.check_dispositions(root, [str(report)], base, True)
             self.assertTrue(failing)  # only a failing mutant: the second survivor has no entry
             self.assertNotIn('FAIL entry', text)
             (root / mutation.DISPOSITIONS_FILE).write_text(entry() + entry(indexes=[42]))
-            report.write_text('<mutations>' + mutant('SURVIVED', 11) + '</mutations>')
+            report = lane_report(root, [mutant('SURVIVED', 11)])
             failing, text = mutation.check_dispositions(root, [str(report)], base, False)
             self.assertTrue(failing)  # only a failing entry: indexes [42] is stale
             self.assertNotIn('FAIL mutant', text)

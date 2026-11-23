@@ -176,3 +176,40 @@
   and compare compiler inputs before claiming reuse of compiled outputs.
 - Vision check: these changes preserve trustworthy verification at bounded cost, without changing
   engine behavior or defaults.
+
+
+## Follow-up: run completion is not artifact completeness
+
+- Fix / issue: review finding R15, including correction of two incorrect test oracles.
+- Symptom and trigger: a completed restricted module's XML alone could declare an off-diff
+  census identity stale; its census alone could declare a reported identity stale. Omitting a
+  census also discarded the lane's recorded validation failures. Two local helper tests wrongly
+  demanded stale judgments without the required census.
+- Root cause: separate consumers inferred completeness from module completion plus the artifacts
+  they happened to hold. `ModuleEvidence` now owns supplied/read-valid artifact flags, module
+  completion, selected targets, parsed identities and recorded failures. One `completely_loaded`
+  predicate feeds acceptance and staleness; malformed/unreadable or count-inconsistent components
+  cannot establish completeness. The helper never calls the lane's empty-census reader for a
+  missing path. Producer-recorded zero counts are explicit empty-component evidence, distinct
+  from an arbitrary missing helper file. The previous per-file completeness helpers are removed. Invalid census files with unknown module ownership invalidate selected
+  modules at the same loading boundary, because their unreadable identities cannot be attributed
+  safely; the initial focused run caught that missing propagation in four existing assertions.
+- Why tests missed it: fixtures conflated a complete run with a completely supplied generated
+  set and encoded that mistake as an expected stale result. Complete-pair, missing-pair and
+  sampled cases now use CONV-202 rule 5 as the oracle: missing evidence cannot prove absence.
+- Regression tests: corrected `test_check_lists_stale_and_re_confirmation_entries_with_their_action`
+  and `test_check_reaches_the_lane_states_when_it_is_given_the_lane_census` now require not judged
+  without the census, retain the off-diff match with it, and assert stale only from a complete
+  nonmatching pair. Additional cases cover census without its nonempty report, missing paths,
+  omitted recorded failures, acceptance of both kinds only with a complete pair, unreadable and
+  malformed inputs, mismatched counts, and sampled incompleteness. Existing positive repository
+  fixtures now regenerate metadata when replacing their report contents. A final symmetric
+  case distinguishes a missing nonempty report from the producer-recorded zero report, including
+  absent, zero-byte and well-formed empty XML forms.
+  Focused command: `python3 -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'`.
+  Six corrected-oracle and missing-component regressions rejected the starting reporter. The
+  final focused suite passed all 255 tests after the ownership and zero-report follow-ups.
+- Lesson: [load the entire generated set before judging absence](../LESSONS.md#mutation-evidence-contracts)
+  and validate test oracles against the contract rather than preserving an earlier expectation.
+- Vision check: the change keeps verification claims about engine results and cost trustworthy;
+  there is no product behavior or default change.

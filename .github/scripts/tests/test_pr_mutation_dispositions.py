@@ -131,7 +131,8 @@ def entry(kind='equivalent', **fields):
                                     for key, value in values.items() if value is not None)
 
 
-def lane_report(root, mutants, state='complete', limit=None, partial=False, targets=('a.Foo',)):
+def lane_report(root, mutants, state='complete', limit=None, partial=False, targets=('a.Foo',),
+                restricted=False):
     """The lane artifact contract: module XML plus results.json completion and sampling."""
     output = root / 'out'
     path = output / 'sirix-core/report/mutations.xml'
@@ -139,7 +140,7 @@ def lane_report(root, mutants, state='complete', limit=None, partial=False, targ
     path.write_text('<mutations>' + ''.join(mutants) + '</mutations>')
     (output / 'results.json').write_text(json.dumps({'modules': [
         {'module': 'sirix-core', 'state': state, 'mutants_per_class': limit, 'partial': partial,
-         'targets': list(targets)}]}))
+         'targets': list(targets), 'restricted': restricted, 'total': len(mutants)}]}))
     return path
 
 
@@ -607,8 +608,8 @@ class ReviewTest(unittest.TestCase):
 class RefactorHelperTest(unittest.TestCase):
     """CONV-203: local check, remap and counterfactual helpers; CI never runs them."""
 
-    def report(self, root, mutants):
-        return lane_report(root, mutants)
+    def report(self, root, mutants, restricted=False):
+        return lane_report(root, mutants, restricted=restricted)
 
     def test_check_and_lane_judge_a_completed_silent_target_stale(self):
         """CONV-203: a completed generated set includes targets that emitted no mutant."""
@@ -633,7 +634,7 @@ class RefactorHelperTest(unittest.TestCase):
         with lane() as work:
             old = entry(**{'class': 'a.Bar', 'checked_at': 'b' * 40})
             (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(**{'class': 'a.Bar'}))
-            lane_report(work.root, [], targets=('a.Foo', 'a.Bar'))
+            lane_report(work.root, [], targets=('a.Foo', 'a.Bar'), restricted=True)
             census = work.output / 'sirix-core/census.jsonl'
             census.write_text(census_record(21) + '\n')
             report = work.output / 'sirix-query/report/mutations.xml'
@@ -671,6 +672,146 @@ class RefactorHelperTest(unittest.TestCase):
                      patch.object(mutation, 'merge_base_file', return_value=old):
                     _, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
                 self.assertNotIn('[stale]', text)
+
+    def test_check_census_without_its_nonempty_report_cannot_prove_absence(self):
+        """CONV-202 rule 5: the census cannot replace a missing report component."""
+        with lane() as work:
+            old = entry(checked_at='b' * 40)
+            _, results, _ = work.run([mutant('KILLED', 11)], head=entry(), base=old,
+                                      changed=(5,), census=[census_record(21, indexes=(99,))])
+            self.assertEqual(states(results), ['contradicted'])
+            report = work.output / 'sirix-query/report/mutations.xml'
+            report.parent.mkdir(parents=True)
+            report.write_text('<mutations>' + mutant('KILLED', 5, klass='a.b.Baz',
+                source='Baz.java', method='go', descriptor='()V') + '</mutations>')
+            manifest = work.output / 'results.json'
+            document = json.loads(manifest.read_text())
+            document['modules'].append({'module': 'sirix-query', 'state': 'complete',
+                'mutants_per_class': None, 'targets': ['a.b.Baz'], 'restricted': False, 'total': 1})
+            manifest.write_text(json.dumps(document))
+            census = work.output / 'sirix-core/census.jsonl'
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [5]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                            False, [census])
+            self.assertFalse(failing)
+            self.assertIn('entry 1 [not judged]', text)
+            self.assertNotIn('[stale]', text)
+
+    def test_missing_census_path_cannot_be_used_as_an_empty_census(self):
+        """CONV-202: a helper lacks the producer's proof that a nonexistent census is empty."""
+        with lane() as work:
+            old = entry(indexes=[42])
+            work.run([mutant('KILLED', 11)], head=old, base=old, changed=(5,),
+                     census=[census_record(21, indexes=(99,))])
+            report = work.output / 'sirix-core/report/mutations.xml'
+            census = work.output / 'sirix-core/census.jsonl'
+            census.unlink()
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [5]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                            False, [census])
+            self.assertFalse(failing)
+            self.assertIn('entry 1 [not judged]', text)
+            self.assertNotIn('[stale]', text)
+
+    def test_omitted_census_cannot_hide_the_lanes_recorded_failures(self):
+        """CONV-203: saved census failures remain failures when their file is not supplied."""
+        for record, reason in ((census_record(11, indexes=(99,)), 'is on a changed line'),
+                               ('{', 'line 1:')):
+            with self.subTest(record=record), lane() as work:
+                code, _, _ = work.run([mutant('KILLED', 11)], census=[record])
+                self.assertEqual(code, 1)
+                report = work.output / 'sirix-core/report/mutations.xml'
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=None):
+                    failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+                self.assertTrue(failing)
+                self.assertIn(reason, text)
+
+    def test_added_survivors_need_the_complete_restricted_artifact_pair(self):
+        """CONV-202: accepting either disposition kind needs completely loaded evidence."""
+        for kind in ('equivalent', 'killed-out-of-lane'):
+            with self.subTest(kind=kind), lane() as work:
+                work.run([mutant('SURVIVED', 11)], head=entry(kind),
+                         census=[census_record(21, indexes=(99,))])
+                report = work.output / 'sirix-core/report/mutations.xml'
+                census = work.output / 'sirix-core/census.jsonl'
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=None):
+                    failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+                    self.assertTrue(failing)
+                    self.assertIn('entry 1 [not judged]', text)
+                    failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                                False, [census])
+                    self.assertFalse(failing)
+                    self.assertIn('entry 1 [accepted]', text)
+
+    def test_invalid_or_missing_components_cannot_prove_staleness(self):
+        """CONV-202 rule 5: completeness requires every supplied component to be valid."""
+        for defect in ('malformed-report', 'malformed-census', 'unreadable-census',
+                       'missing-report', 'missing-census', 'report-count', 'census-count'):
+            with self.subTest(defect=defect), lane() as work:
+                old = entry(indexes=[42])
+                (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+                report = self.report(work.root, [mutant('KILLED', 11)], restricted=True)
+                census = work.output / 'sirix-core/census.jsonl'
+                if defect == 'unreadable-census':
+                    census.mkdir()
+                elif defect != 'missing-census':
+                    census.write_text('{' if defect == 'malformed-census' else
+                                      census_record(21, indexes=(99,)) + '\n')
+                if defect == 'malformed-report':
+                    report.write_text('<mutations>')
+                elif defect == 'missing-report':
+                    report.unlink()
+                if defect in ('report-count', 'census-count'):
+                    manifest = work.output / 'results.json'
+                    document = json.loads(manifest.read_text())
+                    if defect == 'report-count':
+                        document['modules'][0]['total'] = 2
+                    else:
+                        document['modules'][0]['census'] = {
+                            'file': str(census), 'count': 2, 'malformed': 0,
+                            'violations': [], 'unreadable': []}
+                    manifest.write_text(json.dumps(document))
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [5]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=old):
+                    failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                                False, [census])
+                self.assertEqual(failing, defect not in ('missing-report', 'missing-census'))
+                self.assertIn('entry 1 [not judged]', text)
+                self.assertNotIn('[stale]', text)
+
+    def test_producer_recorded_zero_report_is_distinct_from_missing_nonempty_evidence(self):
+        """CONV-202: a verified zero report has no missing identities to load."""
+        for contents in (None, b'', b'<mutations/>'):
+            with self.subTest(contents=contents), lane() as work:
+                old = entry(**{'class': 'a.Bar', 'checked_at': 'b' * 40})
+                head = entry(**{'class': 'a.Bar'})
+                _, results, _ = work.run([], head=head, base=old, report=False,
+                    report_bytes=contents, targets=('a.Foo', 'a.Bar'), census=[census_record(21)])
+                self.assertEqual(states(results), ['stale'])
+                report = work.output / 'sirix-core/report/mutations.xml'
+                census = work.output / 'sirix-core/census.jsonl'
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=old):
+                    failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                                False, [census])
+                self.assertTrue(failing)
+                self.assertIn('FAIL entry 1 [stale] a.Bar.run', text)
 
     def test_check_preserves_lane_completion_for_both_disposition_kinds(self):
         """CONV-203: identical XML cannot promote failed-run evidence to accepted."""
@@ -851,7 +992,7 @@ class RefactorHelperTest(unittest.TestCase):
         with lane() as work:
             (work.root / mutation.DISPOSITIONS_FILE).write_text(
                 entry() + entry(method='gone', descriptor='()V'))
-            report = self.report(work.root, [mutant('SURVIVED', 11)])
+            report = self.report(work.root, [mutant('SURVIVED', 11)], restricted=True)
             lines = {'sirix-core': {SOURCE: [11]}}
             with patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
                  patch.object(mutation, 'current_commit', return_value='e' * 40), \
@@ -861,15 +1002,25 @@ class RefactorHelperTest(unittest.TestCase):
             self.assertIn('FAIL entry 1 [needs re-confirmation]', text)
             self.assertIn('FAIL entry 2 [stale]', text)
             self.assertIn('--remap', text)
-            # Without a per-class limit the sample is complete, so an absent mutant is stale.
             (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(indexes=[42]))
             lines = {'sirix-core': {SOURCE: [5]}}  # no method changed
             with patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
                  patch.object(mutation, 'current_commit', return_value='e' * 40), \
                  patch.object(mutation, 'merge_base_file', return_value=entry(indexes=[42])):
                 failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
-                self.assertIn('[stale] a.Foo.run: PIT no longer generates', text)
+                self.assertFalse(failing)
+                self.assertIn('[not judged]', text)
                 failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, True)
+                self.assertIn('[not judged]', text)
+                census = work.output / 'sirix-core/census.jsonl'
+                census.write_text(census_record(21, indexes=(99,)) + '\n')
+                failing, text = mutation.check_dispositions(
+                    work.root, [report], 'f' * 40, False, [census])
+                self.assertTrue(failing)
+                self.assertIn('[stale] a.Foo.run: PIT no longer generates', text)
+                failing, text = mutation.check_dispositions(
+                    work.root, [report], 'f' * 40, True, [census])
+                self.assertFalse(failing)
                 self.assertIn('[not judged]', text)
 
     def test_check_reaches_the_lane_states_when_it_is_given_the_lane_census(self):
@@ -877,7 +1028,7 @@ class RefactorHelperTest(unittest.TestCase):
         # the helper reads the same census the lane's verdict read (CONV-205).
         with lane() as work:
             (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(indexes=[42]))
-            report = self.report(work.root, [mutant('SURVIVED', 11)])
+            report = self.report(work.root, [mutant('SURVIVED', 11)], restricted=True)
             census = work.output / 'sirix-core' / mutation.CENSUS_FILE
             census.write_text(census_record(21, indexes=(42,)) + '\n')
             lines = {'sirix-core': {SOURCE: [5]}}  # no method of the entry changed
@@ -885,8 +1036,9 @@ class RefactorHelperTest(unittest.TestCase):
                  patch.object(mutation, 'current_commit', return_value='e' * 40), \
                  patch.object(mutation, 'merge_base_file', return_value=entry(indexes=[42])):
                 without, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
-                self.assertTrue(without)
-                self.assertIn('[stale]', text)
+                self.assertFalse(without)
+                self.assertIn('[not judged]', text)
+                self.assertNotIn('[stale]', text)
                 failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False,
                                                             [str(census)])
             self.assertFalse(failing)

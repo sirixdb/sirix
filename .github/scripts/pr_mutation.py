@@ -2,6 +2,7 @@
 """Bounded, secret-free PR mutation analysis. See docs/VERIFICATION.md."""
 import argparse
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
 import html
@@ -1048,8 +1049,8 @@ def judge_matched_mutant(mutant, added):
         return 'detected-other', f"matches a {mutant['status']} mutant; reported, not failed"
     if mutant['status'] == 'SURVIVED':
         if not mutant['completed_run']:
-            return 'not judged', ('matches a preserved SURVIVED status from an unfinished run; '
-                                  'rerun the analysis to judge this entry')
+            return 'not judged', ('matches a preserved SURVIVED status from an unfinished run or incompletely loaded evidence; '
+                                  'supply its complete report and census or rerun the analysis to judge this entry')
         if added:
             return 'accepted', ('on a changed line' if mutant['changed']
                                 else 'on an unchanged line of a changed file')
@@ -1843,53 +1844,128 @@ class CounterfactualError(Exception):
     """The counterfactual run produced no valid evidence; the message says why."""
 
 
-def evidence_provenance(path):
-    path = Path(path)
-    if path.name == 'mutations.xml' and path.parent.name == 'report':
-        directory = path.parent.parent
-    elif path.name == CENSUS_FILE:
-        directory = path.parent
-    else:
-        return False, {}
-    if directory.name not in DIRECTORIES:
-        return False, {}
-    try:
-        document = json.loads((directory.parent / 'results.json').read_text())
-        modules = document['modules']
-        if not isinstance(modules, list):
-            return False, {}
-        matching = [module for module in modules if isinstance(module, dict)
-                    and module.get('module') == directory.name]
-    except (OSError, ValueError, KeyError, TypeError):
-        return False, {}
-    if len(matching) != 1:
-        return False, {}
-    module = matching[0]
-    completed = module.get('state') == 'complete' and module.get('partial', False) is False
-    targets = module.get('targets', [])
-    if not isinstance(targets, list) or any(
-            not isinstance(name, str) or not QUALIFIED_NAME.fullmatch(name) for name in targets):
-        targets = []
-    complete = completed and module.get('mutants_per_class', False) is None
-    return completed, dict.fromkeys(targets, complete)
+@dataclass
+class ModuleEvidence:
+    path: Path
+    metadata: dict
+    targets: list
+    completed: bool
+    report_supplied: bool = False
+    report_valid: bool = False
+    census_supplied: bool = False
+    census_valid: bool = False
+    records: list = field(default_factory=list)
+    census: dict = field(default_factory=dict)
+    summaries: list = field(default_factory=list)
+    errors: list = field(default_factory=list)
+
+    @property
+    def completely_loaded(self):
+        total = self.metadata.get('total')
+        report_loaded = (self.report_valid if self.report_supplied else
+                         type(total) is int and total == 0)
+        recorded = self.metadata.get('census', {})
+        empty_census = (isinstance(recorded, dict) and type(recorded.get('count')) is int
+                        and recorded['count'] == 0)
+        census_loaded = (self.census_valid if self.census_supplied else empty_census)
+        restricted = self.metadata.get('restricted')
+        return (self.completed and bool(self.targets) and not self.errors and report_loaded
+                and (restricted is False or restricted is True and census_loaded))
 
 
-def report_records(paths, index):
-    records = []
-    classes = {}
-    incomplete = []
-    for path in paths:
-        completed, targets = evidence_provenance(path)
-        for name, complete in targets.items():
-            classes[name] = classes.get(name, True) and complete
-        if not completed:
-            incomplete.append(str(path))
-        for element in ET.parse(path).getroot().findall('mutation'):
-            kind, _ = classify_mutant(element, index)
-            record = mutant_record(element, kind == 'changed')
-            record['completed_run'] = completed
-            records.append(record)
-    return records, classes, incomplete
+def load_evidence(reports, censuses, index):
+    modules = {}
+    for kind, paths in (('report', reports), ('census', censuses)):
+        for path in dict.fromkeys(Path(value) for value in paths):
+            directory = None
+            if kind == 'report' and path.name == 'mutations.xml' and path.parent.name == 'report':
+                directory = path.parent.parent
+            elif kind == 'census' and path.name == CENSUS_FILE:
+                directory = path.parent
+            if directory is not None and directory.name not in DIRECTORIES:
+                directory = None
+            key = directory if directory is not None else path
+            evidence = modules.get(key)
+            if evidence is None:
+                metadata = {}
+                if directory is not None:
+                    try:
+                        document = json.loads((directory.parent / 'results.json').read_text())
+                        matching = [module for module in document['modules']
+                                    if isinstance(module, dict)
+                                    and module.get('module') == directory.name]
+                        if len(matching) == 1:
+                            metadata = matching[0]
+                    except (OSError, ValueError, KeyError, TypeError):
+                        pass
+                targets = metadata.get('targets', [])
+                if not isinstance(targets, list) or any(
+                        not isinstance(name, str) or not QUALIFIED_NAME.fullmatch(name)
+                        for name in targets):
+                    targets = []
+                completed = (metadata.get('state') == 'complete'
+                             and metadata.get('partial', False) is False)
+                evidence = ModuleEvidence(key, metadata, targets, completed)
+                modules[key] = evidence
+                if metadata and not completed:
+                    evidence.errors.append(f'Run completion is unfinished or unknown for {key}')
+                recorded = metadata.get('census')
+                if recorded is not None:
+                    valid = (isinstance(recorded, dict) and isinstance(recorded.get('file'), str)
+                             and all(type(recorded.get(name)) is int and recorded[name] >= 0
+                                     for name in ('count', 'malformed'))
+                             and all(isinstance(recorded.get(name), list)
+                                     and all(isinstance(value, str) for value in recorded[name])
+                                     for name in ('violations', 'unreadable')))
+                    if not valid:
+                        evidence.errors.append(f'Invalid recorded census metadata in {key}')
+                    elif recorded['malformed'] or recorded['violations']:
+                        evidence.summaries.append(recorded)
+                        evidence.errors.append(f'Recorded census failures in {key}')
+            if kind == 'report':
+                evidence.report_supplied = path.exists()
+                if not evidence.completed and not evidence.metadata:
+                    evidence.errors.append(f'Run completion is unfinished or unknown for {path}')
+                if not evidence.report_supplied:
+                    continue
+                try:
+                    empty = (type(evidence.metadata.get('total')) is int
+                             and evidence.metadata['total'] == 0 and path.stat().st_size == 0)
+                    elements = [] if empty else ET.parse(path).getroot().findall('mutation')
+                    for element in elements:
+                        changed, _ = classify_mutant(element, index)
+                        evidence.records.append(mutant_record(element, changed == 'changed'))
+                    expected = evidence.metadata.get('total')
+                    if type(expected) is int and len(elements) != expected:
+                        raise ValueError(f'expected {expected} mutations, read {len(elements)}')
+                    evidence.report_valid = True
+                except (OSError, ValueError, ET.ParseError) as error:
+                    evidence.errors.append(f'cannot read {path}: {error}')
+            else:
+                evidence.census_supplied = path.exists()
+                if not evidence.census_supplied:
+                    continue
+                summary, records = read_census(path, index)
+                evidence.summaries.append(summary)
+                evidence.census.update(records)
+                evidence.census_valid = not summary['malformed'] and not summary['violations']
+                recorded = evidence.metadata.get('census', {})
+                expected = recorded.get('count') if isinstance(recorded, dict) else None
+                if type(expected) is int and summary['count'] != expected:
+                    evidence.census_valid = False
+                    evidence.errors.append(f'census {path}: expected {expected} identities, '
+                                           f"read {summary['count']}")
+                if not evidence.census_valid:
+                    evidence.errors.append(f'Census validation failed for {path}')
+    unassigned = [str(evidence.path) for evidence in modules.values()
+                  if evidence.census_supplied and not evidence.census_valid and not evidence.metadata]
+    for evidence in modules.values():
+        if unassigned and evidence.metadata:
+            evidence.errors.append('Cannot attribute invalid census evidence: ' + ', '.join(unassigned))
+        loaded = evidence.completely_loaded
+        for record in evidence.records:
+            record['completed_run'] = loaded
+    return list(modules.values())
 
 
 def current_commit(root):
@@ -1910,35 +1986,33 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
     """
     _, lines = changed_sources(root, base, current_commit(root))
     index = global_changed_index(root, lines)
-    records, classes, incomplete = report_records(reports, index)
-    census = {}
-    census_summaries = []
-    census_valid = True
-    for path in censuses:
-        summary, found = read_census(Path(path), index)
-        census_summaries.append(summary)
-        census_valid = census_valid and not summary['malformed'] and not summary['violations']
-        _, targets = evidence_provenance(path)
-        for name, complete in targets.items():
+    evidence = load_evidence(reports, censuses, index)
+    records, census, classes = [], {}, {}
+    for module in evidence:
+        loaded = module.completely_loaded
+        records.extend(module.records)
+        census.update(module.census)
+        complete = loaded and module.metadata.get('mutants_per_class', False) is None and not sampled
+        for name in module.targets:
             classes[name] = classes.get(name, True) and complete
-        for identity, record in found.items():
-            census.setdefault(identity, record)
     entries, errors = read_dispositions(root)
     context = {'compiled': CompiledClasses(root), 'tests': lambda: declared_tests(root),
                'mutants': {record['identity']: record for record in records}, 'census': census,
                'changed_index': index,
-               'mutated': {name: complete and not sampled and census_valid
-                           for name, complete in classes.items()}}
+               'mutated': classes}
     verdict, accepted = judge_dispositions([] if errors else entries, errors,
                                            merge_base_file(root, base, DISPOSITIONS_FILE), context)
     module = {'changed': {}, '_mutants': records}
     apply_dispositions(module, accepted, verdict['entries'])
     lines_out = [f'{DISPOSITIONS_FILE}: {len(entries)} valid entries, {len(errors)} errors']
     lines_out.extend(f'error: {error}' for error in errors)
-    lines_out.extend(f'Run completion is unfinished or unknown for {path}; '
-                     'no disposition can be authorized by this report' for path in incomplete)
-    for summary in census_summaries:
-        lines_out.extend(format_census({'census': summary}))
+    for supplied in evidence:
+        lines_out.extend('error: ' + error for error in supplied.errors)
+        for summary in supplied.summaries:
+            lines_out.extend(format_census({'census': summary}))
+        if not supplied.completely_loaded and not supplied.errors:
+            lines_out.append(f'Generated set incompletely loaded for {supplied.path}; '
+                             'missing artifacts cannot prove absence')
     for record in verdict['entries']:
         if record['state'] != 'out of scope':
             marker = 'FAIL' if record['failing'] else 'ok'
@@ -1946,7 +2020,7 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
                              f"{record['class']}.{record['method']}: {record['action']}")
     lines_out.extend(f"FAIL mutant {value['mutant']}: {value['reason']}"
                      for value in module['changed']['failing'])
-    failing = bool(errors or incomplete or not census_valid or verdict['failing']
+    failing = bool(errors or any(value.errors for value in evidence) or verdict['failing']
                    or module['changed']['failing'])
     return failing, '\n'.join(lines_out)
 
@@ -1974,10 +2048,13 @@ def remap_candidates(entry, records):
 
 def remap_dispositions(root, reports):
     """Propose identities for every entry no report mutant matches; never writes the file."""
-    records, _, _ = report_records(reports, {})
+    evidence = load_evidence(reports, (), {})
+    records = [record for module in evidence for record in module.records]
     present = {record['identity'] for record in records}
     entries, errors = read_dispositions(root)
     lines = [f'error: {error}' for error in errors]
+    lines.extend('error: ' + error for module in evidence if not module.report_valid
+                 for error in module.errors)
     for entry in entries:
         if identity_of(entry) in present:
             continue
