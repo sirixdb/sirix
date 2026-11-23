@@ -115,6 +115,10 @@ def parse_fragment(text, spec, name):
     return value, body
 
 
+def is_fragment_name(name):
+    return FRAGMENT_NAME.fullmatch(name) is not None and not Path(name).stem.isdigit()
+
+
 def load_fragments(directory, spec):
     """Every fragment in one directory, in file-name order. Raises on the first invalid file."""
     directory = Path(directory)
@@ -124,7 +128,7 @@ def load_fragments(directory, spec):
     for path in sorted(directory.iterdir(), key=lambda entry: entry.name):
         if path.name == DOCUMENTATION:
             continue
-        if not FRAGMENT_NAME.fullmatch(path.name) or path.stem.isdigit():
+        if not is_fragment_name(path.name):
             raise FragmentError(
                 '%s: %s is not a valid fragment name: name a fragment after its branch or topic, '
                 'in lower case, never after a pull-request number' % (spec.directory, path.name))
@@ -306,25 +310,27 @@ def _git(root, *arguments):
     return subprocess.run(command, check=True, capture_output=True, text=True).stdout
 
 
-def _collects_fragments(root, base):
-    """True when the diff removes fragments: the signature of the release collection commit."""
-    deleted = _git(root, 'diff', '--name-only', '--diff-filter=D', '%s...HEAD' % base, '--',
-                   *[spec.directory for spec in SPECS])
-    return bool(deleted.strip())
+def _collects_fragments(root, base, spec):
+    deleted = _git(root, 'diff', '--name-only', '-z', '--diff-filter=D', '%s...HEAD' % base,
+                   '--', spec.directory)
+    directory = Path(spec.directory)
+    for name in deleted.split('\0'):
+        path = Path(name)
+        if path.parent == directory and is_fragment_name(path.name):
+            return True
+    return False
 
 
 def check(root, base):
     """Validate every fragment, then refuse an entry written into a shared file directly."""
     for spec in SPECS:
         load_fragments(root / spec.directory, spec)
-    if _collects_fragments(root, base):
-        print('fragments are valid; this diff collects fragments, so it may write the entries')
-        return 0
+    collected = {spec.target for spec in SPECS if _collects_fragments(root, base, spec)}
     diff = _git(root, 'diff', '--unified=0', '%s...HEAD' % base, '--',
                 *[spec.target for spec in SPECS])
-    additions = entry_additions(diff)
+    additions = [addition for addition in entry_additions(diff) if addition.path not in collected]
     if not additions:
-        print('fragments are valid; no entry is written into a shared file')
+        print('fragments are valid; no entry is written into a shared file outside collection')
         return 0
     for addition in additions:
         print('::error file=%s::%s adds an entry directly: %s'

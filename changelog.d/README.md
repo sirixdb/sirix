@@ -88,4 +88,6 @@ a `##`/`###` heading — to `CHANGELOG.md` or `docs/LESSONS.md` instead of addin
 `--base-sha` is required so every check guards the shared files.
 
 Reworking or extending a line that is already there is allowed, and so is the release commit, which
-is recognized by the fragment deletions in its own diff.
+is recognized separately for each shared file by deletion of at least one validly named fragment
+directly in that file's fragment directory. Deleting documentation or a fragment for the other
+shared file does not exempt an entry.

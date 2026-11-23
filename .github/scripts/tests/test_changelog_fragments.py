@@ -434,13 +434,52 @@ class GuardOverGit(unittest.TestCase):
 
     def test_the_release_collection_commit_is_exempt(self):
         # The fragment is on the base branch, as it is when a release collects what merged.
-        write(self.root / 'changelog.d', 'topic.md',
-              fragment('section: Fixed', '- **New** — text.\n'))
-        self.commit('add a fragment')
-        self.base = self.git('rev-parse', 'HEAD').strip()
-        self.assertEqual(0, fragments.main(['collect', '--repo-root', str(self.root)]))
-        self.commit('release: collect the fragments')
-        self.assertEqual(0, self.check('--base-sha', self.base))
+        entries = (('changelog.d', 'section: Fixed', '- **New** — text.\n'),
+                   ('docs/lessons.d', 'kind: row', '| Failure. | Rule. | Evidence. |\n'))
+        for selected in (entries[:1], entries[1:], entries):
+            with self.subTest(directories=[entry[0] for entry in selected]):
+                for directory, front, body in selected:
+                    write(self.root / directory, 'topic.md', fragment(front, body))
+                self.commit('add fragments')
+                self.base = self.git('rev-parse', 'HEAD').strip()
+                self.assertEqual(0, fragments.main(['collect', '--repo-root', str(self.root)]))
+                self.commit('release: collect the fragments')
+                self.assertEqual(0, self.check('--base-sha', self.base))
+
+    def test_non_fragment_deletions_exempt_neither_target(self):
+        for directory in ('changelog.d', 'docs/lessons.d'):
+            for name in ('README.md', '123.md', 'Topic.md', 'notes.txt', 'nested/topic.md'):
+                for target in ('CHANGELOG.md', 'docs/LESSONS.md'):
+                    with self.subTest(directory=directory, name=name, target=target):
+                        deleted = self.root / directory / name
+                        deleted.parent.mkdir(parents=True, exist_ok=True)
+                        deleted.write_text('Documentation.\n', encoding='utf-8')
+                        self.commit('add non-fragment file')
+                        self.base = self.git('rev-parse', 'HEAD').strip()
+                        deleted.unlink()
+                        if deleted.parent != self.root / directory:
+                            deleted.parent.rmdir()
+                        path = self.root / target
+                        path.write_text(path.read_text(encoding='utf-8') + '\n- **Direct entry.**\n',
+                                        encoding='utf-8')
+                        self.commit('delete non-fragment and add direct entry')
+                        self.assertEqual(1, self.check('--base-sha', self.base))
+
+    def test_collecting_one_target_does_not_exempt_the_other(self):
+        entries = (('changelog.d', 'section: Fixed', '- **New** — text.\n', 'docs/LESSONS.md'),
+                   ('docs/lessons.d', 'kind: row', '| Failure. | Rule. | Evidence. |\n',
+                    'CHANGELOG.md'))
+        for directory, front, body, other_target in entries:
+            with self.subTest(directory=directory, other_target=other_target):
+                write(self.root / directory, 'topic.md', fragment(front, body))
+                self.commit('add fragment')
+                self.base = self.git('rev-parse', 'HEAD').strip()
+                self.assertEqual(0, fragments.main(['collect', '--repo-root', str(self.root)]))
+                path = self.root / other_target
+                path.write_text(path.read_text(encoding='utf-8') + '\n- **Direct entry.**\n',
+                                encoding='utf-8')
+                self.commit('collect one target and add a direct entry to the other')
+                self.assertEqual(1, self.check('--base-sha', self.base))
 
     def test_an_invalid_fragment_fails_with_a_base(self):
         write(self.root / 'changelog.d', 'bad.md',

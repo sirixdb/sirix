@@ -20,5 +20,23 @@
   `python3 -B -m unittest discover -s .github/scripts/tests -p 'test_changelog_fragments.py'`.
   The original round-trip test fails on the existing file; reverting the lessons classifier
   makes the level-two addition regression fail. Verification evidence belongs to the review run.
-- Lesson: [Fragment lesson](../lessons.d/changelog-fragment-review.md): use the collected
+- Lesson: [Collected lessons](../LESSONS.md): use the collected
   destination to define boundaries, entry grammar and link context.
+
+## Review follow-up: Collection exemptions and permanent links
+
+- Fix / issue: Review findings R7 and R8.
+- Symptom: Deleting fragment documentation exempted direct entries in both shared files; the
+  postmortem's lesson link would break when collection deleted the fragment.
+- Trigger: Delete `changelog.d/README.md` or collect only a changelog fragment while adding a
+  direct lesson, or follow the postmortem's lesson link after release collection.
+- Root cause: A single deletion flag discarded the deleted file's name and target ownership.
+  A permanent document linked to a temporary fragment instead of its collected destination.
+- Why tests missed it: The collection test covered a legitimate deletion without a direct entry
+  in the other target; link lifetime was not considered across collection.
+- Regression test: `GuardOverGit.test_non_fragment_deletions_exempt_neither_target` and
+  `GuardOverGit.test_collecting_one_target_does_not_exempt_the_other` exercise committed diffs
+  through `check`; `test_the_release_collection_commit_is_exempt` retains successful collection
+  for each target separately and together. Run with the focused command above.
+- Lesson: [Collected lessons](../LESSONS.md): retain target ownership when applying exemptions
+  and link permanent documents to permanent destinations.
