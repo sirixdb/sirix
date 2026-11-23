@@ -341,10 +341,9 @@ jobs:
     # whole workflow. The two groups are the natural cut — they were the two ~equal halves of that
     # 29 min — and they now run concurrently instead.
     #
-    # Windows sirix-core is cut once more, on the io.sirix.index package tree (-PcoreTestLane=index vs
-    # non-index, defined in bundles/sirix-core/build.gradle): that one job was still 25-35 min on
-    # Windows. The two cuts are complementary class filters on the one :sirix-core:test task,
-    # so every test class runs in exactly one of them; docs/CI_CORE_HEADROOM.md has the numbers.
+    # Windows sirix-core is cut again because excluding heavy tests makes the Linux cut unbalanced.
+    # Complementary filters partition :sirix-core:test; its isolated prerequisite tasks run in both
+    # jobs. See docs/CI_CORE_HEADROOM.md for the selection contract and measurements.
     strategy:
       fail-fast: false
       matrix:

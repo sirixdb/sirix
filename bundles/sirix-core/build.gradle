@@ -136,7 +136,8 @@ test {
     def hotPropertyClasses = 'io/sirix/index/hot/HOTStructuralPropertyTest*.class'
     // The Windows lanes run with -PexcludeHeavyTests, which removes most of the HOT property
     // work, so the Linux cut above is lopsided there. They cut on the io.sirix.index package tree
-    // instead: roughly half of the Windows core test time on either side.
+    // instead; docs/CI_CORE_HEADROOM.md owns the measurements. Only this task is partitioned;
+    // its isolated prerequisite test tasks still run in every lane.
     def indexPackageClasses = 'io/sirix/index/**/*.class'
     if (coreTestLane == 'hot-property') {
         include hotPropertyClasses

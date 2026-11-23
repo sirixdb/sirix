@@ -64,9 +64,9 @@ JUnit engines, JVM flags, diagnostic properties and test resources:
 ```
 
 The class-file pattern is `io/sirix/index/hot/HOTStructuralPropertyTest*.class`.
-For the test class set T under the same test configuration and matching set H,
+For the `:sirix-core:test` class set T under the same test configuration and matching set H,
 the lanes select T ∩ H and T ∖ H. Their intersection is empty and their union is T.
-Future tests automatically enter exactly one lane; nested property classes stay
+Future classes selected by this task automatically enter exactly one lane; nested property classes stay
 with their enclosing class.
 An unrecognized lane fails configuration instead of silently skipping coverage.
 Without the property, `:sirix-core:test` retains its existing test selection:
@@ -84,7 +84,9 @@ succeed. Query and macOS jobs are unchanged; the Windows core job is cut separat
 
 Use Gradle's `--test-dry-run --info` on the unpartitioned task and on both lanes,
 saving each invocation's log. Count the test cases Gradle reports as `SKIPPED`
-in each discovery log. Both lane counts must be nonzero and their sum must equal
+within `:sirix-core:test` only, excluding output from its isolated prerequisite
+test tasks. Those tasks run in every lane and are outside the partition.
+Both lane counts must be nonzero and their sum must equal
 the unpartitioned count at the same commit with the same test configuration.
 Together with the complementary class filters above, this establishes an empty
 intersection and a lane union equal to the unpartitioned discovery.
@@ -117,7 +119,10 @@ above gives an empty intersection and a union equal to the unpartitioned set. Su
 interval between successive test classes' first output lines in run 45062256488 (the same
 imprecise measure as above) gives 714 s for `index` and 689 s for `non-index`.
 
-The Windows matrix lane names become `core-index` and `core-non-index`; the report artifacts are
+The same task-only partition guarantee applies here: isolated prerequisite test tasks run in
+both Windows jobs rather than being split by `coreTestLane`.
+
+The Windows matrix lane names become `core-index` and `core-non-index`; on failure the jobs upload
 `test-reports-windows-latest-core-index` and `test-reports-windows-latest-core-non-index`.
 macOS retains `Cross-platform tests (macos-latest / core)`, invoking `:sirix-core:test` and
 producing `test-reports-macos-latest-core`. Linux `TestCore`, the coverage artifacts and
