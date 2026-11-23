@@ -323,6 +323,8 @@ def _collects_fragments(root, base, spec):
 
 def check(root, base):
     """Validate every fragment, then refuse an entry written into a shared file directly."""
+    if re.fullmatch(r'[0-9a-f]{40}', base) is None:
+        raise FragmentError('--base-sha must be a full 40-character lowercase hexadecimal commit hash')
     for spec in SPECS:
         load_fragments(root / spec.directory, spec)
     collected = {spec.target for spec in SPECS if _collects_fragments(root, base, spec)}
@@ -342,19 +344,15 @@ def check(root, base):
 
 
 def main(argv=None):
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument('--repo-root', default=str(Path(__file__).resolve().parents[2]),
-                        help='repository root (default: the one holding this script)')
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     commands = parser.add_subparsers(dest='command', required=True)
-    commands.add_parser('collect', parents=[common],
-                        help='render the fragments and remove them')
-    check_command = commands.add_parser('check', parents=[common],
-                                        help='validate fragments and guard shared files')
+    commands.add_parser('collect', help='render the fragments and remove them')
+    check_command = commands.add_parser('check',
+                                       help='validate fragments and guard shared files')
     check_command.add_argument('--base-sha', required=True,
                                help='the base commit to compare for shared-file entry additions')
     arguments = parser.parse_args(argv)
-    root = Path(arguments.repo_root)
+    root = Path(__file__).resolve().parents[2]
     try:
         if arguments.command == 'collect':
             collect(root)

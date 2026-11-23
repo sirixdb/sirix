@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'changelog_fragments.py'
 SPEC = importlib.util.spec_from_file_location('changelog_fragments', SCRIPT)
@@ -55,6 +56,16 @@ def write(directory, name, text):
     path = Path(directory) / name
     path.write_text(text, encoding='utf-8')
     return path
+
+
+def run_cli(root, *arguments):
+    """Exercise main with the script installed in a fixture repository, independent of cwd."""
+    script = root / '.github' / 'scripts' / SCRIPT.name
+    with patch.object(fragments, '__file__', str(script)):
+        try:
+            return fragments.main(list(arguments))
+        except SystemExit as error:
+            return error.code
 
 
 class ParseFragment(unittest.TestCase):
@@ -271,12 +282,20 @@ class Collect(unittest.TestCase):
         (self.root / 'docs' / 'LESSONS.md').write_text(LESSONS, encoding='utf-8')
         write(self.root / 'changelog.d', 'README.md', '# Fragments\n')
 
+    def test_collect_rejects_repository_root_override_without_changing_files(self):
+        path = write(self.root / 'changelog.d', 'topic.md',
+                     fragment('section: Fixed', '- **New** — text.\n'))
+        self.assertEqual(2, run_cli(self.root, 'collect', '--repo-root', str(self.root)))
+        self.assertEqual(CHANGELOG, (self.root / 'CHANGELOG.md').read_text(encoding='utf-8'))
+        self.assertEqual(LESSONS, (self.root / 'docs' / 'LESSONS.md').read_text(encoding='utf-8'))
+        self.assertTrue(path.exists())
+
     def test_entries_are_written_and_fragments_removed(self):
         changelog = write(self.root / 'changelog.d', 'topic.md',
                           fragment('section: Fixed', '- **New** — text.\n'))
         lesson = write(self.root / 'docs' / 'lessons.d', 'topic.md',
                        fragment('kind: row', '| F. | R. | `T` |\n'))
-        self.assertEqual(0, fragments.main(['collect', '--repo-root', str(self.root)]))
+        self.assertEqual(0, run_cli(self.root, 'collect'))
         self.assertIn('- **A fix** — one line.\n- **New** — text.\n',
                       (self.root / 'CHANGELOG.md').read_text(encoding='utf-8'))
         self.assertIn('| `FirstTest` |\n| F. | R. | `T` |\n',
@@ -286,7 +305,7 @@ class Collect(unittest.TestCase):
         self.assertTrue((self.root / 'changelog.d' / 'README.md').exists())
 
     def test_nothing_to_collect_leaves_both_targets_untouched(self):
-        self.assertEqual(0, fragments.main(['collect', '--repo-root', str(self.root)]))
+        self.assertEqual(0, run_cli(self.root, 'collect'))
         self.assertEqual(CHANGELOG, (self.root / 'CHANGELOG.md').read_text(encoding='utf-8'))
         self.assertEqual(LESSONS, (self.root / 'docs' / 'LESSONS.md').read_text(encoding='utf-8'))
 
@@ -295,7 +314,7 @@ class Collect(unittest.TestCase):
                      fragment('section: Fixed', '- **New** — text.\n'))
         bad = write(self.root / 'docs' / 'lessons.d', 'bad.md',
                     fragment('kind: paragraph', '- **New** — text.\n'))
-        self.assertEqual(2, fragments.main(['collect', '--repo-root', str(self.root)]))
+        self.assertEqual(2, run_cli(self.root, 'collect'))
         self.assertEqual(CHANGELOG, (self.root / 'CHANGELOG.md').read_text(encoding='utf-8'))
         self.assertEqual(LESSONS, (self.root / 'docs' / 'LESSONS.md').read_text(encoding='utf-8'))
         self.assertTrue(good.exists())
@@ -305,7 +324,7 @@ class Collect(unittest.TestCase):
         (self.root / 'CHANGELOG.md').write_text('# Changelog\n\n## [1.0.0]\n', encoding='utf-8')
         path = write(self.root / 'changelog.d', 'topic.md',
                      fragment('section: Fixed', '- **New** — text.\n'))
-        self.assertEqual(2, fragments.main(['collect', '--repo-root', str(self.root)]))
+        self.assertEqual(2, run_cli(self.root, 'collect'))
         self.assertEqual('# Changelog\n\n## [1.0.0]\n',
                          (self.root / 'CHANGELOG.md').read_text(encoding='utf-8'))
         self.assertTrue(path.exists())
@@ -314,7 +333,7 @@ class Collect(unittest.TestCase):
         (self.root / 'CHANGELOG.md').unlink()
         write(self.root / 'changelog.d', 'topic.md',
               fragment('section: Fixed', '- **New** — text.\n'))
-        self.assertEqual(2, fragments.main(['collect', '--repo-root', str(self.root)]))
+        self.assertEqual(2, run_cli(self.root, 'collect'))
 
 
 def diff(path, hunk):
@@ -416,7 +435,22 @@ class GuardOverGit(unittest.TestCase):
         self.git('commit', '-qm', message)
 
     def check(self, *extra):
-        return fragments.main(['check', '--repo-root', str(self.root)] + list(extra))
+        return run_cli(self.root, 'check', *extra)
+
+    def test_check_rejects_repository_root_override(self):
+        self.assertEqual(2, self.check('--base-sha', self.base, '--repo-root', str(self.root)))
+
+    def test_check_rejects_non_hash_bases_without_creating_git_output(self):
+        output = self.root / 'injected'
+        for base in ('HEAD', 'main', self.base[:12], '0' * 39, '0' * 41, 'g' * 40,
+                     'A' * 40, self.base + '\n', self.base + '...HEAD',
+                     '--stat', '--output=' + str(output)):
+            with self.subTest(base=base):
+                self.assertEqual(2, self.check('--base-sha=' + base))
+                self.assertFalse(output.exists())
+                self.assertFalse(Path(str(output) + '...HEAD').exists())
+        self.assertEqual(CHANGELOG, (self.root / 'CHANGELOG.md').read_text(encoding='utf-8'))
+        self.assertEqual(LESSONS, (self.root / 'docs' / 'LESSONS.md').read_text(encoding='utf-8'))
 
     def test_a_fragment_passes(self):
         write(self.root / 'changelog.d', 'topic.md',
@@ -442,7 +476,7 @@ class GuardOverGit(unittest.TestCase):
                     write(self.root / directory, 'topic.md', fragment(front, body))
                 self.commit('add fragments')
                 self.base = self.git('rev-parse', 'HEAD').strip()
-                self.assertEqual(0, fragments.main(['collect', '--repo-root', str(self.root)]))
+                self.assertEqual(0, run_cli(self.root, 'collect'))
                 self.commit('release: collect the fragments')
                 self.assertEqual(0, self.check('--base-sha', self.base))
 
@@ -474,7 +508,7 @@ class GuardOverGit(unittest.TestCase):
                 write(self.root / directory, 'topic.md', fragment(front, body))
                 self.commit('add fragment')
                 self.base = self.git('rev-parse', 'HEAD').strip()
-                self.assertEqual(0, fragments.main(['collect', '--repo-root', str(self.root)]))
+                self.assertEqual(0, run_cli(self.root, 'collect'))
                 path = self.root / other_target
                 path.write_text(path.read_text(encoding='utf-8') + '\n- **Direct entry.**\n',
                                 encoding='utf-8')

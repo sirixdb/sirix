@@ -89,6 +89,9 @@ request (the `Changelog fragments` job of `.github/workflows/gradle.yml`). It va
 fragment, and it fails when the pull request adds an entry line — a `- ` bullet or a `##`/`###`
 heading in either shared file, or a `|` table row in `docs/LESSONS.md` — instead of adding a fragment.
 `--base-sha` is required so every check guards the shared files.
+It must be a full 40-character lowercase hexadecimal commit hash, not a revision expression or
+Git option. Both commands operate only on the repository containing the script; there is no
+repository-root override.
 
 Reworking or extending a line that is already there is allowed, and so is the release commit, which
 is recognized separately for each shared file by deletion of at least one validly named fragment
