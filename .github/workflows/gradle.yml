@@ -64,11 +64,11 @@ jobs:
     runs-on: ubuntu-latest
     # Complementary class filters retain the full suite in concurrent jobs; baseline timings
     # and coverage verification are documented in docs/CI_CORE_HEADROOM.md.
-    # Keep both gating even when one fails; Deploy's TestCore dependency requires both.
+    # Keep all lanes gating even when one fails; Deploy's TestCore dependency requires all of them.
     strategy:
       fail-fast: false
       matrix:
-        lane: [hot-property, remaining]
+        lane: [hot-property, remaining-index, remaining-non-index]
     timeout-minutes: 35
     steps:
       - name: Checkout
@@ -362,7 +362,7 @@ jobs:
         run: |
           test -s build/reports/python/python-coverage.xml
           test -s tools/pit-changed-lines/build/reports/jacoco/test/jacocoTestReport.xml
-          for lane in hot-property remaining; do
+          for lane in hot-property remaining-index remaining-non-index; do
             cp -a "build/sonar-coverage/coverage-core-$lane/test-results" bundles/sirix-core/build/
           done
           ./gradlew :sirix-core:jacocoMergedReport --info --stacktrace --max-workers=2 \
@@ -397,41 +397,53 @@ jobs:
     # whole workflow. The two groups are the natural cut — they were the two ~equal halves of that
     # 29 min — and they now run concurrently instead.
     #
-    # Windows sirix-core is cut again because excluding heavy tests makes the Linux cut unbalanced.
-    # Complementary filters partition :sirix-core:test; its isolated prerequisite tasks run in both
-    # jobs. See docs/CI_CORE_HEADROOM.md for the selection contract and measurements.
+    # sirix-core is cut again on every platform because excluding heavy tests makes the Linux cut
+    # unbalanced: core-index and core-non-index are complementary filters on :sirix-core:test, and
+    # their isolated prerequisite tasks run in both jobs. See docs/CI_CORE_HEADROOM.md for the
+    # selection contract and measurements.
+    #
+    # Linux arm64 is a first-class target (Sirix is an embedded engine), so it runs the same lanes
+    # on the hosted ubuntu-24.04-arm runner. Linux x86 keeps the full heavy suites in TestCore.
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
-        lane:
-          - name: core
-            tasks: ':sirix-core:test'
-          - name: core-index
-            tasks: ':sirix-core:test -PcoreTestLane=index'
-          - name: core-non-index
-            tasks: ':sirix-core:test -PcoreTestLane=non-index'
-          - name: query
-            tasks: ':sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test'
-        exclude:
-          - os: macos-latest
-            lane:
-              name: core-index
-              tasks: ':sirix-core:test -PcoreTestLane=index'
-          - os: macos-latest
-            lane:
-              name: core-non-index
-              tasks: ':sirix-core:test -PcoreTestLane=non-index'
-          - os: windows-latest
-            lane:
-              name: core
-              tasks: ':sirix-core:test'
-        # Heap budgets differ per runner: macOS arm64 has 7 GB total, windows-latest 16 GB.
+        # Heap budgets differ per runner: macOS arm64 has 7 GB total, the Windows and Linux arm64
+        # runners 16 GB.
         include:
           - os: macos-latest
+            lane: {name: core-index, tasks: ':sirix-core:test -PcoreTestLane=index'}
+            daemonHeap: 3g
+            testHeap: 3g
+          - os: macos-latest
+            lane: {name: core-non-index, tasks: ':sirix-core:test -PcoreTestLane=non-index'}
+            daemonHeap: 3g
+            testHeap: 3g
+          - os: macos-latest
+            lane: {name: query, tasks: ':sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test'}
             daemonHeap: 3g
             testHeap: 3g
           - os: windows-latest
+            lane: {name: core-index, tasks: ':sirix-core:test -PcoreTestLane=index'}
+            daemonHeap: 4g
+            testHeap: 6g
+          - os: windows-latest
+            lane: {name: core-non-index, tasks: ':sirix-core:test -PcoreTestLane=non-index'}
+            daemonHeap: 4g
+            testHeap: 6g
+          - os: windows-latest
+            lane: {name: query, tasks: ':sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test'}
+            daemonHeap: 4g
+            testHeap: 6g
+          - os: ubuntu-24.04-arm
+            lane: {name: core-index, tasks: ':sirix-core:test -PcoreTestLane=index'}
+            daemonHeap: 4g
+            testHeap: 6g
+          - os: ubuntu-24.04-arm
+            lane: {name: core-non-index, tasks: ':sirix-core:test -PcoreTestLane=non-index'}
+            daemonHeap: 4g
+            testHeap: 6g
+          - os: ubuntu-24.04-arm
+            lane: {name: query, tasks: ':sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test'}
             daemonHeap: 4g
             testHeap: 6g
     timeout-minutes: 60
