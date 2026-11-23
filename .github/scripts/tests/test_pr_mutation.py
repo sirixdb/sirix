@@ -746,7 +746,8 @@ class ReportingTest(unittest.TestCase):
                                   '<lineNumber>1</lineNumber></mutation></mutations>')
                 return 0
 
-            with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
+            with patch.object(mutation, 'resolve_targets', return_value=(['Unused'], [])), \
+                 patch.object(mutation, 'test_scope', return_value=(['UnusedTest*'], [], {})), \
                  patch.object(mutation, 'execute', side_effect=execute), \
                  patch.object(mutation, 'changed_line_index',
                               return_value={('', 'Unused.java'): {1}}):
@@ -796,7 +797,7 @@ class ReportingTest(unittest.TestCase):
                                 'detected': 1, 'classes': [['a.Baz', 1]]}}
         text = mutation.format_summary([result])
         self.assertIn('Changed target classes: 2. Test patterns: 1. '
-                      'Mutant scope: the changed lines, complete and unsampled.', text)
+                      'Requested mutant scope: the changed lines, without a per-class limit.', text)
         self.assertIn('Changed lines: 3. Mutants on changed lines: 2. Killed: 1. '
                       'Survived: 1. No coverage: 0.', text)
         self.assertIn('Changed sources for which no mapped test was selected:', text)

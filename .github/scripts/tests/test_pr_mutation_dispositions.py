@@ -225,6 +225,161 @@ def states(results):
     return [record['state'] for record in results['dispositions']['entries']]
 
 
+class CompletionEvidenceTest(unittest.TestCase):
+    """CONV-202: each rejected fact withholds every completion claim, never rule 4."""
+
+    FACTS = ('unfinished', 'report_unreadable', 'census_unreadable', 'census_malformed',
+             'census_violations', 'missing_artifacts', 'sampled', 'invalid_evidence')
+    JUDGEMENTS = ('acceptance', 'dispositioned_equivalent', 'dispositioned_out_of_lane',
+                  'staleness', 'empty_scope', 'rule_1_status')
+
+    def evidence(self, work, fact, status='SURVIVED'):
+        report = lane_report(work.root, [mutant(status, 11)], restricted=True)
+        census = report.parent.parent / mutation.CENSUS_FILE
+        census.write_text(census_record(21, indexes=(99,)) + '\n')
+        manifest = work.output / 'results.json'
+        document = json.loads(manifest.read_text())
+        module = document['modules'][0]
+        module['census'] = {'file': str(census), 'count': 1, 'malformed': 0,
+                            'violations': [], 'unreadable': []}
+        if fact == 'unfinished':
+            module['state'] = 'timed out'
+        elif fact == 'report_unreadable':
+            module['total'] = 2
+        elif fact == 'census_unreadable':
+            census.unlink()
+            census.mkdir()
+        elif fact == 'census_malformed':
+            census.write_text('{broken\n')
+        elif fact == 'census_violations':
+            census.write_text(census_record(11, indexes=(99,)) + '\n')
+        elif fact == 'missing_artifacts':
+            census.unlink()
+        elif fact == 'sampled':
+            module['mutants_per_class'] = 1
+        elif fact == 'invalid_evidence':
+            module['census'] = {'count': 'unknown'}
+        manifest.write_text(json.dumps(document))
+        loaded, = mutation.load_evidence([report], [census], {('a', 'Foo.java'): {11}})
+        result = mutation.read_report(report, {('a', 'Foo.java'): {11}})
+        result.update(module='sirix-core', state=module['state'], targets=['a.Foo'],
+                      _mutants=loaded.records, _evidence=loaded.completion)
+        return loaded, result
+
+    def test_every_rejection_withholds_every_completion_judgement(self):
+        self.assertEqual(set(self.FACTS), set(mutation.COMPLETION_FACTS))
+        self.assertEqual(set(self.JUDGEMENTS), set(mutation.COMPLETION_JUDGEMENTS))
+        for fact, judgement in itertools.product(self.FACTS, self.JUDGEMENTS):
+            with self.subTest(fact=fact, judgement=judgement), lane() as work:
+                loaded, result = self.evidence(work, fact)
+                self.assertIn(fact, loaded.completion.rejections)
+                self.assertFalse(loaded.completion.permits(judgement))
+                if judgement in ('acceptance', 'dispositioned_equivalent',
+                                 'dispositioned_out_of_lane', 'rule_1_status'):
+                    kind = ('killed-out-of-lane' if judgement == 'dispositioned_out_of_lane'
+                            else 'equivalent')
+                    (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(kind))
+                    verdict = mutation.judge_run(work.root, [result],
+                                                 {'sirix-core': {SOURCE: [11]}}, None)
+                    self.assertEqual(verdict['entries'][0]['state'], 'not judged')
+                    self.assertIn(fact, verdict['entries'][0]['action'])
+                    if judgement.startswith('dispositioned_'):
+                        candidate, = mutation.parse_dispositions(entry(kind))[0]
+                        mutation.apply_dispositions(
+                            result, {mutation.identity_of(candidate): candidate}, [])
+                    self.assertEqual(result['changed']['dispositioned_equivalent'], [])
+                    self.assertEqual(result['changed']['dispositioned_out_of_lane'], [])
+                    self.assertEqual(len(result['changed']['failing']), 1)
+                elif judgement == 'staleness':
+                    old = entry(indexes=[42])
+                    (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+                    verdict = mutation.judge_run(work.root, [result], {}, old)
+                    self.assertEqual(verdict['entries'][0]['state'], 'not judged')
+                    self.assertIn(fact, verdict['entries'][0]['action'])
+                    self.assertEqual(mutation.stale_entries(work.root, [result])['entries'], [])
+                else:
+                    empty = {'state': 'error'}
+                    self.assertFalse(mutation.resolve_empty_scope(empty, {}, loaded.completion))
+                    self.assertNotIn('off_diff_only', empty)
+
+    def test_every_rejection_retains_rule_four(self):
+        for fact, kind in itertools.product(self.FACTS, ('equivalent', 'killed-out-of-lane')):
+            with self.subTest(fact=fact, kind=kind), lane() as work:
+                _, result = self.evidence(work, fact, 'KILLED')
+                (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(kind))
+                verdict = mutation.judge_run(work.root, [result], {}, None)
+                self.assertEqual(verdict['entries'][0]['state'],
+                                 'contradicted' if kind == 'equivalent' else 'superseded')
+                self.assertFalse(verdict['clean'])
+
+    def test_complete_evidence_permits_every_judgement(self):
+        for judgement in self.JUDGEMENTS:
+            with self.subTest(judgement=judgement), lane() as work:
+                loaded, result = self.evidence(work, None)
+                self.assertEqual(loaded.completion.rejections, {})
+                self.assertTrue(loaded.completion.permits(judgement))
+                if judgement == 'empty_scope':
+                    empty = {'state': 'error'}
+                    self.assertTrue(mutation.resolve_empty_scope(empty, {}, loaded.completion))
+                    self.assertTrue(empty['off_diff_only'])
+                elif judgement == 'staleness':
+                    old = entry(indexes=[42])
+                    (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+                    verdict = mutation.judge_run(work.root, [result], {}, old)
+                    self.assertEqual(verdict['entries'][0]['state'], 'stale')
+                    self.assertEqual(len(mutation.stale_entries(work.root, [result])['entries']), 1)
+                else:
+                    kind = ('killed-out-of-lane' if judgement == 'dispositioned_out_of_lane'
+                            else 'equivalent')
+                    (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(kind))
+                    verdict = mutation.judge_run(work.root, [result], {}, None)
+                    self.assertEqual(verdict['entries'][0]['state'], 'accepted')
+                    key = ('dispositioned_out_of_lane' if kind == 'killed-out-of-lane'
+                           else 'dispositioned_equivalent')
+                    self.assertEqual(len(result['changed'][key]), 1)
+                    self.assertTrue(mutation.is_clean([result]))
+
+    def test_checker_uses_rejection_facts_and_retains_rule_four(self):
+        for fact, kind, status in itertools.product(
+                self.FACTS, ('equivalent', 'killed-out-of-lane'), ('SURVIVED', 'KILLED')):
+            with self.subTest(fact=fact, kind=kind, status=status), lane() as work:
+                self.evidence(work, fact, status)
+                (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(kind))
+                directory = work.output / 'sirix-core'
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=None):
+                    failing, text = mutation.check_dispositions(
+                        work.root, [directory / 'report/mutations.xml'], 'f' * 40, False,
+                        [directory / mutation.CENSUS_FILE])
+                self.assertTrue(failing)
+                expected = ('not judged' if status == 'SURVIVED' else
+                            'contradicted' if kind == 'equivalent' else 'superseded')
+                self.assertIn('entry 1 [' + expected + ']', text)
+                if status == 'SURVIVED':
+                    self.assertIn(fact, text)
+
+    def test_lane_violations_reject_survivors_and_empty_scope(self):
+        for empty, kind in itertools.product((False, True), ('equivalent', 'killed-out-of-lane')):
+            with self.subTest(empty=empty, kind=kind), lane() as work:
+                code, results, summary = work.run(
+                    [] if empty else [mutant('SURVIVED', 11)], head=entry(kind),
+                    census=[census_record(11, indexes=(99,))])
+                self.assertEqual(code, 1)
+                module = results['modules'][0]
+                self.assertEqual(module['state'], 'error')
+                self.assertIn('census_violations', module['completion_rejections'])
+                self.assertNotIn('off_diff_only', module)
+                self.assertNotIn('No mutant of this module sits on a changed line', summary)
+                self.assertNotIn('complete and unsampled', summary)
+                if not empty:
+                    self.assertEqual(states(results), ['not judged'])
+                    self.assertIn('census_violations', results['dispositions']['entries'][0]['action'])
+                    self.assertEqual(module['changed']['dispositioned_equivalent'], [])
+                    self.assertEqual(module['changed']['dispositioned_out_of_lane'], [])
+
+
 class DispositionRecordTest(unittest.TestCase):
     """CONV-201: the record format; an invalid entry voids the whole file."""
 
@@ -1969,7 +2124,8 @@ class PartialResultTest(unittest.TestCase):
                                         head=entry(method='other', descriptor='()V'),
                                         base=entry(method='other', descriptor='()V'),
                                         stream=[self.stream('KILLED', 11)])
-            self.assertEqual((code, states(results)), (1, ['out of scope']))
+            self.assertEqual((code, states(results)), (1, ['not judged']))
+            self.assertIn('unfinished', results['dispositions']['entries'][0]['action'])
 
     def test_blank_lines_in_the_stream_and_the_census_are_ignored(self):
         with lane() as work:

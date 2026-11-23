@@ -237,3 +237,37 @@
 - Lesson: [canonicalize identity before grouping evidence](../LESSONS.md#mutation-evidence-contracts).
 - Vision check: correct grouping preserves trustworthy verification of engine results and cost;
   there is no product behavior or default change.
+
+
+### Review round 8: reject completion claims together
+
+- Failure: a zero-exit module with a changed-line census violation still accepted and counted
+  a surviving mutant's disposition. An empty XML report could also become `off_diff_only`,
+  contradicting the changed-line identity in that same census. The overall failure concealed
+  incorrect published evidence.
+- Root cause: module state, artifact coverage and per-record provenance implemented separate
+  completeness decisions. Earlier fixes repaired individual consumers without enumerating the
+  claims that depended on the shared invariant.
+- Correction: one module evidence value names all rejecting facts: unfinished execution,
+  unreadable report/census, malformed census records, changed-line violations, missing artifacts,
+  per-class sampling and invalid recorded evidence. All six completion judgements consult that
+  value: acceptance, both dispositioned counts, staleness, empty-scope promotion and rule 1 status
+  provenance. The lane records its rejection facts for the helper; entries name the reason their
+  judgement was withheld. Summary scope wording describes the request without claiming the
+  evidence is complete. Rule 4 still contradicts or supersedes entries from preserved statuses.
+- Regression oracle: CONV-202 rules 1, 4 and 5. `CompletionEvidenceTest` exercises every rejecting
+  fact against every dependent judgement, pairs all judgements with valid evidence, checks rule 4
+  for every rejection and both disposition kinds, executes the checker against rejected artifact
+  pairs, and reproduces the violating-census survivor and empty-report cases through the lane.
+  A count-mismatched XML fixture retains observed statuses while failing a complete-read claim;
+  missing artifacts cannot prove absence. No test reads implementation source as evidence.
+- Why tests missed it: previous timeout tests proved overall failure and local-checker validation
+  independently; neither required every completion-based claim to be withheld for every rejection.
+- Verification: the four lane regression cases rejected the starting implementation.
+  All 263 focused reporter tests passed; after correcting the summary scope wording, all 23
+  reporting and completion-evidence tests passed. Commands:
+  `python3 -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'` and
+  `PYTHONPATH=.github/scripts/tests python3 -m unittest test_pr_mutation.ReportingTest test_pr_mutation_dispositions.CompletionEvidenceTest`.
+- Lesson: [enumerate evidence rejection facts and dependent claims](../LESSONS.md#mutation-evidence-contracts).
+- Vision check: truthful verification evidence supports confidence in engine behavior and cost;
+  no product behavior or default changes.

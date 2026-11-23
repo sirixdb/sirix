@@ -4,6 +4,7 @@ import argparse
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from functools import cached_property
 import hashlib
 import html
 import json
@@ -974,7 +975,7 @@ def mutant_record(element, changed):
     return {'identity': mutant_identity(element), 'status': element.get('status', 'UNKNOWN'),
             'detected': element.get('detected') == 'true', 'line': mutant_line(element),
             'changed': changed, 'text': describe_mutant(element),
-            'killing_test': element.findtext('killingTest'), 'completed_run': False}
+            'killing_test': element.findtext('killingTest')}
 
 
 def method_changed(found, entry, changed_index):
@@ -1035,6 +1036,9 @@ def judge_entry_scope(entry, context, mutant, added):
     if mutant:
         return judge_matched_mutant(mutant, added)
     if censused:
+        evidence = context['evidence'].get(entry['class'])
+        if evidence is not None and not evidence.permits('staleness'):
+            return 'not judged', evidence.action
         # Generated and removed off the diff: the mutant exists, so the entry is neither stale nor
         # unconfirmed, but this run measured no status for it and cannot accept it (CONV-202).
         return 'not judged', (f"matches a mutant the lane removed off the diff "
@@ -1048,9 +1052,9 @@ def judge_matched_mutant(mutant, added):
     if mutant['detected']:
         return 'detected-other', f"matches a {mutant['status']} mutant; reported, not failed"
     if mutant['status'] == 'SURVIVED':
-        if not mutant['completed_run']:
-            return 'not judged', ('matches a preserved SURVIVED status from an unfinished run or incompletely loaded evidence; '
-                                  'supply its complete report and census or rerun the analysis to judge this entry')
+        evidence = mutant['evidence']
+        if not evidence.permits('rule_1_status') or not evidence.permits('acceptance'):
+            return 'not judged', 'matches a preserved SURVIVED status; ' + evidence.action
         if added:
             return 'accepted', ('on a changed line' if mutant['changed']
                                 else 'on an unchanged line of a changed file')
@@ -1062,16 +1066,17 @@ def judge_matched_mutant(mutant, added):
 
 
 def judge_unmatched_entry(entry, context, added):
-    complete = context['mutated'].get(entry['class'])
-    if complete:
+    evidence = context['evidence'].get(entry['class'])
+    if evidence is not None and evidence.permits('staleness'):
         return 'stale', f'PIT no longer generates this mutant for its class; {REMAP_HINT}'
     if added and identity_of(entry) not in context['base_identities']:
-        where = ("not in this run's sample of its class" if complete is not None
+        where = ("not in this run's sample of its class" if evidence is not None
                  else 'its class was not mutated in this run')
         return 'unconfirmed', (f'no reported mutant matches ({where}); a new entry must match a '
-                               f'SURVIVED mutant of a class this PR changes')
-    if complete is not None:
-        return 'not judged', 'no reported mutant matches and the class sample is incomplete'
+                               f'SURVIVED mutant of a class this PR changes'
+                               + ('; ' + evidence.action if evidence is not None else ''))
+    if evidence is not None:
+        return 'not judged', evidence.action
     if added:
         return 'not judged', 'no reported mutant matches; its class was not mutated in this run'
     return 'out of scope', 'class not mutated in this run'
@@ -1124,7 +1129,11 @@ def apply_dispositions(result, accepted, judged):
         if not mutant['changed'] or mutant['detected']:
             continue
         entry = accepted.get(mutant['identity'])
-        if mutant['status'] == 'SURVIVED' and mutant['completed_run'] and entry:
+        judgement = ('dispositioned_equivalent' if entry and entry['kind'] == 'equivalent'
+                     else 'dispositioned_out_of_lane')
+        if (mutant['status'] == 'SURVIVED' and entry
+                and mutant['evidence'].permits('rule_1_status')
+                and mutant['evidence'].permits(judgement)):
             target = equivalent if entry['kind'] == 'equivalent' else out_of_lane
             target.append({'mutant': mutant['text'], 'entry': entry['position'],
                            'checked_at': entry['checked_at'], 'test': entry.get('test'),
@@ -1359,7 +1368,7 @@ def format_summary(results, dispositions=None, associations=None):
         if 'tests' in result:
             lines.extend([f"Changed target classes: {len(result['targets'])}. "
                           f"Test patterns: {len(result['tests'])}. "
-                          'Mutant scope: the changed lines, complete and unsampled.', ''])
+                          'Requested mutant scope: the changed lines, without a per-class limit.', ''])
         if result.get('off_diff_only'):
             lines.extend(['No mutant of this module sits on a changed line: PIT generated '
                           f"{result['census']['count']} mutant(s) for these classes and the "
@@ -1505,14 +1514,15 @@ def read_census(path, index):
     have, which fails the run. A record the kill truncated is reported, never guessed at, and a
     record two interceptor passes both wrote is counted once.
     """
-    census = {'file': str(path), 'count': 0, 'violations': [], 'malformed': 0, 'unreadable': []}
+    census = {'file': str(path), 'count': 0, 'violations': [], 'malformed': 0, 'unreadable': [],
+              'readable': True}
     records = {}
     if not path.exists():
         return census, records
     try:
         lines = path.read_bytes().splitlines()
     except OSError as error:
-        census.update(malformed=1, unreadable=[reason(error)])
+        census.update(malformed=1, unreadable=[reason(error)], readable=False)
         return census, records
     for number, line in enumerate(lines, start=1):
         if not line.strip():
@@ -1545,23 +1555,16 @@ def attach_census(result, path, index):
     census, records = read_census(path, index)
     result['census'] = census
     result['_census'] = records
-    # A complete run writes whole records; a torn one is already incomplete for another reason.
-    if census['malformed'] and result['state'] == 'complete':
-        result.update(state='error',
-                      error=f"{census['malformed']} malformed census record(s) in {path}: "
-                            + '; '.join(census['unreadable']))
 
 
-def resolve_empty_scope(result, index):
-    """PIT generated mutants for the targets and the restriction removed every one.
-
-    That is a measurement, not a broken run: the lane mutated the classes and none of their
-    mutants is on a line this PR changed, which the summary shows beside the changed-line count
-    (CONV-205). An empty report the census cannot explain stays incomplete, as it always was.
-    """
+def resolve_empty_scope(result, index, evidence):
+    """Promote a census-explained empty report only on accepted completion evidence."""
+    if not evidence.permits('empty_scope'):
+        return False
     result.pop('error', None)
     result.update(state='complete', off_diff_only=True,
                   **build_report([], index, allow_empty=True))
+    return True
 
 
 def attach_report(result, report, index, stream=None):
@@ -1572,8 +1575,7 @@ def attach_report(result, report, index, stream=None):
             parsed = read_report(report, index, allow_empty=True)
             empty_report = parsed['total'] == 0
             if not empty_report:
-                for mutant in parsed['_mutants']:
-                    mutant['completed_run'] = result['state'] == 'complete'
+                result['_report_valid'] = True
                 result.update(parsed)
                 return False
         failure = ValueError(NO_MUTANTS)
@@ -1598,7 +1600,8 @@ def attach_report(result, report, index, stream=None):
 
 def analyze_module(root, output, module, sources, lines, deadline, seconds, associations,
                    restrict):
-    result = {'module': module, 'sources': sources, 'state': 'error'}
+    result = {'module': module, 'sources': sources, 'state': 'error',
+              '_evidence': CompletionEvidence({'unfinished': COMPLETION_FACTS['unfinished']})}
     if module not in DIRECTORIES:
         return {**result, 'error': 'Unknown module; refusing to execute PIT'}
     directory = output / module
@@ -1633,9 +1636,22 @@ def analyze_module(root, output, module, sources, lines, deadline, seconds, asso
     empty_report = attach_report(result, report, index, stream)
     if restrict:
         attach_census(result, census, index)
-        if (executed and empty_report and result['census']['count']
-                and not result['census']['malformed']):
-            resolve_empty_scope(result, index)
+    value = ModuleEvidence(directory, result, result.get('targets', []), executed,
+                           report_supplied=True,
+                           report_valid=(result.pop('_report_valid', False)
+                                         or empty_report and bool(result.get('census', {}).get('count'))),
+                           census_supplied=restrict, census_valid=True,
+                           records=result.get('_mutants', []),
+                           summaries=[result['census']] if restrict else [])
+    evidence = value.completion
+    result['_evidence'] = evidence
+    result['completion_rejections'] = evidence.rejections
+    for record in value.records:
+        record['evidence'] = evidence
+    if empty_report and result.get('census', {}).get('count'):
+        resolve_empty_scope(result, index, evidence)
+    if evidence.rejections and result['state'] == 'complete':
+        result.update(state='error', error=evidence.action)
     return result
 
 
@@ -1670,19 +1686,15 @@ def global_changed_index(root, changed):
     return index
 
 
-def mutated_classes(results):
-    """Classes mutated by a completed module, mapped to whether PIT's sample of them is complete.
-
-    Only a run without a per-class limit proves a complete sample: PIT applies CLASSLIMIT before
-    later equivalence filters, so a count below the limit may still be a sample (CONV-202).
-    """
-    mutated = {}
+def class_evidence(results):
+    evidence = {}
     for result in results:
-        if result['state'] != 'complete' or result.get('partial'):
-            continue
+        value = result['_evidence']
         for target in result.get('targets', ()):
-            mutated[target] = result.get('mutants_per_class', False) is None
-    return mutated
+            previous = evidence.get(target)
+            evidence[target] = (value if previous is None else
+                                CompletionEvidence({**previous.rejections, **value.rejections}))
+    return evidence
 
 
 def judge_run(root, results, changed, base_text):
@@ -1700,7 +1712,7 @@ def judge_run(root, results, changed, base_text):
     mutants = {}
     for result in results:
         for mutant in result.get('_mutants', ()):
-            mutant['completed_run'] = mutant['completed_run'] and result['state'] == 'complete'
+            mutant['evidence'] = result['_evidence']
             mutants.setdefault(mutant['identity'], mutant)
     # Census identities prove a mutant exists without proving anything about its status, which is
     # what keeps staleness and re-identification judgeable in a changed-line-only run (CONV-202).
@@ -1710,7 +1722,7 @@ def judge_run(root, results, changed, base_text):
             census.setdefault(identity, record)
     context = {'compiled': CompiledClasses(root), 'tests': test_names, 'mutants': mutants,
                'census': census, 'changed_index': global_changed_index(root, changed),
-               'mutated': mutated_classes(results)}
+               'evidence': class_evidence(results)}
     verdict, accepted = judge_dispositions(entries, errors, base_text, context)
     for result in results:
         apply_dispositions(result, accepted, verdict['entries'])
@@ -1793,14 +1805,15 @@ def stale_entries(root, results):
     mutant is absent from a report that sampled nothing and restricted nothing.
     """
     entries, errors = read_dispositions(root)
-    mutated = mutated_classes(results)
+    evidence = class_evidence(results)
     reported = set()
     for result in results:
         for mutant in result.get('_mutants', ()):
             reported.add(mutant['identity'])
     stale = [{name: entry[name] for name in IDENTITY_FIELDS + ('position', 'kind')}
              for entry in ([] if errors else entries)
-             if mutated.get(entry['class']) and identity_of(entry) not in reported]
+             if entry['class'] in evidence and evidence[entry['class']].permits('staleness')
+             and identity_of(entry) not in reported]
     return {'file': DISPOSITIONS_FILE, 'errors': errors, 'entries': stale}
 
 
@@ -1844,12 +1857,48 @@ class CounterfactualError(Exception):
     """The counterfactual run produced no valid evidence; the message says why."""
 
 
+COMPLETION_FACTS = {
+    'unfinished': 'unfinished run or unknown module completion',
+    'report_unreadable': 'the report could not be read completely and validly',
+    'census_unreadable': 'the census could not be read',
+    'census_malformed': 'the census holds malformed records',
+    'census_violations': 'the census holds changed-line violations',
+    'missing_artifacts': 'required artifacts or their scope metadata were not supplied',
+    'sampled': 'a per-class mutant limit was applied',
+    'invalid_evidence': 'recorded evidence failed validation',
+}
+COMPLETION_JUDGEMENTS = (
+    'acceptance', 'dispositioned_equivalent', 'dispositioned_out_of_lane',
+    'staleness', 'empty_scope', 'rule_1_status',
+)
+
+
+@dataclass
+class CompletionEvidence:
+    rejections: dict
+
+    def permits(self, judgement):
+        if judgement not in COMPLETION_JUDGEMENTS:
+            raise ValueError(f'Unknown completion judgement: {judgement}')
+        return not self.rejections
+
+    @property
+    def failed(self):
+        return any(fact not in ('missing_artifacts', 'sampled') for fact in self.rejections)
+
+    @property
+    def action(self):
+        return ('completion judgement withheld; evidence rejected: '
+                + '; '.join(f'{fact}: {reason}' for fact, reason in self.rejections.items())
+                + '; supply complete valid evidence or rerun the analysis')
+
+
 @dataclass
 class ModuleEvidence:
     path: Path
     metadata: dict
     targets: list
-    completed: bool
+    completed: bool | None
     report_supplied: bool = False
     report_valid: bool = False
     census_supplied: bool = False
@@ -1858,22 +1907,49 @@ class ModuleEvidence:
     census: dict = field(default_factory=dict)
     summaries: list = field(default_factory=list)
     errors: list = field(default_factory=list)
+    sampled: bool = False
 
-    @property
-    def completely_loaded(self):
+    @cached_property
+    def completion(self):
+        recorded_facts = self.metadata.get('completion_rejections', {})
+        valid = (isinstance(recorded_facts, dict)
+                 and all(isinstance(fact, str) and isinstance(reason, str)
+                         for fact, reason in recorded_facts.items()))
+        facts = dict(recorded_facts) if valid else {
+            'invalid_evidence': 'invalid recorded completion rejection metadata'}
+        if self.completed is False or self.completed is None and self.report_supplied:
+            facts['unfinished'] = COMPLETION_FACTS['unfinished']
+        if self.report_supplied and not self.report_valid:
+            facts['report_unreadable'] = COMPLETION_FACTS['report_unreadable']
+        for summary in self.summaries:
+            if summary.get('readable') is False:
+                facts['census_unreadable'] = (COMPLETION_FACTS['census_unreadable'] + ': '
+                                              + '; '.join(summary['unreadable']))
+            if summary['malformed']:
+                facts['census_malformed'] = (f"{summary['malformed']} malformed census record(s): "
+                                             + '; '.join(summary['unreadable']))
+            if summary['violations']:
+                facts['census_violations'] = (COMPLETION_FACTS['census_violations'] + ': '
+                                              + '; '.join(summary['violations']))
+        if self.errors:
+            facts['invalid_evidence'] = '; '.join(self.errors)
         total = self.metadata.get('total')
         report_loaded = (self.report_valid if self.report_supplied else
                          type(total) is int and total == 0)
         recorded = self.metadata.get('census', {})
         empty_census = (isinstance(recorded, dict) and type(recorded.get('count')) is int
                         and recorded['count'] == 0)
-        census_loaded = (self.census_valid if self.census_supplied else empty_census)
+        census_loaded = self.census_valid if self.census_supplied else empty_census
         restricted = self.metadata.get('restricted')
-        return (self.completed and bool(self.targets) and not self.errors and report_loaded
-                and (restricted is False or restricted is True and census_loaded))
+        if (not self.targets or 'mutants_per_class' not in self.metadata or not report_loaded
+                or not (restricted is False or restricted is True and census_loaded)):
+            facts['missing_artifacts'] = COMPLETION_FACTS['missing_artifacts']
+        if self.sampled or self.metadata.get('mutants_per_class') is not None:
+            facts['sampled'] = COMPLETION_FACTS['sampled']
+        return CompletionEvidence(facts)
 
 
-def load_evidence(reports, censuses, index):
+def load_evidence(reports, censuses, index, sampled=False):
     modules = {}
     for kind, paths in (('report', reports), ('census', censuses)):
         for path in dict.fromkeys(Path(value).resolve() for value in paths):
@@ -1903,9 +1979,9 @@ def load_evidence(reports, censuses, index):
                         not isinstance(name, str) or not QUALIFIED_NAME.fullmatch(name)
                         for name in targets):
                     targets = []
-                completed = (metadata.get('state') == 'complete'
-                             and metadata.get('partial', False) is False)
-                evidence = ModuleEvidence(key, metadata, targets, completed)
+                completed = ((metadata.get('state') == 'complete'
+                              and metadata.get('partial', False) is False) if metadata else None)
+                evidence = ModuleEvidence(key, metadata, targets, completed, sampled=sampled)
                 modules[key] = evidence
                 if metadata and not completed:
                     evidence.errors.append(f'Run completion is unfinished or unknown for {key}')
@@ -1962,9 +2038,9 @@ def load_evidence(reports, censuses, index):
     for evidence in modules.values():
         if unassigned and evidence.metadata:
             evidence.errors.append('Cannot attribute invalid census evidence: ' + ', '.join(unassigned))
-        loaded = evidence.completely_loaded
+        completion = evidence.completion
         for record in evidence.records:
-            record['completed_run'] = loaded
+            record['evidence'] = completion
     return list(modules.values())
 
 
@@ -1986,20 +2062,17 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
     """
     _, lines = changed_sources(root, base, current_commit(root))
     index = global_changed_index(root, lines)
-    evidence = load_evidence(reports, censuses, index)
-    records, census, classes = [], {}, {}
+    evidence = load_evidence(reports, censuses, index, sampled)
+    records, census, results = [], {}, []
     for module in evidence:
-        loaded = module.completely_loaded
         records.extend(module.records)
         census.update(module.census)
-        complete = loaded and module.metadata.get('mutants_per_class', False) is None and not sampled
-        for name in module.targets:
-            classes[name] = classes.get(name, True) and complete
+        results.append({'targets': module.targets, '_evidence': module.completion})
     entries, errors = read_dispositions(root)
     context = {'compiled': CompiledClasses(root), 'tests': lambda: declared_tests(root),
                'mutants': {record['identity']: record for record in records}, 'census': census,
                'changed_index': index,
-               'mutated': classes}
+               'evidence': class_evidence(results)}
     verdict, accepted = judge_dispositions([] if errors else entries, errors,
                                            merge_base_file(root, base, DISPOSITIONS_FILE), context)
     module = {'changed': {}, '_mutants': records}
@@ -2010,9 +2083,9 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
         lines_out.extend('error: ' + error for error in supplied.errors)
         for summary in supplied.summaries:
             lines_out.extend(format_census({'census': summary}))
-        if not supplied.completely_loaded and not supplied.errors:
+        if supplied.completion.rejections and not supplied.errors:
             lines_out.append(f'Generated set incompletely loaded for {supplied.path}; '
-                             'missing artifacts cannot prove absence')
+                             + supplied.completion.action)
     for record in verdict['entries']:
         if record['state'] != 'out of scope':
             marker = 'FAIL' if record['failing'] else 'ok'
@@ -2020,7 +2093,7 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
                              f"{record['class']}.{record['method']}: {record['action']}")
     lines_out.extend(f"FAIL mutant {value['mutant']}: {value['reason']}"
                      for value in module['changed']['failing'])
-    failing = bool(errors or any(value.errors for value in evidence) or verdict['failing']
+    failing = bool(errors or any(value.completion.failed for value in evidence) or verdict['failing']
                    or module['changed']['failing'])
     return failing, '\n'.join(lines_out)
 

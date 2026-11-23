@@ -399,8 +399,8 @@ reads the matching module's completion and sampling state from that existing man
 timed-out, partial or unknown runs cannot authorize a disposition, and cannot prove a complete
 generated set. Standalone XML without matching completion metadata is reported as unknown and
 fails the check; its detected statuses still contradict or supersede entries, and remap can
-still propose identities. A report from a completed sampled run can authorize its measured
-survivors, but cannot prove a missing mutant stale. Target membership is loaded together
+still propose identities. A per-class mutant limit withholds completion-based judgements, including survivor
+acceptance and absence-based staleness. Target membership is loaded together
 with completeness from each module's saved `targets`, including classes that emitted no mutant;
 it is never reconstructed from XML or census identities alone.
 
@@ -408,15 +408,16 @@ Run completion and loaded-evidence completeness are distinct. The helper keeps o
 value recording supplied reports/censuses, whether each was read completely and validly,
 and recorded census failures. Report and census paths are resolved against the working
 directory before deduplication and grouping, so mixed absolute/relative spellings share one
-module value. Its single completeness predicate controls acceptance and
-absence-based staleness. A restricted run's nonempty report and census must both be supplied;
+module value. Its named rejection facts control acceptance, both dispositioned counts, staleness,
+empty-scope eligibility and status provenance for rule 1. Census violations reject all
+those claims even when PIT exited zero; rule 4 still uses preserved statuses. A restricted run's nonempty report and census must both be supplied;
 report-only or census-only input cannot prove an absent identity stale. A missing helper path
 is not a supplied empty artifact. The lane can record a known zero count because it clears
 artifacts before running; that saved zero count attests that a component contributes no missing
 identities. Otherwise omitted components remain unproven. Recorded census failures still fail
 the checker even when its census argument is omitted. Missing evidence alone leaves an unmatched
 existing entry not judged, without failing it; a changed-line survivor still cannot be accepted
-from incomplete evidence. `--sampled` continues to withhold absence-based staleness.
+from incomplete evidence. `--sampled` withholds completion-based judgements as well.
 
 Measured churn of pure refactors (PIT 1.25.5 on a four-method sample class whose six surviving
 mutants were taken as reviewed entries): a line shift, an extract-method and a method reorder
