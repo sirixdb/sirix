@@ -63,7 +63,8 @@ final class ConcurrentAxisLifecycleTest {
   @ParameterizedTest
   @CsvSource({"json, except, false", "xml, except, false", "json, intersectLeft, false", "xml, intersectLeft, false",
       "json, intersectRight, false", "xml, intersectRight, false", "json, except, true", "xml, except, true",
-      "json, intersectLeft, true", "xml, intersectLeft, true", "json, intersectRight, true", "xml, intersectRight, true"})
+      "json, intersectLeft, true", "xml, intersectLeft, true", "json, intersectRight, true",
+      "xml, intersectRight, true"})
   void setExhaustionFencesUnusedProducerAndReleasesOwnedReader(final String format, final String operation,
       final boolean failClose, @TempDir final Path directory) throws Exception {
     final Path databasePath = directory.resolve("database");
@@ -171,8 +172,8 @@ final class ConcurrentAxisLifecycleTest {
 
   @ParameterizedTest
   @CsvSource({"json, close, false", "xml, close, false", "json, reset, false", "xml, reset, false",
-      "json, interrupt, false", "xml, interrupt, false", "json, close, true", "xml, close, true",
-      "json, reset, true", "xml, reset, true", "json, interrupt, true", "xml, interrupt, true"})
+      "json, interrupt, false", "xml, interrupt, false", "json, close, true", "xml, close, true", "json, reset, true",
+      "xml, reset, true", "json, interrupt, true", "xml, interrupt, true"})
   void txn503CancellationPreservesFirstCloseFailure(final String format, final String mode,
       final boolean interruptedCleanup, @TempDir final Path directory) throws Exception {
     final Path databasePath = directory.resolve("database");
