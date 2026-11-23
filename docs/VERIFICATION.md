@@ -130,7 +130,10 @@ and the additional MCP/offline REST tests run only for Sonar-eligible events, us
 `Build` job's `sonar-enabled` output. The REST integration suite remains outside the
 coverage handoff. The query lane also runs the MCP tests and the offline REST authorization tests
 that the former serial Sonar build ran; offline REST needs neither Docker nor Keycloak, and its
-JaCoCo execution data feeds both the REST and query reports. The analyzed module set is unchanged.
+JaCoCo execution data feeds both the REST and query reports. The query lane also generates the
+PIT plugin's JaCoCo XML and uploads it as `coverage-pit-tooling`. Sonar restores it to
+`tools/pit-changed-lines/build/reports/jacoco/test/jacocoTestReport.xml`, the module's default
+import location, and requires it alongside the engine reports before analysis.
 
 The independent `Python mutation tooling` job runs the script's adversarial and CLI tests with
 branch coverage (85% minimum) and uploads `coverage-python`. Sonar requires this lane, downloads

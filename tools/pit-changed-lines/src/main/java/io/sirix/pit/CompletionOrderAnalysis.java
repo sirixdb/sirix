@@ -37,7 +37,10 @@ public final class CompletionOrderAnalysis {
           }
         }
       }
-    } catch (final InterruptedException | ExecutionException error) {
+    } catch (final InterruptedException error) {
+      Thread.currentThread().interrupt();
+      throw Unchecked.translateCheckedException(error);
+    } catch (final ExecutionException error) {
       throw Unchecked.translateCheckedException(error);
     }
     for (final ClassMutationResults results : interceptor.remaining()) {

@@ -137,12 +137,21 @@ jobs:
           ${{ needs.Build.outputs.sonar-enabled == 'true' && '-Pcoverage' || '' }} --parallel --info --stacktrace
       # These also ran in the old Sonar build. Keep their probes, including offline REST's
       # contribution to the query report, without starting the Docker-backed REST suite.
-      - name: Test MCP and report offline REST coverage
+      - name: Test MCP and report offline REST and PIT tooling coverage
         if: needs.Build.outputs.sonar-enabled == 'true'
         run: >-
           ./gradlew :sirix-query:jacocoTestReport :sirix-kotlin-api:jacocoTestReport
           :sirix-kotlin-cli:jacocoTestReport :sirix-mcp:jacocoTestReport :sirix-rest-api:jacocoTestReport
+          :sirix-pit-changed-lines:jacocoTestReport
           -x :sirix-rest-api:test --info --stacktrace
+      - name: Upload PIT tooling coverage
+        if: needs.Build.outputs.sonar-enabled == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-pit-tooling
+          path: tools/pit-changed-lines/build/reports/jacoco/test/jacocoTestReport.xml
+          if-no-files-found: error
+          retention-days: 3
       - name: Upload query, Kotlin, MCP, and offline REST coverage
         if: needs.Build.outputs.sonar-enabled == 'true'
         uses: actions/upload-artifact@v4
@@ -323,9 +332,15 @@ jobs:
         with:
           name: coverage-python
           path: build/reports/python
+      - name: Download PIT tooling coverage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: coverage-pit-tooling
+          path: tools/pit-changed-lines/build/reports/jacoco/test
       - name: Merge core coverage and verify reports
         run: |
           test -s build/reports/python/python-coverage.xml
+          test -s tools/pit-changed-lines/build/reports/jacoco/test/jacocoTestReport.xml
           for lane in hot-property remaining; do
             cp -a "build/sonar-coverage/coverage-core-$lane/test-results" bundles/sirix-core/build/
           done

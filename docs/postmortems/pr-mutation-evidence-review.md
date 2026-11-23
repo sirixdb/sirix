@@ -46,6 +46,40 @@
 - Vision check: trustworthy mutation evidence protects the engine's bytes, results and cost;
   these fixes introduce no product default or new mutation policy.
 
+## CI follow-up: fragments, interruption and coverage delivery
+
+- Symptom: PR 1487's Changelog fragments check rejected the directly appended lesson. Both
+  Sonar checks failed the same quality gate: reliability C, security C and new coverage 69.2%.
+- Trigger: checking the PR against the newer base's fragment convention; interrupting the
+  completion adapter's wait; analyzing the new weekly job's mutable Gradle action reference;
+  or importing coverage without the PIT plugin's report.
+- Root cause: the lesson predated the fragment convention. A combined catch translated
+  `InterruptedException` without restoring the signal it clears. The weekly job copied mutable
+  action tags. Plugin tests ran with coverage enabled, but no step generated, uploaded or
+  downloaded their XML report, so Sonar counted every plugin source line as uncovered.
+- Fix: move the lesson verbatim into a note fragment, with this follow-up's prevention advice;
+  restore interruption at the shared wait boundary while retaining worker-failure propagation;
+  pin the new weekly job's actions to repository-established revisions; and transport the plugin
+  report separately to its default JaCoCo import location, requiring it before analysis.
+- Why tests missed it: completion-order tests observed finished and cancelled PIT subprocesses,
+  not an interrupted adapter caller. Test execution alone did not exercise coverage delivery;
+  compilation and local checks did not run the newer base's fragment guard or Sonar rules.
+- Regression: `CompletionOrderAnalysisTest.interruptedWaitPropagatesFailureAndRestoresInterruptStatus`
+  failed before the fix because the interrupt flag was false. Its oracle is CONV-205's cancellation
+  contract, and it rejects cancellation silently losing its signal. Existing `StreamingDeadlineTest`
+  cases exercise both normal completion and durable partial results through the real PIT agent.
+  The base revision's fragment validator reproduced the original rejection before the move.
+- Verification: `./gradlew :sirix-pit-changed-lines:jacocoTestReport
+  :sirix-pit-changed-lines:spotlessJavaCheck -PerrorProne=true --max-workers=2` passed all 37 tests
+  and generated XML with 214 covered lines and 67 covered branches. Removing the interrupt
+  restoration call made the cancellation regression fail; restoring it passed the full suite.
+  `actionlint` passed both changed workflows. A normalized workflow model confirmed matching
+  artifact names, producer conditions and the default import destination. The base's unmodified
+  fragment validator rejected the original committed snapshot and accepted the fixed snapshot
+  in a local Git fixture; collection preserved the lesson body and anchor. The hosted quality
+  gate requires the outer executor's CI rerun. No engine or query hot path changes; the existing
+  vision check above applies.
+
 
 ## Follow-up: branch history, helper evidence and executable CI coverage
 
