@@ -1,7 +1,7 @@
 # Changelog and lesson fragments
 
-A pull request does not edit [`CHANGELOG.md`](../CHANGELOG.md) or
-[`docs/LESSONS.md`](../docs/LESSONS.md). It adds **one fragment file per entry**, and the release
+A pull request adds each new entry as **one fragment file** instead of appending directly to
+[`CHANGELOG.md`](../CHANGELOG.md) or [`docs/LESSONS.md`](../docs/LESSONS.md). The release
 collects the fragments into those files. Two pull requests then never touch the same lines, so a
 merge on `main` no longer forces every other open branch to rebase and revalidate.
 
@@ -30,16 +30,19 @@ section: Fixed
 - **Range scans no longer drop rows below a routed leaf.** ...
 ```
 
-- The first line is exactly `---`. Front-matter lines are `key: value`; the block ends at the next
-  line that is exactly `---`.
+- The first line is `---`, ignoring surrounding whitespace. Front-matter lines are `key: value`;
+  blank lines are ignored, and the block ends at the next `---` line, also ignoring surrounding
+  whitespace.
 - The body is everything after that line, taken **verbatim** — the collector inserts those bytes and
   reformats nothing. Write the entry exactly as it should read in the collected file, with the same
   bullet style, wrapping and indentation as its neighbours.
 - Links in the body are relative to the collected destination (`CHANGELOG.md` or
   `docs/LESSONS.md`), not to the fragment's directory.
-- Leading blank lines after the front matter and trailing whitespace are stripped, and the body is
-  appended directly after the entry that is already last, with no blank line inserted between them.
-  An empty body is an error.
+- Permanent documents should link to the collected destination rather than to a fragment that
+  collection deletes.
+- Leading blank lines after the front matter and trailing whitespace are stripped. An empty body
+  is an error. Changelog entries and lesson rows are appended directly after existing content in
+  their destination section or table; lesson notes have a blank line inserted before their body.
 
 ### Changelog fragments (`changelog.d/`)
 
@@ -83,8 +86,8 @@ dependency to a repository whose build has none.
 
 `python3 .github/scripts/changelog_fragments.py check --base-sha <merge-base>` runs on every pull
 request (the `Changelog fragments` job of `.github/workflows/gradle.yml`). It validates every
-fragment, and it fails when the pull request adds an entry line — a `- ` bullet, a `|` table row or
-a `##`/`###` heading — to `CHANGELOG.md` or `docs/LESSONS.md` instead of adding a fragment.
+fragment, and it fails when the pull request adds an entry line — a `- ` bullet or a `##`/`###`
+heading in either shared file, or a `|` table row in `docs/LESSONS.md` — instead of adding a fragment.
 `--base-sha` is required so every check guards the shared files.
 
 Reworking or extending a line that is already there is allowed, and so is the release commit, which
