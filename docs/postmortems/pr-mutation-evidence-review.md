@@ -41,3 +41,35 @@
 - Lesson: [Separate evidence, protocol and presentation](../LESSONS.md#mutation-evidence-contracts).
 - Vision check: trustworthy mutation evidence protects the engine's bytes, results and cost;
   these fixes introduce no product default or new mutation policy.
+
+
+## Follow-up: branch history, helper evidence and executable CI coverage
+
+- Fix / issue: review findings R7–R10.
+- Symptom and trigger: a topic committed before the cutoff but merged during the reporting window
+  could become the weekly base and hide its merged sources. Local checks ignored census failures
+  and omitted census-only classes. The new plugin tests were compiled but never executed by CI.
+- Root cause: R7 treated traversal of every Git parent as the default branch's own history;
+  `window_base` now selects only first-parent commits. R8 retained census identities but discarded
+  their validation and class scope at the checker boundary; the checker now shares census output
+  with the lane, fails invalid evidence and withholds completeness when any census is invalid.
+  R9 relied on compilation and tool-classpath dependencies to run tests; the existing query/Kotlin
+  job now explicitly executes the plugin test task with a small unit-test heap. R10 maintained a
+  redundant unrestricted-mode override; map omission is now the sole unrestricted configuration,
+  consistently reflected in action output, docs and the specification.
+- Why tests missed it: window fixtures were linear; helper fixtures supplied only valid census
+  evidence for classes also present in XML; no CI job owned execution of the plugin's test task.
+- Regression tests: `FullScopeTest.test_the_window_excludes_topic_parents_from_its_base` uses a
+  real merge history and checks that the topic's sources remain selected. `RefactorHelperTest`
+  checks malformed, unreadable, torn UTF-8 and changed-line-violating census files through the CLI,
+  both with and without entries, and checks census-only class staleness and sampled incompleteness.
+  Focused verification covers the Python mutation-reporter package, the workflow's parsed task
+  invocation and `:sirix-pit-changed-lines:test`; no full repository suite or mutation run is used.
+  All three new regression cases rejected the starting reporter; all 238 Python tests and all
+  34 plugin tests passed. Real Gradle configuration checks confirmed a supplied map enables
+  `CHANGEDLINES` and an omitted map leaves it absent. The parsed workflow confirmed the plugin
+  test task executes unconditionally in the existing query/Kotlin job.
+- Lesson: preserve the provenance and validity of evidence through every consumer, and give each
+  new test task an explicit CI execution owner. See [the evidence lesson](../LESSONS.md#mutation-evidence-contracts).
+- Vision check: the fixes preserve trustworthy verification of the engine's results and cost;
+  there is no product behavior or default change.

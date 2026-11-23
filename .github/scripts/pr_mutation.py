@@ -1038,7 +1038,7 @@ def judge_entry_scope(entry, context, mutant, added):
         # unconfirmed, but this run measured no status for it and cannot accept it (CONV-202).
         return 'not judged', (f"matches a mutant the lane removed off the diff "
                               f"({censused['source']}:{censused['line']}); no status was measured "
-                              f"- rerun with -PprMutationAllLines or read the scheduled "
+                              f"- rerun and omit -PprMutationChangedLinesFile or read the scheduled "
                               f"full-scope report")
     return judge_unmatched_entry(entry, context, added)
 
@@ -1768,11 +1768,11 @@ def run(root, output, seconds, blocking):
 
 
 def window_base(root, days):
-    """The last commit of the checked-out branch before the report's window (CONV-206)."""
+    """The last first-parent commit before the report's window (CONV-206)."""
     if days <= 0:
         raise ValueError('--window-days must be positive')
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
-    found = subprocess.check_output(['git', '-C', str(root), 'rev-list', '-1',
+    found = subprocess.check_output(['git', '-C', str(root), 'rev-list', '--first-parent', '-1',
                                      f'--before={cutoff}', 'HEAD'], shell=False).decode().strip()
     if not found:
         raise ValueError(f'no commit of this branch predates {cutoff}; widen --window-days')
@@ -1867,21 +1867,28 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
     records = report_records(reports, index)
     classes = {record['identity'][0] for record in records}
     census = {}
+    census_summaries = []
+    census_valid = True
     for path in censuses:
-        _, found = read_census(Path(path), index)
+        summary, found = read_census(Path(path), index)
+        census_summaries.append(summary)
+        census_valid = census_valid and not summary['malformed'] and not summary['violations']
+        classes.update(identity[0] for identity in found)
         for identity, record in found.items():
             census.setdefault(identity, record)
     entries, errors = read_dispositions(root)
     context = {'compiled': CompiledClasses(root), 'tests': lambda: declared_tests(root),
                'mutants': {record['identity']: record for record in records}, 'census': census,
                'changed_index': index,
-               'mutated': dict.fromkeys(classes, not sampled)}
+               'mutated': dict.fromkeys(classes, not sampled and census_valid)}
     verdict, accepted = judge_dispositions([] if errors else entries, errors,
                                            merge_base_file(root, base, DISPOSITIONS_FILE), context)
     module = {'changed': {}, '_mutants': records}
     apply_dispositions(module, accepted, verdict['entries'])
     lines_out = [f'{DISPOSITIONS_FILE}: {len(entries)} valid entries, {len(errors)} errors']
     lines_out.extend(f'error: {error}' for error in errors)
+    for summary in census_summaries:
+        lines_out.extend(format_census({'census': summary}))
     for record in verdict['entries']:
         if record['state'] != 'out of scope':
             marker = 'FAIL' if record['failing'] else 'ok'
@@ -1889,7 +1896,7 @@ def check_dispositions(root, reports, base, sampled, censuses=()):
                              f"{record['class']}.{record['method']}: {record['action']}")
     lines_out.extend(f"FAIL mutant {value['mutant']}: {value['reason']}"
                      for value in module['changed']['failing'])
-    failing = bool(errors or verdict['failing'] or module['changed']['failing'])
+    failing = bool(errors or not census_valid or verdict['failing'] or module['changed']['failing'])
     return failing, '\n'.join(lines_out)
 
 

@@ -25,8 +25,8 @@ configure(mutationProject) {
             throw new GradleException("PR mutation mutant limit must be a positive integer: ${mutantLimit}")
         }
         // CONV-205: the lane mutates the PR's own lines only. The reporter writes the changed-line
-        // map and reads the census the interceptor writes beside it. A focused rerun either omits
-        // the map or passes -PprMutationAllLines to mutate every line of the same targets.
+        // map and reads the census the interceptor writes beside it. A focused rerun omits
+        // the map to mutate every line of the same targets.
         def featureArgument = { String name, String value ->
             if (value.isBlank() || value =~ /[\[\](),\s]/) {
                 throw new GradleException("PR mutation ${name} path must be non-blank and free of " +
@@ -35,9 +35,8 @@ configure(mutationProject) {
             "${name}[${value}]"
         }
         def changedLinesFile = providers.gradleProperty('prMutationChangedLinesFile').getOrNull()
-        def allLines = providers.gradleProperty('prMutationAllLines').isPresent()
         def pitFeatures = []
-        if (changedLinesFile != null && !allLines) {
+        if (changedLinesFile != null) {
             // One parameter only: PIT 1.25.5's feature parser reads a feature's first parameter
             // and silently ignores the rest, so the interceptor derives the census path from
             // this one (census.jsonl beside the map).

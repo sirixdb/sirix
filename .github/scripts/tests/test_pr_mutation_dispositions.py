@@ -700,6 +700,67 @@ class RefactorHelperTest(unittest.TestCase):
             self.assertFalse(failing)
             self.assertIn('ok entry 1 [not judged]', text)
             self.assertIn('removed off the diff', text)
+            self.assertIn('omit -PprMutationChangedLinesFile', text)
+
+    def test_check_rejects_invalid_census_evidence_and_withholds_completeness(self):
+        """CONV-203: the CLI must reject every census defect the lane rejects."""
+        invalid = [('malformed', b'{"class":', 'line 1:'),
+                   ('unreadable', None, 'Is a directory'),
+                   ('changed-line', (census_record(11, indexes=(9,)) + '\n').encode(),
+                    'a.Foo:11'),
+                   ('torn-utf8', b'{"description":"\xc3', 'utf-8')]
+        for kind, contents, reason in invalid:
+            for has_entry in (False, True):
+                with self.subTest(kind=kind, has_entry=has_entry), lane() as work:
+                    old = entry(method='other', descriptor='()V', indexes=[42])
+                    if has_entry:
+                        (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+                    report = self.report(work.root, [mutant('KILLED', 11)])
+                    valid = work.root / 'valid.jsonl'
+                    valid.write_text(census_record(21, indexes=(8,)) + '\n')
+                    broken = work.root / 'broken.jsonl'
+                    if contents is None:
+                        broken.mkdir()
+                    else:
+                        broken.write_bytes(contents)
+                    args = ['pr_mutation.py', 'dispositions', '--root', str(work.root),
+                            '--report', str(report), '--check', '--base', 'f' * 40,
+                            '--census', str(valid), '--census', str(broken)]
+                    with patch.object(sys, 'argv', args), \
+                         patch.object(mutation, 'changed_sources', return_value=(
+                             {}, {'sirix-core': {SOURCE: [11]}})), \
+                         patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                         patch.object(mutation, 'merge_base_file',
+                                      return_value=old if has_entry else None), \
+                         patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
+                        self.assertEqual(mutation.main(), 1)
+                    text = out.getvalue()
+                    self.assertIn('broken.jsonl', text)
+                    self.assertIn(reason, text)
+                    if has_entry:
+                        self.assertIn('ok entry 1 [not judged]', text)
+                        self.assertNotIn('[stale]', text)
+
+    def test_check_includes_classes_seen_only_in_the_census(self):
+        """CONV-202/203: the complete generated set is report plus valid census."""
+        with lane() as work:
+            old = entry(indexes=[42])
+            (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+            report = self.report(work.root, [mutant('KILLED', 11, klass='a.Bar', source='Bar.java')])
+            census = work.root / mutation.CENSUS_FILE
+            census.write_text(census_record(21) + '\n')
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [5]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                failing, text = mutation.check_dispositions(
+                    work.root, [report], 'f' * 40, False, [census])
+                self.assertTrue(failing)
+                self.assertIn('FAIL entry 1 [stale] a.Foo.run', text)
+                sampled_failing, sampled_text = mutation.check_dispositions(
+                    work.root, [report], 'f' * 40, True, [census])
+                self.assertFalse(sampled_failing)
+                self.assertIn('ok entry 1 [not judged]', sampled_text)
 
     def test_the_cli_passes_every_census_it_is_given(self):
         with lane() as work:

@@ -256,8 +256,8 @@ This replaced per-class sampling, which cost almost the whole budget on mutants 
 on [PR 1353](https://github.com/sirixdb/sirix/pull/1353) 1,098 of 1,132 test-case executions served
 unchanged-line mutants, and three surviving return-value mutants on unchanged `commit()` default
 methods took 959 of them, while a killed mutant costs about 1.3 test cases. To obtain every mutant
-of a class, including those on unchanged lines, add `-PprMutationAllLines` to a focused Gradle
-rerun using the artifact's `targets.txt`, as in the example below; `prMutationMaxMutations` still
+of a class, including those on unchanged lines, omit `-PprMutationChangedLinesFile` from a
+focused Gradle rerun using the artifact's `targets.txt`, as in the example below; `prMutationMaxMutations` still
 limits such a rerun per class if you ask for it.
 
 A source that resolves to nothing never changes the scope chosen for the other changed sources;
@@ -329,8 +329,8 @@ so a module can still report `0` mutants judged out of many changed lines. The s
 module's changed-line count beside its changed-line mutant count and its census count, so that
 case stays visible rather than silent. Mutant-level staleness of an entry whose mutant sits on an
 unchanged line is also outside this lane's reach: the census proves the mutant still exists, and
-whether it still survives is answered by a focused rerun with `-PprMutationAllLines` or by the
-scheduled full-scope report.
+whether it still survives is answered by a focused rerun omitting
+`-PprMutationChangedLinesFile` or by the scheduled full-scope report.
 
 ### Scheduled full-scope mutation report
 
@@ -343,7 +343,7 @@ request and never decides an outcome;
 rules.
 
 It reuses the lane's selection and reporting with the changed-line restriction disabled and no
-per-class limit: its base is the last commit on the default branch before the report's window
+per-class limit: its base is the last first-parent commit on the default branch before the window
 (`--window-days`, 7 by default), its head is `HEAD`, so its scope is the sources the branch changed
 in that window, resolved by exactly the rules above. Its budget is its own and the PR lane's limits
 are untouched. The job summary and the `full-scope-mutation` artifact carry, per class, the mutants
@@ -385,7 +385,9 @@ python3 .github/scripts/pr_mutation.py counterfactual --patch mutant.patch -- \
 
 Pass `--sampled` to `--check` when the reports came from a rerun with a per-class limit, and
 `--census /tmp/pr-mutation/sirix-core/census.jsonl` to judge entries whose mutants the lane
-removed off the diff exactly as the lane judges them.
+removed off the diff exactly as the lane judges them. Census validation failures are printed and
+fail the checker; invalid evidence never proves a complete generated set. Valid census-only classes
+are included when checking staleness.
 
 Measured churn of pure refactors (PIT 1.25.5 on a four-method sample class whose six surviving
 mutants were taken as reviewed entries): a line shift, an extract-method and a method reorder
@@ -436,15 +438,16 @@ For a broader deterministic test selection, reuse the artifact's `targets.txt` a
   -PprMutationReportDir=/tmp/pr-mutation-expanded
 ```
 
-That rerun passes no `-PprMutationChangedLinesFile`, so it mutates every line of its targets; add
-`-PprMutationAllLines` to drop the restriction from a command that does pass one, and
-`-PprMutationMaxMutations=<n>` to sample such a rerun per class. The lane itself passes the file
-and neither of the other two.
+That rerun passes no `-PprMutationChangedLinesFile`, so it mutates every line of its targets.
+Omitting the map is the sole control for unrestricted analysis. Add
+`-PprMutationMaxMutations=<n>` to sample such a rerun per class; the lane itself passes the map
+and applies no per-class limit.
 
 The opt-in [Gradle configuration](../gradle/pr-mutation.gradle) uses the existing
 [Gradle PIT plugin](https://gradle-pitest-plugin.solidsoft.info/) and versions, and adds
-`tools/pit-changed-lines` to PIT's own `pitest` tool classpath. Its absence from normal task
-graphs preserves existing test-lane timing.
+`tools/pit-changed-lines` to PIT's own `pitest` tool classpath. The existing query/Kotlin CI job
+executes `:sirix-pit-changed-lines:test`, including its adversarial tests and ordering proof
+against the pinned PIT release, without allocating another runner.
 
 Each module is analysed by exactly one PIT invocation, so its slow test scope is covered once per
 run. The invocations share one Gradle daemon with a fixed heap (`-Dorg.gradle.jvmargs`) instead of

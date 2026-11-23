@@ -398,5 +398,7 @@ See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-ope
   complete; recover append-only evidence record by record, including torn UTF-8. Aggregate debt
   over the report's declared scope. Classify a mutation by what consumes its value, and assert
   serialized contracts and literal subprocess behavior instead of implementation syntax. Cached
-  outputs imply reuse only with matching task inputs. Evidence:
+  outputs imply reuse only with matching task inputs. Preserve validation at every evidence
+  consumer, use first-parent history for branch windows, and explicitly schedule new test tasks
+  in CI; compilation alone supplies no regression protection. Evidence:
   [mutation reporter review](postmortems/pr-mutation-evidence-review.md).

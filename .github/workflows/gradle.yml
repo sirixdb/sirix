@@ -97,7 +97,7 @@ jobs:
           retention-days: 3
 
   TestQuery:
-    name: Test sirix-query, sirix-kotlin-api, sirix-kotlin-cli
+    name: Test query, Kotlin, and PIT tooling
     needs: Build
     runs-on: ubuntu-latest
     # Instrumented tests exceeded 20 minutes before MCP/offline REST reporting could start.
@@ -121,9 +121,10 @@ jobs:
           path: |
             **/build
           key: build-${{ github.run_id }}
-      - name: Test sirix-query, sirix-kotlin-api, and sirix-kotlin-cli
+      - name: Test query, Kotlin, and PIT tooling
         run: >-
           ./gradlew :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test
+          :sirix-pit-changed-lines:test
           ${{ needs.Build.outputs.sonar-enabled == 'true' && '-Pcoverage' || '' }} --parallel --info --stacktrace
       # These also ran in the old Sonar build. Keep their probes, including offline REST's
       # contribution to the query report, without starting the Docker-backed REST suite.

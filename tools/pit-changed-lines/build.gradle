@@ -32,6 +32,8 @@ test {
     useJUnitPlatform()
     // Plain unit tests against PIT's own interfaces: no Sirix engine, no preview features.
     jvmArgs = []
+    minHeapSize = '64m'
+    maxHeapSize = '256m'
 }
 
 // The classes land on PIT's tool classpath, which runs them under the pinned PIT release on an

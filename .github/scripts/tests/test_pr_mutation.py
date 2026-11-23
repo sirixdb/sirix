@@ -1070,7 +1070,6 @@ class LaneCommandTest(unittest.TestCase):
             self.assertEqual([value for value in command
                               if value.startswith('-PprMutationMaxMutations')], [])
             self.assertIsNone(result['mutants_per_class'])
-            self.assertNotIn('-PprMutationAllLines', command)
 
     def test_one_daemon_with_a_fixed_heap_is_reused_instead_of_a_single_use_one(self):
         with self.prepared() as (first, _, _), self.prepared() as (second, _, _):
@@ -1242,6 +1241,27 @@ class FullScopeTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mutation.window_base(root, 10_000)  # nothing on the branch is that old
 
+    def test_the_window_excludes_topic_parents_from_its_base(self):
+        """CONV-206: merging an older topic during the window must expose its sources."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            git = git_repository(root)
+            self.commit(root, 'initial', 30)
+            main = git('branch', '--show-current')
+            git('checkout', '-qb', 'topic')
+            source = 'bundles/sirix-core/' + self.SOURCE
+            (root / source).parent.mkdir(parents=True)
+            topic = self.commit(root, source, 10, 'package a;\nclass Foo {}\n')
+            git('checkout', '-q', main)
+            parent = self.commit(root, 'main-change', 20)
+            git('merge', '-q', '--no-ff', '--no-edit', 'topic')
+            base = mutation.window_base(root, 7)
+            self.assertEqual(base, parent)
+            self.assertNotEqual(base, topic)
+            selected, lines = mutation.changed_sources(root, base, mutation.current_commit(root))
+            self.assertEqual(selected, {'sirix-core': [self.SOURCE]})
+            self.assertEqual(lines, {'sirix-core': {self.SOURCE: [1, 2]}})
+
     @contextlib.contextmanager
     def report(self, mutants, exit_code=0, dispositions=None):
         with tempfile.TemporaryDirectory() as temp:
@@ -1329,7 +1349,7 @@ class FullScopeTest(unittest.TestCase):
             clock.now.return_value = instant
             self.assertEqual(mutation.window_base(Path('/repo'), 7), 'a' * 40)
         self.assertEqual(git.call_args.args[0],
-                         ['git', '-C', '/repo', 'rev-list', '-1',
+                         ['git', '-C', '/repo', 'rev-list', '--first-parent', '-1',
                           '--before=2026-11-16T12:34:56Z', 'HEAD'])
 
     def test_the_debt_report_records_every_class_and_shows_what_it_left_out(self):
