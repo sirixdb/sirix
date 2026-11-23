@@ -162,7 +162,7 @@ test {
 
     useJUnitPlatform {
         // The cross-platform CI lanes exclude soak-style suites that cannot fit the
-        // runner budget there; Linux CI runs everything.
+        // runner budget there; Linux x86 CI runs everything.
         if (project.hasProperty('excludeHeavyTests')) {
             excludeTags 'heavy'
         }

@@ -114,7 +114,7 @@ Error Prone 2.51.0 ([upstream bug](https://github.com/google/error-prone/issues/
 ## SonarCloud analysis
 
 The `Run Sonarqube` job in [`gradle.yml`](../.github/workflows/gradle.yml) runs on pushes to
-`main` and eligible pull requests targeting `main`, after both Linux core lanes and the query/Kotlin
+`main` and eligible pull requests targeting `main`, after all Linux core lanes and the query/Kotlin
 lane succeed. The core lanes upload raw JaCoCo probes and test results; the query/Kotlin lane uploads
 reports and test results. The scanner restores the same run's compiled modules and reports and never
 reruns tests. The checkout matches the producing
@@ -145,9 +145,9 @@ tests. Python production source remains in analysis; tests are analyzed as tests
 toward production coverage. This small Python lane does not change the existing test lanes'
 dependencies or run a local JVM.
 
-The core XML report merges both lanes' raw execution data, including the isolated test forks,
+The core XML report merges all core lanes' raw execution data, including the isolated test forks,
 using `:sirix-core:jacocoMergedReport`. Merging probes before generating XML preserves the union of
-branch coverage when both lanes visit the same method. Missing lane/fork data or module reports fails
+branch coverage when multiple lanes visit the same method. Missing lane/fork data or module reports fails
 the job instead of silently reducing coverage. The isolated forks' agent-handling
 safety invariant is documented beside the fork-option copy in
 [`bundles/sirix-core/build.gradle`](../bundles/sirix-core/build.gradle).
