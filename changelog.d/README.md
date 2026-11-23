@@ -35,6 +35,8 @@ section: Fixed
 - The body is everything after that line, taken **verbatim** — the collector inserts those bytes and
   reformats nothing. Write the entry exactly as it should read in the collected file, with the same
   bullet style, wrapping and indentation as its neighbours.
+- Links in the body are relative to the collected destination (`CHANGELOG.md` or
+  `docs/LESSONS.md`), not to the fragment's directory.
 - Leading blank lines after the front matter and trailing whitespace are stripped, and the body is
   appended directly after the entry that is already last, with no blank line inserted between them.
   An empty body is an error.
@@ -64,7 +66,6 @@ branches rarely share does not cause the conflicts this convention removes.
 
 ```bash
 python3 .github/scripts/changelog_fragments.py collect        # writes and deletes the fragments
-python3 .github/scripts/changelog_fragments.py collect --dry-run   # prints what it would write
 ```
 
 `collect` validates every fragment first and writes nothing if any of them is invalid. It inserts
@@ -84,6 +85,7 @@ dependency to a repository whose build has none.
 request (the `Changelog fragments` job of `.github/workflows/gradle.yml`). It validates every
 fragment, and it fails when the pull request adds an entry line — a `- ` bullet, a `|` table row or
 a `##`/`###` heading — to `CHANGELOG.md` or `docs/LESSONS.md` instead of adding a fragment.
+`--base-sha` is required so every check guards the shared files.
 
 Reworking or extending a line that is already there is allowed, and so is the release commit, which
 is recognized by the fragment deletions in its own diff.

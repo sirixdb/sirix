@@ -10,11 +10,14 @@ A fragment is a `.md` file named after its branch or topic, with front matter an
 ---
 kind: row
 ---
-| A borrowed reference was folded onto a lone child's own slot. | Register every reference the fold can swizzle, including the one the lone child owns. | [HOT lower bound](../postmortems/2026-11-hot-lower-bound-below-leaf.md), `HotFoldBoundaryTest` |
+| A borrowed reference was folded onto a lone child's own slot. | Register every reference the fold can swizzle, including the one the lone child owns. | [HOT lower bound](postmortems/2026-11-hot-lower-bound-below-leaf.md), `HotFoldBoundaryTest` |
 ```
 
 - `kind: row` — one or more complete table rows for the table at the top of `LESSONS.md`.
 - `kind: note` — markdown appended at the end of `LESSONS.md`, for a lesson the table cannot hold.
+
+Links in the body are relative to the collected destination, `docs/LESSONS.md`, not to this
+directory: use `postmortems/...` for evidence under `docs/postmortems/`.
 
 Extending an existing lesson still edits `LESSONS.md` in place, as that file asks.
 

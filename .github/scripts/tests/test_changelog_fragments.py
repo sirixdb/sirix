@@ -241,13 +241,23 @@ class RenderLessons(unittest.TestCase):
                                      [fragments.Fragment(Path('a.md'), 'row', '| a | b | c |')])
 
     def test_the_last_table_row_round_trips_byte_for_byte(self):
-        original = (REPO_ROOT / 'docs' / 'LESSONS.md').read_text(encoding='utf-8')
-        lines = original.split('\n')
-        last = max(index for index, line in enumerate(lines) if line.startswith('|'))
+        original = (REPO_ROOT / 'docs' / 'LESSONS.md').read_bytes()
+        lines = original.decode('utf-8').split('\n')
+        header = lines.index('| Failure / broken assumption | Apply next time | Repository evidence |')
+        end = next(index for index in range(header, len(lines))
+                   if not lines[index].startswith('|'))
+        last = end - 1
+        standalone_rows = [(index, line) for index, line in enumerate(lines)
+                           if index > end and line.startswith('|')]
+        self.assertTrue(standalone_rows)
         reduced = '\n'.join(lines[:last] + lines[last + 1:])
         rendered = fragments.render_lessons(
             reduced, [fragments.Fragment(Path('round-trip.md'), 'row', lines[last])])
-        self.assertEqual(original, rendered)
+        self.assertEqual(original, rendered.encode('utf-8'))
+        rendered_lines = rendered.split('\n')
+        self.assertEqual(standalone_rows,
+                         [(index, line) for index, line in enumerate(rendered_lines)
+                          if index > end and line.startswith('|')])
 
 
 class Collect(unittest.TestCase):
@@ -279,14 +289,6 @@ class Collect(unittest.TestCase):
         self.assertEqual(0, fragments.main(['collect', '--repo-root', str(self.root)]))
         self.assertEqual(CHANGELOG, (self.root / 'CHANGELOG.md').read_text(encoding='utf-8'))
         self.assertEqual(LESSONS, (self.root / 'docs' / 'LESSONS.md').read_text(encoding='utf-8'))
-
-    def test_dry_run_writes_nothing_and_keeps_the_fragments(self):
-        path = write(self.root / 'changelog.d', 'topic.md',
-                     fragment('section: Fixed', '- **New** — text.\n'))
-        self.assertEqual(0, fragments.main(['collect', '--repo-root', str(self.root),
-                                            '--dry-run']))
-        self.assertEqual(CHANGELOG, (self.root / 'CHANGELOG.md').read_text(encoding='utf-8'))
-        self.assertTrue(path.exists())
 
     def test_one_invalid_fragment_writes_and_deletes_nothing(self):
         good = write(self.root / 'changelog.d', 'good.md',
@@ -333,6 +335,22 @@ class Guard(unittest.TestCase):
     def test_added_changelog_section_heading_is_a_violation(self):
         found = self.violations(diff('CHANGELOG.md', '@@ -20,0 +21,2 @@\n+### Security\n+\n'))
         self.assertEqual(['### Security'], [item.line for item in found])
+
+    def test_added_shared_file_headings_are_violations(self):
+        for path in ('CHANGELOG.md', 'docs/LESSONS.md'):
+            for heading in ('## New entry', '### New entry'):
+                with self.subTest(path=path, heading=heading):
+                    found = self.violations(diff(path, '@@ -20,0 +21,2 @@\n+%s\n+Prose.\n'
+                                                 % heading))
+                    self.assertEqual([(path, heading)], [(item.path, item.line) for item in found])
+
+    def test_rewording_shared_file_headings_is_allowed(self):
+        for path in ('CHANGELOG.md', 'docs/LESSONS.md'):
+            for prefix in ('## ', '### '):
+                with self.subTest(path=path, prefix=prefix):
+                    found = self.violations(diff(path, '@@ -20 +20 @@\n-%sOld\n+%sNew\n'
+                                                 % (prefix, prefix)))
+                    self.assertEqual([], found)
 
     def test_added_lessons_table_row_is_a_violation(self):
         found = self.violations(diff('docs/LESSONS.md', '@@ -9,0 +10 @@\n+| F. | R. | `T` |\n'))
@@ -424,21 +442,20 @@ class GuardOverGit(unittest.TestCase):
         self.commit('release: collect the fragments')
         self.assertEqual(0, self.check('--base-sha', self.base))
 
-    def test_an_invalid_fragment_fails_even_without_a_base(self):
+    def test_an_invalid_fragment_fails_with_a_base(self):
         write(self.root / 'changelog.d', 'bad.md',
               fragment('section: Repaired', '- **New** — text.\n'))
         self.commit('add an invalid fragment')
-        self.assertEqual(2, self.check())
-
-    def test_validation_without_a_base_ignores_the_shared_files(self):
-        path = self.root / 'CHANGELOG.md'
-        path.write_text(CHANGELOG + '- **Loose** — text.\n', encoding='utf-8')
-        self.commit('direct edit, no base to compare against')
-        self.assertEqual(0, self.check())
+        self.assertEqual(2, self.check('--base-sha', self.base))
 
 
 class Cli(unittest.TestCase):
     """The command line surface."""
+
+    def test_check_requires_a_base(self):
+        with self.assertRaises(SystemExit) as raised:
+            fragments.main(['check'])
+        self.assertEqual(2, raised.exception.code)
 
     def test_unknown_command_is_rejected(self):
         with self.assertRaises(SystemExit):

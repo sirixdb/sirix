@@ -69,7 +69,7 @@ SPECS = (CHANGELOG_SPEC, LESSONS_SPEC)
 # line, a blank line, prose - stays an ordinary edit of a line that is already there.
 ENTRY_LINES = {
     CHANGELOG_SPEC.target: re.compile(r'(- |#{2,3} )'),
-    LESSONS_SPEC.target: re.compile(r'(- |### |\|)'),
+    LESSONS_SPEC.target: re.compile(r'(- |#{2,3} |\|)'),
 }
 
 
@@ -245,7 +245,7 @@ def render_lessons(text, fragments):
 RENDERERS = {CHANGELOG_SPEC.target: render_changelog, LESSONS_SPEC.target: render_lessons}
 
 
-def collect(root, dry_run):
+def collect(root):
     """Render every fragment into its shared file and remove the fragments that were rendered."""
     fragments = {}
     rendered = {}
@@ -264,13 +264,8 @@ def collect(root, dry_run):
         return
     for target, text in sorted(rendered.items()):
         names = ', '.join(fragment.path.name for fragment in fragments[target])
-        if dry_run:
-            print('%s: would collect %s' % (target, names))
-            continue
         (root / target).write_text(text, encoding='utf-8')
         print('%s: collected %s' % (target, names))
-    if dry_run:
-        return
     for target in rendered:
         for fragment in fragments[target]:
             fragment.path.unlink()
@@ -322,9 +317,6 @@ def check(root, base):
     """Validate every fragment, then refuse an entry written into a shared file directly."""
     for spec in SPECS:
         load_fragments(root / spec.directory, spec)
-    if base is None:
-        print('fragments are valid')
-        return 0
     if _collects_fragments(root, base):
         print('fragments are valid; this diff collects fragments, so it may write the entries')
         return 0
@@ -349,20 +341,17 @@ def main(argv=None):
                         help='repository root (default: the one holding this script)')
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     commands = parser.add_subparsers(dest='command', required=True)
-    collect_command = commands.add_parser('collect', parents=[common],
-                                          help='render the fragments and remove them')
-    collect_command.add_argument('--dry-run', action='store_true',
-                                 help='report what would be collected and write nothing')
+    commands.add_parser('collect', parents=[common],
+                        help='render the fragments and remove them')
     check_command = commands.add_parser('check', parents=[common],
                                         help='validate fragments and guard shared files')
-    check_command.add_argument('--base-sha',
-                               help='the commit the pull request branched from; without it only '
-                                    'the fragments are validated')
+    check_command.add_argument('--base-sha', required=True,
+                               help='the base commit to compare for shared-file entry additions')
     arguments = parser.parse_args(argv)
     root = Path(arguments.repo_root)
     try:
         if arguments.command == 'collect':
-            collect(root, arguments.dry_run)
+            collect(root)
             return 0
         return check(root, arguments.base_sha)
     except FragmentError as error:
