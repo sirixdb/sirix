@@ -2,7 +2,8 @@
 
 Keep entries short and evidence-based: broken assumption, prevention, and fix/test evidence.
 For each new bug, add a [write-up](postmortems/TEMPLATE.md), a failing-before regression and a
-lesson here. Extend an existing lesson when the same failure mode recurs.
+lesson. A new lesson arrives as one fragment file in [lessons.d/](lessons.d/README.md), which the
+release collects into this file. Extend an existing lesson here when the same failure mode recurs.
 
 | Failure / broken assumption | Apply next time | Repository evidence |
 | --- | --- | --- |

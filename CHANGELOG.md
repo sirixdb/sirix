@@ -2,6 +2,9 @@
 
 All notable changes to SirixDB are documented in this file.
 
+A pull request does not write its entry here: it adds one fragment file under
+[`changelog.d/`](changelog.d/README.md), and the release collects the fragments into this file.
+
 ## [Unreleased]
 
 ### Added

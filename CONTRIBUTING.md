@@ -93,8 +93,14 @@ change. What it asks of every pull request:
   differential oracle. Record the cases, seeds and outcomes in the PR; promote any discovered
   failure to a deterministic regression.
 - Give every bug a root-cause [write-up](docs/postmortems/TEMPLATE.md), a regression test that fails
-  before the fix, and an actionable entry in [Lessons](docs/LESSONS.md). Link the evidence; explain
-  why the old tests missed it and how the new check would catch it.
+  before the fix, and an actionable lesson. Link the evidence; explain why the old tests missed it
+  and how the new check would catch it.
+- Add each changelog entry and each lesson as **one fragment file** — in
+  [`changelog.d/`](changelog.d/README.md) and [`docs/lessons.d/`](docs/lessons.d/README.md) — rather
+  than editing `CHANGELOG.md` or `docs/LESSONS.md`. A release collects the fragments into those
+  files. Two pull requests then never touch the same lines, so merging one no longer forces the
+  others to rebase and revalidate. A pull-request check enforces this; the convention, the collector
+  and what the check allows are documented in [`changelog.d/README.md`](changelog.d/README.md).
 
 ## Code Style
 

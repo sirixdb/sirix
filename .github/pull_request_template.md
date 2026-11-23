@@ -24,7 +24,8 @@ observable acceptance checks for non-code changes).
 
 ## Bug learning (when fixing a bug)
 
-Link the root-cause write-up, failing-before regression test and `docs/LESSONS.md` entry.
+Link the root-cause write-up, failing-before regression test and lesson fragment
+(`docs/lessons.d/<topic>.md`, see [`changelog.d/README.md`](../changelog.d/README.md)).
 
 ## Vision check
 

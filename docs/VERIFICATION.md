@@ -128,8 +128,9 @@ coverage handoff. The query lane also runs the MCP tests and the offline REST au
 that the former serial Sonar build ran; offline REST needs neither Docker nor Keycloak, and its
 JaCoCo execution data feeds both the REST and query reports. The analyzed module set is unchanged.
 
-The independent `Python mutation tooling` job runs the script's adversarial and CLI tests with
-branch coverage (85% minimum) and uploads `coverage-python`. Sonar requires this lane, downloads
+The independent `Python mutation tooling` job discovers all `test_*.py` suites under
+`.github/scripts/tests/`, covering mutation tooling and changelog/lesson fragments, with branch
+coverage (85% minimum) and uploads `coverage-python`. Sonar requires this lane, downloads
 its XML to `build/reports/python/python-coverage.xml`, verifies the report exists, and imports it
 through `sonar.python.coverage.reportPaths`. The root Python test directory is explicitly
 classified with `sonar.tests` and test-inclusion patterns that also preserve module Java/Kotlin

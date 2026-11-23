@@ -164,13 +164,13 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Test mutation tooling with branch coverage
+      - name: Test repository Python tooling with branch coverage
         env:
           COVERAGE_FILE: ${{ runner.temp }}/python.coverage
         run: |
           python3 -m pip install --disable-pip-version-check --only-binary :all: coverage==7.17.3
           python3 -B -m coverage run --branch --source=.github/scripts --omit='*/tests/*' \
-            -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'
+            -m unittest discover -s .github/scripts/tests -p 'test_*.py'
           python3 -m coverage xml -o "$RUNNER_TEMP/python-coverage.xml"
           python3 -m coverage report --fail-under=85
       - name: Upload Python coverage
@@ -181,6 +181,27 @@ jobs:
           path: ${{ runner.temp }}/python-coverage.xml
           if-no-files-found: error
           retention-days: 3
+
+  ChangelogFragments:
+    name: Changelog fragments
+    # A changelog or lesson entry arrives as its own fragment file, so two pull requests never
+    # append to the same lines of a shared file. The convention: changelog.d/README.md.
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout PR merge revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history so the merge base of the pull request is resolvable.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate fragments and guard the shared files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 .github/scripts/changelog_fragments.py check --base-sha "$BASE_SHA"
 
   MutationTesting:
     name: PIT changed-source mutation testing
