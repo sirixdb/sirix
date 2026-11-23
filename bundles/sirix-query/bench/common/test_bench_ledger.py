@@ -30,7 +30,7 @@ QUIET = [0.004, -0.003, 0.001, -0.002, 0.0, 0.003, -0.004, 0.002, -0.001, 0.0]
 
 CPUINFO = "".join(
     f"processor\t: {index}\nvendor_id\t: TestVendor\nmodel name\t: Test CPU {9000 if index < 4 else 9001}\n"
-    f"physical id\t: 0\ncore id\t\t: {index // 2}\nflags\t\t: fpu vme\n\n"
+    f"flags\t\t: fpu vme\nphysical id\t: 0\ncore id\t\t: {index // 2}\n\n"
     for index in range(5)
 )
 
@@ -1623,15 +1623,21 @@ class CaptureDetailTest(unittest.TestCase):
                 f"90 25 0:50 / {directory}/data rw - xfs /dev/sdb1 rw\n"
                 f"91 90 0:51 / {directory}/data rw - btrfs /dev/sdc1 rw\n"
                 f"92 25 0:52 / {directory}/data/db/deeper rw - tmpfs none rw\n"
+                f"95 91 0:54 / {directory}/data/pool - zfs tank rw\n"
                 "93 25 0:53 / - \n"
                 "94 25 - ext2 /dev/sdd rw\n"
             )
-            capture = self.capture(directory, data=data, **{"proc/self/mountinfo": mounts})
-            self.assertEqual(
-                "btrfs", capture["data_filesystem"], "a later mount on the same point hides the earlier one"
-            )
-            capture = self.capture(directory + "/again", data=Path(directory), **{"proc/self/mountinfo": mounts})
-            self.assertEqual("ext4", capture["data_filesystem"])
+            expected = {data: "btrfs", Path(directory) / "data" / "pool" / "db": "zfs", Path(directory): "ext4"}
+            for index, (path, filesystem) in enumerate(expected.items()):
+                capture = self.capture(f"{directory}/root-{index}", data=path, **{"proc/self/mountinfo": mounts})
+                self.assertEqual(filesystem, capture["data_filesystem"], path)
+
+    def test_a_data_path_that_cannot_be_resolved_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            os.symlink(f"{directory}/b", f"{directory}/a")
+            os.symlink(f"{directory}/a", f"{directory}/b")
+            capture = self.capture(f"{directory}/root", data=Path(directory) / "a" / "db")
+        self.assertRegex(capture["data_filesystem"]["unavailable"], "^benchmark data path: (Runtime|OS)Error$")
 
     def test_memory_is_fingerprinted_in_whole_gibibytes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

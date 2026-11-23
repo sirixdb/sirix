@@ -14,6 +14,7 @@ page says how to use them.
 | `bench_ledger.py` | The results ledger, the environment capture, the conditions lookup and the run directory |
 | `bench_trend.py` | The nightly trend report over the ledger |
 | `test_*.py` | Their tests; `testdata/` holds the A/A control of 2026-11-23 |
+| `MUTATION_DISPOSITIONS.md` | The mutation record of the three tools |
 
 All three tools are standard-library Python 3 and none of them times anything.
 

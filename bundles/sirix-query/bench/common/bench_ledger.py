@@ -246,8 +246,8 @@ def _filesystem(root: Path, data: Path | None) -> str | dict[str, str]:
         return text
     try:
         target = data.resolve()
-    except OSError as error:
-        return unavailable(f"benchmark data path: {error.strerror or type(error).__name__}")
+    except (OSError, RuntimeError) as error:  # a symbolic-link loop is a RuntimeError before Python 3.13
+        return unavailable(f"benchmark data path: {type(error).__name__}")
     best: tuple[int, str] | None = None
     for line in text.splitlines():
         left, separator, right = line.partition(" - ")
@@ -311,7 +311,7 @@ def capture_environment(
 def _distinct(cpufreq: Mapping[str, Mapping[str, Any]], field: str) -> list[str]:
     """The distinct values of one field over all cpufreq policies; an unreadable one keeps its reason."""
     values = (policy[field] for policy in cpufreq.values())
-    return sorted({value if isinstance(value, str) else json.dumps(value, sort_keys=True) for value in values})
+    return sorted({value if isinstance(value, str) else json.dumps(value) for value in values})
 
 
 def fingerprint_fields(environment: Mapping[str, Any]) -> dict[str, Any]:
@@ -672,8 +672,8 @@ def read_ledger(path: Path) -> list[dict[str, Any]]:
 
 
 def _lines(rows: Iterable[Mapping[str, Any]]) -> str:
-    """Rows as JSON Lines text, one compact object per line with its keys in a stable order."""
-    return "".join(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n" for row in rows)
+    """Rows as JSON Lines text, one compact object per line."""
+    return "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows)
 
 
 def append_rows(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
@@ -711,7 +711,7 @@ def append_rows(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
 
 def _write_json(path: Path, document: Any) -> None:
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, path)
 
 
@@ -1074,7 +1074,7 @@ def clickbench_rows(
             complete = {"cold_seconds": False, "hot_seconds": False}
             continue
         cold = _timing(tries[0], f"{source} {name}")
-        hot = _hot_figure(tries, f"{source} {name}") if len(tries) > 1 else None
+        hot = _hot_figure(tries, f"{source} {name}")
         if cold is not None:
             totals["cold_seconds"] += cold
             rows.append({**series, "benchmark": name, "metric": "cold_seconds", "value": cold})
@@ -1342,7 +1342,7 @@ def _capture(args: argparse.Namespace) -> int:
 def _fingerprint(_args: argparse.Namespace) -> int:
     environment = capture_environment()
     print(fingerprint(environment))
-    print(json.dumps(fingerprint_fields(environment), indent=2, sort_keys=True))
+    print(json.dumps(fingerprint_fields(environment), indent=2))
     return 0
 
 
