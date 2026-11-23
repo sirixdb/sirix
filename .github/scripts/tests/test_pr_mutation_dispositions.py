@@ -1430,6 +1430,77 @@ class PartialResultTest(unittest.TestCase):
             # An `equivalent` entry contradicted by a preserved KILLED status still fails.
             self.assertEqual((code, states(results)), (1, ['contradicted']))
 
+    def test_preserved_survivors_never_authorize_either_disposition_kind(self):
+        """CONV-202: unfinished-run statuses cannot satisfy rule 1 or disposition counts."""
+        runs = [('deadline-stream', False, True, 0),
+                ('deadline-xml', True, True, 0),
+                ('failed-stream', False, False, 1),
+                ('failed-xml', True, False, 1)]
+        for kind in ('equivalent', 'killed-out-of-lane'):
+            for name, xml_report, timed_out, exit_code in runs:
+                for reconfirmation in (False, True):
+                    with self.subTest(kind=kind, run=name, reconfirmation=reconfirmation), lane() as work:
+                        old = entry(kind, checked_at='b' * 40) if reconfirmation else None
+                        survivor = self.stream('SURVIVED', 11)
+                        code, results, summary = work.run(
+                            [survivor] if xml_report else [], head=entry(kind), base=old,
+                            report=xml_report, timed_out=timed_out, exit_code=exit_code,
+                            stream=[] if xml_report else [survivor])
+                        self.assertEqual((code, states(results)), (1, ['not judged']))
+                        module = results['modules'][0]
+                        self.assertEqual(module['state'], 'timed out' if timed_out else 'error')
+                        self.assertEqual((module['total'], module['changed']['survived']), (1, 1))
+                        changed = module['changed']
+                        self.assertEqual(changed['dispositioned_equivalent'], [])
+                        self.assertEqual(changed['dispositioned_out_of_lane'], [])
+                        self.assertEqual(len(changed['failing']), 1)
+                        self.assertIn('unfinished run', changed['failing'][0]['reason'])
+                        record = results['dispositions']['entries'][0]
+                        self.assertFalse(record['failing'])
+                        self.assertIn('SURVIVED', record['action'])
+                        self.assertIn('unfinished run', record['action'])
+                        self.assertIn('state not judged', summary)
+                        self.assertIn('Dispositioned as equivalent: 0.', summary)
+                        self.assertIn('Dispositioned as killed out of lane: 0.', summary)
+
+    def test_completed_report_survivors_still_authorize_both_disposition_kinds(self):
+        """CONV-202: a completed report remains sufficient evidence for an added entry."""
+        for kind in ('equivalent', 'killed-out-of-lane'):
+            with self.subTest(kind=kind), lane() as work:
+                code, results, _ = work.run([mutant('SURVIVED', 11)], head=entry(kind))
+                self.assertEqual((code, states(results)), (0, ['accepted']))
+                module = results['modules'][0]
+                self.assertEqual(module['state'], 'complete')
+                self.assertEqual(len(module['changed']['dispositioned_equivalent']),
+                                 1 if kind == 'equivalent' else 0)
+                self.assertEqual(len(module['changed']['dispositioned_out_of_lane']),
+                                 1 if kind == 'killed-out-of-lane' else 0)
+                self.assertEqual(module['changed']['failing'], [])
+
+    def test_preserved_detected_statuses_still_apply_rule_four(self):
+        """CONV-202: incomplete provenance cannot hide contradiction or supersession."""
+        cases = [('equivalent', 'KILLED', 'contradicted'),
+                 ('equivalent', 'TIMED_OUT', 'detected-other'),
+                 ('equivalent', 'MEMORY_ERROR', 'detected-other'),
+                 ('equivalent', 'RUN_ERROR', 'detected-other'),
+                 ('killed-out-of-lane', 'KILLED', 'superseded'),
+                 ('killed-out-of-lane', 'TIMED_OUT', 'superseded'),
+                 ('killed-out-of-lane', 'MEMORY_ERROR', 'superseded'),
+                 ('killed-out-of-lane', 'RUN_ERROR', 'superseded')]
+        for kind, status, expected in cases:
+            for xml_report in (False, True):
+                with self.subTest(kind=kind, status=status, xml=xml_report), lane() as work:
+                    recorded = self.stream(status, 11, killing='a.FooTest.detects')
+                    code, results, summary = work.run(
+                        [recorded] if xml_report else [], head=entry(kind), report=xml_report,
+                        timed_out=True, stream=[] if xml_report else [recorded])
+                    self.assertEqual((code, states(results)), (1, [expected]))
+                    changed = results['modules'][0]['changed']
+                    self.assertEqual(changed['dispositioned_equivalent'], [])
+                    self.assertEqual(changed['dispositioned_out_of_lane'], [])
+                    self.assertEqual(changed['detected'], 1)
+                    self.assertIn(expected, summary)
+
     def test_a_record_the_kill_tore_is_dropped_rather_than_guessed_at(self):
         with lane() as work:
             torn = self.stream('SURVIVED', 21)[:40]

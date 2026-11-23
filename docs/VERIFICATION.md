@@ -174,7 +174,11 @@ process group and its detached descendants; the statuses of every class analysed
 `STREAM` result listener flushes each class as PIT finishes it, and the module is still reported as
 incomplete analysis. A stream the reporter cannot read leaves the deadline as the module's state
 and is reported beside it, rather than replacing it. A large diff may need
-follow-up focused runs; timeouts and missing evidence are never a clean score.
+follow-up focused runs; timeouts and missing evidence are never a clean score. Preserved statuses
+still contradict equivalent claims and supersede out-of-lane claims when a test detected the
+mutant. A preserved `SURVIVED` status from an unfinished run cannot authorize a disposition:
+added matches are reported as not judged and contribute to neither dispositioned count,
+including when valid XML was written before a failed or timed-out run ended.
 
 Scope comes from `git diff --diff-filter=ACMRT <base>...<head>`: added, modified and renamed
 main Java/Kotlin sources only, excluding deleted files, tests, docs and package/module descriptors.

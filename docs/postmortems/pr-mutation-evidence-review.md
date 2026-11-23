@@ -73,3 +73,35 @@
   new test task an explicit CI execution owner. See [the evidence lesson](../LESSONS.md#mutation-evidence-contracts).
 - Vision check: the fixes preserve trustworthy verification of the engine's results and cost;
   there is no product behavior or default change.
+
+
+## Follow-up: preserved status provenance must reach disposition judgment
+
+- Fix / issue: review finding R11.
+- Symptom: an added equivalent or killed-out-of-lane entry matching a streamed changed-line
+  survivor was labelled accepted and counted as dispositioned after its module timed out.
+  The module still failed overall, but both `results.json` and the summary overstated its evidence.
+- Trigger: PIT records `SURVIVED` on a changed line and the module fails or reaches its deadline;
+  an added entry, including a re-confirmation, matches that preserved identity. Valid XML written
+  before a failed or timed-out process ended exposed the same acceptance path.
+- Root cause: status records retained identity and detection but lost whether their run finished.
+  Class completeness protected stale-entry checks and module state protected the overall verdict,
+  while matched-entry acceptance and per-mutant accounting lacked that provenance. Status records
+  now carry run completion from stream recovery or XML attachment through judgment. An unfinished
+  survivor is not judged, and accounting refuses to count it under either disposition kind.
+  Detected statuses still reach contradiction, supersession and detected-other rules.
+- Why tests missed it: partial-result tests asserted preserved counts, incomplete module state and
+  a KILLED contradiction; the existing failed-run survivor test checked only the overall failure,
+  leaving accepted labels and dispositioned counts unobserved.
+- Regression tests: `PartialResultTest.test_preserved_survivors_never_authorize_either_disposition_kind`
+  exercises stream/XML, deadline/nonzero exit, both kinds and new/re-confirmed entries through
+  `run`, asserting labels, counts and summary output. Companion tests preserve completed-report
+  acceptance and all detected-status rule 4 outcomes. Focused command:
+  `python3 -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'`.
+  The survivor regression rejected the starting reporter in all 16 unfinished-run cases;
+  all 241 focused Python tests passed with the fix, including completed-report acceptance
+  and preserved-status contradiction, supersession and detected-other outcomes.
+- Lesson: [preserve evidence provenance at every consumer](../LESSONS.md#mutation-evidence-contracts),
+  including positive acceptance and accounting rather than only the overall gate verdict.
+- Vision check: the change prevents unsupported verification claims about the engine's results
+  and cost, with no product behavior or default change.

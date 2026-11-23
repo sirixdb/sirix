@@ -557,6 +557,8 @@ def read_stream(path, index):
     if not mutations:
         return None
     report = build_report(mutations, index)
+    for mutant in report['_mutants']:
+        mutant['completed_run'] = False
     report['partial'] = True
     return report
 
@@ -973,7 +975,7 @@ def mutant_record(element, changed):
     return {'identity': mutant_identity(element), 'status': element.get('status', 'UNKNOWN'),
             'detected': element.get('detected') == 'true', 'line': mutant_line(element),
             'changed': changed, 'text': describe_mutant(element),
-            'killing_test': element.findtext('killingTest')}
+            'killing_test': element.findtext('killingTest'), 'completed_run': True}
 
 
 def method_changed(found, entry, changed_index):
@@ -1047,6 +1049,9 @@ def judge_matched_mutant(mutant, added):
     if mutant['detected']:
         return 'detected-other', f"matches a {mutant['status']} mutant; reported, not failed"
     if mutant['status'] == 'SURVIVED':
+        if not mutant['completed_run']:
+            return 'not judged', ('matches a preserved SURVIVED status from an unfinished run; '
+                                  'rerun the analysis to judge this entry')
         if added:
             return 'accepted', ('on a changed line' if mutant['changed']
                                 else 'on an unchanged line of a changed file')
@@ -1120,7 +1125,7 @@ def apply_dispositions(result, accepted, judged):
         if not mutant['changed'] or mutant['detected']:
             continue
         entry = accepted.get(mutant['identity'])
-        if mutant['status'] == 'SURVIVED' and entry:
+        if mutant['status'] == 'SURVIVED' and mutant['completed_run'] and entry:
             target = equivalent if entry['kind'] == 'equivalent' else out_of_lane
             target.append({'mutant': mutant['text'], 'entry': entry['position'],
                            'checked_at': entry['checked_at'], 'test': entry.get('test'),
@@ -1568,6 +1573,8 @@ def attach_report(result, report, index, stream=None):
             parsed = read_report(report, index, allow_empty=True)
             empty_report = parsed['total'] == 0
             if not empty_report:
+                for mutant in parsed['_mutants']:
+                    mutant['completed_run'] = result['state'] == 'complete'
                 result.update(parsed)
                 return False
         failure = ValueError(NO_MUTANTS)
