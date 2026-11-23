@@ -1050,24 +1050,32 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
 
     private BucketedSideCache() {}
 
-    /** The leased cached side, or {@code null}; the caller releases the entry. */
+    /**
+     * The leased cached side, or {@code null}; the caller releases the entry.
+     *
+     * <p>
+     * A build publishes its side before it leaves {@link #IN_FLIGHT} ({@link #finishPacking}), so
+     * finding neither a resident side nor a build in flight does not prove there is none: a build
+     * that completed between the two lookups is gone from the in-flight map and present in the
+     * published set, which this reader already read. The published set is authoritative exactly
+     * once no build is in flight, so that case re-reads it rather than packing a resident side.
+     * Without that second read the work this cache saves would depend on the interleaving of the
+     * background packing, which is how a reused side became a rebuilt one on a loaded runner.
+     */
     static @Nullable PackedSide get(final MaskedColumns columns, final long[] signature) {
       if (!columns.isImmutableRevision()) {
         return null;
       }
       final Object rows = columns.rowIdentity();
-      final DerivedCacheBudget.Entry entry =
-          DerivedCacheBudget.global()
-                            .packed()
-                            .acquire(
-                                candidate -> candidate instanceof PackedSide packed && packed.matches(rows, signature));
-      if (entry != null) {
-        return (PackedSide) entry;
+      final PackedSide resident = acquire(rows, signature);
+      if (resident != null) {
+        return resident;
       }
+      handoff("resident-miss");
       final CompletableFuture<PackedSide> packing =
           IN_FLIGHT.get(new InFlightKey(new WeakReference<>(columns.store()), rows, signature));
       if (packing == null) {
-        return null;
+        return acquire(rows, signature);
       }
       try {
         final PackedSide packed = packing.join();
@@ -1077,6 +1085,18 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       } catch (final CompletionException | CancellationException e) {
         return null;
       }
+    }
+
+    /** The published side of {@code rows} under {@code signature}, leased for the caller. */
+    private static @Nullable PackedSide acquire(final Object rows, final long[] signature) {
+      final DerivedCacheBudget.Entry entry =
+          DerivedCacheBudget.global()
+                            .packed()
+                            .acquire(
+                                candidate -> candidate instanceof PackedSide packed && packed.matches(rows, signature));
+      return entry == null
+          ? null
+          : (PackedSide) entry;
     }
 
     /**
