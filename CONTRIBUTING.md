@@ -30,7 +30,8 @@ property, artifacts in `~/.m2` are not considered.
 
 - Java 25+ (with `--enable-preview`)
 - Gradle 9.1+ (or use the included wrapper)
-- GraalVM (optional, for native image builds)
+- For optional native image builds, use the
+  [native toolchain and builder-JDK setup](docs/NATIVE_IMAGE.md#toolchain).
 
 ### Common tasks
 

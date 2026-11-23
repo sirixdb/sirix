@@ -194,10 +194,10 @@ SirixDB provides two CLI tools, both available as instant-startup native binarie
 | `sirix-cli` | sirix-kotlin-cli | Full-featured CLI for database operations |
 | `sirix-shell` | sirix-query | Interactive JSONiq/XQuery shell |
 
-Build native binaries with GraalVM:
+Build native binaries with the [GraalVM toolchain documented here](docs/NATIVE_IMAGE.md#toolchain):
 
 ```bash
-# Build both CLIs as native binaries (requires GraalVM with native-image)
+# Build both CLIs as native binaries
 ./gradlew :sirix-kotlin-cli:nativeCompile  # produces: sirix-cli
 ./gradlew :sirix-query:nativeCompile -Pnative.mainClass=io.sirix.query.Main -Pnative.imageName=sirix-shell
 
@@ -698,7 +698,7 @@ cd sirix
 --add-opens=java.base/java.util=ALL-UNNAMED
 ```
 
-**Build native binaries** (requires GraalVM):
+**Build native binaries**:
 
 For the CLI build commands, see [Using the CLI (Native Binaries)](#using-the-cli-native-binaries).
 For benchmark image builds and their options, see

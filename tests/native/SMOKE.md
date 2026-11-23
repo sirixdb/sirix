@@ -67,6 +67,14 @@ Builds remain sequential with two builder threads and a maximum 4 GiB heap.
 Each omission must be killed by the specific failure oracle above; an unrelated
 build failure or watchdog is not a constructor-mutation success.
 
+For the pinned 25i5 toolchain, each shutdown omission must finish its data work
+with 42, enter isolate teardown, and report `Teardown is taking too long` with a
+`sirix-snapshot-append-` worker in a native thread record. The external
+watchdog sends SIGKILL directly (exit 137); it must not depend on a hung runtime's
+SIGTERM handling. A successful teardown, missing worker diagnostic, or failed
+core/query result must reject the control. For each profile, the normal caller
+still requires unforced exit zero before its omission control runs.
+
 The job uploads build and loader logs, process traces, thread/teardown diagnostics
 and omission reports even when a preceding check fails. Each invocation uses a
 separate output directory so controls cannot overwrite normal-run evidence.
