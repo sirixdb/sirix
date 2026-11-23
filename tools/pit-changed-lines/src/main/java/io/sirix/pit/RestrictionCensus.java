@@ -18,20 +18,23 @@ import org.pitest.mutationtest.engine.MutationIdentifier;
 /**
  * The identities of the mutants the changed-line restriction removed (CONV-205).
  *
- * <p>One JSON object per line: the six identity fields of CONV-201, plus the mutated class, its
- * source file and its line, so the reporter can re-derive each entry's attribution from its own
+ * <p>
+ * One JSON object per line: the six identity fields of CONV-201, plus the mutated class, its source
+ * file and its line, so the reporter can re-derive each entry's attribution from its own
  * changed-line index and fail the run if the restriction removed a mutant the verdict judges.
  * Nothing else is recorded, and no status is: these mutants were generated and never run.
  *
- * <p>Records are deduplicated by identity, because an interceptor that participates in PIT's
- * pre-scan sees a class more than once, and written on {@link #flush()} at every class boundary,
- * so a run killed by its deadline leaves a usable census of the classes it reached.
+ * <p>
+ * Records are deduplicated by identity, because an interceptor that participates in PIT's pre-scan
+ * sees a class more than once, and written on {@link #flush()} at every class boundary, so a run
+ * killed by its deadline leaves a usable census of the classes it reached.
  *
- * <p>Writes append and never truncate. PIT may build its interceptor pipeline more than once in a
- * run - a pre-scan pass and the analysis pass - and a census that truncated on construction would
- * drop whatever the earlier pass recorded. Making the file fresh belongs to the reporter, which
- * deletes it before the run; the reporter also deduplicates by identity when it reads it, so a
- * record two passes both wrote is counted once.
+ * <p>
+ * Writes append and never truncate. PIT may build its interceptor pipeline more than once in a run
+ * - a pre-scan pass and the analysis pass - and a census that truncated on construction would drop
+ * whatever the earlier pass recorded. Making the file fresh belongs to the reporter, which deletes
+ * it before the run; the reporter also deduplicates by identity when it reads it, so a record two
+ * passes both wrote is counted once.
  */
 public final class RestrictionCensus {
 
@@ -73,8 +76,8 @@ public final class RestrictionCensus {
     if (pending.isEmpty()) {
       return;
     }
-    try (Writer writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8,
-        StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+    try (Writer writer =
+        Files.newBufferedWriter(path, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
       for (final String record : pending) {
         writer.write(record);
         writer.write('\n');
@@ -89,10 +92,14 @@ public final class RestrictionCensus {
     final MutationIdentifier id = mutation.getId();
     final Location location = id.getLocation();
     final StringBuilder json = new StringBuilder(256);
-    json.append("{\"class\":").append(quote(location.getClassName().asJavaName()))
-        .append(",\"method\":").append(quote(location.getMethodName()))
-        .append(",\"descriptor\":").append(quote(location.getMethodDesc()))
-        .append(",\"mutator\":").append(quote(id.getMutator()))
+    json.append("{\"class\":")
+        .append(quote(location.getClassName().asJavaName()))
+        .append(",\"method\":")
+        .append(quote(location.getMethodName()))
+        .append(",\"descriptor\":")
+        .append(quote(location.getMethodDesc()))
+        .append(",\"mutator\":")
+        .append(quote(id.getMutator()))
         .append(",\"indexes\":[");
     final List<Integer> indexes = id.getIndexes();
     for (int position = 0; position < indexes.size(); position++) {
@@ -101,15 +108,18 @@ public final class RestrictionCensus {
       }
       json.append(indexes.get(position).intValue());
     }
-    json.append("],\"description\":").append(quote(mutation.getDescription()))
-        .append(",\"sourceFile\":").append(quote(mutation.getFilename()))
-        .append(",\"lineNumber\":").append(mutation.getLineNumber())
+    json.append("],\"description\":")
+        .append(quote(mutation.getDescription()))
+        .append(",\"sourceFile\":")
+        .append(quote(mutation.getFilename()))
+        .append(",\"lineNumber\":")
+        .append(mutation.getLineNumber())
         .append('}');
     return json.toString();
   }
 
   private static String quote(final String value) {
-    final StringBuilder quoted = new StringBuilder(value.length() + 2).append('"');
+    final StringBuilder quoted = new StringBuilder(value.length()).append('"');
     for (int index = 0; index < value.length(); index++) {
       final char character = value.charAt(index);
       switch (character) {

@@ -2,6 +2,7 @@ package io.sirix.pit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,9 +14,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * The changed-line map the lane writes, read as CONV-205 requires: a line is in scope only when
- * the map lists its source file with that line, and a map this reader cannot fully understand
- * fails instead of filtering on a guess.
+ * The changed-line map the lane writes, read as CONV-205 requires: a line is in scope only when the
+ * map lists its source file with that line, and a map this reader cannot fully understand fails
+ * instead of filtering on a guess.
  */
 final class ChangedLineMapTest {
 
@@ -30,8 +31,8 @@ final class ChangedLineMapTest {
 
   @Test
   void listsOnlyTheLinesItWasGiven() throws IOException {
-    final ChangedLineMap map = ChangedLineMap.read(
-        write(ChangedLineMap.HEADER, "io.sirix.api\tNodeTrx.java\t24 36 120"));
+    final ChangedLineMap map =
+        ChangedLineMap.read(write(ChangedLineMap.HEADER, "io.sirix.api\tNodeTrx.java\t24 36 120"));
 
     assertTrue(map.contains("io.sirix.api", "NodeTrx.java", 24));
     assertTrue(map.contains("io.sirix.api", "NodeTrx.java", 36));
@@ -43,9 +44,21 @@ final class ChangedLineMapTest {
   }
 
   @Test
+  void findsALineWhateverOrderTheRecordListsThem() throws IOException {
+    // The format does not promise ascending lines, and a lookup is a binary search.
+    final ChangedLineMap map = ChangedLineMap.read(write(ChangedLineMap.HEADER, "p\tA.java\t36 24 120 7"));
+
+    for (final int line : new int[] {7, 24, 36, 120}) {
+      assertTrue(map.contains("p", "A.java", line), "line " + line);
+    }
+    assertFalse(map.contains("p", "A.java", 8));
+    assertFalse(map.contains("p", "A.java", 119));
+  }
+
+  @Test
   void separatesSourcesByPackageAndFileName() throws IOException {
-    final ChangedLineMap map = ChangedLineMap.read(write(ChangedLineMap.HEADER,
-        "io.sirix.api\tNodeTrx.java\t24", "io.sirix.api.xml\tNodeTrx.java\t36", "\tRoot.java\t7"));
+    final ChangedLineMap map = ChangedLineMap.read(write(ChangedLineMap.HEADER, "io.sirix.api\tNodeTrx.java\t24",
+        "io.sirix.api.xml\tNodeTrx.java\t36", "\tRoot.java\t7"));
 
     assertTrue(map.contains("io.sirix.api", "NodeTrx.java", 24));
     assertFalse(map.contains("io.sirix.api.xml", "NodeTrx.java", 24),
@@ -58,8 +71,8 @@ final class ChangedLineMapTest {
 
   @Test
   void acceptsASourceWithoutChangedLines() throws IOException {
-    final ChangedLineMap map = ChangedLineMap.read(
-        write(ChangedLineMap.HEADER, "io.sirix.api\tNodeTrx.java\t", "io.sirix\tFoo.java\t3"));
+    final ChangedLineMap map =
+        ChangedLineMap.read(write(ChangedLineMap.HEADER, "io.sirix.api\tNodeTrx.java\t", "io.sirix\tFoo.java\t3"));
 
     assertFalse(map.contains("io.sirix.api", "NodeTrx.java", 1),
         "a renamed-only file contributes no changed line, so none of its mutants is in scope");
@@ -73,7 +86,9 @@ final class ChangedLineMapTest {
     final ChangedLineMapException error =
         assertThrows(ChangedLineMapException.class, () -> ChangedLineMap.read(missing));
 
-    assertTrue(error.getMessage().contains("cannot read"), error.getMessage());
+    final String message = error.getMessage();
+    assertNotNull(message);
+    assertTrue(message.contains("cannot read"), message);
   }
 
   @Test
@@ -87,20 +102,22 @@ final class ChangedLineMapTest {
   void rejectsAnEmptyMap() throws IOException {
     final Path path = write(ChangedLineMap.HEADER);
 
-    final ChangedLineMapException error =
-        assertThrows(ChangedLineMapException.class, () -> ChangedLineMap.read(path));
+    final ChangedLineMapException error = assertThrows(ChangedLineMapException.class, () -> ChangedLineMap.read(path));
 
-    assertTrue(error.getMessage().contains("lists no source"), error.getMessage());
+    final String message = error.getMessage();
+    assertNotNull(message);
+    assertTrue(message.contains("lists no source"), message);
   }
 
   @Test
   void rejectsARecordWithTheWrongNumberOfFields() throws IOException {
     final Path path = write(ChangedLineMap.HEADER, "io.sirix\tFoo.java");
 
-    final ChangedLineMapException error =
-        assertThrows(ChangedLineMapException.class, () -> ChangedLineMap.read(path));
+    final ChangedLineMapException error = assertThrows(ChangedLineMapException.class, () -> ChangedLineMap.read(path));
 
-    assertTrue(error.getMessage().contains("at line 2"), error.getMessage());
+    final String message = error.getMessage();
+    assertNotNull(message);
+    assertTrue(message.contains("at line 2"), message);
   }
 
   @Test
@@ -115,19 +132,18 @@ final class ChangedLineMapTest {
     for (final String lines : new String[] {"3 x", "0", "-4"}) {
       final Path path = write(ChangedLineMap.HEADER, "io.sirix\tFoo.java\t" + lines);
 
-      assertThrows(ChangedLineMapException.class, () -> ChangedLineMap.read(path),
-          "lines: " + lines);
+      assertThrows(ChangedLineMapException.class, () -> ChangedLineMap.read(path), "lines: " + lines);
     }
   }
 
   @Test
   void rejectsTheSameSourceTwice() throws IOException {
-    final Path path =
-        write(ChangedLineMap.HEADER, "io.sirix\tFoo.java\t3", "io.sirix\tFoo.java\t4");
+    final Path path = write(ChangedLineMap.HEADER, "io.sirix\tFoo.java\t3", "io.sirix\tFoo.java\t4");
 
-    final ChangedLineMapException error =
-        assertThrows(ChangedLineMapException.class, () -> ChangedLineMap.read(path));
+    final ChangedLineMapException error = assertThrows(ChangedLineMapException.class, () -> ChangedLineMap.read(path));
 
-    assertTrue(error.getMessage().contains("duplicate source"), error.getMessage());
+    final String message = error.getMessage();
+    assertNotNull(message);
+    assertTrue(message.contains("duplicate source"), message);
   }
 }

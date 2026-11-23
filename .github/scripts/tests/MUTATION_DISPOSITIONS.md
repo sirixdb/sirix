@@ -297,3 +297,120 @@ TOML `\uXXXX` escapes accept upper- and lower-case hexadecimal digits; tomllib r
 | Mutant | Line | Original | Mutated |
 |---|---|---|---|
 | `x_toml_string__mutmut_34` | 1404 | return json.dumps(value, ensure_ascii=False).replace('\x7f', '\\u007f') | return json.dumps(value, ensure_ascii=False).replace('\x7f', '\\u007F') |
+
+## Changed-line scope round (CONV-205/CONV-206)
+
+Run: mutmut 3.8.1 against `test_pr_mutation*.py`, scoped by mutant-name glob to the 34 functions this change wrote or rewrote (`source_paths = pr_mutation.py`). Last round: 2151 mutants of those functions, 1809 killed. Of the survivors, 81 sit on lines this change wrote and are recorded below; the rest sit on lines it did not touch and remain advisory debt, as in the Java lane. Line numbers are of the revision that follows `c9f670a7777b`.
+
+Four rounds ran: each one's survivors were resolved by a behaviour test derived from the requirement, or by removing code with no observable effect (the `debt_limit` parameter threading, three dead defaults, a capacity hint, and one redundant guard in `is_clean`), and the next round measured the result. In-scope survivors fell 161 -> 154 -> 116 -> 89 -> 81. What the rounds found, rather than the counts, is in the pull request.
+
+**Every survivor below was verified by injection.** mutmut selects the tests for a mutant from its own coverage stats, and on this change it reported three mutants of `reason` as surviving that the suite in fact kills (`error.args[1]`, and two mutations of `str(error) or error.__class__.__name__`); the same three reproduced in every round. So each survivor was injected into a copy of the reporter and judged by running the whole suite, with no coverage selection. A disposition claiming "no test detects this" would have been false for those three.
+
+### equivalent (wording): 78
+
+CONV-202 fixes what the lane's text must carry - the entry position, the violated rule, the resolving action, the counts, the kind, the census reasons and the violations - and CONV-206 what the scheduled report must state. Headings, argparse help texts, blank lines and the exact wording around those elements are not specified. Each mutant below changes only wording, letter case or an added `XX` decoration while keeping every specified element, so no specified behaviour differs. Tests for the wording itself are what CONV-202 forbids.
+
+| Mutant | Line | Original | Mutated |
+|---|---|---|---|
+| `x_attach_census__mutmut_30` | 1455 | + '; '.join(census['unreadable'])) | + 'XX; XX'.join(census['unreadable'])) |
+| `x_build_parser__mutmut_2` | 1911 | parser = argparse.ArgumentParser(description=__doc__) | parser = argparse.ArgumentParser(description=None) |
+| `x_build_parser__mutmut_150` | 1935 | help='the reports come from a rerun with a per-class mutant limit') | help=None) |
+| `x_build_parser__mutmut_153` | 1935 | help='the reports come from a rerun with a per-class mutant limit') | ) |
+| `x_build_parser__mutmut_158` | 1935 | help='the reports come from a rerun with a per-class mutant limit') | help='XXthe reports come from a rerun with a per-class mutant limitXX') |
+| `x_build_parser__mutmut_159` | 1935 | help='the reports come from a rerun with a per-class mutant limit') | help='THE REPORTS COME FROM A RERUN WITH A PER-CLASS MUTANT LIMIT') |
+| `x_counterfactual__mutmut_39` | 1889 | raise CounterfactualError('the patch does not apply to the working tree') | raise CounterfactualError('XXthe patch does not apply to the working treeXX') |
+| `x_counterfactual__mutmut_67` | 1897 | + ', '.join(paths) + ' from version control before ' | + 'XX, XX'.join(paths) + ' from version control before ' |
+| `x_counterfactual__mutmut_70` | 1898 | 'continuing') | 'XXcontinuingXX') |
+| `x_counterfactual__mutmut_71` | 1898 | 'continuing') | 'CONTINUING') |
+| `x_counterfactual__mutmut_75` | 1900 | raise CounterfactualError('the test passes with the mutant injected; it does not detect ' | raise CounterfactualError('XXthe test passes with the mutant injected; it does not detect XX' |
+| `x_format_census__mutmut_36` | in `format_census` | lines.append('') | lines.append('XXXX') |
+| `x_format_census__mutmut_12` | 1147 | f"measures them (CONV-206). Identities: `{Path(census['file']).name}`.", ''] | f"measures them (CONV-206). Identities: `{Path(census['file']).name}`.", 'XXXX'] |
+| `x_format_census__mutmut_18` | 1150 | f'restriction wrote them, so this is a defect in it:', '']) | f'restriction wrote them, so this is a defect in it:', 'XXXX']) |
+| `x_format_census__mutmut_40` | 1157 | lines.extend(['The restriction removed mutants on changed lines, which fails this run ' | lines.extend(['XXThe restriction removed mutants on changed lines, which fails this run XX' |
+| `x_format_census__mutmut_41` | 1157 | lines.extend(['The restriction removed mutants on changed lines, which fails this run ' | lines.extend(['the restriction removed mutants on changed lines, which fails this run ' |
+| `x_format_dispositions__mutmut_118` | in `format_dispositions` | lines.append('') | lines.append('XXXX') |
+| `x_format_dispositions__mutmut_130` | in `format_dispositions` | lines.append('') | lines.append('XXXX') |
+| `x_format_dispositions__mutmut_122` | 1225 | lines.extend([f"`{ASSOCIATIONS_FILE}` is invalid; no association applies:", '']) | lines.extend([f"`{ASSOCIATIONS_FILE}` is invalid; no association applies:", 'XXXX']) |
+| `x_format_full_scope__mutmut_122` | in `format_full_scope` | lines.append('') | lines.append('XXXX') |
+| `x_format_full_scope__mutmut_2` | 1233 | lines = ['# Full-scope mutation report (scheduled)', '', | lines = ['XX# Full-scope mutation report (scheduled)XX', '', |
+| `x_format_full_scope__mutmut_5` | 1233 | lines = ['# Full-scope mutation report (scheduled)', '', | lines = ['# Full-scope mutation report (scheduled)', 'XXXX', |
+| `x_format_full_scope__mutmut_19` | 1238 | 'the pull-request lane judges the changed lines (CONV-202).', '', | 'XXthe pull-request lane judges the changed lines (CONV-202).XX', '', |
+| `x_format_full_scope__mutmut_20` | 1238 | 'the pull-request lane judges the changed lines (CONV-202).', '', | 'the pull-request lane judges the changed lines (conv-202).', '', |
+| `x_format_full_scope__mutmut_21` | 1238 | 'the pull-request lane judges the changed lines (CONV-202).', '', | 'THE PULL-REQUEST LANE JUDGES THE CHANGED LINES (CONV-202).', '', |
+| `x_format_full_scope__mutmut_22` | 1238 | 'the pull-request lane judges the changed lines (CONV-202).', '', | 'the pull-request lane judges the changed lines (CONV-202).', 'XXXX', |
+| `x_format_full_scope__mutmut_23` | 1239 | 'A class nothing changed in the window is absent from this report.', ''] | 'XXA class nothing changed in the window is absent from this report.XX', ''] |
+| `x_format_full_scope__mutmut_24` | 1239 | 'A class nothing changed in the window is absent from this report.', ''] | 'a class nothing changed in the window is absent from this report.', ''] |
+| `x_format_full_scope__mutmut_25` | 1239 | 'A class nothing changed in the window is absent from this report.', ''] | 'A CLASS NOTHING CHANGED IN THE WINDOW IS ABSENT FROM THIS REPORT.', ''] |
+| `x_format_full_scope__mutmut_26` | 1239 | 'A class nothing changed in the window is absent from this report.', ''] | 'A class nothing changed in the window is absent from this report.', 'XXXX'] |
+| `x_format_full_scope__mutmut_34` | 1241 | lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", '']) | lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", 'XXXX']) |
+| `x_format_full_scope__mutmut_42` | 1243 | lines.extend([escape(result['error']), '']) | lines.extend([escape(result['error']), 'XXXX']) |
+| `x_format_full_scope__mutmut_46` | 1244 | if result['state'] != 'complete': | if result['state'] != 'XXcompleteXX': |
+| `x_format_full_scope__mutmut_47` | 1244 | if result['state'] != 'complete': | if result['state'] != 'COMPLETE': |
+| `x_format_full_scope__mutmut_49` | 1245 | lines.extend(['Incomplete: this is not a complete debt report for the module.', '']) | lines.extend(['XXIncomplete: this is not a complete debt report for the module.XX', '']) |
+| `x_format_full_scope__mutmut_50` | 1245 | lines.extend(['Incomplete: this is not a complete debt report for the module.', '']) | lines.extend(['incomplete: this is not a complete debt report for the module.', '']) |
+| `x_format_full_scope__mutmut_52` | 1245 | lines.extend(['Incomplete: this is not a complete debt report for the module.', '']) | lines.extend(['Incomplete: this is not a complete debt report for the module.', 'XXXX']) |
+| `x_format_full_scope__mutmut_64` | 1250 | lines.extend([f"`{associations['file']}` is invalid; the lane would reject it:", ''] | lines.extend([f"`{associations['file']}` is invalid; the lane would reject it:", 'XXXX'] |
+| `x_format_full_scope__mutmut_66` | 1251 | + ['- ' + escape(error) for error in associations['errors']] + ['']) | + ['XX- XX' + escape(error) for error in associations['errors']] + ['']) |
+| `x_format_full_scope__mutmut_70` | 1251 | + ['- ' + escape(error) for error in associations['errors']] + ['']) | + ['- ' + escape(error) for error in associations['errors']] + ['XXXX']) |
+| `x_format_full_scope__mutmut_78` | 1253 | lines.extend([f"`{stale['file']}` is invalid; no entry was judged:", ''] | lines.extend([f"`{stale['file']}` is invalid; no entry was judged:", 'XXXX'] |
+| `x_format_full_scope__mutmut_80` | 1254 | + ['- ' + escape(error) for error in stale['errors']] + ['']) | + ['XX- XX' + escape(error) for error in stale['errors']] + ['']) |
+| `x_format_full_scope__mutmut_84` | 1254 | + ['- ' + escape(error) for error in stale['errors']] + ['']) | + ['- ' + escape(error) for error in stale['errors']] + ['XXXX']) |
+| `x_format_full_scope__mutmut_88` | 1256 | lines.extend([f"## Dispositions entries this report proves stale (advisory)", '', | lines.extend([f"## Dispositions entries this report proves stale (advisory)", 'XXXX', |
+| `x_format_full_scope__mutmut_89` | 1257 | 'Their classes were mutated with nothing sampled and nothing restricted, ' | 'XXTheir classes were mutated with nothing sampled and nothing restricted, XX' |
+| `x_format_full_scope__mutmut_90` | 1257 | 'Their classes were mutated with nothing sampled and nothing restricted, ' | 'their classes were mutated with nothing sampled and nothing restricted, ' |
+| `x_format_full_scope__mutmut_91` | 1257 | 'Their classes were mutated with nothing sampled and nothing restricted, ' | 'THEIR CLASSES WERE MUTATED WITH NOTHING SAMPLED AND NOTHING RESTRICTED, ' |
+| `x_format_full_scope__mutmut_122` | 1264 | lines.append('') | lines.append('XXXX') |
+| `x_format_summary__mutmut_46` | 1281 | lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", '']) | lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", 'XXXX']) |
+| `x_format_summary__mutmut_54` | 1283 | lines.extend([escape(result['error']), '']) | lines.extend([escape(result['error']), 'XXXX']) |
+| `x_format_summary__mutmut_61` | 1285 | lines.extend(['No mutation analysis ran; no mutant has a status.', '']) | lines.extend(['XXNo mutation analysis ran; no mutant has a status.XX', '']) |
+| `x_format_summary__mutmut_64` | 1285 | lines.extend(['No mutation analysis ran; no mutant has a status.', '']) | lines.extend(['No mutation analysis ran; no mutant has a status.', 'XXXX']) |
+| `x_format_summary__mutmut_72` | 1289 | 'Mutant scope: the changed lines, complete and unsampled.', '']) | 'Mutant scope: the changed lines, complete and unsampled.', 'XXXX']) |
+| `x_format_summary__mutmut_97` | 1297 | 'are the ones its result stream recorded before the deadline killed it ' | 'XXare the ones its result stream recorded before the deadline killed it XX' |
+| `x_format_summary__mutmut_98` | 1297 | 'are the ones its result stream recorded before the deadline killed it ' | 'ARE THE ONES ITS RESULT STREAM RECORDED BEFORE THE DEADLINE KILLED IT ' |
+| `x_judge_entry_scope__mutmut_49` | 965 | + ('' if mutant or censused | + ('XXXX' if mutant or censused |
+| `x_judge_entry_scope__mutmut_52` | 966 | else '; no reported mutant matches it any more, so ' + REMAP_HINT)) | else 'XX; no reported mutant matches it any more, so XX' + REMAP_HINT)) |
+| `x_judge_entry_scope__mutmut_53` | 966 | else '; no reported mutant matches it any more, so ' + REMAP_HINT)) | else '; NO REPORTED MUTANT MATCHES IT ANY MORE, SO ' + REMAP_HINT)) |
+| `x_prepare_analysis__mutmut_21` | 1347 | raise ValueError('Empty target selection; refusing whole-module mutation') | raise ValueError('XXEmpty target selection; refusing whole-module mutationXX') |
+| `x_prepare_analysis__mutmut_44` | 1354 | raise Unmapped('No test maps to any changed source; PIT has no baseline to collect') | raise Unmapped('XXNo test maps to any changed source; PIT has no baseline to collectXX') |
+| `x_prepare_analysis__mutmut_45` | 1354 | raise Unmapped('No test maps to any changed source; PIT has no baseline to collect') | raise Unmapped('no test maps to any changed source; pit has no baseline to collect') |
+| `x_prepare_analysis__mutmut_49` | 1355 | target_file = directory / 'targets.txt' | target_file = directory / 'XXtargets.txtXX' |
+| `x_prepare_analysis__mutmut_50` | 1355 | target_file = directory / 'targets.txt' | target_file = directory / 'TARGETS.TXT' |
+| `x_prepare_analysis__mutmut_54` | 1356 | target_file.write_text('\n'.join(targets) + '\n') | target_file.write_text('XX\nXX'.join(targets) + '\n') |
+| `x_prepare_analysis__mutmut_55` | 1356 | target_file.write_text('\n'.join(targets) + '\n') | target_file.write_text('\n'.join(targets) + 'XX\nXX') |
+| `x_prepare_analysis__mutmut_62` | 1362 | f'-PprMutationReportDir={directory / "report"}', | f'-PprMutationReportDir={directory / "XXreportXX"}', |
+| `x_prepare_analysis__mutmut_63` | 1362 | f'-PprMutationReportDir={directory / "report"}', | f'-PprMutationReportDir={directory / "REPORT"}', |
+| `x_prepare_analysis__mutmut_68` | 1367 | raise ValueError('No changed-line map for this module; refusing to restrict the scope') | raise ValueError('XXNo changed-line map for this module; refusing to restrict the scopeXX') |
+| `x_prepare_analysis__mutmut_69` | 1367 | raise ValueError('No changed-line map for this module; refusing to restrict the scope') | raise ValueError('no changed-line map for this module; refusing to restrict the scope') |
+| `x_read_census__mutmut_53` | 1434 | 'class': record['class'], 'mutator': record['mutator']}) | 'XXclassXX': record['class'], 'mutator': record['mutator']}) |
+| `x_read_census__mutmut_54` | 1434 | 'class': record['class'], 'mutator': record['mutator']}) | 'CLASS': record['class'], 'mutator': record['mutator']}) |
+| `x_read_census__mutmut_57` | 1434 | 'class': record['class'], 'mutator': record['mutator']}) | 'class': record['class'], 'XXmutatorXX': record['mutator']}) |
+| `x_read_census__mutmut_58` | 1434 | 'class': record['class'], 'mutator': record['mutator']}) | 'class': record['class'], 'MUTATOR': record['mutator']}) |
+| `x_read_selection__mutmut_31` | 1620 | raise ValueError('selection.json carries a malformed dispositions_base') | raise ValueError('XXselection.json carries a malformed dispositions_baseXX') |
+| `x_read_selection__mutmut_46` | 1629 | raise ValueError('Selection manifest has no changed lines for: ' + ', '.join(missing)) | raise ValueError('XXSelection manifest has no changed lines for: XX' + ', '.join(missing)) |
+| `x_read_selection__mutmut_50` | 1629 | raise ValueError('Selection manifest has no changed lines for: ' + ', '.join(missing)) | raise ValueError('Selection manifest has no changed lines for: ' + 'XX, XX'.join(missing)) |
+| `x_window_base__mutmut_4` | 1672 | raise ValueError('--window-days must be positive') | raise ValueError('XX--window-days must be positiveXX') |
+| `x_window_base__mutmut_11` | 1673 | cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ') | cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('XX%Y-%m-%dT%H:%M:%SZXX') |
+
+### equivalent (short circuit): 1
+
+The guarded lookup only decides what `censused` holds, and every path that reads it is reached only when no reported mutant matched. With a mutant matched, `judge_matched_mutant` returns first and the value is never read, so evaluating it changes nothing observable.
+
+| Mutant | Line | Original | Mutated |
+|---|---|---|---|
+| `x_judge_entry_scope__mutmut_2` | 957 | censused = None if mutant else context['census'].get(identity_of(entry)) | censused = None if (mutant) and False else context['census'].get(identity_of(entry)) |
+
+### equivalent (falsy initial value): 1
+
+The name is initialised only to be falsy until a recovered report replaces it, and every reader tests its truth. An empty string is as falsy as `None`, so no behaviour differs.
+
+| Mutant | Line | Original | Mutated |
+|---|---|---|---|
+| `x_attach_report__mutmut_7` | 1476 | recovered = None | recovered = "" |
+
+### equivalent (unused argument): 1
+
+The call builds a report from an empty mutant list, and the changed-line index is consulted only to attribute a mutant. With no mutants to attribute, the argument is never read.
+
+| Mutant | Line | Original | Mutated |
+|---|---|---|---|
+| `x_resolve_empty_scope__mutmut_15` | 1467 | **build_report([], index, allow_empty=True)) | **build_report([], None, allow_empty=True)) |

@@ -1089,6 +1089,8 @@ class CensusVerdictTest(unittest.TestCase):
             self.assertIn('a.Foo:11', census['violations'][0])
             self.assertIn('is on a changed line', census['violations'][0])
             self.assertIn('removed mutants on changed lines', summary)
+            # Each violation is listed, not only counted.
+            self.assertIn(f"- {mutation.escape(census['violations'][0])}", summary)
 
     def test_a_census_count_is_reported_but_never_as_a_score(self):
         with lane() as work:
@@ -1101,6 +1103,37 @@ class CensusVerdictTest(unittest.TestCase):
             self.assertIn('carry no status and no score', summary)
             self.assertIn('Killed: 1/1 (100.0%)', summary)
 
+    def test_a_censused_mutant_of_a_nested_package_is_attributed_to_its_own_source(self):
+        # The package of `a.b.Baz` is `a.b`, not `a`: the changed-line index is keyed that way,
+        # and a census entry on a changed line of that source must fail the run.
+        with lane() as work:
+            code, results, _ = work.run([mutant('KILLED', 11)], baz_changed=(5,),
+                                        census=[census_record(5, klass='a.b.Baz',
+                                                              source='Baz.java', method='go',
+                                                              descriptor='()V')])
+            census = results['modules'][0]['census']
+            self.assertEqual(code, 1)
+            self.assertEqual(census['violations'],
+                             [f'a.b.Baz:5 ({MUTATOR}) is on a changed line'])
+
+    def test_a_censused_mutant_of_an_unlisted_source_is_no_violation(self):
+        # The lane only ever censuses mutants of classes it mutated, but a source the map does
+        # not list has no changed line at all, so it cannot be a violation either.
+        with lane() as work:
+            code, results, _ = work.run([mutant('KILLED', 11)],
+                                        census=[census_record(11, klass='z.Other',
+                                                              source='Other.java')])
+            census = results['modules'][0]['census']
+            self.assertEqual((code, census['count'], census['violations']), (0, 1, []))
+
+    def test_a_census_the_reporter_read_completely_bounds_only_what_it_prints(self):
+        with lane() as work:
+            exactly = ['{"class":'] * mutation.CENSUS_REASON_LIMIT
+            code, results, summary = work.run([mutant('KILLED', 11)], census=exactly)
+            self.assertEqual((code, results['modules'][0]['census']['malformed']),
+                             (1, len(exactly)))
+            self.assertNotIn('more; see', summary)
+
     def test_a_census_record_the_reporter_cannot_read_fails_a_complete_run(self):
         with lane() as work:
             code, results, summary = work.run(
@@ -1109,6 +1142,12 @@ class CensusVerdictTest(unittest.TestCase):
             self.assertEqual((code, module['state'], module['census']['malformed']),
                              (1, 'error', 1))
             self.assertIn('malformed census record', summary)
+
+    def test_the_lane_summary_names_each_module_and_its_state(self):
+        with lane() as work:
+            _, results, summary = work.run([mutant('KILLED', 11)])
+            module = results['modules'][0]
+            self.assertIn(f"## {module['module']}: {module['state']}", summary)
 
     def test_a_record_two_interceptor_passes_both_wrote_is_counted_once(self):
         # PIT may build its pipeline for a pre-scan pass and again for the analysis pass, and the
@@ -1127,19 +1166,54 @@ class CensusVerdictTest(unittest.TestCase):
 
     def test_a_record_whose_fields_are_not_the_identity_types_is_malformed(self):
         # A near-miss identity would match nothing and read as staleness, so the reporter rejects
-        # the record instead of deriving an identity from it.
-        wrong = [json.dumps({**json.loads(census_record(21)), 'indexes': ['7']}),
-                 json.dumps({**json.loads(census_record(21)), 'lineNumber': '21'}),
-                 json.dumps({**json.loads(census_record(21)), 'class': 7}),
-                 json.dumps({key: value for key, value in json.loads(census_record(21)).items()
-                             if key != 'mutator'})]
-        for record in wrong:
+        # the record instead of deriving an identity from it - and says which field it refused,
+        # because the restriction wrote the record and a defect in it has to be findable.
+        wrong = [(json.dumps({**json.loads(census_record(21)), 'indexes': ['7']}),
+                  'census `indexes` must be a list of integers'),
+                 (json.dumps({**json.loads(census_record(21)), 'indexes': [True]}),
+                  'census `indexes` must be a list of integers'),
+                 (json.dumps({**json.loads(census_record(21)), 'lineNumber': '21'}),
+                  'census `lineNumber` must be an integer'),
+                 (json.dumps({**json.loads(census_record(21)), 'lineNumber': True}),
+                  'census `lineNumber` must be an integer'),
+                 (json.dumps({**json.loads(census_record(21)), 'class': 7}),
+                  'census `class` must be a string'),
+                 (json.dumps({**json.loads(census_record(21)), 'description': 7}),
+                  'census `description` must be a string'),
+                 (json.dumps({key: value for key, value in json.loads(census_record(21)).items()
+                              if key != 'mutator'}),
+                  "census record has no 'mutator' field"),
+                 ('{"class":', 'Expecting value')]
+        for record, because in wrong:
             with self.subTest(record=record), lane() as work:
-                code, results, _ = work.run([mutant('KILLED', 11)], census=[record])
+                code, results, summary = work.run([mutant('KILLED', 11)], census=[record])
                 module = results['modules'][0]
                 self.assertEqual((code, module['state'], module['census']['malformed']),
                                  (1, 'error', 1))
                 self.assertEqual(module['census']['count'], 0)
+                unreadable = module['census']['unreadable']
+                self.assertEqual(len(unreadable), 1)
+                self.assertTrue(unreadable[0].startswith(f'line 1: {because}'), unreadable[0])
+                # The census section lists each refused record on its own line, and the summary
+                # escapes file-derived text as CONV-202 requires of all of it.
+                self.assertIn(f'- {mutation.escape(unreadable[0])}', summary)
+                self.assertIn(because, module['error'])
+
+    def test_the_reported_reasons_are_bounded_but_the_count_is_not(self):
+        with lane() as work:
+            broken = ['{"class":'] * (mutation.CENSUS_REASON_LIMIT + 3)
+            code, results, summary = work.run([mutant('KILLED', 11)], census=broken)
+            census = results['modules'][0]['census']
+            self.assertEqual((code, census['malformed']), (1, len(broken)))
+            self.assertEqual(len(census['unreadable']), mutation.CENSUS_REASON_LIMIT)
+            self.assertIn('and 3 more', summary)
+
+    def test_the_summary_points_at_the_census_file_it_read(self):
+        with lane() as work:
+            _, results, summary = work.run([mutant('KILLED', 11)], census=[census_record(21)])
+            self.assertTrue(results['modules'][0]['census']['file'].endswith(
+                f'sirix-core/{mutation.CENSUS_FILE}'))
+            self.assertIn(f'Identities: `{mutation.CENSUS_FILE}`.', summary)
 
     def test_an_absent_census_file_is_an_empty_census(self):
         with lane() as work:
@@ -1169,12 +1243,26 @@ class EmptyScopeTest(unittest.TestCase):
             self.assertIn('generated 2 mutant(s)', summary)
             self.assertIn('Changed lines: 1.', summary)
 
+    def test_an_explained_empty_scope_does_not_excuse_a_later_module(self):
+        # The verdict skips such a module and keeps going: the run is as clean as its worst
+        # module, whatever order they come in.
+        results = [{'module': 'a', 'state': 'complete', 'off_diff_only': True, 'total': 0,
+                    'census': {'count': 2, 'violations': []}, 'changed': {'failing': []}},
+                   {'module': 'b', 'state': 'complete', 'total': 1, 'unattributed': 0,
+                    'census': {'count': 0, 'violations': []},
+                    'changed': {'failing': [{'mutant': 'SURVIVED | a.Foo', 'reason': 'no entry'}]}}]
+
+        self.assertFalse(mutation.is_clean(results))
+        self.assertFalse(mutation.is_clean(list(reversed(results))))
+        self.assertTrue(mutation.is_clean(results[:1]))
+
     def test_an_empty_report_the_census_cannot_explain_is_still_incomplete(self):
         with lane() as work:
             code, results, _ = work.run([])
             module = results['modules'][0]
             self.assertEqual((code, module['state']), (1, 'error'))
             self.assertNotIn('off_diff_only', module)
+            self.assertIn(mutation.NO_MUTANTS, module['error'])
 
     def test_a_failed_run_is_never_read_as_an_empty_scope(self):
         with lane() as work:
@@ -1271,6 +1359,29 @@ class PartialResultTest(unittest.TestCase):
             module = results['modules'][0]
             self.assertEqual((code, module['state']), (1, 'timed out'))
             self.assertNotIn('total', module)
+
+    def test_an_unreadable_stream_is_reported_with_its_cause(self):
+        with lane() as work:
+            code, results, summary = work.run([], report=False, timed_out=True,
+                                              stream_unreadable=True)
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'timed out'))
+            # The deadline stays the module's state; the stream failure says why nothing was
+            # recovered from it, instead of being swallowed.
+            self.assertEqual(module['error'], '10s module execution share exceeded')
+            self.assertIn(mutation.STREAM_FILE, module['stream_error'])
+            self.assertIn('Is a directory', module['stream_error'])
+            self.assertIn('nothing was recovered from it', summary)
+
+    def test_a_complete_run_with_a_malformed_report_says_what_it_could_not_read(self):
+        with lane() as work:
+            code, results, summary = work.run(['<mutation'])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'error'))
+            self.assertIn('cannot read mutations.xml', module['error'])
+            self.assertIn('not well-formed', module['error'], 'the cause, not only the file')
+            self.assertIn(mutation.escape(module['error']), summary)
+            self.assertNotIn('stream_error', module)
 
     def test_a_complete_run_with_a_malformed_report_is_an_error_not_a_stream_fallback(self):
         with lane() as work:

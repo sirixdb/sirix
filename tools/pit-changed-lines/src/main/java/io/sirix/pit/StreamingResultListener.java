@@ -12,13 +12,14 @@ import org.pitest.mutationtest.engine.MutationDetails;
 import org.pitest.mutationtest.engine.MutationIdentifier;
 
 /**
- * Writes one {@code <mutation>} element per line, flushed as each analysed class finishes, so a
- * run killed by its deadline still reports the statuses it had already recorded (CONV-202).
+ * Writes one {@code <mutation>} element per line, flushed as each analysed class finishes, so a run
+ * killed by its deadline still reports the statuses it had already recorded (CONV-202).
  *
- * <p>PIT's XML listener serialises at the end of the run, which is why a killed partition left a
+ * <p>
+ * PIT's XML listener serialises at the end of the run, which is why a killed partition left a
  * zero-byte {@code mutations.xml} and discarded every finished mutant. The elements here carry the
- * fields the reporter reads, in PIT's own shape, so the reporter parses a torn file by wrapping
- * the intact lines in a root element and dropping an unterminated tail.
+ * fields the reporter reads, in PIT's own shape, so the reporter parses a torn file by wrapping the
+ * intact lines in a root element and dropping an unterminated tail.
  */
 public final class StreamingResultListener implements MutationResultListener {
 
@@ -64,9 +65,13 @@ public final class StreamingResultListener implements MutationResultListener {
     final MutationIdentifier id = details.getId();
     final Location location = id.getLocation();
     final StringBuilder element = new StringBuilder(512);
-    element.append("<mutation detected='").append(result.getStatus().isDetected())
-        .append("' status='").append(result.getStatus().name())
-        .append("' numberOfTestsRun='").append(result.getNumberOfTestsRun()).append("'>");
+    element.append("<mutation detected='")
+           .append(result.getStatus().isDetected())
+           .append("' status='")
+           .append(result.getStatus().name())
+           .append("' numberOfTestsRun='")
+           .append(result.getNumberOfTestsRun())
+           .append("'>");
     tag(element, "sourceFile", details.getFilename());
     tag(element, "mutatedClass", location.getClassName().asJavaName());
     tag(element, "mutatedMethod", location.getMethodName());

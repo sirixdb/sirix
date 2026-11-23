@@ -13,19 +13,22 @@ import java.util.Map;
 /**
  * The lines a pull request changed, per source file, as the lane's reporter wrote them.
  *
- * <p>Format, one record per selected source, written by {@code pr_mutation.py}:
+ * <p>
+ * Format, one record per selected source, written by {@code pr_mutation.py}:
  *
  * <pre>
  * # sirix-changed-lines 1
  * &lt;package&gt;\t&lt;file name&gt;\t&lt;line&gt; &lt;line&gt; ...
  * </pre>
  *
- * <p>The package is empty for the default package. Lines are positive and sorted on read, so a
- * lookup is a binary search over a primitive array rather than a boxed set membership test.
+ * <p>
+ * The package is empty for the default package. Lines are positive and sorted on read, so a lookup
+ * is a binary search over a primitive array rather than a boxed set membership test.
  *
- * <p>Every deviation from the format is an error (CONV-205): a map this class cannot read must
- * fail the analysis, because filtering on a half-understood map would either spend the budget on
- * mutants no verdict reads or silently remove mutants the verdict decides.
+ * <p>
+ * Every deviation from the format is an error (CONV-205): a map this class cannot read must fail
+ * the analysis, because filtering on a half-understood map would either spend the budget on mutants
+ * no verdict reads or silently remove mutants the verdict decides.
  */
 public final class ChangedLineMap {
 
@@ -44,7 +47,7 @@ public final class ChangedLineMap {
    * Reads the map at {@code path}.
    *
    * @throws ChangedLineMapException when the file is absent, unreadable, empty of records, or
-   *     malformed in any line
+   *         malformed in any line
    */
   public static ChangedLineMap read(final Path path) {
     final List<String> records;
@@ -54,8 +57,7 @@ public final class ChangedLineMap {
       throw new ChangedLineMapException("cannot read the changed-line map " + path, error);
     }
     if (records.isEmpty() || !HEADER.equals(records.get(0))) {
-      throw new ChangedLineMapException(
-          "the changed-line map " + path + " must start with: " + HEADER);
+      throw new ChangedLineMapException("the changed-line map " + path + " must start with: " + HEADER);
     }
     final Map<String, int[]> parsed = new HashMap<>();
     for (int index = 1; index < records.size(); index++) {
@@ -66,18 +68,16 @@ public final class ChangedLineMap {
       parse(path, index + 1, record, parsed);
     }
     if (parsed.isEmpty()) {
-      throw new ChangedLineMapException(
-          "the changed-line map " + path + " lists no source; nothing could be judged");
+      throw new ChangedLineMapException("the changed-line map " + path + " lists no source; nothing could be judged");
     }
     return new ChangedLineMap(parsed);
   }
 
-  private static void parse(final Path path, final int number, final String record,
-      final Map<String, int[]> parsed) {
+  private static void parse(final Path path, final int number, final String record, final Map<String, int[]> parsed) {
     final String[] fields = record.split("\t", -1);
     if (fields.length != 3) {
-      throw new ChangedLineMapException(malformed(path, number)
-          + "expected <package>\\t<file>\\t<lines>, found " + fields.length + " field(s)");
+      throw new ChangedLineMapException(
+          malformed(path, number) + "expected <package>\\t<file>\\t<lines>, found " + fields.length + " field(s)");
     }
     if (fields[1].isEmpty()) {
       throw new ChangedLineMapException(malformed(path, number) + "the file name is empty");
@@ -95,12 +95,10 @@ public final class ChangedLineMap {
       try {
         line = Integer.parseInt(field);
       } catch (final NumberFormatException error) {
-        throw new ChangedLineMapException(
-            malformed(path, number) + "line number is not an integer: " + field, error);
+        throw new ChangedLineMapException(malformed(path, number) + "line number is not an integer: " + field, error);
       }
       if (line <= 0) {
-        throw new ChangedLineMapException(
-            malformed(path, number) + "line number is not positive: " + line);
+        throw new ChangedLineMapException(malformed(path, number) + "line number is not positive: " + line);
       }
       numbers.add(line);
     }
@@ -123,7 +121,8 @@ public final class ChangedLineMap {
   /**
    * Whether the pull request changed {@code line} of the named source.
    *
-   * <p>A source the map does not list has no changed line at all: its mutants are out of scope.
+   * <p>
+   * A source the map does not list has no changed line at all: its mutants are out of scope.
    */
   public boolean contains(final String packageName, final String fileName, final int line) {
     final int[] changed = lines.getOrDefault(key(packageName, fileName), NONE);

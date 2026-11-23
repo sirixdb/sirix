@@ -535,11 +535,11 @@ def tally(elements):
             'detected': sum(element.get('detected') == 'true' for element in elements)}
 
 
-def read_report(path, index, debt_limit=ADVISORY_CLASS_LIMIT):
-    return build_report(ET.parse(path).getroot().findall('mutation'), index, debt_limit)
+def read_report(path, index):
+    return build_report(ET.parse(path).getroot().findall('mutation'), index)
 
 
-def read_stream(path, index, debt_limit=ADVISORY_CLASS_LIMIT):
+def read_stream(path, index):
     """The statuses a killed run already recorded: whole records only, torn tail dropped.
 
     The STREAM listener writes one `mutation` element per line and flushes each analysed class, so
@@ -556,7 +556,7 @@ def read_stream(path, index, debt_limit=ADVISORY_CLASS_LIMIT):
             break  # only the last write can be torn; stop rather than read past it
     if not mutations:
         return None
-    report = build_report(mutations, index, debt_limit)
+    report = build_report(mutations, index)
     report['partial'] = True
     return report
 
@@ -564,7 +564,7 @@ def read_stream(path, index, debt_limit=ADVISORY_CLASS_LIMIT):
 NO_MUTANTS = 'PIT produced no mutations; no score is available'
 
 
-def build_report(mutations, index, debt_limit=ADVISORY_CLASS_LIMIT, allow_empty=False):
+def build_report(mutations, index, allow_empty=False):
     if not mutations and not allow_empty:
         raise ValueError(NO_MUTANTS)
     groups = {'changed': [], 'unchanged': []}
@@ -583,7 +583,7 @@ def build_report(mutations, index, debt_limit=ADVISORY_CLASS_LIMIT, allow_empty=
     advisory = tally(groups['unchanged'])
     debt = Counter(element.findtext('mutatedClass', '?')
                    for element in undetected(groups['unchanged']))
-    advisory['classes'] = [[name, count] for name, count in debt.most_common(debt_limit)]
+    advisory['classes'] = [[name, count] for name, count in debt.most_common()]
     report = tally(mutations)
     report.update(statuses=dict(sorted(Counter(element.get('status', 'UNKNOWN')
                                                for element in mutations).items())),
@@ -605,9 +605,9 @@ def is_clean(results):
         # PIT mutated the targets and no mutant of theirs is on a changed line: nothing to judge.
         if result.get('off_diff_only'):
             continue
-        if result.get('total', 0) <= 0:
-            return False
-        # A report whose mutants all failed to map to a changed source judged nothing at all.
+        # A report with no mutant, or whose mutants all failed to map to a changed source,
+        # judged nothing at all. A complete module always has a report; one without mutants
+        # returned earlier as the case its census explains.
         if result['total'] - result.get('unattributed', 0) <= 0:
             return False
         changed = result.get('changed')
@@ -1019,7 +1019,7 @@ def judge_entry(entry, context):
 
 def judge_entry_scope(entry, context, mutant, added):
     """Re-confirm changed methods before judging matched or unmatched PIT evidence."""
-    censused = None if mutant else context.get('census', {}).get(identity_of(entry))
+    censused = None if mutant else context['census'].get(identity_of(entry))
     if not added and (method_changed(context['compiled'].find(entry['class']), entry,
                                      context['changed_index'])
                       or (mutant and mutant['changed'])):
@@ -1211,7 +1211,13 @@ def format_census(result):
              f"run, so they carry no status and no score; the scheduled full-scope report "
              f"measures them (CONV-206). Identities: `{Path(census['file']).name}`.", '']
     if census['malformed']:
-        lines.extend([f"Census records the run could not read: {census['malformed']}.", ''])
+        lines.extend([f"Census records the run could not read: {census['malformed']}. The "
+                      f'restriction wrote them, so this is a defect in it:', ''])
+        lines.extend('- ' + escape(value) for value in census['unreadable'])
+        if census['malformed'] > len(census['unreadable']):
+            lines.append(f"- and {census['malformed'] - len(census['unreadable'])} more; see "
+                         f"`{Path(census['file']).name}`.")
+        lines.append('')
     if census['violations']:
         lines.extend(['The restriction removed mutants on changed lines, which fails this run '
                       '(CONV-205); every one is in `results.json`:', ''])
@@ -1228,9 +1234,13 @@ def format_advisory(result):
     lines = [f"Unchanged lines of the same classes (advisory, never blocking). "
              f"Mutants: {advisory['total']}. Killed: {advisory['killed']}. "
              f"Survived: {advisory['survived']}. No coverage: {advisory['no_coverage']}.", '']
-    if advisory['classes']:
+    shown = advisory['classes'][:ADVISORY_CLASS_LIMIT]
+    if shown:
         lines.extend(['Classes with the most undetected unchanged-line mutants:', ''])
-        lines.extend(f'- {escape(name)}: {escape(count)}' for name, count in advisory['classes'])
+        lines.extend(f'- {escape(name)}: {escape(count)}' for name, count in shown)
+        if len(advisory['classes']) > len(shown):
+            lines.append(f"- and {len(advisory['classes']) - len(shown)} more; see "
+                         f'`results.json`.')
         lines.append('')
     return lines
 
@@ -1276,14 +1286,14 @@ def format_dispositions(dispositions, associations):
         lines.extend(f"- {entry_label(record)} | {escape(record['state'])}: "
                      f"{escape(record['action'])}" for record in reported)
         lines.append('')
-    if associations and associations['errors']:
+    if associations['errors']:
         lines.extend([f"`{ASSOCIATIONS_FILE}` is invalid; no association applies:", ''])
         lines.extend('- ' + escape(error) for error in associations['errors'])
         lines.append('')
     return lines
 
 
-def format_full_scope(window, results, stale, associations=None):
+def format_full_scope(window, results, stale, associations):
     """The scheduled debt report: what no test detects, per class, and nothing blocking."""
     lines = ['# Full-scope mutation report (scheduled)', '',
              f"Every mutant of the sources this branch changed in the last {window['days']} day(s)"
@@ -1300,7 +1310,7 @@ def format_full_scope(window, results, stale, associations=None):
             lines.extend(['Incomplete: this is not a complete debt report for the module.', ''])
         lines.extend(format_report(result))
         lines.extend(format_advisory(result))
-    if associations and associations['errors']:
+    if associations['errors']:
         # It changes no outcome here, but a broken file silently narrows the lane's test scope.
         lines.extend([f"`{associations['file']}` is invalid; the lane would reject it:", '']
                      + ['- ' + escape(error) for error in associations['errors']] + [''])
@@ -1339,11 +1349,9 @@ def format_summary(results, dispositions=None, associations=None):
         if result['state'] == 'unmapped':
             lines.extend(['No mutation analysis ran; no mutant has a status.', ''])
         if 'tests' in result:
-            limit = result['mutants_per_class']
             lines.extend([f"Changed target classes: {len(result['targets'])}. "
                           f"Test patterns: {len(result['tests'])}. "
-                          + (f'Mutants sampled per class: {limit}.' if limit is not None
-                             else 'Mutant scope: the changed lines, complete and unsampled.'), ''])
+                          'Mutant scope: the changed lines, complete and unsampled.', ''])
         if result.get('off_diff_only'):
             lines.extend(['No mutant of this module sits on a changed line: PIT generated '
                           f"{result['census']['count']} mutant(s) for these classes and the "
@@ -1353,6 +1361,9 @@ def format_summary(results, dispositions=None, associations=None):
             lines.extend(['Partial results: this module did not finish, and the statuses below '
                           'are the ones its result stream recorded before the deadline killed it '
                           '(CONV-202). An incomplete module is never clean.', ''])
+        if result.get('stream_error'):
+            lines.extend(['The result stream could not be read, so nothing was recovered from '
+                          f"it: {escape(result['stream_error'])}.", ''])
         if result.get('unmapped'):
             lines.extend(['Changed sources for which no mapped test was selected:', ''])
             lines.extend('- ' + escape(value) for value in result['unmapped'])
@@ -1447,6 +1458,15 @@ def prepare_analysis(root, directory, module, sources, result, associations=None
 
 
 CENSUS_TEXT_FIELDS = ('class', 'method', 'descriptor', 'mutator', 'description', 'sourceFile')
+# Enough to name the defect in the restriction that wrote them; the file itself holds the rest.
+CENSUS_REASON_LIMIT = 10
+
+
+def reason(error):
+    """One readable cause for a census record the reporter refused, whatever raised it."""
+    if isinstance(error, KeyError):
+        return f'census record has no {error.args[0]!r} field'
+    return str(error) or error.__class__.__name__
 
 
 def census_identity(record):
@@ -1477,18 +1497,22 @@ def read_census(path, index):
     have, which fails the run. A record the kill truncated is reported, never guessed at, and a
     record two interceptor passes both wrote is counted once.
     """
-    census = {'file': str(path), 'count': 0, 'violations': [], 'malformed': 0}
+    census = {'file': str(path), 'count': 0, 'violations': [], 'malformed': 0, 'unreadable': []}
     records = {}
     if not path.exists():
         return census, records
-    for line in path.read_text().splitlines():
+    for number, line in enumerate(path.read_text().splitlines(), start=1):
         if not line.strip():
             continue
         try:
             record = json.loads(line)
             identity = census_identity(record)
-        except (ValueError, TypeError, KeyError):
+        except (ValueError, TypeError, KeyError) as error:
             census['malformed'] += 1
+            # Say why, not only how many: this run fails on it, and the next reader needs to
+            # know which field of which record the restriction wrote wrongly.
+            if len(census['unreadable']) < CENSUS_REASON_LIMIT:
+                census['unreadable'].append(f'line {number}: {reason(error)}')
             continue
         records.setdefault(identity, {'line': record['lineNumber'],
                                       'source': record['sourceFile'],
@@ -1512,10 +1536,11 @@ def attach_census(result, path, index):
     # A complete run writes whole records; a torn one is already incomplete for another reason.
     if census['malformed'] and result['state'] == 'complete':
         result.update(state='error',
-                      error=f"{census['malformed']} malformed census record(s) in {path}")
+                      error=f"{census['malformed']} malformed census record(s) in {path}: "
+                            + '; '.join(census['unreadable']))
 
 
-def resolve_empty_scope(result, index, debt_limit):
+def resolve_empty_scope(result, index):
     """PIT generated mutants for the targets and the restriction removed every one.
 
     That is a measurement, not a broken run: the lane mutated the classes and none of their
@@ -1524,12 +1549,12 @@ def resolve_empty_scope(result, index, debt_limit):
     """
     result.pop('error', None)
     result.update(state='complete', off_diff_only=True,
-                  **build_report([], index, debt_limit, allow_empty=True))
+                  **build_report([], index, allow_empty=True))
 
 
-def attach_report(result, report, index, stream=None, debt_limit=ADVISORY_CLASS_LIMIT):
+def attach_report(result, report, index, stream=None):
     try:
-        result.update(read_report(report, index, debt_limit))
+        result.update(read_report(report, index))
         return
     except (OSError, ValueError, ET.ParseError) as error:
         failure = error
@@ -1538,18 +1563,19 @@ def attach_report(result, report, index, stream=None, debt_limit=ADVISORY_CLASS_
     # run with a malformed report is incomplete, as it always was.
     if result['state'] != 'complete' and stream is not None and stream.exists():
         try:
-            recovered = read_stream(stream, index, debt_limit)
+            recovered = read_stream(stream, index)
         except (OSError, ValueError) as stream_error:
-            failure = stream_error
+            result['stream_error'] = str(stream_error)
     if recovered:
         result.update(recovered)
         return
     if result['state'] == 'complete':
-        result.update(state='error', error=str(failure))
+        # Name the file: a parse error carries only a line and column, and this run reads two.
+        result.update(state='error', error=f'cannot read {Path(report).name}: {failure}')
 
 
-def analyze_module(root, output, module, sources, lines, deadline, seconds, associations=None,
-                   restrict=True, debt_limit=ADVISORY_CLASS_LIMIT):
+def analyze_module(root, output, module, sources, lines, deadline, seconds, associations,
+                   restrict):
     result = {'module': module, 'sources': sources, 'state': 'error'}
     if module not in DIRECTORIES:
         return {**result, 'error': 'Unknown module; refusing to execute PIT'}
@@ -1582,12 +1608,12 @@ def analyze_module(root, output, module, sources, lines, deadline, seconds, asso
         result.update(state='unmapped', error=str(error))
     except (OSError, ValueError, IndexError, struct.error) as error:
         result.update(state='error', error=str(error))
-    attach_report(result, report, index, stream, debt_limit)
+    attach_report(result, report, index, stream)
     if restrict:
         attach_census(result, census, index)
         if (executed and 'total' not in result and result['census']['count']
                 and not result['census']['malformed']):
-            resolve_empty_scope(result, index, debt_limit)
+            resolve_empty_scope(result, index)
     return result
 
 
@@ -1689,8 +1715,8 @@ def read_selection(output):
     return selected, lines, base_text
 
 
-def analyze_modules(root, output, selected, changed, seconds, associations, restrict=True,
-                    debt_limit=ADVISORY_CLASS_LIMIT, progress=None):
+def analyze_modules(root, output, selected, changed, seconds, associations, restrict,
+                    progress=None):
     """Run PIT per module inside one budget; one coverage scope per module (CONV-205)."""
     deadline = time.monotonic() + seconds
     results = []
@@ -1703,7 +1729,7 @@ def analyze_modules(root, output, selected, changed, seconds, associations, rest
         share = remaining - reserve * (pending - 1)
         results.append(analyze_module(root, output, module, sources, changed[module],
                                       time.monotonic() + share, round(share), associations,
-                                      restrict, debt_limit))
+                                      restrict))
         pending -= 1
         if progress is not None:
             progress(results)
@@ -1716,7 +1742,7 @@ def run(root, output, seconds, blocking):
     association_verdict = {'file': ASSOCIATIONS_FILE, 'errors': association_errors,
                            'count': len(associations)}
     results = analyze_modules(
-        root, output, selected, changed, seconds, associations,
+        root, output, selected, changed, seconds, associations, restrict=True,
         progress=lambda interim: write_results(output, interim,
                                                associations=association_verdict))
     dispositions = judge_run(root, results, changed, base_text)
@@ -1771,7 +1797,7 @@ def full_scope(root, output, seconds, days):
     association_verdict = {'file': ASSOCIATIONS_FILE, 'errors': association_errors,
                            'count': len(associations)}
     results = analyze_modules(root, output, selected, changed, seconds, associations,
-                              restrict=False, debt_limit=None)
+                              restrict=False)
     stale = stale_entries(root, results)
     modules = [{key: value for key, value in result.items() if not key.startswith('_')}
                for result in results]

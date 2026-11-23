@@ -25,9 +25,7 @@ public final class StreamingResultListenerFactory implements MutationResultListe
   }
 
   @Override
-  public MutationResultListener getListener(final Properties properties,
-      final ListenerArguments arguments) {
-    return new StreamingResultListener(
-        arguments.getOutputStrategy().createWriterForFile(StreamingResultListener.FILE));
+  public MutationResultListener getListener(final Properties properties, final ListenerArguments arguments) {
+    return new StreamingResultListener(arguments.getOutputStrategy().createWriterForFile(StreamingResultListener.FILE));
   }
 }

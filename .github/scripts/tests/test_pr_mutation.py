@@ -13,6 +13,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -795,7 +796,7 @@ class ReportingTest(unittest.TestCase):
                                 'detected': 1, 'classes': [['a.Baz', 1]]}}
         text = mutation.format_summary([result])
         self.assertIn('Changed target classes: 2. Test patterns: 1. '
-                      'Mutants sampled per class: 40.', text)
+                      'Mutant scope: the changed lines, complete and unsampled.', text)
         self.assertIn('Changed lines: 3. Mutants on changed lines: 2. Killed: 1. '
                       'Survived: 1. No coverage: 0.', text)
         self.assertIn('Changed sources for which no mapped test was selected:', text)
@@ -857,25 +858,46 @@ class ReportingTest(unittest.TestCase):
                     except ProcessLookupError:
                         pass
 
+    def test_the_child_runs_in_the_repository_in_its_own_session_without_a_shell(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            # The wrapper is relative to the repository, the deadline kills the whole process
+            # group, stderr belongs in the one log, and no shell ever sees these arguments.
+            reported = root / 'where.log'
+            self.assertEqual(mutation.execute(
+                [sys.executable, '-c', 'import os, sys; print(os.getcwd(), file=sys.stderr)'],
+                root, reported, 5), 0)
+            self.assertEqual(reported.read_text().strip(), str(root))
+            with patch.object(mutation.subprocess, 'Popen') as popen:
+                popen.return_value.__enter__.return_value.wait.return_value = 0
+                mutation.execute(['true'], root, root / 'log', 7)
+            keywords = popen.call_args.kwargs
+            self.assertEqual(keywords['cwd'], root)
+            self.assertEqual(keywords['stderr'], mutation.subprocess.STDOUT)
+            self.assertIs(keywords['start_new_session'], True)
+            self.assertIs(keywords['shell'], False)
+
     def test_incomplete_module_errors_never_pass_blocking(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
             with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
                  patch.object(mutation, 'execute', return_value=1):
                 result = mutation.analyze_module(output, output, 'sirix-core', [], {},
-                                                 float('inf'), 10)
+                                                 float('inf'), 10, None, False)
             self.assertIn('PIT exited 1', result['error'])
             with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
                  patch.object(mutation, 'execute') as execute:
-                result = mutation.analyze_module(output, output, 'sirix-core', [], {}, 0, 10)
+                result = mutation.analyze_module(output, output, 'sirix-core', [], {}, 0, 10,
+                                                 None, False)
             self.assertEqual(result['state'], 'timed out')
             execute.assert_not_called()
             with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
                  patch.object(mutation, 'execute', return_value=0):
                 result = mutation.analyze_module(output, output, 'sirix-core', [], {},
-                                                 float('inf'), 10)
+                                                 float('inf'), 10, None, False)
             self.assertEqual(result['state'], 'error')  # no XML despite zero process exit
-            result = mutation.analyze_module(output, output, '../outside', [], {}, 0, 10)
+            result = mutation.analyze_module(output, output, '../outside', [], {}, 0, 10, None,
+                                             False)
             self.assertIn('Unknown module', result['error'])
             self.assertFalse((output.parent / 'outside').exists())
             with patch.object(mutation, 'resolve_targets', return_value=([], [])):
@@ -894,6 +916,15 @@ class ReportingTest(unittest.TestCase):
         self.assertIn('Remaining entries', text)
         self.assertNotIn('- mutant-100', text)
         self.assertEqual(len(result['changed']['survivors']), 101)
+
+    def test_the_share_reaches_the_process_that_must_honour_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            log = Path(temp) / 'pitest.log'
+            with patch.object(mutation.subprocess, 'Popen') as popen:
+                process = popen.return_value.__enter__.return_value
+                process.wait.return_value = 0
+                mutation.execute(['true'], Path(temp), log, 270)
+            process.wait.assert_called_once_with(timeout=270)
 
     def test_process_timeout_terminates_group_and_preserves_log(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -951,6 +982,11 @@ class CommandLineTest(unittest.TestCase):
                     runpy.run_path(script, run_name='__main__')
             self.assertEqual(exit_status.exception.code, 0)
 
+    def test_the_scheduled_command_documents_its_own_defaults(self):
+        parsed = mutation.build_parser().parse_args(['full-scope', '--output', '/tmp'])
+        self.assertEqual((parsed.seconds, parsed.window_days), (5400, mutation.WINDOW_DAYS))
+        self.assertEqual(mutation.WINDOW_DAYS, 7)
+
     def test_cli_rejects_missing_revisions_and_nonpositive_budget(self):
         with tempfile.TemporaryDirectory() as temp:
             commands = [['select'], ['run', '--seconds', '0'],
@@ -1003,6 +1039,20 @@ class LaneCommandTest(unittest.TestCase):
                              f'{mutation.CHANGED_LINES_HEADER}\n\tRoot.java\t7\n'
                              'a\tFoo.java\t11 24\n')
 
+    def test_the_result_records_the_targets_and_the_tests_it_resolved(self):
+        with self.prepared() as (_, result, _):
+            self.assertEqual((result['targets'], result['tests']), (['a.Foo'], ['a.FooTest*']))
+        text = mutation.format_summary([{'module': 'sirix-core', 'state': 'complete',
+                                         'targets': ['a.Foo'], 'tests': ['a.FooTest*'],
+                                         'mutants_per_class': None}])
+        self.assertIn('Changed target classes: 1. Test patterns: 1.', text)
+
+    def test_the_command_runs_the_repository_wrapper_for_the_module(self):
+        with self.prepared() as (command, result, _):
+            self.assertTrue(command[0].endswith('/gradlew'), command[0])
+            self.assertEqual(command[1], ':sirix-core:pitest')
+            self.assertEqual(result['resolution'], {})
+
     def test_no_per_class_mutant_limit_is_ever_requested(self):
         with self.prepared() as (command, result, _):
             self.assertEqual([value for value in command
@@ -1032,6 +1082,31 @@ class LaneCommandTest(unittest.TestCase):
             self.assertEqual((directory / mutation.CHANGED_LINES_FILE).read_text(),
                              f'{mutation.CHANGED_LINES_HEADER}\na\tFoo.java\t\n')
 
+    def test_a_module_with_no_budget_left_reports_it_instead_of_starting_pit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / 'out'
+            output.mkdir()
+            source = Path(temp) / 'bundles/sirix-core/src/main/java/a/Foo.java'
+            source.parent.mkdir(parents=True)
+            source.write_text('package a;\nclass Foo {}\n')
+            write_manifest(output, {'sirix-core': ['src/main/java/a/Foo.java']},
+                           {'sirix-core': {'src/main/java/a/Foo.java': [2]}})
+            invocations = []
+
+            def execute(command, root, log, timeout):
+                invocations.append(timeout)
+                return 0
+            with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
+                 patch.object(mutation, 'execute', side_effect=execute):
+                # An earlier module consumed the budget, so this one's deadline is already past.
+                result = mutation.analyze_module(
+                    Path(temp), output, 'sirix-core', ['src/main/java/a/Foo.java'],
+                    {'src/main/java/a/Foo.java': [2]}, time.monotonic() - 1, 270, None, True)
+            self.assertEqual(result['state'], 'timed out')
+            self.assertEqual(result['error'], '270s module execution share exceeded')
+            self.assertEqual(invocations, [], 'PIT must not be started without a share')
+
     def test_a_restricted_command_without_a_changed_line_map_is_refused(self):
         # CONV-205: restricting to an empty map would mutate nothing and report success.
         with tempfile.TemporaryDirectory() as temp:
@@ -1043,6 +1118,37 @@ class LaneCommandTest(unittest.TestCase):
                  self.assertRaisesRegex(ValueError, 'refusing to restrict'):
                 mutation.prepare_analysis(root, directory, 'sirix-core', self.SOURCES, {}, None,
                                           {}, True)
+
+    def test_every_pending_module_keeps_its_floor_not_only_the_next_one(self):
+        # With two modules a wrong "modules still pending" count reads the same as the right one;
+        # with three it does not, and the last module must still get its floor.
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / 'out'
+            output.mkdir()
+            modules = {'sirix-core': ['src/main/java/a/Foo.java'],
+                       'sirix-query': ['src/main/java/a/Bar.java'],
+                       'sirix-rest-api': ['src/main/java/a/Baz.java']}
+            for module, sources in modules.items():
+                for source in sources:
+                    path = Path(temp) / 'bundles' / module / source
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(f'package a;\nclass {path.stem} {{}}\n')
+            write_manifest(output, modules,
+                           {module: {source: [2] for source in sources}
+                            for module, sources in modules.items()})
+            shares = []
+
+            def execute(command, root, log, timeout):
+                shares.append(round(timeout))
+                return 1
+            with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
+                 patch.object(mutation, 'execute', side_effect=execute):
+                mutation.run(Path(temp), output, 1000, blocking=True)
+            floor = mutation.MIN_MODULE_SECONDS
+            # The mock returns at once, so the deadline alone decides: each module reserves a
+            # floor for every module still pending after it, and the last one keeps the rest.
+            self.assertEqual(shares, [1000 - 2 * floor, 1000 - floor, 1000])
 
     def test_coverage_is_collected_once_per_module_because_pit_runs_once_per_module(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1075,10 +1181,10 @@ class FullScopeTest(unittest.TestCase):
 
     SOURCE = 'src/main/java/a/Foo.java'
 
-    def commit(self, root, name, days_ago):
-        stamp = (datetime.now(timezone.utc)
-                 - timedelta(days=days_ago)).strftime('%Y-%m-%dT%H:%M:%S+0000')
-        (root / name).write_text(name)
+    def commit(self, root, name, days_ago, content=None, minutes=0):
+        stamp = (datetime.now(timezone.utc) - timedelta(days=days_ago, minutes=-minutes)
+                 ).strftime('%Y-%m-%dT%H:%M:%S+0000')
+        (root / name).write_text(name if content is None else content)
         environment = {**os.environ, 'GIT_COMMITTER_DATE': stamp, 'GIT_AUTHOR_DATE': stamp,
                        'GIT_COMMITTER_NAME': 'Test', 'GIT_AUTHOR_NAME': 'Test',
                        'GIT_COMMITTER_EMAIL': 'test@example.invalid',
@@ -1156,18 +1262,20 @@ class FullScopeTest(unittest.TestCase):
             self.assertIn('never decides an outcome', summary)
             self.assertIn('last 7 day(s)', summary)
 
-    def test_the_debt_list_is_not_cut_short_the_way_the_pull_request_summary_is(self):
+    def test_the_debt_report_records_every_class_and_shows_what_it_left_out(self):
         classes = [self.mutant('SURVIVED', 20 + index, klass=f'a.C{index}')
                    for index in range(mutation.ADVISORY_CLASS_LIMIT + 3)]
         with self.report(classes) as (_, _, results, summary):
             self.assertEqual(len(results['modules'][0]['unchanged']['classes']), len(classes))
-            self.assertIn('a.C12', summary)
+            self.assertIn('and 3 more; see `results.json`.', summary)
 
     def test_an_incomplete_module_says_so_and_still_decides_nothing(self):
         with self.report([self.mutant('KILLED', 11)], exit_code=1) as (
                 code, _, results, summary):
             self.assertEqual((code, results['modules'][0]['state']), (0, 'error'))
             self.assertIn('not a complete debt report', summary)
+            # The module's own failure is in the report, not only in the job log.
+            self.assertIn(results['modules'][0]['error'], summary)
 
     def test_entries_the_complete_report_proves_stale_are_advisory_only(self):
         from test_pr_mutation_dispositions import entry as disposition_entry
@@ -1180,6 +1288,46 @@ class FullScopeTest(unittest.TestCase):
             self.assertEqual(stale['entries'][0]['method'], 'gone')
             self.assertIn('proves stale (advisory)', summary)
             self.assertIn('remove or remap each entry', summary)
+
+    def test_the_report_selects_its_own_scope_from_the_branch_it_is_run_on(self):
+        """End to end over a real repository: window base, selection and report, PIT aside.
+
+        The other tests here patch the window and the selection to keep their fixtures small,
+        which leaves the wiring between them untested - and a wrong argument there would be
+        invisible, because a patched function accepts anything.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            git_repository(root)
+            path = 'bundles/sirix-core/src/main/java/a/Foo.java'
+            (root / path).parent.mkdir(parents=True)
+            (root / '.github').mkdir()
+            self.commit(root, path, 30, 'package a;\nclass Foo {\n  int bound = 4;\n}\n')
+            head = self.commit(root, path, 1, 'package a;\nclass Foo {\n  int bound = 5;\n}\n')
+            output = root / 'out'
+            output.mkdir()
+
+            def execute(command, root_path, log, timeout):
+                target = output / 'sirix-core/report/mutations.xml'
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('<mutations>' + self.mutant('SURVIVED', 3) + '</mutations>')
+                return 0
+            with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
+                 patch.object(mutation, 'execute', side_effect=execute):
+                self.assertEqual(mutation.full_scope(root, output, 30, 7), 0)
+            selection = json.loads((output / 'selection.json').read_text())
+            results = json.loads((output / 'results.json').read_text())
+            summary = (output / 'summary.md').read_text()
+        self.assertEqual(selection['modules'], {'sirix-core': ['src/main/java/a/Foo.java']})
+        self.assertEqual(selection['changed_lines'],
+                         {'sirix-core': {'src/main/java/a/Foo.java': [3]}})
+        self.assertEqual(results['window']['head'], head)
+        self.assertEqual(results['modules'][0]['changed']['survived'], 1,
+                         'the line the window covers is judged as changed')
+        # The report names the revisions it compared, abbreviated as elsewhere in the lane.
+        self.assertIn(f'`{head[:12]}`', summary)
+        self.assertNotIn(f'`{head[:13]}`', summary)
 
     def test_a_broken_association_file_is_reported_without_deciding_anything(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1197,6 +1345,75 @@ class FullScopeTest(unittest.TestCase):
             self.assertTrue(results['associations']['errors'])
             self.assertIn('the lane would reject it', summary)
 
+    def test_the_report_names_every_value_it_interpolates(self):
+        """What the scheduled report prints is its whole output; each field has to be the right one."""
+        from test_pr_mutation_dispositions import entry as disposition_entry
+        with self.report([self.mutant('SURVIVED', 21)],
+                         dispositions=disposition_entry(**{'class': 'a.Foo', 'method': 'gone',
+                                                           'descriptor': '()V'})) as (
+                _, _, results, summary):
+            window = results['window']
+            self.assertIn(f"## sirix-core: {results['modules'][0]['state']}", summary)
+            self.assertIn(f"`{window['base'][:12]}`", summary)
+            self.assertIn(f"head `{window['head'][:12]}`", summary)
+            self.assertNotIn(f"`{window['base'][:13]}`", summary)
+            self.assertIn(window['produced_at'], summary)
+            # The stale entry is named by its own identity, not by another entry's fields.
+            self.assertIn('entry 1 [equivalent] a.Foo.gone()V', summary)
+            self.assertIn(results['stale_entries']['entries'][0]['mutator'], summary)
+            self.assertIn(f"indexes {results['stale_entries']['entries'][0]['indexes']}", summary)
+
+    def test_the_report_names_the_errors_of_both_repository_files(self):
+        from test_pr_mutation_dispositions import entry as disposition_entry
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / 'out'
+            output.mkdir()
+            (root / '.github').mkdir()
+            (root / mutation.ASSOCIATIONS_FILE).write_text('[[association]]\nclass = "a.*"\n')
+            (root / mutation.DISPOSITIONS_FILE).write_text(disposition_entry(kind='flaky'))
+            with patch.object(mutation, 'window_base', return_value='a' * 40), \
+                 patch.object(mutation, 'current_commit', return_value='b' * 40), \
+                 patch.object(mutation, 'changed_sources', return_value=({}, {})):
+                self.assertEqual(mutation.full_scope(root, output, 30, 7), 0)
+            results = json.loads((output / 'results.json').read_text())
+            summary = (output / 'summary.md').read_text()
+        for error in results['associations']['errors']:
+            self.assertIn(mutation.escape(error), summary)
+        for error in results['stale_entries']['errors']:
+            self.assertIn(mutation.escape(error), summary)
+
+    def test_the_window_is_rejected_at_its_boundary_with_a_reason(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            git_repository(root)
+            self.commit(root, 'old', 30)
+            recent = self.commit(root, 'recent', 2)
+            self.commit(root, 'head', 0)
+            # One day is a window, not an error; the message says what to change when it is not.
+            self.assertEqual(mutation.window_base(root, 1), recent)
+            for days in (0, -1):
+                with self.subTest(days=days), self.assertRaises(ValueError) as refused:
+                    mutation.window_base(root, days)
+                self.assertIn('--window-days must be positive', str(refused.exception))
+            with self.assertRaises(ValueError) as refused:
+                mutation.window_base(root, 10_000)
+            self.assertIn('widen --window-days', str(refused.exception))
+
+    def test_a_file_with_one_invalid_entry_judges_none_of_them(self):
+        # The parser returns the valid entries beside the errors, and an invalid file disposes of
+        # nothing: judging the rest would accept a file the lane rejects.
+        from test_pr_mutation_dispositions import entry as disposition_entry
+        with self.report([self.mutant('KILLED', 11)],
+                         dispositions=disposition_entry(**{'class': 'a.Foo', 'method': 'gone',
+                                                           'descriptor': '()V'})
+                         + disposition_entry(kind='flaky', indexes=[9])) as (
+                code, _, results, summary):
+            self.assertEqual(code, 0)
+            self.assertTrue(results['stale_entries']['errors'])
+            self.assertEqual(results['stale_entries']['entries'], [])
+            self.assertIn('no entry was judged', summary)
+
     def test_the_cli_runs_the_report_and_returns_zero(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / 'out'
@@ -1209,6 +1426,122 @@ class FullScopeTest(unittest.TestCase):
                 self.assertEqual(mutation.main(), 0)
             self.assertIn('Full-scope mutation report', (output / 'summary.md').read_text())
             self.assertEqual(json.loads((output / 'results.json').read_text())['modules'], [])
+
+    def test_the_window_is_anchored_in_utc_not_in_the_machines_timezone(self):
+        """The cutoff is labelled `Z`, so it has to be computed in UTC.
+
+        A naive local clock produces a cutoff that is wrong by the machine's offset while still
+        claiming to be UTC, which moves the window by that offset and selects another base. CI
+        runs in UTC, where the two agree, so the timezone is forced here instead.
+        """
+        previous = os.environ.get('TZ')
+        try:
+            os.environ['TZ'] = 'Europe/Berlin'  # UTC+1 in winter, UTC+2 in summer
+            time.tzset()
+            offset = -time.timezone if time.daylight == 0 else -time.altzone
+            self.assertGreaterEqual(offset, 3600, 'the forced zone must be an hour ahead of UTC')
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                git_repository(root)
+                days = 7
+                # `inside` sits 30 minutes inside the window, so the right cutoff excludes it and
+                # a cutoff shifted forward by the machine's offset (at least an hour) includes it.
+                outside = self.commit(root, 'outside', days + 1)
+                self.commit(root, 'inside', days, minutes=30)
+                self.commit(root, 'head', 0)
+                self.assertEqual(mutation.window_base(root, days), outside,
+                                 'the base is the last commit before the UTC cutoff')
+        finally:
+            if previous is None:
+                os.environ.pop('TZ', None)
+            else:
+                os.environ['TZ'] = previous
+            time.tzset()
+
+    def test_every_subprocess_of_the_reporter_states_shell_false(self):
+        """A documented invariant of the lane: every subprocess runs an argument list with
+        `shell=False` (docs/VERIFICATION.md). It is Python's default, so only the source says
+        whether each call states it - and a call that stops stating it is a silent regression.
+        """
+        import ast
+        source = ast.parse(SCRIPT.read_text())
+        launchers = {'run', 'check_output', 'check_call', 'Popen'}
+        calls = 0
+        for node in ast.walk(source):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            owner = node.func.value
+            if not (isinstance(owner, ast.Name) and owner.id == 'subprocess'):
+                continue
+            if node.func.attr not in launchers:
+                continue
+            calls += 1
+            keywords = {word.arg: word.value for word in node.keywords}
+            self.assertIn('shell', keywords,
+                          f'subprocess.{node.func.attr} at line {node.lineno} omits shell')
+            self.assertIsInstance(keywords['shell'], ast.Constant)
+            self.assertIs(keywords['shell'].value, False,
+                          f'subprocess.{node.func.attr} at line {node.lineno} is not shell=False')
+        self.assertGreaterEqual(calls, 6, 'every launcher of the reporter is inspected')
+
+    def test_a_manifest_without_changed_lines_names_every_module_it_misses(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            (output / 'selection.json').write_text(json.dumps(
+                {'modules': {'sirix-core': ['a.java'], 'sirix-query': ['b.java']},
+                 'changed_lines': {}}))
+            with self.assertRaises(ValueError) as refused:
+                mutation.read_selection(output)
+        message = str(refused.exception)
+        self.assertIn('Selection manifest has no changed lines for', message)
+        self.assertIn('sirix-core', message)
+        self.assertIn('sirix-query', message, 'the scan continues past the first module')
+
+    def test_an_entry_that_matches_a_reported_mutant_is_not_called_stale(self):
+        from test_pr_mutation_dispositions import entry as disposition_entry
+        matching = disposition_entry(**{'class': 'a.Foo', 'method': 'run', 'descriptor': '()V',
+                                        'mutator': 'm', 'indexes': [7],
+                                        'description': 'd'})
+        with self.report([self.mutant('SURVIVED', 21)], dispositions=matching) as (
+                code, _, results, summary):
+            self.assertEqual(code, 0)
+            self.assertEqual(results['stale_entries']['entries'], [],
+                             'the report lists this mutant, so the entry is not stale')
+            self.assertNotIn('proves stale', summary)
+
+    def test_the_report_survives_a_module_that_produced_nothing(self):
+        # `stale_entries` reads each module's mutants; a module whose PIT run wrote no report at
+        # all has none, and the report still has to be produced.
+        from test_pr_mutation_dispositions import entry as disposition_entry
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / 'out'
+            output.mkdir()
+            (root / '.github').mkdir()
+            (root / mutation.DISPOSITIONS_FILE).write_text(disposition_entry())
+            with patch.object(mutation, 'window_base', return_value='a' * 40), \
+                 patch.object(mutation, 'current_commit', return_value='b' * 40), \
+                 patch.object(mutation, 'changed_sources',
+                              return_value=({'sirix-core': [self.SOURCE]},
+                                            {'sirix-core': {self.SOURCE: [11]}})), \
+                 patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
+                 patch.object(mutation, 'execute', return_value=0):
+                self.assertEqual(mutation.full_scope(root, output, 30, 7), 0)
+            results = json.loads((output / 'results.json').read_text())
+            summary = (output / 'summary.md').read_text()
+        self.assertEqual(results['modules'][0]['state'], 'error')
+        self.assertEqual(results['stale_entries']['entries'], [],
+                         'a run that mutated nothing proves no entry stale')
+        self.assertIn('not a complete debt report', summary)
+
+    def test_an_entry_of_a_class_this_run_never_mutated_is_not_called_stale(self):
+        from test_pr_mutation_dispositions import entry as disposition_entry
+        with self.report([self.mutant('KILLED', 11)],
+                         dispositions=disposition_entry(**{'class': 'a.Elsewhere'})) as (
+                code, _, results, summary):
+            self.assertEqual((code, results['stale_entries']['entries']), (0, []))
+            self.assertNotIn('proves stale', summary)
 
     def test_an_invalid_dispositions_file_judges_no_entry(self):
         from test_pr_mutation_dispositions import entry as disposition_entry
@@ -1467,15 +1800,30 @@ class ChangedLineVerdictTest(unittest.TestCase):
         # The blocking list holds the changed-line mutant only, not the advisory ones.
         self.assertEqual(text.count('| a.Other |'), 0)
 
-    def test_advisory_class_listing_is_bounded_and_ordered_by_debt(self):
+    def test_advisory_class_listing_is_complete_and_ordered_by_debt(self):
+        """Every class is recorded; only what is displayed is bounded (`format_advisory`)."""
+        extra = 2
         with tempfile.TemporaryDirectory() as temp:
             mutants = [self.mutant('SURVIVED', 'Foo.java', f'a.C{index:02d}', 7)
-                       for index in range(mutation.ADVISORY_CLASS_LIMIT + 2)]
+                       for index in range(mutation.ADVISORY_CLASS_LIMIT + extra)]
             mutants.append(self.mutant('SURVIVED', 'Foo.java', 'a.C00', 8))
             report = self.report(temp, mutants)
         classes = report['unchanged']['classes']
-        self.assertEqual(len(classes), mutation.ADVISORY_CLASS_LIMIT)
+        self.assertEqual(len(classes), mutation.ADVISORY_CLASS_LIMIT + extra)
         self.assertEqual(classes[0], ['a.C00', 2])  # the heaviest debt first
+        shown = mutation.format_advisory(report)
+        listed = [line for line in shown if line.startswith('- a.C')]
+        self.assertEqual(len(listed), mutation.ADVISORY_CLASS_LIMIT)
+        self.assertIn(f'- and {extra} more; see `results.json`.', shown)
+
+    def test_a_listing_that_fits_says_nothing_about_more(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = self.report(temp, [self.mutant('SURVIVED', 'Foo.java', f'a.C{index:02d}', 7)
+                                        for index in range(mutation.ADVISORY_CLASS_LIMIT)])
+        shown = mutation.format_advisory(report)
+        self.assertEqual(len([line for line in shown if line.startswith('- a.C')]),
+                         mutation.ADVISORY_CLASS_LIMIT)
+        self.assertFalse([line for line in shown if 'more; see' in line], shown)
 
     def test_a_mutant_without_a_usable_line_is_advisory_and_lists_no_debt(self):
         """PIT always reports a line; one that is missing or unparsable proves nothing."""

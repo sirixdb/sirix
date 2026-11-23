@@ -170,9 +170,10 @@ room for setup and report upload. Each module may use all the time still left ex
 `MIN_MODULE_SECONDS` floor for every module after it. Modules run in name order; a module that
 finishes early donates its remainder to those that follow. If the remaining budget cannot
 provide that floor for every pending module, it is divided equally among them. A deadline kills the
-process group and its detached descendants; the statuses of every class analysed before the kill
-survive, because the lane's own `STREAM` result listener flushes each class as PIT finishes it, and
-the module is still reported as incomplete analysis. A large diff may need
+process group and its detached descendants; the statuses of every class analysed before the kill survive, because the lane's own
+`STREAM` result listener flushes each class as PIT finishes it, and the module is still reported as
+incomplete analysis. A stream the reporter cannot read leaves the deadline as the module's state
+and is reported beside it, rather than replacing it. A large diff may need
 follow-up focused runs; timeouts and missing evidence are never a clean score.
 
 Scope comes from `git diff --diff-filter=ACMRT <base>...<head>`: added, modified and renamed
@@ -244,7 +245,8 @@ the changed-line counts are a complete measurement rather than a sample.
 [CONV-205](../spec/CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) owns these rules.
 
 The interceptor records what it removed in `census.jsonl`, beside the map - identity, class,
-source file and line, never a status. The reporter re-derives each census entry's attribution from its own changed-line
+source file and line, never a status. A record the reporter cannot read names the field at fault
+and fails the module, because the interceptor wrote it. The reporter re-derives each census entry's attribution from its own changed-line
 index and **fails the run** when one of them is on a changed line, so a defect in the interceptor
 cannot silently drop a mutant the verdict reads. Dispositions entries are matched against the
 census as well as the report, which keeps existence, staleness and re-identification after a
