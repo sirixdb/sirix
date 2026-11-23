@@ -378,3 +378,13 @@ of an obligation keyed by the old identity; restore a clean backup at the same p
 identity and observe persisted markers and committed values instead of private bookkeeping.
 Remove a wake with no predicate transition rather than claiming universal cost equivalence.
 See [the mutation closure postmortem](postmortems/lifecycle-ci-mutation-closure.md).
+
+## Check optional work before retirement and collect worker outcomes
+
+Quiescing shared callbacks is an ownership operation, even when the surrounding feature is
+optional. Decide whether initialization is needed before retirement, then revalidate after
+admission. Termination alone does not report a worker's outcome: cancellation, reset and exhaustion
+must all collect its first unreported failure before replacing the worker or closing descendants.
+Use first-close-only failures to distinguish worker error retention from a later close retry.
+Keep process-exit ordering with the embedding application through explicit shutdown.
+See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-open-worker-failure.md).

@@ -22,6 +22,7 @@ import io.sirix.axis.filter.PredicateFilterAxis;
 import java.util.concurrent.ExecutorService;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import io.sirix.exception.SirixThreadedException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.BlockingQueue;
@@ -53,16 +54,18 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.anyLong;
+import static org.mockito.Mockito.never;
 
 @Timeout(10)
 @Isolated
 @Order(Integer.MAX_VALUE)
 final class ConcurrentAxisLifecycleTest {
   @ParameterizedTest
-  @CsvSource({"json, except", "xml, except", "json, intersectLeft", "xml, intersectLeft", "json, intersectRight",
-      "xml, intersectRight"})
+  @CsvSource({"json, except, false", "xml, except, false", "json, intersectLeft, false", "xml, intersectLeft, false",
+      "json, intersectRight, false", "xml, intersectRight, false", "json, except, true", "xml, except, true",
+      "json, intersectLeft, true", "xml, intersectLeft, true", "json, intersectRight, true", "xml, intersectRight, true"})
   void setExhaustionFencesUnusedProducerAndReleasesOwnedReader(final String format, final String operation,
-      @TempDir final Path directory) throws Exception {
+      final boolean failClose, @TempDir final Path directory) throws Exception {
     final Path databasePath = directory.resolve("database");
     if (format.equals("json")) {
       Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
@@ -74,13 +77,13 @@ final class ConcurrentAxisLifecycleTest {
         : Databases.openXmlDatabase(databasePath)) {
       database.createResource(new ResourceConfiguration.Builder("resource").build());
       try (final var session = database.beginResourceSession("resource")) {
-        assertSetExhaustion(session, operation);
+        assertSetExhaustion(session, operation, failClose);
       }
     }
   }
 
   private static <R extends NodeReadOnlyTrx & NodeCursor> void assertSetExhaustion(final ResourceSession<R, ?> session,
-      final String operation) throws Exception {
+      final String operation, final boolean failClose) throws Exception {
     try (final var consumer = session.beginNodeReadOnlyTrx();
         final var emptyReader = session.beginNodeReadOnlyTrx();
         final var intermediate = session.beginNodeReadOnlyTrx();
@@ -88,6 +91,7 @@ final class ConcurrentAxisLifecycleTest {
       final CountDownLatch entered = new CountDownLatch(1);
       final CountDownLatch publish = new CountDownLatch(1);
       final CountDownLatch finish = new CountDownLatch(1);
+      final IllegalStateException cleanupFailure = new IllegalStateException("reader close");
       // This fixture explicitly owns its reader. All surrounding axes borrow their cursors.
       final Axis source = new AbstractAxis(ownedReader) {
         private boolean first = true;
@@ -110,7 +114,12 @@ final class ConcurrentAxisLifecycleTest {
 
         @Override
         public void close() {
-          ownedReader.close();
+          if (!ownedReader.isClosed()) {
+            ownedReader.close();
+            if (failClose) {
+              throw cleanupFailure;
+            }
+          }
         }
       };
       try (final ConcurrentAxis<R> live = new ConcurrentAxis<>(intermediate, source)) {
@@ -136,7 +145,11 @@ final class ConcurrentAxisLifecycleTest {
             assertFalse(live.executorService.isTerminated());
             publish.countDown();
             // Empty except X and either intersection with empty have no results (set identities).
-            assertFalse(exhausted.get());
+            if (failClose) {
+              assertSame(cleanupFailure, assertThrows(ExecutionException.class, exhausted::get).getCause());
+            } else {
+              assertFalse(exhausted.get());
+            }
             // Assert before explicit close: cleanup in finally must not mask a missing done fence.
             assertTrue(live.executorService.isTerminated(), "exhaustion must terminate the unused producer");
             assertTrue(ownedReader.isClosed(), "exhaustion must release the producer-owned reader");
@@ -152,6 +165,111 @@ final class ConcurrentAxisLifecycleTest {
             owner.join();
           }
         }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"json, close, false", "xml, close, false", "json, reset, false", "xml, reset, false",
+      "json, interrupt, false", "xml, interrupt, false", "json, close, true", "xml, close, true",
+      "json, reset, true", "xml, reset, true", "json, interrupt, true", "xml, interrupt, true"})
+  void txn503CancellationPreservesFirstCloseFailure(final String format, final String mode,
+      final boolean interruptedCleanup, @TempDir final Path directory) throws Exception {
+    final Path databasePath = directory.resolve("database");
+    if (format.equals("json")) {
+      Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    } else {
+      Databases.createXmlDatabase(new DatabaseConfiguration(databasePath));
+    }
+    try (final Database<? extends ResourceSession<?, ?>> database = format.equals("json")
+        ? Databases.openJsonDatabase(databasePath)
+        : Databases.openXmlDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder("resource").build());
+      try (final var session = database.beginResourceSession("resource")) {
+        assertCancellationFailure(session, mode, interruptedCleanup);
+      }
+    }
+  }
+
+  private static <R extends NodeReadOnlyTrx & NodeCursor> void assertCancellationFailure(
+      final ResourceSession<R, ?> session, final String mode, final boolean interruptedCleanup) throws Exception {
+    try (final R consumer = session.beginNodeReadOnlyTrx(); final R ownedReader = session.beginNodeReadOnlyTrx()) {
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch cancelled = new CountDownLatch(1);
+      final CountDownLatch release = new CountDownLatch(1);
+      final AtomicInteger calls = new AtomicInteger();
+      final AtomicReference<Throwable> observed = new AtomicReference<>();
+      final AtomicBoolean interruptRestored = new AtomicBoolean();
+      final RuntimeException cleanupFailure = interruptedCleanup
+          ? new SirixThreadedException(new InterruptedException("reader close"))
+          : new IllegalStateException("first reader close");
+      final Axis producer = mock(Axis.class);
+      when(producer.getTrx()).thenReturn(ownedReader);
+      when(producer.hasNext()).thenAnswer(unused -> {
+        if (!mode.equals("interrupt") && calls.getAndIncrement() == 0) {
+          return true;
+        }
+        entered.countDown();
+        try {
+          release.await();
+        } catch (final InterruptedException interruption) {
+          cancelled.countDown();
+          awaitUninterruptibly(release);
+          Thread.currentThread().interrupt();
+        }
+        return false;
+      });
+      when(producer.nextLong()).thenReturn(0L);
+      doAnswer(unused -> {
+        if (!ownedReader.isClosed()) {
+          ownedReader.close();
+          throw cleanupFailure;
+        }
+        return null;
+      }).when(producer).close();
+      try (final ConcurrentAxis<R> axis = new ConcurrentAxis<>(consumer, producer)) {
+        if (!mode.equals("interrupt")) {
+          assertEquals(0, axis.nextLong());
+        }
+        final Thread owner = new Thread(() -> {
+          try {
+            switch (mode) {
+              case "reset" -> axis.reset(0);
+              case "interrupt" -> axis.hasNext();
+              default -> axis.close();
+            }
+          } catch (final Throwable failure) {
+            observed.set(failure);
+          } finally {
+            interruptRestored.set(Thread.currentThread().isInterrupted());
+          }
+        });
+        owner.start();
+        try {
+          assertTrue(entered.await(5, TimeUnit.SECONDS));
+          if (mode.equals("interrupt")) {
+            owner.interrupt();
+          }
+          assertTrue(cancelled.await(5, TimeUnit.SECONDS));
+          assertFalse(ownedReader.isClosed());
+        } finally {
+          release.countDown();
+          owner.join();
+        }
+        if (mode.equals("interrupt")) {
+          final SirixThreadedException failure = assertInstanceOf(SirixThreadedException.class, observed.get());
+          assertInstanceOf(InterruptedException.class, failure.getCause());
+          assertEquals(1, failure.getSuppressed().length);
+          assertSame(cleanupFailure, failure.getSuppressed()[0]);
+          assertTrue(interruptRestored.get());
+        } else {
+          assertSame(cleanupFailure, observed.get());
+        }
+        verify(producer, never()).reset(anyLong());
+        assertTrue(axis.executorService.isTerminated());
+        assertTrue(ownedReader.isClosed());
+        assertFalse(consumer.isClosed());
+        assertTrue(consumer.moveTo(0));
       }
     }
   }
@@ -240,7 +358,7 @@ final class ConcurrentAxisLifecycleTest {
     final ConcurrentAxisHelper helper = new ConcurrentAxisHelper(producer, new LinkedBlockingQueue<>());
     helper.run();
     verify(producer).close();
-    assertSame(failure, helper.failure());
+    assertSame(failure, helper.takeFailure(false));
     assertSame(cleanup, failure.getSuppressed()[0]);
   }
 
@@ -398,6 +516,45 @@ final class ConcurrentAxisLifecycleTest {
     try (final ConcurrentAxis<JsonNodeReadOnlyTrx> axis =
         new ConcurrentAxis<>(mock(JsonNodeReadOnlyTrx.class), producer)) {
       assertSame(failure, assertThrows(AssertionError.class, axis::nextKey));
+      assertTrue(axis.executorService.isTerminated());
+    }
+  }
+
+  @Test
+  void txn504UnrequestedWorkerInterruptionRejectsTraversal() {
+    final Axis producer = mock(Axis.class);
+    final SirixThreadedException failure = new SirixThreadedException(new InterruptedException("producer"));
+    when(producer.hasNext()).thenThrow(failure);
+    try (final ConcurrentAxis<JsonNodeReadOnlyTrx> axis =
+        new ConcurrentAxis<>(mock(JsonNodeReadOnlyTrx.class), producer)) {
+      assertSame(failure, assertThrows(SirixThreadedException.class, axis::nextKey));
+      assertTrue(axis.executorService.isTerminated());
+    }
+  }
+
+  @Test
+  void txn503CancellationAccumulatesLaterCleanupFailure() {
+    final Axis producer = mock(Axis.class);
+    final IllegalStateException workerFailure = new IllegalStateException("worker reader close");
+    final IllegalArgumentException laterFailure = new IllegalArgumentException("owner cleanup");
+    final AtomicInteger closes = new AtomicInteger();
+    when(producer.hasNext()).thenReturn(true, false);
+    when(producer.nextLong()).thenReturn(1L);
+    doAnswer(unused -> {
+      switch (closes.getAndIncrement()) {
+        case 0 -> throw workerFailure;
+        case 1 -> throw laterFailure;
+        default -> {
+          return null;
+        }
+      }
+    }).when(producer).close();
+    try (final ConcurrentAxis<JsonNodeReadOnlyTrx> axis =
+        new ConcurrentAxis<>(mock(JsonNodeReadOnlyTrx.class), producer)) {
+      assertEquals(1, axis.nextKey());
+      assertSame(workerFailure, assertThrows(IllegalStateException.class, axis::close));
+      assertEquals(1, workerFailure.getSuppressed().length);
+      assertSame(laterFailure, workerFailure.getSuppressed()[0]);
       assertTrue(axis.executorService.isTerminated());
     }
   }

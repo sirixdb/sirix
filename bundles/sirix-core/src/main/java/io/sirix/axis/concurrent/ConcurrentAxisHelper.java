@@ -24,6 +24,7 @@ import java.util.concurrent.BlockingQueue;
 
 import io.sirix.api.Axis;
 import io.sirix.cache.ShardedPageCache;
+import io.sirix.exception.SirixThreadedException;
 import io.sirix.utils.LogWrapper;
 import io.sirix.settings.Fixed;
 import org.slf4j.LoggerFactory;
@@ -57,9 +58,21 @@ public class ConcurrentAxisHelper implements Runnable {
 
   // Read only after the consumer has established executor termination.
   private Throwable failure;
+  private Throwable cleanupFailure;
 
-  Throwable failure() {
-    return failure;
+  Throwable takeFailure(final boolean cancelled) {
+    Throwable result = failure;
+    failure = null;
+    if (cancelled && result instanceof SirixThreadedException && result.getCause() instanceof InterruptedException) {
+      final Throwable interruption = result;
+      result = null;
+      for (final Throwable suppressed : interruption.getSuppressed()) {
+        result = ShardedPageCache.retainCleanupFailure(result, suppressed);
+      }
+    }
+    result = ShardedPageCache.retainCleanupFailure(result, cleanupFailure);
+    cleanupFailure = null;
+    return result;
   }
 
   /**
@@ -122,8 +135,8 @@ public class ConcurrentAxisHelper implements Runnable {
     } finally {
       try {
         axis.close();
-      } catch (final RuntimeException | Error cleanupFailure) {
-        failure = ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
+      } catch (final RuntimeException | Error closeFailure) {
+        cleanupFailure = closeFailure;
       }
     }
   }

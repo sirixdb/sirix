@@ -47,6 +47,10 @@ Databases.createJsonDatabase/openJsonDatabase and createXmlDatabase/openXmlDatab
 
 Closing a database handle MUST release that handle’s ownership without invalidating another live handle’s independent ownership. Resource sessions and transactions MUST follow TXN teardown and worker-fence requirements; after successful close, operations requiring live state MUST fail clearly. Try-with-resources MUST NOT imply commit of dirty data.
 
+Global database shutdown MUST remain explicit through `Databases.shutdown()` or manager close;
+loading the library MUST NOT register automatic process-exit database teardown. Applications own
+the ordering of final commits and database shutdown.
+
 ### JAPI-104 — Transaction threading boundary
 
 - **Level:** MUST

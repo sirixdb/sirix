@@ -107,10 +107,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
 
   @Override
   public synchronized void reset(final long nodeKey) {
-    // AbstractAxis invokes reset during construction, before these fields are initialized.
-    if (executorService != null) {
-      WorkerTermination.shutdownAndAwait(executorService, true);
-    }
+    ShardedPageCache.rethrowCleanupFailure(stopProducer(true));
     super.reset(nodeKey);
     first = true;
     finished = false;
@@ -192,13 +189,15 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
    */
   @Override
   protected synchronized long done() {
-    if (executorService != null) {
-      WorkerTermination.shutdownAndAwait(executorService, false);
-    }
-    if (task != null) {
-      ShardedPageCache.rethrowCleanupFailure(task.failure());
-    }
+    ShardedPageCache.rethrowCleanupFailure(stopProducer(false));
     return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  private Throwable stopProducer(final boolean cancel) {
+    if (executorService != null) {
+      WorkerTermination.shutdownAndAwait(executorService, cancel);
+    }
+    return task == null ? null : task.takeFailure(cancel);
   }
 
   /**
@@ -216,15 +215,17 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
    * cancellation alone does not permit the caller to close the producer's transaction.
    */
   @Override
+  @SuppressWarnings("java:S1181")
   public synchronized void close() {
-    if (executorService != null) {
-      WorkerTermination.shutdownAndAwait(executorService, true);
-    }
+    Throwable failure = stopProducer(true);
     try {
       producer.close();
+    } catch (final RuntimeException | Error cleanupFailure) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
     } finally {
       first = false;
       finished = true;
     }
+    ShardedPageCache.rethrowCleanupFailure(failure);
   }
 }

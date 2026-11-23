@@ -31,6 +31,11 @@ local database monitor. Nested bootstrap/session cleanup reuses that established
 Eager derived initialization runs after session registration has released those monitors; derived
 creation/rebuild establishes the same outer retirement boundary. Callback metadata reads and
 ordinary existing-session opens remain permitted while another thread waits for quiescence.
+
+Cold read opens with valid-time paths but no declared derived index also skip notification
+retirement. Derived initialization checks whether work is needed before quiescing callbacks and
+rechecks after admission. Applications close their database handles explicitly and may call
+`Databases.shutdown()` for global teardown; library loading installs no database shutdown hook.
 Timeout/interruption before quiescence must leave resource files and retained owners untouched,
 preserve the failure/interrupt status, and permit retry after the active callback exits.
 

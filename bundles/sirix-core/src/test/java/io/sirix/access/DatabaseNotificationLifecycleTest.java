@@ -1861,22 +1861,28 @@ final class DatabaseNotificationLifecycleTest {
   }
 
   @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void warmSessionOpenDoesNotEnterNotificationRetirement(final boolean local) throws Exception {
+  @CsvSource({"false, false", "false, true", "true, false", "true, true"})
+  void sessionOpenWithoutDerivedDeclarationsPreservesAdmission(final boolean local, final boolean warm)
+      throws Exception {
     try (Fixture fixture = new Fixture("json", directory)) {
       assertTrue(fixture.firstDatabase.createResource(ResourceConfiguration.newBuilder("other")
                                                                            .storageType(StorageType.FILE_CHANNEL)
                                                                            .validTimePaths("lo", "hi")
                                                                            .storeDiffs(false)
                                                                            .build()));
-      fixture.firstDatabase.beginResourceSession("other");
-      fixture.notifications().setCloseTimeout(Duration.ofMinutes(1));
+      if (warm) {
+        fixture.firstDatabase.beginResourceSession("other");
+      }
+      fixture.notifications().setCloseTimeout(Duration.ofMillis(100));
       final NodeTrx writer = fixture.second.beginNodeTrx();
       final CountDownLatch entered = new CountDownLatch(1);
       final CountDownLatch finish = new CountDownLatch(1);
+      final AtomicInteger preHooks = new AtomicInteger();
+      final AtomicInteger postHooks = new AtomicInteger();
       writer.addPostCommitHook(unused -> {
         entered.countDown();
         await(finish);
+        postHooks.incrementAndGet();
       });
       final CompletableFuture<Void> opened = new CompletableFuture<>();
       Thread opener = null;
@@ -1889,8 +1895,14 @@ final class DatabaseNotificationLifecycleTest {
             : fixture.firstDatabase).beginResourceSession("other").getMostRecentRevisionNumber()), opened);
         opened.get(10, TimeUnit.SECONDS);
         assertEquals(1, finish.getCount());
+        writer.addPreCommitHook(unused -> preHooks.incrementAndGet());
+        setValue(writer, 2);
+        writer.commit();
+        assertEquals(1, preHooks.get());
+        assertEquals(3, fixture.second.getMostRecentRevisionNumber());
         finish.countDown();
         fixture.notifications().awaitIdle(Duration.ofSeconds(10));
+        assertEquals(2, postHooks.get());
         writer.close();
       } finally {
         finish.countDown();

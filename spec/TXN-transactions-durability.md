@@ -325,6 +325,18 @@ Close MUST fence in-flight hardening before freeing its owners and MUST preserve
 
 Transaction/session teardown MUST attempt each independent owner even when another cleanup fails, preserve the first failure with later failures suppressed, and be idempotent after success. A retry after failed teardown MUST complete only the remaining safe work.
 
+Concurrent traversal close, reset and exhaustion MUST report a terminated worker's unreported
+failure, even when a subsequent close succeeds. Reset MUST NOT reuse a producer after failed
+cleanup. An interrupted consumer MUST retain interruption as the primary error, suppress worker
+cleanup failures and restore its interrupt status after termination. Repeated close after a
+reported failure MUST NOT report that same worker failure again.
+Requested cancellation MAY discard the traversal interruption used to stop a nested producer,
+but MUST retain its suppressed failures and all independent cleanup failures, including cleanup
+that itself reports interruption. Unrequested worker interruption MUST still fail traversal.
+Regression mapping: `ConcurrentAxisLifecycleTest.txn503CancellationPreservesFirstCloseFailure`
+and `setExhaustionFencesUnusedProducerAndReleasesOwnedReader` cover JSON/XML cancellation,
+reset, interrupted consumption and set exhaustion with first-close-only reader failure.
+
 ### TXN-504 — Worker ownership fence
 
 - **Level:** MUST
@@ -812,6 +824,14 @@ Pre-commit hooks MUST run synchronously inside the writer transaction before dur
 - **Gap/note:** The dispatcher and independent committed views are implemented. Delivery is best effort under TXN-805; durable replay/resume remains follow-up work.
 
 Post-commit notifications MUST be asynchronous on a dedicated per-database dispatcher, ordered per resource. Every notification MUST carry its resource-local committed revision number. The dispatcher MUST supply a fresh read-only view of exactly that committed revision, initially at the document root. Commit MUST NOT wait for listener delivery or execute callbacks on the committing thread. Listener failure MUST NOT roll back durable data or poison its successor. No mutable successor transaction may be passed as the view. Delivery and overflow follow TXN-805; explicit listener exceptions and close follow TXN-803/806.
+
+Opening a resource that needs no derived initialization MUST NOT retire notification admission,
+including a cold JSON open with valid-time paths but no declared derived index. Direct and handle
+opens MUST preserve subsequent pre-hook and notification delivery while an unrelated listener is
+active. Actual initialization MUST revalidate its need after quiescence and before changing state.
+Regression mapping: `DatabaseNotificationLifecycleTest.sessionOpenWithoutDerivedDeclarationsPreservesAdmission`
+covers cold/warm direct/handle opens; `eagerDerivedRebuildQuiescesOutsideSessionAdmission`
+covers actual initialization.
 
 ### TXN-803 — Bounded listener shutdown
 

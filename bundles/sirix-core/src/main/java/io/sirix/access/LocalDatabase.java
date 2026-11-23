@@ -250,35 +250,47 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   private void enableDerivedIndexes(final JsonResourceSession source, final boolean onlyIfDeclared) {
-    try (var retirement = notifications.retire()) {
+    try {
       synchronized (this) {
         assertAcceptingResources();
-        final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) source;
-        if (shared.getDerivedResource() != null) {
+        if (!needsDerivedInitialization(source, onlyIfDeclared)) {
           return;
         }
-        final Path path = source.getResourcePath();
-        if (onlyIfDeclared && !Files.exists(path.resolveSibling(path.getFileName() + DerivedIndexMaintainer.SUFFIX))
-            && (source.getMostRecentRevisionNumber() == 0
-                || source.getRtxIndexController(source.getMostRecentRevisionNumber())
-                         .getIndexes()
-                         .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) == 0)) {
-          return;
+      }
+      try (var retirement = notifications.retire()) {
+        synchronized (this) {
+          assertAcceptingResources();
+          if (!needsDerivedInitialization(source, onlyIfDeclared)) {
+            return;
+          }
+          final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) source;
+          final JsonResourceSession derived = openDerivedResource(source);
+          shared.retainForDerivedIndexes();
+          ((AbstractResourceSession<?, ?>) derived).retainForDerivedIndexes();
+          resourceSessions.removeObject(source.getResourcePath(), source);
+          resourceSessions.removeObject(derived.getResourcePath(), derived);
+          if (derivedMaintainer == null) {
+            derivedMaintainer = new DerivedIndexMaintainer(getName());
+          }
+          shared.setDerivedResource(derivedMaintainer.register(source, derived));
         }
-        final JsonResourceSession derived = openDerivedResource(source);
-        shared.retainForDerivedIndexes();
-        ((AbstractResourceSession<?, ?>) derived).retainForDerivedIndexes();
-        resourceSessions.removeObject(source.getResourcePath(), source);
-        resourceSessions.removeObject(derived.getResourcePath(), derived);
-        if (derivedMaintainer == null) {
-          derivedMaintainer = new DerivedIndexMaintainer(getName());
-        }
-        shared.setDerivedResource(derivedMaintainer.register(source, derived));
       }
     } catch (final RuntimeException unavailable) {
       logger.error("Derived resource unavailable for {}; queries retain exact fallback", source.getResourcePath(),
           unavailable);
     }
+  }
+
+  private boolean needsDerivedInitialization(final JsonResourceSession source, final boolean onlyIfDeclared) {
+    if (((AbstractResourceSession<?, ?>) source).getDerivedResource() != null) {
+      return false;
+    }
+    final Path path = source.getResourcePath();
+    return !onlyIfDeclared || Files.exists(path.resolveSibling(path.getFileName() + DerivedIndexMaintainer.SUFFIX))
+        || source.getMostRecentRevisionNumber() != 0
+            && source.getRtxIndexController(source.getMostRecentRevisionNumber())
+                     .getIndexes()
+                     .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) != 0;
   }
 
   private JsonResourceSession openDerivedResource(final JsonResourceSession source) {
