@@ -1,0 +1,4 @@
+---
+kind: row
+---
+| A cache lookup read its published entries and then its in-flight builds, while a build moved itself between those sets in the opposite order, so a reader could miss a continuously available entry and rebuild it. | Read a two-set lookup in the order the producer fills them, or re-read the first set once the second reports nothing pending; the second read is what makes the saved work independent of a completion order. Drive that interleaving in a test from a seam inside the lookup instead of waiting for a loaded runner to find it, and treat a work budget that varies between runs on identical code as that kind of defect rather than as a flake. | [Bucketed-side reuse write-up](postmortems/2026-11-bucketed-side-reuse-interleaving.md), `BucketedSideReuseInterleavingTest`, unchanged `IntervalRangeJoinWorkBudgetTest.bucketedSidesAreScopedToTheValidTimeSnapshot` |
