@@ -7,7 +7,7 @@ Existing test links are evidence inventories, not assertions that tests passed i
 
 ## Scope
 
-P0 document conventions, traceability rollout, mutation dispositions, test associations, mutant scope and the scheduled full-scope report for the PR mutation lane (CONV-201 to CONV-206) and the accepted work-budget classification. The mutation requirements are implemented in the CI reporter, its PIT interceptor plugin and the scheduled workflow; the proposed trace tool remains follow-up work. Code fields for process requirements point to the authoritative workflow artifacts; no product method enforces them.
+P0 document conventions, traceability rollout, mutation dispositions, test associations, mutant scope and the scheduled full-scope report for the PR mutation lane (CONV-201 to CONV-206), the accepted work-budget classification, and the timed acceptance verdict with its results ledger and nightly trend tier (CONV-302 to CONV-304). The mutation requirements are implemented in the CI reporter, its PIT interceptor plugin and the scheduled workflow; the proposed trace tool remains follow-up work. Code fields for process requirements point to the authoritative workflow artifacts; no product method enforces them.
 
 ## Requirements
 
@@ -247,6 +247,194 @@ VMs explicitly skip it. Neither budget asserts elapsed time. Verification:
 `LifecycleWorkBudgetTest` and `LifecycleLockAllocationBudgetTest`; local execution and
 counterfactuals are qualified in [the mutation notes](../docs/lifecycle-mutation-accounting.md).
 
+### CONV-302 — Timed acceptance verdict
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [timed_gate.py](../bundles/sirix-query/bench/common/timed_gate.py) `difference_and_threshold`, `classify`, `stop_states`, `judge`, `allocation_bytes`; [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `stop`, `judge`; [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh) for `SIRIX_BENCH_TIER=gate`; [DEVELOPMENT.md](../docs/DEVELOPMENT.md#the-benchmark-protocol).
+- **Verified by:** [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py) `ThresholdTest`, `VerdictTest`, `AAControlTest`, `StopRuleTest`, `BoundaryTest`, `JudgeTest`, `OtherRowsTest`, `AllocationTest`, `ReportTextTest`, `CommandLineTest`; [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `RunDirectoryTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`.
+- **Evidence class:** code+test (local execution; the `Benchmark protocol tooling` CI job arrives with the same change and has not reported for this baseline)
+- **Gap/note:** Replaces the fixed bar (paired point estimate at most +1%, lower 95% bound at most 0), which failed identical code in about 81% of ten-pair runs of a twelve-benchmark gate (A/A control of 2026-11-23: `main` against itself, 17 accepted pairs, kept as the fixture of `AAControlTest`). Decided by the maintainer on 2026-11-23, with the floor at 4%. No CI job runs a timed comparison: the rule binds whoever drives one, and the analysis refuses a gate run that did not end at its stop point. Of the kits only the ClickBench cold rounds apply the stop rule themselves; other drivers call `bench_ledger.py stop`. Pair admission on outside load is the driver's and is recorded, not checked. A threshold learned from ledger history, as an outlier fence over a benchmark's earlier paired differences, is a later refinement and is not specified here.
+
+**Input.** A timed comparison judges each benchmark its plan names from the accepted pairs of one
+run. Pair *i* holds one baseline measurement *aᵢ* and one candidate measurement *bᵢ*, each from its
+own fresh process, in the alternating order the plan states. A pair is accepted or rejected by the
+plan's admission rule, on evidence of outside load and never on its measurements. A measurement
+that is not finite or not greater than zero, a pair that lacks an arm, a pair number that occurs
+twice for one benchmark, or two arms that do not hold the same benchmarks MUST make the analysis
+fail with a message naming the benchmark and the pair; it MUST NOT produce a verdict from the rest.
+
+**Difference and threshold.** With *n* accepted pairs let *rᵢ* = ln(*bᵢ* / *aᵢ*). The paired
+difference MUST be *d* = (1/*n*) Σ *rᵢ*. The noise threshold *T* MUST be computed from the residuals
+*eᵢ* = (*rᵢ* − *d*) · √(*n* / (*n* − 1)): for each of the 2ⁿ sign assignments *s* ∈ {−1, +1}ⁿ let
+*v*(*s*) = |Σ *sᵢ eᵢ*| / *n*; with the 2ⁿ values in ascending order, *T* is the value at 1-based
+rank ⌈0.99 · 2ⁿ⌉. An assignment is one way of swapping the two arm labels within the pairs, so *T*
+is the size the paired difference reaches in 1% of relabelings by spread alone. *T* MUST NOT change
+when every *bᵢ*, or every *aᵢ*, is multiplied by the same positive constant. Reports state *d* and
+*T* in percent as 100 · (eˣ − 1) for a log ratio *x*.
+
+**Verdict.** With the floor *F* = ln 1.04, a benchmark MUST receive exactly one verdict:
+`regression` when *d* > *F* and *d* > *T*; `improvement` when −*d* > *F* and −*d* > *T*; otherwise
+`unstable` when *T* > *F*; otherwise `unchanged`. A verdict MUST NOT be computed from fewer than 10
+or more than 20 accepted pairs.
+
+**Stop rule.** A benchmark has met its stop condition when it has at least *N₀* accepted pairs and
+*T* ≤ ln 1.03, or when it has 20 accepted pairs. *N₀* is 10 unless the plan, before the run, states
+a larger value of at most 20. A run MUST end at the first point at which every judged benchmark has
+met its stop condition; when the plan measures its benchmarks together, a benchmark that has met
+the condition keeps running until the last one has, and never past 20 accepted pairs. The decision
+to continue or stop MUST depend on pair counts and thresholds only. Verdicts MUST be computed once,
+after the run has ended, from all accepted pairs, and a run that ended at any other point MUST NOT
+receive one. A pair MUST NOT be added after a verdict has been computed, and a rejected pair MUST
+NOT be admitted later. A control run, whose purpose is to measure the gate itself — an A/A run of
+one build against itself is one — MAY follow a pair count that its plan fixes in place of the stop
+rule; its verdicts are computed the same way and are not acceptance evidence for a change.
+
+**Outcome.** A comparison MUST fail when any judged benchmark's verdict is `regression` or its
+allocation check fails. An `unstable` verdict MUST be reported as not judged: it MUST NOT fail the
+comparison, and it MUST NOT be reported or counted as showing no regression. It MUST be answered by
+an issue against the benchmark, named where the comparison is reported, and MUST NOT be answered by
+changing the floor, the stop precision or the pair limits, or by leaving the benchmark out of that
+run's report. A plan MAY leave a benchmark out before the run, stating why.
+
+**Allocation.** The allocation rule is unchanged. Allocation per operation MUST be measured for
+each arm in at least one fresh process that contributes no timed measurement, so that no timed
+process carries the allocation profiler. An arm's figure is the median over its allocation
+processes, rounded to the nearest whole byte, ties to the even byte. The check passes when the
+candidate's figure is at most the baseline's. Allocation has no threshold and no `unstable` verdict.
+
+### CONV-303 — Results ledger and conditions record
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `capture_environment`, `fingerprint`, `parse_conditions`, `validate_row`, `append_rows`, `begin`, `record`, `commit`; `bench_run_begin` in [bench-common.sh](../bundles/sirix-query/bench/common/bench-common.sh); [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh); [run-benchmark.sh](../bundles/sirix-query/bench/jsonbench/run-benchmark.sh); [CONDITIONS.md](../docs/bench/CONDITIONS.md).
+- **Verified by:** [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `EnvironmentCaptureTest`, `CaptureDetailTest`, `FingerprintTest`, `ConditionsRecordTest`, `ConditionsDetailTest`, `RowSchemaTest`, `RowDetailTest`, `LedgerFileTest`, `LedgerFileDetailTest`, `RunDirectoryTest`, `ImporterTest`, `ImporterDetailTest`, `CommandLineTest`, `CommandLineDetailTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `JsonBenchKitTest`, `ClickBenchColdRoundsTest`.
+- **Evidence class:** code+test (local execution; the `Benchmark protocol tooling` CI job arrives with the same change and has not reported for this baseline)
+- **Gap/note:** The ClickBench cold rounds and the JSONBench runner record by themselves; the JMH module and the bitemporal kit do not, and their drivers call `bench_ledger.py`. The capture reads Linux sources; on another system each probe is recorded as unavailable. A kit does not know the runtime of an arm it launches through Gradle or of an ahead-of-time image and records it as unavailable unless the driver states it. The evidence a `continues` entry names is judged in review, not by the tool. The ledger is local to the measuring machine and is not committed; a pull request cites the rows it relies on.
+
+**Ledger.** Every timed run under the benchmark protocol — a per-change gate, a control such as an
+A/A run, a nightly run — MUST append its rows to the results ledger, the file `SIRIX_BENCH_LEDGER`
+names, before it reports a verdict and whatever the verdict is; a run that was rejected or aborted
+MUST still record the processes it measured. A figure the timer reports as zero is below its
+resolution: it is not a measurement and is not recorded, and the kit names it. The ledger is UTF-8
+JSON Lines, one object per line.
+A writer MUST only append and MUST NOT rewrite or remove a line. A reader MUST ignore a field it
+does not know and MUST reject a row whose `schema` it does not know. Without `SIRIX_BENCH_LEDGER`
+a kit still runs and still captures its environment, and its numbers are not protocol results.
+
+Every row carries `schema` (integer, 1), `kind` and `run`. `run` is the run's identifier: its UTC
+start as `YYYYMMDDTHHMMSSZ`, a hyphen and 8 lowercase hexadecimal digits.
+
+| `kind` | Field | Type | Content |
+|---|---|---|---|
+| `run`, one per run, written first | `started_at` | string | UTC start, RFC 3339 |
+| | `tier` | string | `gate`, `control` or `nightly` |
+| | `night` | string | `nightly` only: the night's UTC date, `YYYY-MM-DD` |
+| | `kit` | string | the kit that ran, such as `clickbench-cold`, `jsonbench` or `jmh` |
+| | `plan` | object | a paired run: `floor`, `stop_precision`, `quantile`, `min_pairs`, `max_pairs` and `benchmarks`, the names of the judged benchmarks, or null for every benchmark the run measures; a single-arm run: `min_processes` and `benchmarks` |
+| | `arms` | object | per arm (`baseline` and `candidate`, or `head`): `commit` (40 hexadecimal digits), `dirty` (boolean), `binary` (`jvm`, `native` or `native-pgo`), `runtime` (the runtime's version line) |
+| | `conditions` | string | id of the conditions entry in force |
+| | `fingerprint` | string | 64 lowercase hexadecimal digits, defined below |
+| | `environment` | object | the environment capture, defined below |
+| `measurement`, one per fresh process and metric | `benchmark` | string | name, stable within the kit |
+| | `params` | object | string to string, possibly empty |
+| | `metric`, `unit` | string | such as `cold_seconds` and `s`, `ns_per_op` and `ns/op`, `alloc_bytes_per_op` and `B/op` |
+| | `arm` | string | `baseline`, `candidate` or `head` |
+| | `pair`, `position` | integer or null | 1-based pair and the arm's place in it, 1 or 2; null in an unpaired tier |
+| | `process` | integer | 1-based ordinal of the fresh process within its arm and benchmark |
+| | `value` | number | finite; greater than zero for a time |
+| | `samples` | object, optional | `count`, `min`, `max` when the value summarises several tries of one process |
+| | `counters` | object, optional | the route counters the kit printed, name to number |
+| | `accepted` | boolean | false when the admission rule rejected the pair or process, or the run as a whole was rejected, for instance because its answers were wrong |
+| | `reject_reason` | string | present exactly when `accepted` is false |
+| `verdict`, one per judged benchmark of a `gate` or `control` run | `benchmark`, `params`, `metric`, `unit` | | as above |
+| | `pairs` | integer | accepted pairs the verdict used |
+| | `difference`, `threshold` | number | *d* and *T* of CONV-302, as natural-log ratios |
+| | `verdict` | string | `regression`, `improvement`, `unstable` or `unchanged` |
+| | `allocation` | object or null | `baseline_bytes`, `candidate_bytes` (whole bytes) and `pass` (boolean); null when the plan measures no allocation |
+
+**Environment capture.** Before its first timed process a run MUST write `environment.json` into
+its output directory and embed the same object in its `run` row. The capture MUST hold: the capture
+time; kernel release; operating-system name and version; machine architecture; firmware vendor,
+version and date and the product name; CPU model, sockets, cores, threads and the `lscpu` output;
+for every cpufreq policy its driver, governor, minimum and maximum frequency and
+energy-performance preference; the turbo or boost setting; the powercap limits; the
+`cpupower frequency-info` output; the `sensors` output; total memory; the CPUs the run is allowed
+to use; the version output of every JDK or GraalVM an arm runs on; and the type of the filesystem
+that holds the benchmark data. A probe whose source is missing or unreadable MUST be recorded as
+unavailable with the reason; it MUST NOT be omitted, guessed or copied from an earlier run. The
+capture MUST NOT hold a host name, a user name, a serial number or a path below a home directory,
+because conditions are published.
+
+**Fingerprint.** The fingerprint is the SHA-256, in lowercase hexadecimal, of the canonical JSON
+(UTF-8, keys sorted, no insignificant whitespace) of an object holding exactly: kernel release,
+operating-system name and version, architecture, firmware version, product name, CPU model,
+logical CPU count, the sorted set of cpufreq drivers, the sorted set of governors, the turbo or
+boost setting and total memory in whole GiB. Readings that vary within one condition —
+temperatures, current frequencies, powercap limits the platform moves by itself, times — are
+captured and not fingerprinted. Runtimes are recorded per arm and are not fingerprinted, because a
+comparison may set two runtimes against each other.
+
+**Conditions record.** `docs/bench/CONDITIONS.md` MUST hold one dated entry for every change of
+the measurement environment: machine, firmware, kernel or operating system, frequency policy,
+power cap, default runtime, load control, or the benchmark set. Entries are appended in date order;
+an entry MUST NOT be edited afterwards except by a dated correction. An entry's heading is
+`## YYYY-MM-DD — <id> (new baseline)` or `## YYYY-MM-DD — <id> (continues)`, where `<id>` consists
+of lowercase letters, digits and hyphens, and its body is a table with the rows Machine, CPU,
+Memory, Storage, Firmware, Kernel and OS, Frequency policy, Runtimes, Load control, Benchmark set,
+Changed, Comparable with and Fingerprint. A `new baseline` entry starts a condition under a new
+id. A `continues` entry keeps the id of the condition it continues; its Changed row MUST say what
+changed, and its Comparable with row MUST name the control run in the ledger that shows results
+stayed comparable. A run that writes to the ledger MUST find its fingerprint in an entry and
+record that entry's id as its `conditions`; when no entry holds the fingerprint, the run MUST
+refuse to start its timed processes, naming the fingerprint and the fields that differ from the
+previous run in the ledger. Rows that carry different conditions ids MUST NOT be compared with
+each other, in a trend window or in a learned threshold.
+
+### CONV-304 — Nightly trend tier
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [bench_trend.py](../bundles/sirix-query/bench/common/bench_trend.py) `nightly_series`, `state_of`, `report`; [DEVELOPMENT.md](../docs/DEVELOPMENT.md#the-benchmark-protocol).
+- **Verified by:** [test_bench_trend.py](../bundles/sirix-query/bench/common/test_bench_trend.py) `QuartileTest`, `StateTest`, `SeriesTest`, `ReportTest`.
+- **Evidence class:** code+test (local execution on constructed histories; the `Benchmark protocol tooling` CI job arrives with the same change and has not reported for this baseline)
+- **Gap/note:** Only the analysis exists. No machine runs a nightly, so no night has been recorded and the constants below have not met real nightly data; they are to be re-examined, in a change of their own, once the dedicated machine has recorded its first window. Scheduling is follow-up work.
+
+**Run.** A nightly run measures one arm, `head`: the default branch's build at that night's commit,
+with at least 20 accepted fresh processes for every benchmark, under the machine rules of the
+benchmark protocol. It records tier `nightly` and its `night` in the ledger (CONV-303). A night
+has at most one run with accepted measurements for a condition.
+
+**Series and level.** A series is the set of accepted measurements that share conditions id, kit,
+benchmark, params, metric, binary kind and runtime. A night's level *L* in a series is the median
+of that night's accepted values. A night with fewer than 20 of them is not a recorded night of that
+series, and two runs with accepted measurements for one night and series MUST make the analysis
+fail, naming both.
+
+**Drift.** For night *t* with at least 14 earlier recorded nights, the window is the 14 most recent
+of them. The baseline *B* is the median level of the 7 oldest nights of the window, and the drift
+is *D* = ln(*Lₜ* / *B*). The series' own noise is taken from the window: with *cₖ* the absolute log
+ratio of the levels of two adjacent nights of the window (13 values) and *Q₁*, *Q₃* their quartiles
+by linear interpolation between order statistics, the fence is *Φ* = *Q₃* + 1.5 · (*Q₃* − *Q₁*). With
+the bound *G* = ln 1.02, night *t* exceeds upward when *D* > *G* and *D* > *Φ*, and downward when
+−*D* > *G* and −*D* > *Φ*.
+
+**State.** Every series MUST receive exactly one state per night: `insufficient-history` with fewer
+than 14 earlier recorded nights; `drift` when the night exceeds upward and the previous recorded
+night, judged on its own window, exceeded upward too; `unconfirmed` when the night exceeds upward
+and the previous one did not; `faster` and `faster-unconfirmed` for the same two cases downward;
+otherwise `unstable` when *Φ* > *G*; otherwise `steady`. A change is therefore unconfirmed until the
+next night repeats it.
+
+**Report.** For every series whose state is not `steady` the report MUST give the state, *D* and
+*Φ* in percent, the night's commit and, for `drift` and `faster`, the night and commit before the
+first night of the unbroken run of exceeding nights. The tier MUST NOT pass or fail a change.
+`drift` MUST be answered by an investigation recorded in an issue; `unstable` obliges the fixture
+work CONV-302 requires and MUST NOT be answered by changing *G*, the window or the fence.
+
 ## Status and terminology (CONV-101, CONV-102)
 
 | Status | Meaning |
@@ -315,3 +503,6 @@ and a weekly/RC crash lane are required follow-up work, not completed by Markdow
 | CONV-205 | [ChangedLineInterceptorTest.java](../tools/pit-changed-lines/src/test/java/io/sirix/pit/ChangedLineInterceptorTest.java); [test_pr_mutation_dispositions.py](../.github/scripts/tests/test_pr_mutation_dispositions.py) `CensusVerdictTest`; [test_pr_mutation.py](../.github/scripts/tests/test_pr_mutation.py) command construction. | partial |
 | CONV-206 | [test_pr_mutation.py](../.github/scripts/tests/test_pr_mutation.py) `FullScopeTest`; workflow review acceptance. | partial |
 | CONV-301 | LifecycleWorkBudgetTest and LifecycleLockAllocationBudgetTest locally verify the lifecycle refinement. **Planned:** Budget inventory reconciliation against executable work-counter assertions; execute the six mapped suites and the Work budgets block for affected product changes. | proposed |
+| CONV-302 | [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py): pinned thresholds, scale invariance, the 2026-11-23 A/A control, shifted arms, the stop rule, allocation and the error cases; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`. | partial |
+| CONV-303 | [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py): capture, fingerprint, conditions record, row schema, append-only file, run directory, importers; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py). | partial |
+| CONV-304 | [test_bench_trend.py](../bundles/sirix-query/bench/common/test_bench_trend.py): steady, step, slow drift, unconfirmed outlier, speedup, unstable series, short history, conditions boundary, report. | partial |

@@ -1,0 +1,27 @@
+# Allocation legs of the same control: one fresh process per arm and benchmark with the GC profiler,
+# no timing taken. compactMaterialize content=ZERO differs between two legs of identical code.
+benchmark	params	arm	alloc_bytes_per_op
+HOTLeafCodecAllocationBenchmark.coldVerifiedCopy	content=REPEATED	baseline	4480.043769351156
+HOTLeafCodecAllocationBenchmark.coldVerifiedCopy	content=REPEATED	candidate	4480.044018407197
+HOTLeafCodecAllocationBenchmark.coldVerifiedCopy	content=ZERO	baseline	4480.040028980612
+HOTLeafCodecAllocationBenchmark.coldVerifiedCopy	content=ZERO	candidate	4480.043494632947
+HOTLeafCodecAllocationBenchmark.compactMaterialize	content=REPEATED	baseline	994.6127919781989
+HOTLeafCodecAllocationBenchmark.compactMaterialize	content=REPEATED	candidate	995.203081382872
+HOTLeafCodecAllocationBenchmark.compactMaterialize	content=ZERO	baseline	994.5146080321782
+HOTLeafCodecAllocationBenchmark.compactMaterialize	content=ZERO	candidate	1019.0984618049902
+HOTLeafCodecAllocationBenchmark.uncachedSelection	content=REPEATED	baseline	168.00264274097722
+HOTLeafCodecAllocationBenchmark.uncachedSelection	content=REPEATED	candidate	168.00291519086255
+HOTLeafCodecAllocationBenchmark.uncachedSelection	content=ZERO	baseline	168.0025888650408
+HOTLeafCodecAllocationBenchmark.uncachedSelection	content=ZERO	candidate	168.0025309536277
+HOTLeafCodecAllocationBenchmark.warmImageLookup	content=REPEATED	baseline	168.00271393428773
+HOTLeafCodecAllocationBenchmark.warmImageLookup	content=REPEATED	candidate	168.00276567844762
+HOTLeafCodecAllocationBenchmark.warmImageLookup	content=ZERO	baseline	168.00265752333607
+HOTLeafCodecAllocationBenchmark.warmImageLookup	content=ZERO	candidate	168.00273712479657
+HOTLeafCodecBenchmark.coldMaterialize	content=REPEATED,keyBytes=8	baseline	3328.037032971808
+HOTLeafCodecBenchmark.coldMaterialize	content=REPEATED,keyBytes=8	candidate	3328.0365551938103
+HOTLeafCodecBenchmark.warmImageLookup	content=REPEATED,keyBytes=8	baseline	168.00111012842873
+HOTLeafCodecBenchmark.warmImageLookup	content=REPEATED,keyBytes=8	candidate	168.00126068527007
+HOTLeafCodecBenchmark.warmLeafLookup	content=REPEATED,keyBytes=8	baseline	0.0007204133442381694
+HOTLeafCodecBenchmark.warmLeafLookup	content=REPEATED,keyBytes=8	candidate	0.0007586751607210943
+HOTLeafCodecBenchmark.warmLeafValueRef	content=REPEATED,keyBytes=8	baseline	0.0009627286267556373
+HOTLeafCodecBenchmark.warmLeafValueRef	content=REPEATED,keyBytes=8	candidate	0.0009604919719273892

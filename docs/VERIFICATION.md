@@ -65,8 +65,17 @@ queries once lost 150 ms each with every counter unchanged. That is the job of a
 baseline harness run on one known machine under the
 [benchmark protocol](DEVELOPMENT.md#the-benchmark-protocol) (ClickBench's 43
 queries, the 100M JSONBench numbers, later the bitemporal benchmark), which is deliberately not part
-of these suites. A green budget suite means the engine did not start doing more work on the guarded
-paths; it does not mean nothing got slower.
+of these suites. That harness judges a change by a paired difference that must exceed both a 4%
+floor and the benchmark's own measured noise threshold, reports a benchmark too noisy to judge as
+unstable, and writes every run to a results ledger
+([CONV-302](../spec/CONV-conventions.md#conv-302--timed-acceptance-verdict),
+[CONV-303](../spec/CONV-conventions.md#conv-303--results-ledger-and-conditions-record)); a nightly
+trend tier reports slow drift
+([CONV-304](../spec/CONV-conventions.md#conv-304--nightly-trend-tier)). The analysis that decides
+those verdicts is itself tested in the main workflow, with the kit scripts driven by stub engines;
+[its README](../bundles/sirix-query/bench/common/README.md) says how to run a gate. A green budget
+suite means the engine did not start doing more work on the guarded paths; it does not mean nothing
+got slower.
 
 **Mutation testing** guards the tests themselves. AI-generated tests tend to assert too little —
 they run the code and check something trivially true. PIT mutates the production code and reports
@@ -610,6 +619,10 @@ adds one exploratory seed. The identity suite inherits the JVM hash default, so 
                            --tests 'io.sirix.access.trx.page.RefusedOverflowLeafTableTest'
 ./gradlew :sirix-mcp:test --tests 'io.sirix.mcp.*WorkBudgetTest' \
                           --tests 'io.sirix.mcp.BoundedSerializationAllocationBudgetTest'
+
+# Timed acceptance verdict, results ledger, nightly trend and the kits' run record (CONV-302 to
+# CONV-304). Standard-library Python, nothing timed; the `Benchmark protocol tooling` CI job runs it.
+(cd bundles/sirix-query/bench/common && python3 -B -m unittest discover -p 'test_*.py')
 
 # Mutation testing (report: bundles/sirix-core/build/reports/pitest/index.html)
 ./gradlew :sirix-core:pitest

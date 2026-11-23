@@ -8,7 +8,7 @@ or frozen release artifact is claimed by this documentation change.
 
 | Chapter | Contract | Status |
 |---|---|---|
-| [CONV](CONV-conventions.md) | normative language, IDs, evidence, traceability rollout, official work budgets | P0 draft |
+| [CONV](CONV-conventions.md) | normative language, IDs, evidence, traceability rollout, official work budgets, timed acceptance verdict, results ledger and nightly trend tier | P0 draft |
 | [FMT](FMT-disk-format.md) | persisted bytes, feature negotiation, strict readers, compatibility | P0 draft |
 | [TXN](TXN-transactions-durability.md) | isolation, durability, recovery, async commits, hooks and backup consistency | P0 draft |
 | [VER](VER-versioning-bitemporal.md) | revisions, timestamps, retention representation, versioning equivalence | P0 core draft |

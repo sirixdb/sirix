@@ -39,6 +39,17 @@
   [CONF-201](CONF-configuration.md#conf-201--dispatcher-queue-and-close-defaults) owns current
   defaults and configuration, and JAPI-201 points to the hook contract.
 
+- Replace the fixed timed acceptance bar (paired point estimate at most +1%, lower 95% bound at
+  most 0) with [CONV-302](CONV-conventions.md#conv-302--timed-acceptance-verdict): a regression is
+  a paired difference above the 4% floor and above the benchmark's own noise threshold, measured by
+  randomizing the run's pairs; a benchmark too noisy to judge is reported as unstable; a run stops
+  on the precision it reached (10 to 20 pairs, 3%) and never on its result. The allocation rule is
+  unchanged. [CONV-303](CONV-conventions.md#conv-303--results-ledger-and-conditions-record) adds
+  the results ledger, the per-run environment capture and the dated conditions record, and
+  [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier) the nightly trend tier that reports
+  cumulative drift above 2%. The development strategy states the reasons in
+  [The benchmark protocol](../docs/DEVELOPMENT.md#the-benchmark-protocol).
+
 - Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
   [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).
 

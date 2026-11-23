@@ -213,6 +213,14 @@ the baseline records those values and the scoreboard refuses a mismatch or a leg
 Every timed ClickHouse query uses the same UTC session setting as reference generation. Attribution
 runs must reproduce the complete protocol.
 
+**Every run records where it was measured.** `run-benchmark.sh` writes the machine's state to
+`environment.json` in its output directory before the first process. With `SIRIX_BENCH_LEDGER` set
+it also appends one row per isolated process to the results ledger — the first attempt of a query as
+`cold_seconds`, the later ones as `hot_seconds`, each with its route counters — and it then needs a
+fresh output directory and, for `--bin`, the commit the image was built from (`--commit`). Timings
+of a run whose differential fails are recorded as rejected. [`../common/README.md`](../common/README.md)
+has the details.
+
 **Load time ends after durable synchronization.** Both loaders close their database writers and run
 `sync(1)` inside the measured ingestion window, failing the load if the barrier fails. The ClickHouse
 table uses plain `MergeTree`, so replicated-table synchronization commands are not applicable. Both

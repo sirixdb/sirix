@@ -19,6 +19,12 @@
 #   --out DIR  | OUT=DIR    per-round JSON + logs (default <db>-results)
 #   SKIP_DIFF=1             skip the differential (not recommended: a timing
 #                           without a correctness proof is not a result)
+#   --commit SHA | SIRIX_COMMIT=SHA   the commit --bin was built from; required
+#                           with a results ledger, where every row names its commit
+#   SIRIX_BIN_KIND=native-pgo         the kind of --bin image (default native)
+#   SIRIX_BENCH_LEDGER=FILE           record this run in the results ledger; see
+#                           "run record" in ../common/bench-common.sh. With it, OUT
+#                           must be a fresh directory.
 #
 # ---------------------------------------------------------------------------
 # THE PER-TIER CONFIGURATION, AND WHY EACH FLAG IS THERE
@@ -62,7 +68,7 @@ set -u
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../common" && pwd)/bench-common.sh"
 
 usage() {
-  sed -n '2,40p' "$0" >&2
+  sed -n '2,46p' "$0" >&2
   exit 2
 }
 
@@ -74,9 +80,13 @@ SIRIX_BIN="${SIRIX_BIN:-}"
 ROUNDS="${ROUNDS:-2}"
 TRIES="${TRIES:-4}"
 OUT="${OUT:-}"
+SIRIX_COMMIT="${SIRIX_COMMIT:-}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --commit)
+      [ "$#" -ge 2 ] || die "--commit requires a value"
+      SIRIX_COMMIT="$2"; shift 2 ;;
     --data)
       [ "$#" -ge 2 ] || die "--data requires a value"
       DATA="$2"; shift 2 ;;
@@ -135,6 +145,24 @@ case "${TIER}" in
 esac
 
 mkdir -p "${OUT}" || die "cannot create output directory: ${OUT}"
+
+# --- 0. the run record -------------------------------------------------------
+# Opened before the load on purpose: a machine with no conditions entry is
+# refused here, not after an hour of loading.
+if [ -n "${SIRIX_BIN}" ]; then
+  if bench_ledger_enabled && [ -z "${SIRIX_COMMIT}" ]; then
+    die "a results ledger needs the commit the image was built from: pass --commit <40-hex> or SIRIX_COMMIT"
+  fi
+  ARM_SPEC="head,commit=${SIRIX_COMMIT},binary=${SIRIX_BIN_KIND:-native}"
+elif bench_ledger_enabled; then
+  ARM_SPEC="head,commit=$(bench_head_commit),binary=jvm,dirty=$(bench_tree_dirty)"
+else
+  ARM_SPEC="head"
+fi
+# The database may not exist before the load; its parent directory is on the same filesystem.
+DATA_ROOT="${DB}"
+[ -d "${DATA_ROOT}" ] || DATA_ROOT="$(dirname "${DB%/}")"
+bench_run_begin "${OUT}" jsonbench "${DATA_ROOT}" "${ARM_SPEC}"
 
 # --- 1. load, if the database is not there ---------------------------------
 if [ -d "${DB}" ]; then
@@ -201,6 +229,14 @@ for round in $(seq 1 "${ROUNDS}"); do
       printf '# Q%d try%d\n' "${query}" "${attempt}" >> "${round_log}"
       cat "${part_log}" >> "${round_log}"
     done
+    # Recorded once per query, after its last process and before the next query's
+    # cool gate and eviction, so nothing runs between two timed processes of one query.
+    for attempt in $(seq 1 "${TRIES}"); do
+      bench_run_ledger import-jsonbench --run "${OUT}" --query "${query}" --attempt "${attempt}" \
+          --process "$(( (round - 1) * TRIES + attempt ))" \
+          --json "${parts_dir}/q${query}-try${attempt}.json" --log "${parts_dir}/q${query}-try${attempt}.log" \
+          > /dev/null
+    done
   done
   python3 "${HERE}/merge-query-results.py" --out "${OUT}/round-${round}.json" \
       --queries 5 --tries "${TRIES}" "${parts[@]}" \
@@ -228,6 +264,13 @@ if [ "${SKIP_DIFF:-0}" != "1" ]; then
     DIFF_STATUS="FAIL"
   fi
 fi
+
+# --- 4b. the results ledger -------------------------------------------------
+# Timings of wrong answers are recorded as rejected, never as measurements.
+if [ "${DIFF_STATUS}" = "FAIL" ]; then
+  bench_run_ledger reject --run "${OUT}" --reason "the differential against the ClickHouse reference failed"
+fi
+bench_run_ledger commit --run "${OUT}"
 
 # --- 5. the scoreboard ------------------------------------------------------
 python3 "${HERE}/summarize-results.py" "${TIER}" "${OUT}" "${ROUNDS}" "${TRIES}" \

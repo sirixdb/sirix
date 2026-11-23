@@ -245,7 +245,9 @@ event hash, query hashes, engine revision/version, index manifest and capacity t
 three-try/ten-round paired rig, one heavy process at a time. Each timed try must use a new process,
 include compile/prepare plus full canonicalization in its query timer, preserve raw and canonical
 answers, verify cache eviction where claimed, and byte-match the oracle. Do not infer a performance
-winner from the load facts or one untimed correctness execution in `evidence/`.
+winner from the load facts or one untimed correctness execution in `evidence/`. A comparison of two
+Sirix builds on this benchmark is judged by the timed acceptance rule and recorded in the results
+ledger; [`../common/README.md`](../common/README.md) describes both.
 
 ## Recorded evidence
 
