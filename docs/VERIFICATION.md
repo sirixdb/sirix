@@ -309,7 +309,9 @@ result per module, with that split under `changed` and `unchanged`), `dispositio
 `associations`; each module's `changed` lists its `failing`, `dispositioned_equivalent` and
 `dispositioned_out_of_lane` mutants. Each module's `unattributed` counts mutants whose source file
 never mapped to a changed source (normally zero, since `targetClasses` holds only changed classes).
-Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
+Setup failures, malformed XML, timeouts and unexplained empty or missing reports are incomplete,
+not 100%; the census-explained empty-scope exception is defined by
+[CONV-205](../spec/CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope).
 
 ### Blocking criterion: the PR's own lines
 
@@ -394,7 +396,8 @@ dispositions file.
 ```bash
 # Judge entries against local PIT reports as the lane would (stale, re-confirmation, unconfirmed).
 python3 .github/scripts/pr_mutation.py dispositions --check --base "$(git rev-parse origin/main)" \
-  --report /tmp/pr-mutation/sirix-core/report/mutations.xml
+  --report /tmp/pr-mutation/sirix-core/report/mutations.xml \
+  --census /tmp/pr-mutation/sirix-core/census.jsonl
 # Propose new identities for entries a rename, move or edit left stale; review before using.
 python3 .github/scripts/pr_mutation.py dispositions --remap \
   --report /tmp/pr-mutation/sirix-core/report/mutations.xml
@@ -497,10 +500,9 @@ executes `:sirix-pit-changed-lines:test`, including its adversarial tests and or
 against the pinned PIT release, without allocating another runner.
 
 Each module is analysed by exactly one PIT invocation, so its slow test scope is covered once per
-run. Every invocation uses a fresh single-use daemon (`--no-daemon`) with a bounded heap
+run. The single-use daemon described [above](#pr-mutation-testing) has a bounded heap
 (`-Dorg.gradle.jvmargs=-Xmx3g`), rather than the workstation-sized heap in `gradle.properties`.
-The fresh daemon keeps the deadline's work within its launcher's ownership; reuse was tried
-and deliberately dropped because it broke that hard execution limit. The PR mutation job uses the Build job's Error Prone compiler
+The PR mutation job uses the Build job's Error Prone compiler
 inputs and restores its compiled output plus project-local Gradle task history. The existing
 output cache remains shared as before; a separate PR-only history archive supplies `.gradle`
 and `**/.gradle` only to the mutation consumer, so the other restores remain unchanged. Matching

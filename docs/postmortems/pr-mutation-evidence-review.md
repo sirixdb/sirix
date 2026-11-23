@@ -22,8 +22,9 @@
   between producer and consumers. All six task-history cache additions and the unsupported
   recompilation claim were correctly withdrawn at that stage. R14 now implements reuse narrowly:
   the mutation consumer matches Build's compiler inputs and restores a separate task-history
-  archive; other consumers retain their existing restores. One invocation per module and daemon
-  reuse remain in place, with the effect to be read from this PR's CI task outcomes.
+  archive; other consumers retain their existing restores. The later
+  [round 13 decision](#review-round-13-drop-reuse-to-enforce-deadline-ownership) supersedes
+  this stage's daemon-reuse policy.
 - Why tests missed it: XML read failures were never combined with an explanatory census; truncated
   fixtures were ASCII; weekly survivors lived only off the diff; selector fixtures had one target;
   cutoff tests did not assert the external date representation. The AST test could reject a correct

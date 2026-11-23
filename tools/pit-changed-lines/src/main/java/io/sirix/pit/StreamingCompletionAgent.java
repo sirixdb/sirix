@@ -57,7 +57,8 @@ public final class StreamingCompletionAgent implements ClassFileTransformer {
         method.visitVarInsn(Opcodes.ALOAD, 1);
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "io/sirix/pit/CompletionOrderAnalysis", "run",
             "(Ljava/util/concurrent/ThreadPoolExecutor;Lorg/pitest/mutationtest/MutationResultInterceptor;"
-                + "Ljava/util/List;Ljava/util/List;)V", false);
+                + "Ljava/util/List;Ljava/util/List;)V",
+            false);
         method.visitInsn(Opcodes.RETURN);
         method.visitMaxs(4, 2);
         method.visitEnd();

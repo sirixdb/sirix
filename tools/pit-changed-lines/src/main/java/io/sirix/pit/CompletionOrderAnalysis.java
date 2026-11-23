@@ -11,10 +11,11 @@ import org.pitest.mutationtest.MutationResultListener;
 import org.pitest.mutationtest.build.MutationAnalysisUnit;
 import org.pitest.util.Unchecked;
 
-/** PIT 1.25.5's execution protocol, draining completed units instead of submission-order futures. */
+/**
+ * PIT 1.25.5's execution protocol, draining completed units instead of submission-order futures.
+ */
 public final class CompletionOrderAnalysis {
-  private CompletionOrderAnalysis() {
-  }
+  private CompletionOrderAnalysis() {}
 
   /** Called by the lane's agent in place of PIT's head-of-line-blocking executor loop. */
   public static void run(final ThreadPoolExecutor executor, final MutationResultInterceptor interceptor,

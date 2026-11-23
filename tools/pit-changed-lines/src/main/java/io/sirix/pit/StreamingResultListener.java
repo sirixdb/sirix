@@ -16,11 +16,12 @@ import org.pitest.mutationtest.engine.MutationIdentifier;
  * killed by its deadline still reports the statuses it had already recorded (CONV-202).
  *
  * <p>
- * The lane's {@link StreamingCompletionAgent} delivers completed analysis units without waiting
- * for earlier submitted units. PIT's XML listener serialises at the end of the run, which is why a killed partition left a
- * zero-byte {@code mutations.xml} and discarded every finished mutant. The elements here carry the
- * fields the reporter reads, in PIT's own shape, so the reporter decodes and parses each record
- * independently, retaining the intact prefix when a kill tears the final UTF-8 or XML record.
+ * The lane's {@link StreamingCompletionAgent} delivers completed analysis units without waiting for
+ * earlier submitted units. PIT's XML listener serialises at the end of the run, which is why a
+ * killed partition left a zero-byte {@code mutations.xml} and discarded every finished mutant. The
+ * elements here carry the fields the reporter reads, in PIT's own shape, so the reporter decodes
+ * and parses each record independently, retaining the intact prefix when a kill tears the final
+ * UTF-8 or XML record.
  */
 public final class StreamingResultListener implements MutationResultListener {
 

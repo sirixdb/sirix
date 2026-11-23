@@ -25,8 +25,8 @@ MODULES = {name: name for name in ('sirix-core', 'sirix-query', 'sirix-rest-api'
 MODULES['sirix-examples'] = 'sirix-example'
 DIRECTORIES = {module: directory for directory, module in MODULES.items()}
 
-# PIT collects baseline coverage for every targetTests class. Bound test selection as well as
-# mutant sampling, so coverage collection cannot fall back to the whole module suite.
+# PIT collects baseline coverage for every targetTests class. Bound each source's test
+# candidates so coverage collection cannot fall back to the whole module suite (CONV-205).
 TEST_SUFFIXES = ('Test', 'Tests', 'IT')
 PACKAGE_TEST_LIMIT = 25
 SOURCE_TEST_LIMIT = 60
@@ -1156,7 +1156,7 @@ def format_verdict(result):
     changed = result.get('changed')
     if not changed:
         return []
-    # The changed-line count beside the mutant count keeps a sampled-away verdict visible.
+    # The changed-line count beside the mutant count exposes lines PIT cannot mutate.
     counted = (f"Changed lines: {result['changed_line_count']}. "
                if 'changed_line_count' in result else '')
     equivalent = changed.get('dispositioned_equivalent', [])
