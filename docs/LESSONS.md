@@ -333,6 +333,9 @@ per-test A/B durations while preserving workloads and keeping elapsed-time asser
 Unused imports and misplaced package directories can pass runtime tests. Remove stale
 imports after fixture changes, keep standalone Java fixtures under their declared package,
 and verify their real build consumer. Do not add source-string tests as behavioral evidence.
+Failure-path fixtures must also obey return-value contracts: explicitly discard an intentionally
+unused result without adding an assertion that changes the failure oracle, and compile with the
+same Error Prone/NullAway configuration as hosted CI after the last test edit.
 See [the lifecycle CI hygiene postmortem](postmortems/lifecycle-ci-source-hygiene.md).
 
 ## Retryable teardown must restore admission

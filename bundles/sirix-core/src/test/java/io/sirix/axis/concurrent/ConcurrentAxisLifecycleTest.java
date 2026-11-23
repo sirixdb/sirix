@@ -236,7 +236,9 @@ final class ConcurrentAxisLifecycleTest {
           try {
             switch (mode) {
               case "reset" -> axis.reset(0);
-              case "interrupt" -> axis.hasNext();
+              case "interrupt" -> {
+                final boolean unused = axis.hasNext();
+              }
               default -> axis.close();
             }
           } catch (final Throwable failure) {
