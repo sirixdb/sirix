@@ -29,16 +29,14 @@ DIRECTORIES = {module: directory for directory, module in MODULES.items()}
 # mutant sampling, so coverage collection cannot fall back to the whole module suite.
 TEST_SUFFIXES = ('Test', 'Tests', 'IT')
 PACKAGE_TEST_LIMIT = 25
-MODULE_TEST_LIMIT = 60
-# Best first: an exactly named test, then a name-related one, then the source's own package.
-KIND_ORDER = ('named', 'related', 'package')
+SOURCE_TEST_LIMIT = 60
 UNRESOLVED_KINDS = ('unmapped', 'over-limit')
 # Reviewed repository files (spec/CONV-conventions.md, CONV-201 to CONV-204). Fixed paths: no flag,
 # environment variable or other input may add, ignore or relax a disposition (CONV-203).
 DISPOSITIONS_FILE = '.github/mutation-dispositions.toml'
 ASSOCIATIONS_FILE = '.github/mutation-test-associations.toml'
 # These entry points share an executable release contract whose name spans several classes.
-# Augment the heuristic matches; the ordinary module cap still applies to their union.
+# Augment the heuristic matches; the ordinary source candidate limit still applies.
 CONTRACT_TESTS = {name: ('io.sirix.query.scan.VectorizedReleaseCorrectnessTest',) for name in (
     'io.sirix.query.SirixCompileChain',
     'io.sirix.query.compiler.translator.SirixBlockPipelineStrategy',
@@ -458,7 +456,7 @@ def test_scope(module_root, sources, associations=None):
     """Bounded per-source test selection. No input may widen the scope to the module suite.
 
     `associations` maps a changed top-level class to the existing behaviour tests the lane must
-    also run for it (CONV-204); they augment the name-based matches and share the module cap.
+    also run for it (CONV-204); they augment the name-based matches and share the source limit.
     """
     associations = associations or {}
     candidates = []
@@ -484,17 +482,12 @@ def test_scope(module_root, sources, associations=None):
             if kind == 'unmapped':
                 kind = 'related'
         candidates.append({'source': source, 'kind': kind, 'patterns': patterns})
-    # Admit named matches before related/package matches; any candidate can exceed the cap.
     selected = set()
-    for kind in KIND_ORDER:
-        for candidate in candidates:
-            if candidate['kind'] != kind:
-                continue
-            merged = selected | set(candidate['patterns'])
-            if len(merged) > MODULE_TEST_LIMIT:
-                candidate['kind'] = 'over-limit'
-                continue
-            selected = merged
+    for candidate in candidates:
+        if len(candidate['patterns']) > SOURCE_TEST_LIMIT:
+            candidate['kind'] = 'over-limit'
+        else:
+            selected.update(candidate['patterns'])
     # A trailing glob reaches @Nested classes and may also match other name-prefixed classes.
     return (sorted(name + '*' for name in selected),
             sorted(candidate['source'] for candidate in candidates
@@ -1392,35 +1385,59 @@ def format_summary(results, dispositions=None, associations=None):
     return '\n'.join(lines)
 
 
+DAEMON_PID_ARGUMENT = '-Dsirix.prMutationDaemonPidFile='
+
+
+def process_table():
+    return {int(pid): (int(parent), state) for pid, parent, state in
+            (line.split() for line in subprocess.check_output(
+                ['ps', '-e', '-o', 'pid=,ppid=,stat='], text=True).splitlines())}
+
+
+def terminate_work(process, receipt):
+    """Stop owned parents before discovering workers, then await their termination."""
+    owned = {process.pid}
+    if receipt is not None and receipt.is_file():
+        value = receipt.read_text().strip()
+        if value.isdecimal() and int(value) > 1 and int(value) != os.getpid():
+            owned.add(int(value))
+    pending = owned
+    while pending:
+        for pid in pending:
+            try:
+                os.kill(pid, signal.SIGSTOP)
+            except ProcessLookupError:
+                pass
+        processes = process_table()
+        while any(pid in processes and not processes[pid][1].startswith(('T', 't', 'Z'))
+                  for pid in pending):
+            time.sleep(.01)
+            processes = process_table()
+        pending = {pid for pid, (parent, _) in processes.items() if parent in owned} - owned
+        owned.update(pending)
+    for pid in owned:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    process.wait()
+    while any(pid in processes and not processes[pid][1].startswith('Z') for pid in owned):
+        time.sleep(.01)
+        processes = process_table()
+
+
 def execute(command, root, log, timeout):
+    receipt = next((Path(value[len(DAEMON_PID_ARGUMENT):]) for value in command
+                    if value.startswith(DAEMON_PID_ARGUMENT)), None)
+    if receipt is not None:
+        receipt.unlink(missing_ok=True)
     with log.open('w') as stream, subprocess.Popen(
             command, cwd=root, stdout=stream, stderr=subprocess.STDOUT,
             start_new_session=True, shell=False) as process:
         try:
             return process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # Gradle's single-use daemon detaches from the launcher's session. Snapshot its
-            # descendants before killing any parent, including detached workers in timeout
-            # cleanup. This runner already requires POSIX process-group semantics.
-            parents = {int(pid): int(parent) for pid, parent in
-                       (line.split() for line in subprocess.check_output(
-                           ['ps', '-e', '-o', 'pid=,ppid='], text=True).splitlines())}
-            descendants = {process.pid}
-            while True:
-                children = {pid for pid, parent in parents.items() if parent in descendants}
-                if children <= descendants:
-                    break
-                descendants.update(children)
-            for pid in descendants - {process.pid}:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait()
+            terminate_work(process, receipt)
             raise
 
 
@@ -1460,6 +1477,8 @@ def prepare_analysis(root, directory, module, sources, result, associations=None
     # single-use daemon per module for the workstation-sized heap `gradle.properties` requests.
     command = [str(root / 'gradlew'), f':{module}:pitest',
                f'-Dorg.gradle.jvmargs={DAEMON_JVM_ARGS}',
+               '--init-script', str(root / '.github/scripts/pr_mutation_worker.gradle'),
+               DAEMON_PID_ARGUMENT + str(directory / 'daemon.pid'),
                f'-PprMutationModule={module}', f'-PprMutationTargetsFile={target_file}',
                f'-PprMutationReportDir={directory / "report"}',
                f'-PprMutationTests={",".join(tests)}']

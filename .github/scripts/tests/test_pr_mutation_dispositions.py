@@ -1559,7 +1559,7 @@ class AssociationTest(unittest.TestCase):
             self.assertEqual(mutation.test_scope(module, ['src/main/java/a/Bar.java'],
                                                  associations)[2],
                              {'src/main/java/a/Bar.java': 'unmapped'})
-            with patch.object(mutation, 'MODULE_TEST_LIMIT', 0):
+            with patch.object(mutation, 'SOURCE_TEST_LIMIT', 0):
                 self.assertEqual(mutation.test_scope(module, ['src/main/java/a/Foo.java'],
                                                      associations)[2],
                                  {'src/main/java/a/Foo.java': 'over-limit'})

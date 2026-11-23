@@ -271,3 +271,44 @@
 - Lesson: [enumerate evidence rejection facts and dependent claims](../LESSONS.md#mutation-evidence-contracts).
 - Vision check: truthful verification evidence supports confidence in engine behavior and cost;
   no product behavior or default changes.
+
+
+### Review round 10: preserve selection and own reused workers
+
+- R18 failure: merging three 25-test package scopes into one invocation selected only 50 of the
+  75 tests the former partitions selected. Existing coverage could become `NO_COVERAGE`.
+- R18 root cause: a per-invocation union cap was carried into the single-pass design. Selection
+  now checks each source's candidate limit before unioning all admitted candidates. Named,
+  related, package and association rules, package fallback limits and individual over-limit
+  marking remain intact. Both PR and scheduled callers share this boundary.
+- R18 regression oracle: CONV-205 forbids changing test selection when merging coverage passes.
+  `SelectionTest.test_single_invocation_preserves_the_partition_selection_union` compares the
+  single invocation to two partition selections and an independent literal 75-test inventory,
+  with and without a 61-candidate source that remains over-limit. Exact-limit and association
+  cases retain coverage of individual candidate limits.
+- R19 failure: a later launcher connected to a daemon from an earlier module. On timeout,
+  walking only the new launcher's descendants missed the daemon and its PIT workers, and the
+  runner could read artifacts or launch another module while those processes were still active.
+- R19 root cause: lifetime reuse severed process ancestry as an ownership proof. A Gradle init
+  script now publishes an atomic serving-daemon PID receipt for every invocation; the executor
+  clears stale receipts before launch. Timeout cleanup stops the owned parents before discovering
+  descendants, kills that stopped tree and waits until every owned process is absent or a zombie
+  (terminated, no executable work or resources) before returning. Successful runs keep the daemon.
+- R19 regression oracle: the documented hard deadline and CONV-205 require completed termination
+  before artifact consumption or the next module. `ReusedDaemonTimeoutTest` uses a real reused
+  daemon outside the launcher tree and a detached worker. It checks termination immediately on
+  return, real artifact reads, a subsequent module's start, and rejection of a stale PID receipt.
+  The fixture simulates the init script's PID receipt; it proves the executor enforcement
+  boundary, not integration against an actual Gradle distribution.
+- Why tests missed these defects: selection tests asserted the union cap rather than preservation
+  across merged passes; the old timeout test created a detached child of the current launcher,
+  so it did not exercise daemon reuse across launchers or completed cleanup ordering.
+- Verification: the selection-union regression and both reused-daemon regressions rejected the
+  starting implementation. All 269 focused mutation-tooling tests passed. An obsolete fake-PID
+  test that mocked only process-group signaling was replaced with a real launcher termination
+  and preserved-log check. Command:
+  `python3 -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'`.
+- Lesson: [selection unions and worker ownership](../LESSONS.md#mutation-evidence-contracts).
+- Vision check: preserving coverage and enforcing the stated execution budget supports trustworthy
+  evidence about engine correctness and cost. The union-cap removal implements the recorded
+  maintainer decision; no product behavior or default changes.

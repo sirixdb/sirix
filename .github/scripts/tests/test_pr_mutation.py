@@ -343,8 +343,8 @@ class SelectionTest(unittest.TestCase):
                                                         [source], result, ASSOCIATIONS)
                 self.assertIn('-PprMutationTests=' + contract + '*', command)
                 self.assertEqual(result['unmapped'], [])
-                # The same associations must obey the module cap, never silently drop it.
-                with patch.object(mutation, 'MODULE_TEST_LIMIT', 0):
+                # The same associations must obey the source cap, never silently drop it.
+                with patch.object(mutation, 'SOURCE_TEST_LIMIT', 0):
                     self.assertEqual(mutation.test_scope(root, [source], ASSOCIATIONS),
                                      ([], [source], {source: 'over-limit'}))
 
@@ -359,7 +359,7 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(mutation.test_scope(root, [source], ASSOCIATIONS),
                              ([], [source], {source: 'unmapped'}))
 
-    def test_release_associations_retain_heuristic_matches_and_share_their_cap(self):
+    def test_release_associations_retain_heuristic_matches_and_share_the_source_cap(self):
         source = 'src/main/java/io/sirix/query/compiler/translator/SirixBlockPipelineStrategy.java'
         owner = 'io/sirix/query/compiler/translator/'
         contract = 'io.sirix.query.scan.VectorizedReleaseCorrectnessTest'
@@ -372,7 +372,7 @@ class SelectionTest(unittest.TestCase):
                 expected = sorted(['io.sirix.query.compiler.translator.' + simple + '*', contract + '*'])
                 self.assertEqual(mutation.test_scope(root, [source], ASSOCIATIONS),
                                  (expected, [], {source: kind}))
-                with patch.object(mutation, 'MODULE_TEST_LIMIT', 1):
+                with patch.object(mutation, 'SOURCE_TEST_LIMIT', 1):
                     self.assertEqual(mutation.test_scope(root, [source], ASSOCIATIONS),
                                      ([], [source], {source: 'over-limit'}))
 
@@ -401,12 +401,6 @@ class SelectionTest(unittest.TestCase):
                 self.assertEqual(kinds[source], 'related')
                 self.assertNotIn('io.sirix.access.trx.node.json.JsonIdentityGraphGeneratedTest*', patterns)
 
-    def test_scope_caps_stay_small_enough_to_collect_baseline_coverage(self):
-        # PIT executes every targetTests class to measure coverage, so the caps are what keeps
-        # the job inside its budget. sirix-core's suite is ~3366 classes; these stay far below.
-        self.assertLess(mutation.PACKAGE_TEST_LIMIT, mutation.MODULE_TEST_LIMIT)
-        self.assertLessEqual(mutation.MODULE_TEST_LIMIT, 100)
-
     def test_package_fallback_matches_subpackages_but_not_sibling_prefixes(self):
         source = 'src/main/java/a/Foo.java'
         with module_tree({'a/Foo.java': 'a'}, ['ab/SiblingTest.java']) as root:
@@ -421,39 +415,38 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual((patterns, unmapped), ([], [source]))
         self.assertEqual(kinds[source], 'unmapped')
 
-    def test_module_limit_drops_weakly_resolved_sources_before_named_ones(self):
-        limit, packages = mutation.PACKAGE_TEST_LIMIT, ('p0', 'p1', 'p2')
-        sources = {'a/Foo.java': 'a'}
-        tests = ['a/FooTest.java']
-        for package in packages:
-            sources[f'{package}/Alpha.java'] = package
-            tests.extend(f'{package}/Zebra{index:02d}Test.java' for index in range(limit))
-        selected = ['src/main/java/a/Foo.java'] + [f'src/main/java/{p}/Alpha.java'
-                                                   for p in packages]
-        with module_tree(sources, tests) as root:
-            patterns, unmapped, kinds = mutation.test_scope(root, selected)
-        self.assertLessEqual(len(patterns), mutation.MODULE_TEST_LIMIT)
-        self.assertIn('a.FooTest*', patterns)  # an exact match is never dropped for the cap
-        self.assertEqual(kinds['src/main/java/a/Foo.java'], 'named')
-        self.assertEqual([kinds[source] for source in selected[1:]],
-                         ['package', 'package', 'over-limit'])
-        self.assertEqual(unmapped, ['src/main/java/p2/Alpha.java'])
+    def test_single_invocation_preserves_the_partition_selection_union(self):
+        """CONV-205: 3 x 25 package tests remain 75 tests after merging coverage passes."""
+        for crowded in (False, True):
+            sources = {f'p{i}/Alpha.java': f'p{i}' for i in range(3)}
+            tests = [f'p{i}/Zebra{j:02d}Test.java' for i in range(3) for j in range(25)]
+            selected = ['src/main/java/' + name for name in sources]
+            if crowded:
+                sources['crowded/Overflow.java'] = 'crowded'
+                tests.extend(f'crowded/OverflowCase{j:02d}Test.java' for j in range(61))
+                selected.append('src/main/java/crowded/Overflow.java')
+            with self.subTest(crowded=crowded), module_tree(sources, tests) as root:
+                together = mutation.test_scope(root, selected)
+                partitions = [mutation.test_scope(root, selected[:2]),
+                              mutation.test_scope(root, selected[2:])]
+            expected = sorted(f'p{i}.Zebra{j:02d}Test*' for i in range(3) for j in range(25))
+            self.assertEqual(together[0], expected)
+            self.assertEqual(together[0], sorted(set().union(*(set(p[0]) for p in partitions))))
+            self.assertEqual(together[1], sorted(set().union(*(set(p[1]) for p in partitions))))
+            self.assertEqual(together[2], {source: kind for p in partitions
+                                         for source, kind in p[2].items()})
+            self.assertEqual(together[1], [selected[-1]] if crowded else [])
+            if crowded:
+                self.assertEqual(together[2][selected[-1]], 'over-limit')
 
-    def test_module_limit_admits_exactly_the_cap_and_rejects_one_more(self):
-        limit, cap = mutation.PACKAGE_TEST_LIMIT, mutation.MODULE_TEST_LIMIT
-        sources, tests = {'a/Foo.java': 'a'}, ['a/FooTest.java']
-        # 1 named + 25 + 25 = 51, then 'q' lands exactly on the cap and 'r' exceeds it by one.
-        for package, count in (('p0', limit), ('p1', limit), ('q', cap - 1 - 2 * limit), ('r', 1)):
-            sources[f'{package}/Alpha.java'] = package
-            tests.extend(f'{package}/Zebra{index:02d}Test.java' for index in range(count))
-        selected = ['src/main/java/a/Foo.java'] + [f'src/main/java/{package}/Alpha.java'
-                                                   for package in ('p0', 'p1', 'q', 'r')]
-        with module_tree(sources, tests) as root:
-            patterns, unmapped, kinds = mutation.test_scope(root, selected)
-        self.assertEqual(len(patterns), cap)
-        self.assertEqual([kinds[source] for source in selected[1:]],
-                         ['package', 'package', 'package', 'over-limit'])
-        self.assertEqual(unmapped, ['src/main/java/r/Alpha.java'])
+    def test_source_limit_admits_exactly_the_cap_and_rejects_one_more(self):
+        for count, kind in ((60, 'related'), (61, 'over-limit')):
+            with self.subTest(count=count), module_tree(
+                    {'a/Foo.java': 'a'}, [f'a/FooCase{i}Test.java' for i in range(count)]) as root:
+                patterns, unmapped, kinds = mutation.test_scope(root, ['src/main/java/a/Foo.java'])
+            self.assertEqual(kinds, {'src/main/java/a/Foo.java': kind})
+            self.assertEqual(len(patterns), count if count == 60 else 0)
+            self.assertEqual(unmapped, [] if count == 60 else ['src/main/java/a/Foo.java'])
 
     def test_unresolved_sources_are_still_mutated_when_any_test_maps(self):
         sources = {'a/Foo.java': 'a', 'c/Baz.java': 'c'}
@@ -897,19 +890,20 @@ class ReportingTest(unittest.TestCase):
                 mutation.execute(['true'], Path(temp), log, 270)
             process.wait.assert_called_once_with(timeout=270)
 
-    def test_process_timeout_terminates_group_and_preserves_log(self):
+    def test_process_timeout_waits_for_launcher_and_preserves_log(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             log = root / 'pit.log'
-            with patch.object(mutation.subprocess, 'Popen') as process, \
-                 patch.object(mutation.os, 'killpg') as kill, \
-                 patch.object(mutation.subprocess, 'check_output', return_value=''):
-                process.return_value.__enter__.return_value = process.return_value
-                process.return_value.wait.side_effect = [mutation.subprocess.TimeoutExpired('pit', 1), -15]
-                process.return_value.pid = 123
-                with self.assertRaises(mutation.subprocess.TimeoutExpired):
-                    mutation.execute(['pit'], root, log, 1)
-                kill.assert_called_once_with(123, mutation.signal.SIGKILL)
+            command = [sys.executable, '-c',
+                       'import os,time; print(os.getpid(),flush=True); '
+                       'print("started",flush=True); time.sleep(60)']
+            with self.assertRaises(subprocess.TimeoutExpired):
+                mutation.execute(command, root, log, 1)
+            pid, message = log.read_text().splitlines()
+            self.assertEqual(message, 'started')
+            remaining = subprocess.run(['ps', '-p', pid, '-o', 'stat='],
+                                       capture_output=True, text=True).stdout.strip()
+            self.assertEqual(remaining, '', 'launcher was not reaped before execute returned')
 
 
 class CommandLineTest(unittest.TestCase):
@@ -997,6 +991,14 @@ class LaneCommandTest(unittest.TestCase):
         found = [value for value in command if value.startswith(prefix)]
         self.assertEqual(len(found), 1, f'{prefix} in {command}')
         return found[0].split('=', 1)[1]
+
+    def test_each_invocation_requests_a_fresh_serving_daemon_receipt(self):
+        for restrict in (False, True):
+            with self.subTest(restrict=restrict), self.prepared(restrict=restrict) as (command, _, directory):
+                self.assertEqual(self.argument(command, '-Dsirix.prMutationDaemonPidFile='),
+                                 str(directory / 'daemon.pid'))
+                self.assertEqual(Path(command[command.index('--init-script') + 1]),
+                                 directory.parents[1] / '.github/scripts/pr_mutation_worker.gradle')
 
     def test_pit_targets_and_report_location_follow_the_artifact_contract(self):
         """The documented targets.txt is PIT's exact newline-delimited selector input."""

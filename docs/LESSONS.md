@@ -408,6 +408,9 @@ See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-ope
   artifact paths before deduplication and grouping; spelling must not split one generated set.
   Enumerate rejection facts and completion-dependent claims together; cross every fact with every
   claim in behavioral tests, preserving partial-status verdicts as independent controls. Use first-parent history for
-  branch windows, and explicitly schedule new test tasks
+  branch windows. Merging coverage passes must preserve the union of source selections; apply
+  source limits before that union. When reusing a detached worker, identify the serving process
+  independently of the launcher and await cleanup before consuming output or starting new work.
+  Explicitly schedule new test tasks
   in CI; compilation alone supplies no regression protection. Evidence:
   [mutation reporter review](postmortems/pr-mutation-evidence-review.md).

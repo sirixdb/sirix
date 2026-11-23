@@ -174,7 +174,11 @@ room for setup and report upload. Each module may use all the time still left ex
 `MIN_MODULE_SECONDS` floor for every module after it. Modules run in name order; a module that
 finishes early donates its remainder to those that follow. If the remaining budget cannot
 provide that floor for every pending module, it is divided equally among them. A deadline kills the
-process group and its detached descendants; the statuses of every class analysed before the kill
+launcher, the daemon serving that invocation (including a reused daemon), and that daemon's
+workers. A Gradle init script atomically records the serving daemon's PID for each invocation;
+the executor clears any previous receipt, stops owned parents before discovering descendants,
+then kills and waits for the owned processes to terminate. Artifact reads and the next module
+follow that wait. Successful invocations retain the daemon. The statuses of every class analysed before the kill
 survive, because the lane's own `STREAM` result listener flushes each class as PIT finishes it, and
 the module is still reported as
 incomplete analysis. A stream the reporter cannot read leaves the deadline as the module's state
@@ -270,9 +274,12 @@ focused Gradle rerun using the artifact's `targets.txt`, as in the example below
 limits such a rerun per class if you ask for it.
 
 A source that resolves to nothing never changes the scope chosen for the other changed sources;
-the union is capped at `MODULE_TEST_LIMIT` distinct declared test names. Named matches are
-admitted before related matches, then package fallbacks; any source whose full candidate set
-would exceed the cap is marked `over-limit`, including a named match. Selected names receive a
+the union of their per-source selections is not truncated. Each source keeps the named, then
+related, then package-fallback resolution rules; `PACKAGE_TEST_LIMIT` bounds package fallback,
+and a source whose own candidate set exceeds `SOURCE_TEST_LIMIT` is marked `over-limit`,
+including named matches and associated tests. The former union cap is removed so collecting
+coverage once preserves the tests selected by the former partitions; it no longer bounds coverage
+at the cost of dropping another source's tests. Selected names receive a
 trailing `*` to include nested classes; other classes sharing that prefix can also match.
 When any tests are selected, all changed classes remain in `targetClasses`; mutants without
 coverage from those tests report `NO_COVERAGE`. A source without its own mapping may still be
