@@ -223,3 +223,171 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   reader, then check the selector's emitted scope without widening its limits or excluding tests.
   Keep independent clock and history contracts separately executable, retaining both in ordinary tests.
   Evidence: [timestamp CI associations](postmortems/commit-timestamp-ci-associations.md#follow-up-focused-path-summary-timestamp-contract).
+| Async hardening's background path was safe while two inline ownership routes were not; `isClosed` was mistaken for recovered storage. | Derive failure tests for every ownership transfer, including paired construction/submission and hardening faults. Fence workers, release independent owners, and require marker recovery before offset reuse; test a second session with warm caches. | [write-up](postmortems/async-commit-ownership-recovery.md), `NodeTransactionAbortLifecycleTest`, `AsyncFlushFailurePathTest` |
+
+- Test worker ownership independently of operating-system I/O cancellation: inject a known cancellation failure at the storage boundary for fence/interrupt assertions and keep file-backed correctness comparisons separate. In multi-stage hardening, rethrow the accumulated first failure after retirement, outside finally. See [the CI postmortem](postmortems/lifecycle-ci-portability.md).
+
+- Establish who can perform an executor fence before adding it to close. The [hook contract](hooks.md) supersedes the callback-initiated teardown in the historical [self-join](postmortems/scheduler-close-self-join.md) and [lock-ordering](postmortems/scheduler-close-lock-ordering.md) fixes. Recheck open state under the ownership lock before recovery handling, and test external session close and rollback as well as transaction close, including RAM backends where a spurious marker blocks admission. Check embedded and keyed roots against the same committed contents; a valid inline page must not hide a broken storage key. After integrating a storage ownership change, avoid assuming page identity or identical redundant-beacon keys. See `NodeTransactionAbortLifecycleTest` and [the RAM beacon oracle postmortem](postmortems/lifecycle-ram-beacon-oracle.md).
+
+- Keep owner registrations alive until their final release obligation is discharged, not merely until payload close publishes CLOSED. Serialize registration removal and permit release at one boundary; test a second closer in the window after reader cleanup and fencing, while another user keeps the resource alive. See [the owner-registration postmortem](postmortems/node-owner-admission-release.md) and `lateConcurrentCloseRetainsOwnerUntilPermitRelease`.
+
+- Include setup in the lifecycle lock graph: never wait for a writer permit while retaining a monitor that the old owner's close needs. Revalidate closing/open state after acquiring admission, before allocating any reader or writer. Test same-session queued node/page admission with both owner close and session close. See [the admission-cycle postmortem](postmortems/writer-admission-monitor-cycle.md).
+
+- Guard lifecycle reentry at the database boundary, including nested callbacks and sibling handles/sessions. Use the [database notification contract](hooks.md) rather than the superseded writer-borrowing design in [the callback postmortem](postmortems/commit-callback-reentrancy.md).
+
+- Test async notification timing with held durability and delivery barriers, and assert identities and reported failures outside the dispatcher. The earlier final-close Error oracle is historical; see [the current error policy](hooks.md) and [callback completion postmortem](postmortems/callback-completion-reader-ownership.md).
+
+- Post-commit hooks must not share a mutable writer cursor with a lock-free successor. Open a separate read-only cursor pinned to the committed revision for each hook, close it at dispatch, and test navigation on B while the writer updates A. Do not add row locking to compensate for shared callback ownership; remove borrowing-only reservation checks and fence job lifetime at teardown. See [the revision-view postmortem](postmortems/post-commit-revision-views.md).
+
+- An identity ownership snapshot supplies membership, not teardown order. Fence every writer/callback source before closing any ordinary direct/shared reader, then refresh reader membership. Retain reader dependencies if a node owner refuses its fence; force and assert adverse initial reader-before-writer ordering in regressions, including interruption and cleanup errors. See [the session reader fence postmortem](postmortems/session-reader-fence-order.md).
+
+- Exercise cross-session readers and destructive history changes against the [current notification lifetime boundary](hooks.md). The resource-shared completion fence in [the earlier postmortem](postmortems/shared-callback-history-lifetime.md) is historical.
+
+- Check enclosing writer execution across sibling sessions before retirement waits, including raw page truncation. Cover both pre-publication hooks and post-publication readers; see [the current retirement contract](hooks.md) and [original regression](postmortems/resource-execution-prehook-lifetime.md).
+
+- Registration does not guarantee notification progress. Test raw page publication followed by sequential sibling-session cleanup, awaiting dispatcher results independently of the publishing call; see [the current delivery contract](hooks.md) and [historical idle publication defect](postmortems/idle-page-publication-dispatch.md).
+
+## Database notification ownership
+
+Reject lifecycle reentry before database-handle admission, not only inside resource/session cleanup.
+Keep synchronous pre-publication veto hooks separate from asynchronous after-durability notifications.
+Bound callback drain, drop only unopened queued work, and retain live reader/backend dependencies on
+close timeout. Recovery after truncation must select an existing durable revision, even if a node cursor still names discarded history. Resolve dispatcher read views from durable roots even while writer pending roots exist.
+Exercise the public wrapper and nested database scopes in deterministic interleavings; never treat
+cancellation or a deadline as proof that a callback released its readers.
+See [postmortem](postmortems/database-notification-dispatch.md) and [contract](hooks.md).
+
+## Resource bootstrap and notification drain
+
+A session close can hide inside resource bootstrap, removal or derived-resource repair. Establish
+notification quiescence before the outer handle/database monitor, including eager work behind session
+open. Never restrict already permitted callback metadata reads to compensate for reversed lock order.
+Keep registration serialized and move mutating initialization outside admission monitors.
+See [postmortem](postmortems/bootstrap-notification-monitor-order.md).
+
+## Mutation gates precede notification retirement
+
+Trace outer collection/store authorization gates before moving lifecycle waits. Any path needing
+both a mutation gate and notification retirement must acquire the gate first, then drain outside
+admission monitors. Reject callback mutation at gate entry itself; keep independent metadata reads
+ungated. Include held-outer-gate regressions alongside callback-drain tests.
+See [postmortem](postmortems/mutation-retirement-lock-order.md).
+
+## Separate quiescence from exclusive ownership
+
+Notification retirement pauses callback admission and drains existing readers; it must not serve as
+an exclusive lock between lifecycle owners. Trace execution/history ownership and worker joins in
+both directions. Destructive maintenance must fence hardening and append workers at the shared
+page boundary, including raw entry and captured predecessors. Test scheduled admission refusal
+separately from a user-hook veto so temporary maintenance cannot disable later ticks.
+See [the ownership postmortem](postmortems/storage-maintenance-retirement-ownership.md).
+
+## Deferred publications still own their history
+
+A deferred callback that opens its view later still depends on the original committed pages.
+Destructive admission must account for deferred as well as executing work; a reused revision number
+is not the same publication. Bound the combined active, queued and deferred retention budget, and
+check saturation with a latched consumer while proving durable commits finish. Never turn overflow
+into caller-thread delivery or claim replay that is not implemented.
+See [the deferred-publication postmortem](postmortems/deferred-notification-history.md).
+
+## Cancellation must allow its own cleanup
+
+A worker's interrupt status can make an otherwise correct retirement guard reject its cleanup.
+Consume cancellation before session retirement admission, including failures before writer
+construction; writer fences retain their own interrupt handling. Restore the public caller's status
+at its own boundary; terminal executor tasks need no extra interrupt bookkeeping. Keep user callback guards intact: inject failures at a
+valid lifecycle boundary. Registry assertions must use canonical path identity, including temporary
+path aliases. Mutation coverage must explicitly map dedicated ownership suites and retain every
+selected source across bounded partitions; partial reports and timeouts never prove assertion kills.
+See [the CI ownership postmortem](postmortems/lifecycle-ci-ownership-contracts.md).
+
+## Coordinate cancellation before releasing borrowed state
+
+When retirement may abort promptly on interruption, observe that result while the callback
+is still held, then prove its readers/history remain usable. A future's completion is not
+proof of destructive cleanup, and releasing the callback first races interruption against
+quiescence notification. Keep the successful retirement path's pending assertion before
+callback release. Executor mocks must assertion-fail impossible waits, so inverted termination
+loops are killed by assertions rather than process timeouts.
+See [the CI coordination postmortem](postmortems/lifecycle-ci-interrupt-coordination.md).
+After the final test edit, run the configured Spotless check as well as test compilation;
+an assertion-only repair can still block every downstream runtime and mutation job on formatting.
+
+## Assert exhaustion before explicit cleanup
+
+A set operation can finish while an unused operand still produces results. Hold that producer
+with latches and assert termination and owned-resource release immediately after the public
+exhaustion call, before test cleanup. Keep borrowed transactions usable. An explicit-close
+assertion cannot detect a missing natural-exhaustion fence. Always release and close the fixture
+in `finally` so a removed fence fails an assertion instead of a mutation timeout.
+See [the exhaustion-oracle postmortem](postmortems/concurrent-set-exhaustion-oracle.md).
+
+Inline fault injection changes shared runtime classes. Prefer interface delegates for real
+owners, and isolate suites requiring that instrumentation from normal hot-workload execution.
+Use the framework's class-ordering boundary, retaining every case and assertion. Diagnose with
+per-test A/B durations while preserving workloads and keeping elapsed-time assertions out of CI.
+
+## Separate source hygiene from behavioral verification
+
+Unused imports and misplaced package directories can pass runtime tests. Remove stale
+imports after fixture changes, keep standalone Java fixtures under their declared package,
+and verify their real build consumer. Do not add source-string tests as behavioral evidence.
+Failure-path fixtures must also obey return-value contracts: explicitly discard an intentionally
+unused result without adding an assertion that changes the failure oracle, and compile with the
+same Error Prone/NullAway configuration as hosted CI after the last test edit.
+See [the lifecycle CI hygiene postmortem](postmortems/lifecycle-ci-source-hygiene.md).
+
+## Retryable teardown must restore admission
+
+An open flag alone does not prove that an instance survived failed close. Rejoin it,
+read old revisions, commit new work with hooks, then retry close. Restore admission
+after backend failure once user sessions have drained; retain refusal while a user
+owner is still live. Defer irreversible shutdown until dependent teardown succeeds.
+Route repeated close through existing cleanup retry rather than returning
+early in a wrapper; exercise direct and facade callers and preserve newer instances.
+For CI tooling, use the declared contract for raw PIT detection versus assertion
+kills, and keep fixture signatures and serialized result consumers current.
+See [the close-retry postmortem](postmortems/lifecycle-ci-close-retry.md).
+
+### Own the operation before racing teardown
+
+A lock protecting derived state does not keep an idle transaction alive. A concurrency
+test must acquire the operation's execution ownership before releasing a competing
+closer, then exercise the operation within that scope. Nested maintenance uses its
+owned page boundary rather than reentering the node lifecycle guard. For thread-local
+diagnostics, distinguish retaining a callback/writer from retaining a null-valued map
+entry. Trace every `finally` and parent restoration before changing working scope logic.
+Behavioral guard tests verify nesting and exception cleanup; they do not prove removal
+of empty entries.
+See [the lifecycle CI postmortem](postmortems/lifecycle-ci-contexts.md).
+
+## Budget lifecycle work independently of lifecycle correctness
+
+Successful reopen and cleanup do not exclude a document scan or a repeated device barrier.
+Specify commit/close work bounds before measuring, cover each enclosing owner and document
+representation, supply a nonzero counter control, and verify persisted results as well as cost.
+Measure allocation primitives in the existing clean JVM. For one-key ownership, remove the
+key directly rather than searching unrelated owners; do not resurrect a private-state oracle
+to claim that a removed predicate was behaviorally killed.
+See [the lifecycle budget postmortem](postmortems/lifecycle-work-budgets.md).
+
+## Check lifecycle error precedence and identity reuse
+
+A downstream guard does not prove that an early guard is redundant: invalid arguments and
+closed owners may return different errors before reaching it. Derive those boundary cases
+from the lifecycle contract. Deletion/recreation with a fresh identity cannot prove release
+of an obligation keyed by the old identity; restore a clean backup at the same path and
+identity and observe persisted markers and committed values instead of private bookkeeping.
+Remove a wake with no predicate transition rather than claiming universal cost equivalence.
+See [the mutation closure postmortem](postmortems/lifecycle-ci-mutation-closure.md).
+
+## Check optional work before retirement and collect worker outcomes
+
+Quiescing shared callbacks is an ownership operation, even when the surrounding feature is
+optional. Decide whether initialization is needed before retirement, then revalidate after
+admission. Termination alone does not report a worker's outcome: cancellation, reset and exhaustion
+must all collect its first unreported failure before replacing the worker or closing descendants.
+Use first-close-only failures to distinguish worker error retention from a later close retry.
+Keep process-exit ordering with the embedding application through explicit shutdown.
+See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-open-worker-failure.md).

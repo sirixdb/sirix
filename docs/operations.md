@@ -392,7 +392,11 @@ resource at the desired revision number or timestamp via
    manually by removing the `@Disabled` annotation and running locally on a
    machine with ≥ 16 GB RAM.
 
-6. **Crash-recovery test coverage.**
+6. **Recovery test coverage.**
+   The [marker recovery contract](#marker-recovery) also applies after in-process
+   commit or cleanup failures. `NodeTransactionAbortLifecycleTest` covers marker
+   failures, failed admission and retry; `AsyncFlushFailurePathTest` covers real
+   prewrites and cache removal before offset reuse.
    [`CrashRecoveryTest`](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java)
    covers markers, orphan tails, torn beacons and recovery, including stale-forward
    secondary-beacon repair. The [file layout](DISK_FORMAT.md#1-files) owns
@@ -412,6 +416,36 @@ resource at the desired revision number or timestamp via
    complement process-crash coverage; they cannot prove that a device or
    filesystem honors durability barriers. See [the commit protocol and integrity
    limits](DISK_FORMAT.md) before relying on durability or corruption detection.
+
+### Marker recovery
+
+For durable storage, `log/.commit` can remain after a crash, failed commit, aborted
+prewrites or failed teardown. Ordinary close preserves this signal; successful commit or rollback
+removes it. Do not delete it to bypass a failed admission.
+
+When the marker or process guard requires recovery, ordinary node-bound and
+standalone page writer admission establishes the marker before constructing
+reader state, reads the verified durable uber beacon,
+truncates to that revision, invalidates later index catalogues and clears only
+that resource's caches. This ordering prevents reuse of aborted offsets while
+stale pages remain cached. A failure after durable publication preserves the
+published revision. The beacon protocol is owned by [DISK_FORMAT.md](DISK_FORMAT.md#1-files).
+
+Recovery failures reject writer admission, name the marker and failing stage,
+close the temporary backend and release temporary write ownership. This includes
+backend-open failure and unsupported truncation; recovery is never silently
+skipped for a durable backend. Correct the reported cause and retry admission.
+If marker creation itself fails, an in-process guard keyed by marker path and
+persisted database/resource identity retains the obligation across session close;
+admission must establish the marker before recovery can proceed. Successful
+explicit resource deletion retires this guard. It does not replace a persistent
+marker across process exit.
+
+`IN_MEMORY` has no durable state to recover and never writes a `.commit` marker,
+including after a failed commit or teardown. It does not retain a durable-recovery
+admission guard; once the failed transaction releases ownership, another writer
+can open. This exception is based on storage durability, not truncate support:
+a durable backend that cannot truncate still refuses unsafe admission.
 
 ---
 
@@ -451,3 +485,11 @@ For deeper context, see:
 - `AGENTS.md` — internal developer expectations (explicit imports, HFT-grade
   hot path, etc.).
 - `ROADMAP.md` — open work items and target order.
+
+## Commit callbacks and lifecycle calls
+
+See [Database hooks](hooks.md) for callback timing, lifecycle restrictions, notification timeout
+configuration and retained-owner retry. Session cleanup is defined by
+[ResourceSession.close()](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java);
+storage worker ownership is covered by the
+[async ownership design](ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership).

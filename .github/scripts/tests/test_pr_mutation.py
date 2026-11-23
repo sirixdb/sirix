@@ -3,6 +3,9 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import signal
+import time
 from pathlib import Path
 import runpy
 import struct
@@ -371,6 +374,54 @@ class SelectionTest(unittest.TestCase):
                     self.assertEqual(mutation.test_scope(root, [source], ASSOCIATIONS),
                                      ([], [source], {source: 'over-limit'}))
 
+    def test_lifecycle_contracts_select_dedicated_owners_instead_of_package_histories(self):
+        cases = {
+            'io/sirix/access/DatabaseNotifications.java': (
+                'io.sirix.access', 'io.sirix.access.DatabaseNotificationLifecycleTest'),
+            'io/sirix/access/MutationGate.java': (
+                'io.sirix.access', 'io.sirix.access.DatabaseOwnershipTest'),
+            'io/sirix/access/trx/node/AbstractNodeTrxImpl.java': (
+                'io.sirix.access.trx.node', 'io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest'),
+            'io/sirix/query/compiler/translator/DerefDescendantExpr.java': (
+                'io.sirix.query.compiler.translator',
+                'io.sirix.query.compiler.translator.TraversalCloseOwnershipTest'),
+            'io/sirix/query/stream/node/SirixNodeStream.java': (
+                'io.sirix.query.stream.node',
+                'io.sirix.query.compiler.translator.TraversalCloseOwnershipTest')}
+        tests = [name.replace('.', '/') + '.java' for _, name in cases.values()]
+        tests += ['io/sirix/access/trx/node/json/JsonIdentityGraphGeneratedTest.java']
+        with module_tree({path: package for path, (package, _) in cases.items()}, tests) as root:
+            for path, (_, expected) in cases.items():
+                source = 'src/main/java/' + path
+                patterns, unmapped, kinds = mutation.test_scope(root, [source])
+                self.assertIn(expected + '*', patterns)
+                self.assertEqual(unmapped, [])
+                self.assertEqual(kinds[source], 'related')
+                self.assertNotIn('io.sirix.access.trx.node.json.JsonIdentityGraphGeneratedTest*', patterns)
+
+    def test_partitions_preserve_every_source_and_test_under_both_caps(self):
+        sources = {f'p{i}/Owner.java': f'p{i}' for i in range(3)}
+        tests = [f'p{i}/Suite{j}Test.java' for i in range(3)
+                 for j in range(mutation.PACKAGE_TEST_LIMIT)]
+        selected = ['src/main/java/' + path for path in sources]
+        with module_tree(sources, tests) as root:
+            parts = mutation.partition_sources(root, selected)
+            self.assertEqual([source for part in parts for source in part], selected)
+            self.assertEqual(len(parts), 2)
+            admitted = set()
+            for part in parts:
+                patterns, unmapped, _ = mutation.test_scope(root, part)
+                self.assertEqual(unmapped, [])
+                self.assertLessEqual(len(patterns), mutation.MODULE_TEST_LIMIT)
+                admitted.update(patterns)
+            self.assertEqual(len(admitted), 3 * mutation.PACKAGE_TEST_LIMIT)
+        sources = {f'a/Owner{i}.java': 'a' for i in range(mutation.PARTITION_SOURCE_LIMIT + 1)}
+        selected = ['src/main/java/' + path for path in sources]
+        with module_tree(sources, ['a/ReleaseTest.java']) as root:
+            parts = mutation.partition_sources(root, selected)
+            self.assertEqual([source for part in parts for source in part], selected)
+            self.assertEqual([len(part) for part in parts], [mutation.PARTITION_SOURCE_LIMIT, 1])
+
     def test_scope_caps_stay_small_enough_to_collect_baseline_coverage(self):
         # PIT executes every targetTests class to measure coverage, so the caps are what keeps
         # the job inside its budget. sirix-core's suite is ~3366 classes; these stay far below.
@@ -621,6 +672,43 @@ class ReportingTest(unittest.TestCase):
             # The mocked first module returned at once, so it donates its remainder.
             self.assertGreater(timeouts[1], 9)
 
+    def test_timed_out_partition_does_not_omit_later_selected_work_or_turn_green(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            sources = ['src/main/java/a/First.java', 'src/main/java/a/Second.java']
+            write_manifest(output, {'sirix-core': sources})
+            calls = []
+
+            def execute(command, root, log, timeout):
+                calls.append((log, timeout))
+                if len(calls) == 1:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                report = log.parent / 'report/mutations.xml'
+                report.parent.mkdir(parents=True)
+                report.write_text('<mutations><mutation status="KILLED" detected="true">'
+                                  '<sourceFile>Second.java</sourceFile><mutatedClass>a.Second</mutatedClass>'
+                                  '<lineNumber>1</lineNumber></mutation></mutations>')
+                return 0
+
+            def prepare(root, directory, module, selected, result, associations):
+                result.update(targets=['a.First' if selected == sources[:1] else 'a.Second'],
+                              tests=['a.ReleaseTest*'], unmapped=[], resolution={})
+                return ['unused']
+
+            with patch.object(mutation, 'partition_sources', return_value=[[sources[0]], [sources[1]]]), \
+                 patch.object(mutation, 'resolve_targets', return_value=(['a.First', 'a.Second'], [])), \
+                 patch.object(mutation, 'changed_line_index', return_value={('a', 'Second.java'): {1}}), \
+                 patch.object(mutation, 'prepare_analysis', side_effect=prepare), \
+                 patch.object(mutation, 'execute', side_effect=execute):
+                self.assertEqual(mutation.run(output, output, 10, blocking=True), 1)
+            results = json.loads((output / 'results.json').read_text())['modules']
+            self.assertEqual([result['state'] for result in results], ['timed out', 'complete'])
+            self.assertEqual([source for result in results for source in result['sources']], sources)
+            self.assertNotEqual(calls[0][0], calls[1][0], 'partition evidence must never overwrite a sibling')
+            self.assertLessEqual(calls[0][1], 5)
+            self.assertGreater(calls[1][1], 9)
+            self.assertEqual(results[0]['mutants_per_class'], results[1]['mutants_per_class'])
+
     def test_a_real_budget_reserves_a_floor_without_capping_the_first_module(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
@@ -639,6 +727,24 @@ class ReportingTest(unittest.TestCase):
             self.assertLess(timeouts[0], 1320 - 2 * floor + 1)
             for timeout in timeouts[1:]:
                 self.assertGreaterEqual(timeout, floor)
+
+    def test_timeout_is_detected_but_not_reported_as_an_assertion_kill(self):
+        # CONV-202 retains PIT's detected verdict, including infrastructure detections.
+        # It must not relabel these raw statuses as assertion kills or survivors.
+        with tempfile.TemporaryDirectory() as temp:
+            report = Path(temp) / 'mutations.xml'
+            report.write_text('<mutations><mutation detected="true" status="TIMED_OUT">'
+                              '<sourceFile>Owner.java</sourceFile><mutatedClass>a.Owner</mutatedClass>'
+                              '<mutatedMethod>close</mutatedMethod><lineNumber>7</lineNumber>'
+                              '<description>removed producer cancellation</description>'
+                              '</mutation></mutations>')
+            result = {'module': 'sirix-core', 'state': 'complete',
+                      **mutation.read_report(report, {('a', 'Owner.java'): {7}})}
+            self.assertEqual(result['changed']['detected'], 1)  # PIT's metric stays available.
+            self.assertEqual(result['changed']['killed'], 0)
+            self.assertTrue(mutation.is_clean([result]))
+            self.assertEqual(result['statuses'], {'TIMED_OUT': 1})
+            self.assertEqual(result['changed']['survivors'], [])
 
     def test_only_complete_reports_without_undetected_changed_lines_are_clean(self):
         complete = {'module': 'sirix-core', 'state': 'complete', 'total': 4, 'killed': 2,
@@ -766,6 +872,35 @@ class ReportingTest(unittest.TestCase):
             self.assertEqual(log.read_text().strip(), '; echo owned')
             self.assertFalse((root / 'owned').exists())
 
+    def test_timeout_terminates_a_detached_descendant_before_return(self):
+        # Gradle's single-use daemon starts a new session; killing only the launcher group
+        # leaves that worker alive. The child is a real executable, not a mocked Popen.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            child_code = "import os,time; from pathlib import Path; Path('child.pid').write_text(str(os.getpid())); time.sleep(30)"
+            parent_code = ("import subprocess,sys,time; "
+                           f"subprocess.Popen([sys.executable,'-c',{child_code!r}],start_new_session=True); "
+                           "time.sleep(30)")
+            try:
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    mutation.execute([sys.executable, '-c', parent_code], root, root / 'run.log', 1)
+                pid = int((root / 'child.pid').read_text())
+                # A reparented zombie is no longer executing and owns no resources.
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    state = subprocess.run(
+                        ['ps', '-p', str(pid), '-o', 'stat='], capture_output=True, text=True).stdout.strip()
+                    if not state or state.startswith('Z'):
+                        break
+                    time.sleep(0.01)
+                self.assertTrue(not state or state.startswith('Z'), 'detached work outlived its timeout boundary')
+            finally:
+                if (root / 'child.pid').exists():
+                    try:
+                        os.kill(int((root / 'child.pid').read_text()), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
     def test_incomplete_module_errors_never_pass_blocking(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
@@ -809,7 +944,8 @@ class ReportingTest(unittest.TestCase):
             root = Path(temp)
             log = root / 'pit.log'
             with patch.object(mutation.subprocess, 'Popen') as process, \
-                 patch.object(mutation.os, 'killpg') as kill:
+                 patch.object(mutation.os, 'killpg') as kill, \
+                 patch.object(mutation.subprocess, 'check_output', return_value=''):
                 process.return_value.__enter__.return_value = process.return_value
                 process.return_value.wait.side_effect = [mutation.subprocess.TimeoutExpired('pit', 1), -15]
                 process.return_value.pid = 123

@@ -1,6 +1,7 @@
 package io.sirix.access.trx.node;
 
 import io.sirix.access.trx.RevisionEpochTracker;
+import io.sirix.access.DatabaseNotifications;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -14,6 +15,7 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 
 import java.nio.file.Path;
+import org.jspecify.annotations.Nullable;
 import java.util.concurrent.locks.Lock;
 import java.util.function.IntConsumer;
 
@@ -72,6 +74,28 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   Path getCommitFile();
 
+  /** Require marker-driven recovery for durable storage; a no-op for {@code IN_MEMORY}. */
+  void requireCommitRecovery();
+
+  void assertNotInCommitCallback();
+
+  void assertCanRetire();
+
+  DatabaseNotifications getNotifications();
+
+  void runPreCommitCallback(Runnable callback);
+
+  void enqueueNotification(int revision, IntConsumer callback);
+
+  DatabaseNotifications.Retirement retireHistory(int revision);
+
+  @Nullable
+  InternalNodeTrx<?> enterHistoryRetirement(InternalNodeTrx<?> owner);
+
+  void exitHistoryRetirement(@Nullable InternalNodeTrx<?> previous);
+
+  boolean isHistoryRetirementOwner(InternalNodeTrx<?> owner);
+
   void assertAccess(int revision);
 
   StorageEngineWriter createPageTransaction(int trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);
@@ -109,7 +133,18 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void setLastCommittedUberPage(UberPage lastUberPage);
 
-  /** Observers run after durability and publication, including pipelined commits. */
+  R beginPostCommitReadOnlyTrx(int revision);
+
+  /**
+   * Observe durable revisions asynchronously on the database notification dispatcher, ordered per
+   * resource. Each invocation has a dispatcher-owned read scope pinned to that revision. Use the
+   * supplied revision with independent readers; never borrow a mutable writer cursor. Commit does not
+   * wait for delivery. Same-database callback lifecycle reentry rejects before locks/waits. Close
+   * drains only to its configured deadline, may abandon queued notifications, and retains active
+   * reader ownership on timeout. Failures are reported by the dispatcher and do not veto publication.
+   * Delivery is best effort: capacity overflow drops new work without delaying or vetoing commits.
+   * The callback receives its committed revision number; resume/replay is not provided.
+   */
   void addRevisionListener(IntConsumer listener);
 
   void removeRevisionListener(IntConsumer listener);

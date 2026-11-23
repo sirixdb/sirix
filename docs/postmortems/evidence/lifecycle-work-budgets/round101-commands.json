@@ -1,0 +1,188 @@
+[
+  {
+    "scope": [
+      "compile",
+      null
+    ],
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/task-graph-0.json",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      "--no-daemon",
+      ":sirix-core:testClasses",
+      ":sirix-query:testClasses",
+      ":sirix-rest-api:testClasses"
+    ],
+    "log": "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/compile.log",
+    "timeout": 8999.999955713749
+  },
+  {
+    "scope": [
+      "sirix-core",
+      1
+    ],
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/task-graph-1.json",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      ":sirix-core:pitest",
+      "--no-daemon",
+      "-PprMutationModule=sirix-core",
+      "-PprMutationTargetsFile=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-1/targets.txt",
+      "-PprMutationReportDir=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-1/report",
+      "-PprMutationMaxMutations=4",
+      "-PprMutationTests=io.sirix.access.DatabaseCloseStrandingTest*,io.sirix.access.DatabaseNotificationLifecycleTest*,io.sirix.access.DatabaseOwnershipTest*,io.sirix.access.DatabasesInMemoryLifetimeTest*,io.sirix.access.LocalDatabaseInMemoryLifetimeTest*,io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest*,io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest*,io.sirix.access.trx.node.SharedCallbackLifetimeTest*,io.sirix.access.trx.page.AsyncFlushFailurePathTest*,io.sirix.access.trx.page.WriterConstructionFailureCleanupTest*"
+    ],
+    "log": "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-1/pitest.log",
+    "timeout": 8926.179637761787
+  },
+  {
+    "scope": [
+      "sirix-core",
+      2
+    ],
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/task-graph-2.json",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      ":sirix-core:pitest",
+      "--no-daemon",
+      "-PprMutationModule=sirix-core",
+      "-PprMutationTargetsFile=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-2/targets.txt",
+      "-PprMutationReportDir=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-2/report",
+      "-PprMutationMaxMutations=4",
+      "-PprMutationTests=io.sirix.access.DatabaseCloseStrandingTest*,io.sirix.access.DatabaseNotificationLifecycleTest*,io.sirix.access.DatabaseOwnershipTest*,io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest*,io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest*,io.sirix.access.trx.node.SharedCallbackLifetimeTest*,io.sirix.access.trx.node.TransactionExecutionLockTest*,io.sirix.access.trx.page.AsyncFlushFailurePathTest*,io.sirix.access.trx.page.NodeStorageEngineReaderTest*,io.sirix.access.trx.page.NodeStorageEngineWriterTruncateToRevisionIntegrationTest*,io.sirix.access.trx.page.WriterConstructionFailureCleanupTest*,io.sirix.axis.concurrent.ConcurrentAxisLifecycleTest*"
+    ],
+    "log": "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-2/pitest.log",
+    "timeout": 7162.8704113205895
+  },
+  {
+    "scope": [
+      "sirix-core",
+      3
+    ],
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/task-graph-3.json",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      ":sirix-core:pitest",
+      "--no-daemon",
+      "-PprMutationModule=sirix-core",
+      "-PprMutationTargetsFile=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-3/targets.txt",
+      "-PprMutationReportDir=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-3/report",
+      "-PprMutationMaxMutations=4",
+      "-PprMutationTests=io.sirix.access.DatabaseCloseStrandingTest*,io.sirix.access.DatabaseNotificationLifecycleTest*,io.sirix.access.DatabaseOwnershipTest*,io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest*,io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest*,io.sirix.access.trx.node.SharedCallbackLifetimeTest*,io.sirix.access.trx.page.AsyncFlushFailurePathTest*,io.sirix.access.trx.page.WriterConstructionFailureCleanupTest*,io.sirix.axis.concurrent.ConcurrentAxisLifecycleTest*"
+    ],
+    "log": "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-3/pitest.log",
+    "timeout": 5810.583306564018
+  },
+  {
+    "scope": [
+      "sirix-core",
+      4
+    ],
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/task-graph-4.json",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      ":sirix-core:pitest",
+      "--no-daemon",
+      "-PprMutationModule=sirix-core",
+      "-PprMutationTargetsFile=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-4/targets.txt",
+      "-PprMutationReportDir=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-4/report",
+      "-PprMutationMaxMutations=4",
+      "-PprMutationTests=io.sirix.access.BufferManagerTest*,io.sirix.axis.concurrent.ConcurrentAxisLifecycleTest*,io.sirix.cache.BufferManagerTeardownTest*,io.sirix.index.projection.ProjectionParallelDirectoryWalkTest*,io.sirix.service.json.shredder.ParallelJsonShredderTest*,io.sirix.utils.WorkerTerminationTest*"
+    ],
+    "log": "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-core/part-4/pitest.log",
+    "timeout": 5434.202624129131
+  },
+  {
+    "scope": [
+      "sirix-query",
+      null
+    ],
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/task-graph-5.json",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      ":sirix-query:pitest",
+      "--no-daemon",
+      "-PprMutationModule=sirix-query",
+      "-PprMutationTargetsFile=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-query/targets.txt",
+      "-PprMutationReportDir=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-query/report",
+      "-PprMutationMaxMutations=25",
+      "-PprMutationTests=io.sirix.query.compiler.translator.OrderedUnionAxisTest*,io.sirix.query.compiler.translator.TraversalCloseOwnershipTest*,io.sirix.query.scan.DirectPageScannerLifecycleTest*"
+    ],
+    "log": "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-query/pitest.log",
+    "timeout": 5352.9238401688635
+  },
+  {
+    "scope": [
+      "sirix-rest-api",
+      null
+    ],
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/task-graph-6.json",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      ":sirix-rest-api:pitest",
+      "--no-daemon",
+      "-PprMutationModule=sirix-rest-api",
+      "-PprMutationTargetsFile=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-rest-api/targets.txt",
+      "-PprMutationReportDir=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-rest-api/report",
+      "-PprMutationMaxMutations=40",
+      "-PprMutationTests=io.sirix.rest.crud.QuerySerializerLifecycleTest*"
+    ],
+    "log": "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/full-pit/sirix-rest-api/pitest.log",
+    "timeout": 5277.1004147036
+  }
+]

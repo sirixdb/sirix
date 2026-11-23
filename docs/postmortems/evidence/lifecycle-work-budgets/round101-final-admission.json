@@ -1,0 +1,8 @@
+{
+  "MemAvailable_bytes": 14133043200,
+  "disk_available_bytes": 71478173696,
+  "memory_floor_bytes": 6000000000,
+  "disk_floor_bytes": 60000000000,
+  "after_heavy": true,
+  "floors_met": true
+}

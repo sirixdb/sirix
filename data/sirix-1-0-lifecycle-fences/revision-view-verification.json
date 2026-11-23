@@ -1,0 +1,192 @@
+{
+  "scope": "R15 independent committed-revision post hooks; retained R11/review-1 rejection and R13 async overlap",
+  "starting_head": "a574857c716a640c6d92e1a46262518dee598200",
+  "result": "passed",
+  "tests": {
+    "selected_cases": 229,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "classes": [
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.access.AsyncCommitTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.access.DatabaseOwnershipTest",
+        "tests": 20,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.access.trx.node.CommitSafetyTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+        "tests": 141,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.access.trx.node.TransactionExecutionLockTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+        "tests": 18,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "name": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-query",
+        "name": "io.sirix.access.trx.node.XmlPendingUpdatePublicationTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "log": "build/lifecycle-revision-views-focused.log",
+    "command_script": "build/verify-revision-views.sh",
+    "gradle_arguments": ":sirix-core:compileJava --rerun :sirix-core:compileTestJava --rerun :sirix-core:test --rerun \\\n --tests 'io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest' \\\n --tests 'io.sirix.access.trx.node.TransactionExecutionLockTest' \\\n --tests 'io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest' \\\n --tests 'io.sirix.access.trx.node.CommitSafetyTest' \\\n --tests 'io.sirix.access.trx.node.WriterCatalogueHandoffTest' \\\n --tests 'io.sirix.access.trx.page.AsyncFlushFailurePathTest' \\\n --tests 'io.sirix.access.trx.page.WriterConstructionFailureCleanupTest' \\\n --tests 'io.sirix.access.AsyncCommitTest' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.handlesShareWriterAndLatestViewUntilLastClose' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.closingLastUserSessionAllowsResourceRemovalAndRecreation' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.timedCommitHookCanOpenAnotherDatabaseDuringCleanup' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.timedCommitHookCannotAdmitResourcesOnClosingHandle' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.failedCleanupRetainsWritersAndOwnershipUntilRetry' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.delayedSessionReleaseStaysRegisteredUntilItReleasesItsBackend' \\\n :sirix-query:test --tests 'io.sirix.access.trx.node.XmlPendingUpdatePublicationTest.failedBatchDoesNotDisableScheduledCommitsAfterRollback' \\\n --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g -PtestHeapMin=512m -PtestHeapMax=3g",
+    "available_disk_bytes_before_gradle": 97245499392,
+    "fresh_compilation": true
+  },
+  "benchmark": {
+    "result": "completed one bounded same-machine JMH comparison",
+    "log": "build/lifecycle-revision-views-jmh.log",
+    "raw_results": "data/sirix-1-0-lifecycle-fences/revision-view-lock-jmh.json",
+    "source": "data/sirix-1-0-lifecycle-fences/lock-benchmark/TimedTransactionLockBenchmark.java",
+    "gradle_init": "data/sirix-1-0-lifecycle-fences/lock-benchmark.gradle",
+    "before_source_commit": "a574857c716a640c6d92e1a46262518dee598200",
+    "before_original_source_sha256": "44c1d5240a9d7961721f04c52c2ab8a9ff160af9312ac803112c1776fb7977ad",
+    "before_compiled_source_sha256": "16c094b670263d4c7d54a008f75f1a629f2efc3c76c2e1ca9d7c2d37f6142750",
+    "baseline_preparation": "The exact committed TransactionExecutionLock source is independently compiled with only its class-name tokens renamed to BeforeTransactionExecutionLock; both implementations run under the same JMH fixture.",
+    "forks_per_configuration": 2,
+    "warmup_iterations_per_fork": 3,
+    "measurement_iterations_per_fork": 5,
+    "iteration_milliseconds": 500,
+    "threads": 1,
+    "jdk": "25.0.3",
+    "vm": "Java HotSpot(TM) 64-Bit Server VM",
+    "cpu_model": "12th Gen Intel(R) Core(TM) i7-12700H",
+    "available_disk_bytes_before_gradle": 97271701504,
+    "measurements": [
+      {
+        "method": "countCommitWithinTimedMutation",
+        "implementation": "before",
+        "score": 102.93073404917455,
+        "error": 8.256306752391861,
+        "confidence": [
+          94.67442729678268,
+          111.18704080156641
+        ],
+        "unit": "ns/op"
+      },
+      {
+        "method": "countCommitWithinTimedMutation",
+        "implementation": "after",
+        "score": 101.00099886467906,
+        "error": 2.3735801616556285,
+        "confidence": [
+          98.62741870302344,
+          103.37457902633469
+        ],
+        "unit": "ns/op"
+      },
+      {
+        "method": "timedMutation",
+        "implementation": "before",
+        "score": 27.10265939894736,
+        "error": 0.9714156909150549,
+        "confidence": [
+          26.131243708032304,
+          28.074075089862415
+        ],
+        "unit": "ns/op"
+      },
+      {
+        "method": "timedMutation",
+        "implementation": "after",
+        "score": 26.99320753118667,
+        "error": 0.4194065159158432,
+        "confidence": [
+          26.573801015270828,
+          27.41261404710251
+        ],
+        "unit": "ns/op"
+      }
+    ],
+    "interpretation": "No measurable regression: after point estimates are slightly lower and reported confidence intervals overlap for both paths. This does not establish a speedup.",
+    "limits": "Uncontended timed mutation and three nested acquisitions model lock overhead only. No disk I/O, full database throughput, contended/tail latency, ARM/native-image behavior or broad campaign is claimed."
+  },
+  "operational": "Both commands ran through heavy.sh with the updated >=60 GB check immediately before Gradle. No pipeline control, push/PR, broad test/lint suite or extra benchmark campaign was executed.",
+  "regressions": {
+    "cursor_isolation": "asyncPostHookNavigationCannotMoveTheCountOnlyWriterCursor: concurrent hook B navigation cannot redirect writer A=15; hook sees revision 3 A=13/B=20 and the writer B remains 20.",
+    "hook_api_and_ownership": "ordinaryPostCommitHooksContinueInOrder: XML/JSON distinct genuinely read-only cursors, exact revision 2, independent roots and dispatcher closure; Error hooks also close their views.",
+    "retained_contracts": "callbacksRejectLifecycleBeforeLockingAndRunAfterExecution, asyncHooksPreserveSuccessorOverlapAndCompletionOrder and externalCloseFencesIndependentRevisionReaders retain combined count/timer, async overlap and external teardown checks.",
+    "query_caller": "XmlPendingUpdatePublicationTest.failedBatchDoesNotDisableScheduledCommitsAfterRollback: eight versioning/commit-strategy cases with a genuinely read-only post-hook view.",
+    "lock_simplification": "callbackCompletionDoesNotReserveTheMutationLock proves an independent acquisition succeeds while callback work runs; other unit checks cover outermost/task delivery, epoch drainage and Errors."
+  },
+  "static_trace": "Captured actual committed uber-page revisions for sync and async hooks; each dispatch opens/closes a separate unregistered node cursor backed by a registered storage reader. Callback-job fencing precedes session/page retirement. Ordinary direct/shared readers retain registration and late-close cleanup. Removed reservation lock/tryLock overrides and callbackThread, retaining only dispatcher completion and scheduled-task fences. Pre-hook timing, lifecycle rejection, marker recovery, owner/permit release and count-only row locking are preserved.",
+  "source_sha256_provenance_only": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java": "f7394796912fc3caf4c5d9d67e82aca0ebad8695f9f961def8d32557d726deb1",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java": "f183aec579af41947636feff40cf0f702ef7ff6dec48ebf6c9b8533494c01ea1",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java": "26a236b5176a9bde99516a7a9349548c2ebc79de446e856f3c2b395c9e023b06",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java": "232e59e7de91d0207657de720c82dd2c7bfda686944d63b5c0ceccb9b6224a94",
+    "bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java": "faa8f8e2b814cd707f5ed2a2ac756dc0d373065ea78e010296fa2326de2f0ec0",
+    "bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java": "b14842a6dd1902f18725f05afc7eba6a894c22426772c915055871b59d44eb1b",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java": "7aae3cb7d7d122239d33f6cebf6c529ac07ac80e3e4c9825dfc87776e30da4e1",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/TransactionExecutionLockTest.java": "668ed0a8bada52e69fece042b85e65db1ba245bee10db8f8cd4611ad841e2ed1",
+    "bundles/sirix-query/src/test/java/io/sirix/access/trx/node/XmlPendingUpdatePublicationTest.java": "e4965d12a0be2b9077cd51e2259ed6bb38c8b9ac860aa1bc574cc8e64ef82fe4"
+  },
+  "production_or_test_changes_after_passing_tests": false,
+  "outer_validation_pending": [
+    "Fresh scoped PIT for revision capture, dispatcher-owned reader construction/closure and simplified callback completion fencing; review survivors/timeouts individually.",
+    "Broader compiled-path/work-budget evidence for read admission and timed execution; the focused JMH result is not a replacement for those gates.",
+    "Broader tests, lint, CI and deferred post-outcome policy/probe follow-ups."
+  ]
+}

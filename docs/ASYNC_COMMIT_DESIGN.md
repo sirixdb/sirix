@@ -9,7 +9,7 @@ backgrounded serialization) is future work.
 |---|---|---|---|
 | `KEEP_OPEN` (sync auto-commit) | one per eligible threshold, durable+queryable | full commit protocol per epoch | ≤ 1 epoch |
 | `KEEP_OPEN_ASYNC_FLUSH` | none until final `commit()` | ~nothing (leaf I/O backgrounded) | everything since last real commit |
-| **`KEEP_OPEN_ASYNC_COMMIT`** | **one per eligible threshold, durable+queryable** | **serialization only — never the flush barriers** | ≤ 1 in-flight epoch + working set |
+| **`KEEP_OPEN_ASYNC_COMMIT`** | **one per eligible threshold, durable+queryable** | **serialization; prior hardening when the depth-1 pipeline is full** | ≤ 1 in-flight epoch + working set |
 
 XML publication scopes defer revision-producing thresholds; their contract is owned by
 [`XmlNodeTrx.beginAtomicOperation()`](../bundles/sirix-core/src/main/java/io/sirix/api/xml/XmlNodeTrx.java).
@@ -47,7 +47,8 @@ delete the commit marker, **then** publish
 `session.setLastCommittedUberPage(...)` and close the superseded page
 transaction (releasing its writer channels).
 
-The public synchronous `commit()` is unchanged: phase 1 + phase 2 inline.
+The public synchronous `commit()` runs both storage phases inline; callback delivery
+follows the [database hook contract](hooks.md).
 
 `asyncCommit()` = acquire the single commit permit (depth-1 pipeline), run
 phase 1 inline, submit phase 2 to a background thread, return. The node
@@ -79,17 +80,47 @@ preserving changes the successor made while hardening was in flight.
   epoch, exactly as for a crashed synchronous commit.
 - **Commit-marker gating.** While an async commit is in flight the marker
   file legitimately exists; the successor page transaction's
-  truncate-on-open check is skipped for pipelined creation (the check exists
-  for *crash* recovery; in-process the in-flight state is known).
+  recovery check is skipped only for pipelined creation with a known pending
+  base. Ordinary writer admission follows [marker recovery](operations.md#marker-recovery),
+  including after an in-process failure.
 - **Failure poisoning.** A phase-2 failure latches the transaction
-  terminally (same pattern as the async-flush path): the next operation
-  throws, close/rollback drain the pipeline first. The already-reinstantiated
-  epoch N+1 is based on a revision that never became durable, so poisoning —
-  not retrying — is the only sound response.
+  terminally, including failures retiring the pending root or closing the
+  predecessor. Repeated `awaitPendingAsyncCommit()` calls retain the original
+  cause; commit and rollback drain the pipeline and reject the poisoned
+  successor. A failure after beacon publication can leave revision N durable;
+  recovery selects the verified beacon rather than assuming N was lost.
 - **Lineage.** Epoch N+1's page transaction is created from the pending
   (phase-1-complete, canonical in memory) uber page of revision N, not from
   `lastCommittedUberPage`. The depth-1 pipeline makes the pending chain at
   most one deep.
+
+## Failure and teardown ownership
+
+Background hardening and both inline fallbacks (successor setup failure or
+task-submission failure) release their acquired async permit exactly once.
+Inline hardening preserves the setup/submission error and suppresses subsequent
+hardening or cleanup errors. All routes close the detached predecessor and
+retire its pending root even when hardening fails; a hardening failure remains
+terminal after the permit is released.
+
+Public transaction close retains its dirty-transaction protection. Resource-session
+close can explicitly abort a dirty successor after fencing the failed predecessor;
+see [`ResourceSession.close()`](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java).
+The [database hook contract](hooks.md) owns callback timing, error handling, retirement,
+capacity and lock order. All hardening paths, including inline setup/submission
+fallbacks, schedule notifications after durable publication. Dispatcher read-only views resolve
+durable revision roots; only writer readers with intent logs can use unpublished pending roots.
+
+Node close acquires execution with a bound, preserves physical worker termination fences, then
+removes its registry ownership and releases P exactly once after scheduler termination. Session
+close snapshots outside node cleanup and retains every unfinished node owner's page writers and
+ordinary reader dependencies. Independent owners still receive close; the first failure is
+preserved and later failures are suppressed. A close-attempt count excludes new writers during
+unlocked cleanup, while admitted reads remain available to active callbacks. Marker-driven recovery
+at the next exclusive admission remains the sole aborted-offset reuse barrier.
+
+`NodeTransactionAbortLifecycleTest` covers paired setup/submission and hardening
+faults, retained causes, dirty successors and paused workers in XML and JSON.
 
 ## Constraints
 

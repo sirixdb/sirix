@@ -7,24 +7,33 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.Writer;
+import io.sirix.page.PageReference;
+import io.sirix.page.UberPage;
+import io.sirix.node.MemorySegmentBytesOut;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
+ * RAM publication exposes the latest committed root through both beacon references, while
  * {@code RAMStorage.truncateTo} must not report a rollback it cannot perform.
  *
- * <p>Its callers — crash recovery in {@code AbstractResourceSession} and explicit rollback via
- * {@code NodeStorageEngineWriter.truncateTo} — treat a normal return as "the resource is now at that
- * revision", and go on to commit on top of that assumption. This storage keeps pages in a flat
- * {@code pageKey -> Page} map with no record of which revision wrote them, and retains only the
- * current uber-page pointer, so it can identify neither the pages to discard nor the uber page to
- * restore. The method was an empty {@code // TODO} that returned successfully.</p>
+ * <p>
+ * Its callers — crash recovery in {@code AbstractResourceSession} and explicit rollback via
+ * {@code NodeStorageEngineWriter.truncateTo} — treat a normal return as "the resource is now at
+ * that revision", and go on to commit on top of that assumption. This backend does not support
+ * truncation and must advertise that limitation before callers begin destructive maintenance.
+ * </p>
  */
+@Isolated
+@Order(Integer.MAX_VALUE)
 public final class RAMStorageTruncateToTest {
 
   @BeforeEach
@@ -35,6 +44,31 @@ public final class RAMStorageTruncateToTest {
   @AfterEach
   void tearDown() {
     JsonTestHelper.deleteEverything();
+  }
+
+  @Test
+  void publishedRootReferenceReadsTheLatestRootByItsStorageKey() {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final ResourceConfiguration config;
+    try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      config = session.getResourceConfig();
+    }
+    final RAMStorage storage = new RAMStorage(config);
+    try (final Writer writer = storage.createWriter();
+        final MemorySegmentBytesOut buffer = MemorySegmentBytesOut.synchronousScratch(Writer.FLUSH_SIZE)) {
+      writer.write(config, new PageReference(), new UberPage(1), buffer);
+      final UberPage published = new UberPage(2);
+      final PageReference written = new PageReference();
+      writer.writeUberPageReference(config, written, published, buffer);
+      final PageReference reference = writer.readUberPageReference();
+      // TXN-615: publication preserves the committed revision, not caller object identity.
+      // Redundant beacon references may use different keys; both must decode the latest root.
+      assertEquals(2, ((UberPage) reference.getPage()).getRevisionCount());
+      assertEquals(2, ((UberPage) writer.read(reference, config)).getRevisionCount());
+      assertEquals(2, ((UberPage) writer.read(written, config)).getRevisionCount());
+    } finally {
+      storage.close();
+    }
   }
 
   @Test
@@ -59,9 +93,8 @@ public final class RAMStorageTruncateToTest {
     assertFalse(writer.supportsTruncateTo(),
         "a storage that cannot truncate must SAY so, not just throw once a rollback is under way");
 
-    final UnsupportedOperationException failure =
-        assertThrows(UnsupportedOperationException.class, () -> writer.truncateTo(1),
-            "a rollback this storage cannot honour must fail, not return as if it succeeded");
+    final UnsupportedOperationException failure = assertThrows(UnsupportedOperationException.class,
+        () -> writer.truncateTo(1), "a rollback this storage cannot honour must fail, not return as if it succeeded");
     assertTrue(failure.getMessage().contains("cannot truncate"),
         "the message should state what is unsupported; got: " + failure.getMessage());
 

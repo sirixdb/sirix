@@ -49,7 +49,7 @@ import io.sirix.page.UberPage;
 import java.time.Duration;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.locks.ReentrantLock;
+import io.sirix.access.trx.node.TransactionExecutionLock;
 
 /**
  * Provides node transactions on different revisions of XML resources.
@@ -134,7 +134,7 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
     // Synchronize commit and other public methods if needed.
     final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
     final var transactionLock = isAutoCommitting
-        ? new ReentrantLock()
+        ? new TransactionExecutionLock()
         : null;
     final var resourceConfig = getResourceConfig();
     return new XmlNodeTrxImpl(this, nodeReadTrx, pathSummaryWriter, maxNodeCount, transactionLock, autoCommitDelay,

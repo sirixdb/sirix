@@ -1,0 +1,10 @@
+{
+  "base": "58ec1a784abfe54a9130ea287ebc2631faec6b7e",
+  "candidate_parent": "b19c6bc0b1eb961c990689174b150a7836e74690",
+  "candidate_has_uncommitted_fixes": true,
+  "outer_bound_seconds": 9000,
+  "scope": "Original four core partitions plus query and REST, unchanged tests/targets/sampling caps",
+  "archived_selection_sha256": "a66bb831e14d06765c2c6f934dcec0ae47cb01678c8a18163882eedc2048a735",
+  "archived_results_sha256": "39af375a8e23d2793281def314120927a1e89595dd1efb05fe600022970b5067",
+  "runner_sha256": "ea447d60db0b9284bfcb041228a0461fc0aff7f2e5530d1e1a2feb5d1d7a5028"
+}

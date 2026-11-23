@@ -67,6 +67,13 @@ public final class ForAxis extends AbstractAxis {
   }
 
   @Override
+  public void close() {
+    try (mRange) {
+      mReturn.close();
+    }
+  }
+
+  @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     mIsFirst = true;

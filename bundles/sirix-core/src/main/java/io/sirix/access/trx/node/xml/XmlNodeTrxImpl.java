@@ -75,7 +75,7 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import java.time.Duration;
 import java.util.concurrent.Executors;
-import java.util.concurrent.locks.Lock;
+import io.sirix.access.trx.node.TransactionExecutionLock;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -134,7 +134,7 @@ final class XmlNodeTrxImpl extends
    */
   XmlNodeTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceSession,
       final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx, final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
-      final int maxNodeCount, @Nullable final Lock transactionLock, final Duration afterCommitDelay,
+      final int maxNodeCount, @Nullable final TransactionExecutionLock transactionLock, final Duration afterCommitDelay,
       final XmlNodeHashing nodeHashing, final XmlNodeFactory nodeFactory, final AfterCommitState afterCommitState,
       final RecordToRevisionsIndex nodeToRevisionsIndex) {
     super(Executors.defaultThreadFactory(), resourceSession.getResourceConfig().hashType, nodeReadOnlyTrx,

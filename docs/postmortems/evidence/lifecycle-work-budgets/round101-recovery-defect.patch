@@ -1,0 +1,10 @@
+--- a/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java
++++ b/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java
+@@ -232,7 +232,6 @@
+ 
+   public static void forgetCommitRecovery(final Path resource) {
+     // One marker per resource: deletion must not scan unrelated recovery owners.
+-    RECOVERY_REQUIRED.remove(commitFile(resource));
+   }
+ 
+   private static Path commitFile(final Path resource) {

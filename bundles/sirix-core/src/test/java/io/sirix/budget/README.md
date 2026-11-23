@@ -239,6 +239,11 @@ maintains, so a budget quotes the same numbers an investigation would:
   production; the core test fork enables it, and captures require that gate to be live. The sidecar
   zero budget has a positive read control. These totals include lifecycle work during the capture;
   they do not represent unique records, allocated bytes, or physical disk reads.
+- `EngineWorkCounters.LIFECYCLE_DOCUMENT_VISITS` (`lifecycle.documentVisits`): the document-only
+  refinement of `replay.recordVisits`, counting cursor moves, storage lookups and preparations,
+  including nested delegations. It excludes name-dictionary and other index records, preserves the
+  all-index total, and uses the same `sirix.replay.workDiag` gate. The normative lifecycle fixture,
+  exclusions and bounds are in [CONV-301](../../../../../../../../spec/CONV-conventions.md#conv-301--official-work-budgets).
 - `EngineWorkCounters.REPLAY_PROJECTION_ROWS` and `REPLAY_PROJECTION_LABEL_BYTES`: old row removals
   and final row insertions queued by an identity epoch, and bytes allocated for its final row labels.
   The zero budgets for empty boundary changes have a positive indexed insertion control. These use
@@ -342,6 +347,17 @@ runs in the same `dictionaryReadViewAllocationTest` fork: in the shared core JVM
 sibling suite's inline mock of `TransactionIntentLog` had instrumented that class.
 
 ## Adding a budget test
+
+`LifecycleWorkBudgetTest` implements the Firstmate097 refinement of CONV-301 for JSON/XML
+commit and writer/session/database close with a peer retaining the storage pool, using a
+document-only refinement of the existing record-visit diagnostic and data-file-force counter.
+The refinement excludes XML name-dictionary reads without changing the original total. Its
+document traversal supplies the nonzero control; cold reopen checks every value
+and revision publication. `LifecycleLockAllocationBudgetTest` bounds the uncontended execution
+lock and close-admission primitive to zero allocated bytes after warmup in the existing clean
+allocation fork. It does not bound total commit allocations, contention or callback delivery.
+The normative fixture and bounds are in `spec/CONV-conventions.md`; no elapsed-time assertions
+or changes to existing bounds are involved.
 
 1. **Name the regression** in a sentence. If you cannot, there is nothing to budget.
 2. **Build a fixture at fixture scale** (seconds, not minutes) on a schema of your own; nothing here

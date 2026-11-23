@@ -4,6 +4,7 @@ import io.sirix.page.UberPage;
 import static java.util.Objects.requireNonNull;
 
 import io.sirix.access.trx.node.AbstractResourceSession;
+import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -30,16 +31,18 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
   private final @Nullable Consumer<R> sessionClosed;
 
   private final Object lifecycleMonitor;
+  private final DatabaseNotifications notifications;
 
   public ResourceStoreImpl(final PathBasedPool<ResourceSession<?, ?>> allResourceSessions,
       final ResourceSessionFactory<R> resourceSessionFactory) {
-    this(allResourceSessions, resourceSessionFactory, null, null);
+    this(allResourceSessions, resourceSessionFactory, null, null, new DatabaseNotifications());
   }
 
   ResourceStoreImpl(final PathBasedPool<ResourceSession<?, ?>> allResourceSessions,
       final ResourceSessionFactory<R> resourceSessionFactory, final @Nullable Consumer<R> sessionClosed,
-      final @Nullable Object lifecycleMonitor) {
+      final @Nullable Object lifecycleMonitor, final DatabaseNotifications notifications) {
 
+    this.notifications = requireNonNull(notifications);
     this.resourceSessions = new ConcurrentHashMap<>();
     this.allResourceSessions = allResourceSessions;
     this.resourceSessionFactory = resourceSessionFactory;
@@ -47,6 +50,21 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
     this.lifecycleMonitor = lifecycleMonitor == null
         ? this
         : lifecycleMonitor;
+  }
+
+  @Override
+  public DatabaseNotifications getNotifications() {
+    return notifications;
+  }
+
+  @Override
+  public void assertCanClose() {
+    notifications.assertNotInCallback();
+    for (final R session : resourceSessions.values()) {
+      if (session instanceof InternalResourceSession<?, ?> internal) {
+        internal.assertCanRetire();
+      }
+    }
   }
 
   @Override
@@ -89,6 +107,7 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
   // Throwable identity, not value equality, determines whether addSuppressed would suppress itself.
   @SuppressWarnings("ReferenceEquality")
   public void close() {
+    assertCanClose();
     Throwable failure = null;
     for (final Map.Entry<Path, R> entry : resourceSessions.entrySet()) {
       try {
@@ -111,6 +130,7 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
 
   @Override
   public boolean closeResourceSession(final Path resourceFile) {
+    notifications.assertNotInCallback();
     synchronized (lifecycleMonitor) {
       final R session = resourceSessions.get(resourceFile);
       if (session == null) {

@@ -6,27 +6,44 @@ package io.sirix.index.projection;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.exception.SirixIOException;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.channels.ClosedByInterruptException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CountDownLatch;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 /**
  * Differential gate for the parallel row-group directory walk
@@ -39,6 +56,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * scanned as {@code 1..159, 192..196, 160..191}). That is the shape an order-sensitive reader gets
  * wrong, and the parallel walk's whole premise is that order does not matter.
  */
+@Isolated
+@Order(Integer.MAX_VALUE)
 final class ProjectionParallelDirectoryWalkTest {
 
   private static final String RESOURCE_NAME = "testResource";
@@ -166,6 +185,109 @@ final class ProjectionParallelDirectoryWalkTest {
           ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER, ROW_GROUPS);
       assertEquals(0, leases.get());
       assertDirectoriesEqual(expected, actual);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"infrastructure", "corruption", "error", "interrupt"})
+  @Timeout(30)
+  void failureOrInterruptionDrainsReadersBeforeFallbackOrPropagation(final String mode) throws InterruptedException {
+    writeRowGroups();
+    final Throwable failure = switch (mode) {
+      case "error" -> new AssertionError("worker error");
+      case "corruption" -> new IllegalStateException("worker corruption");
+      default -> new RuntimeException("worker infrastructure");
+    };
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+        JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch release = new CountDownLatch(1);
+      final CountDownLatch cancellationObserved = new CountDownLatch(1);
+      final AtomicBoolean interruptRestored = new AtomicBoolean();
+      final AtomicInteger leases = new AtomicInteger();
+      final AtomicBoolean returned = new AtomicBoolean();
+      final AtomicReference<Throwable> observed = new AtomicReference<>();
+      final AtomicReference<List<ProjectionIndexHOTStorage.RowGroupDirectory>> result = new AtomicReference<>();
+      final SirixIOException cancelledIo = new SirixIOException(new ClosedByInterruptException());
+      final Thread owner = new Thread(() -> {
+        try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          final StorageEngineReader original = rtx.getStorageEngineReader();
+          final StorageEngineReader reader = mock(StorageEngineReader.class, delegatesTo(original));
+          doAnswer(_ -> {
+            if (Thread.currentThread().isInterrupted()) {
+              throw cancelledIo;
+            }
+            return original.getActualRevisionRootPage();
+          }).when(reader).getActualRevisionRootPage();
+          result.set(ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER,
+              ROW_GROUPS, identityPhysicalOrder(), worker -> {
+                assertTrue(Thread.currentThread().isDaemon(), "directory workers must be daemon threads");
+                if (leases.getAndIncrement() == 0 && !mode.equals("interrupt")) {
+                  if (failure instanceof Error error) {
+                    throw error;
+                  }
+                  throw (RuntimeException) failure;
+                }
+                try (JsonNodeReadOnlyTrx workerTrx = session.beginNodeReadOnlyTrx()) {
+                  entered.countDown();
+                  boolean interrupted = false;
+                  while (true) {
+                    try {
+                      release.await();
+                      break;
+                    } catch (final InterruptedException _) {
+                      interrupted = true;
+                      cancellationObserved.countDown();
+                    }
+                  }
+                  if (interrupted) {
+                    Thread.currentThread().interrupt();
+                  }
+                  if (!mode.equals("interrupt")) {
+                    worker.accept(workerTrx.getStorageEngineReader());
+                  }
+                }
+              }, true));
+        } catch (final Throwable e) {
+          observed.set(e);
+        } finally {
+          interruptRestored.set(Thread.currentThread().isInterrupted());
+          returned.set(true);
+          entered.countDown();
+        }
+      });
+      owner.start();
+      try {
+        entered.await();
+        while (owner.isAlive() && owner.getState() != Thread.State.WAITING) {
+          if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException();
+          }
+          Thread.yield();
+        }
+        if (mode.equals("interrupt")) {
+          owner.interrupt();
+          cancellationObserved.await();
+        }
+        assertFalse(returned.get(), "fallback/propagation must wait for the other reader to close");
+      } finally {
+        release.countDown();
+        owner.join();
+      }
+      assertTrue(leases.get() >= 2, "fixture must actually engage parallel readers");
+      assertEquals(mode.equals("interrupt"), interruptRestored.get());
+      if (mode.equals("interrupt")) {
+        assertSame(cancelledIo, observed.get(), "the fallback must propagate cancelled storage access");
+        assertNull(result.get(), "cancellation must not publish a partial result");
+      } else if (mode.equals("infrastructure")) {
+        assertNull(observed.get());
+        assertNotNull(result.get(), "fallback must return the complete result");
+        assertEquals(ROW_GROUPS, result.get().size());
+      } else {
+        assertSame(failure, observed.get());
+      }
+      assertEquals(0, ((AbstractResourceSession<?, ?>) session).activeTrxCount(),
+          "all worker and owner readers must be released");
     }
   }
 

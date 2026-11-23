@@ -5,6 +5,7 @@ package io.sirix.access;
 
 import io.sirix.access.InMemoryLifetimeFixture.Model;
 import io.sirix.api.Database;
+import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.StorageType;
@@ -36,6 +37,7 @@ import static io.sirix.access.InMemoryLifetimeFixture.commitNextValue;
 import static io.sirix.access.InMemoryLifetimeFixture.createDatabase;
 import static io.sirix.access.InMemoryLifetimeFixture.createResource;
 import static io.sirix.access.InMemoryLifetimeFixture.hasContent;
+import static io.sirix.access.InMemoryLifetimeFixture.insertValueAfter;
 import static io.sirix.access.InMemoryLifetimeFixture.open;
 import static io.sirix.access.InMemoryLifetimeFixture.resourceNames;
 import static io.sirix.access.InMemoryLifetimeFixture.valueAt;
@@ -606,6 +608,21 @@ final class DatabasesInMemoryLifetimeTest {
           ResourceSession<?, ?> session = rejoined.beginResourceSession(VOLATILE)) {
         assertEquals(1, session.getMostRecentRevisionNumber(), "nothing was discarded");
         assertEquals("0", valueAt(session, model, 1, key));
+        // TXN-615 AC15, TXN-801/802/803: a failed backend close preserves commits and hooks.
+        final CompletableFuture<Void> beforeCommit = new CompletableFuture<>();
+        final CompletableFuture<Integer> published = new CompletableFuture<>();
+        final long next;
+        try (NodeTrx writer = session.beginNodeTrx()) {
+          assertTrue(writer.moveTo(key));
+          next = insertValueAfter(writer, model, "1");
+          writer.addPreCommitHook(view -> beforeCommit.complete(null));
+          writer.addPostCommitHook(view -> published.complete(view.getRevisionNumber()));
+          writer.commit();
+          assertTrue(beforeCommit.isDone(), "pre-hooks run synchronously");
+          assertEquals(2, published.get(10, TimeUnit.SECONDS), "post-hooks still receive the committed revision");
+        }
+        assertEquals("0", valueAt(session, model, 1, key));
+        assertEquals("1", valueAt(session, model, 2, next));
       }
       first.close();
       assertFalse(first.isOpen(), "the retry finishes the close");

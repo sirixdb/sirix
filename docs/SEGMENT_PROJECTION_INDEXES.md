@@ -2081,6 +2081,8 @@ owns `EngineWorkCounters.TEMPORAL_READS` and its dictionary-admission work bound
 
 **Gated identity replay work counters.** The [budget README's counter catalogue](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters)
 owns the `sirix.replay.workDiag` counters, their units and guarded maintenance work.
+That catalogue also defines the document-only lifecycle refinement;
+[CONV-301](../spec/CONV-conventions.md#conv-301--official-work-budgets) owns its commit/close bounds.
 The retained-order proof is documented at
 [`ProjectionIndexChangeListener.collectIdentityOrderChanges`](../bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionIndexChangeListener.java).
 

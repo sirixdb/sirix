@@ -255,6 +255,13 @@ public final class Databases {
    */
   static final DatabaseManager MANAGER = DatabaseManagerFactory.create();
 
+  public static void shutdown() {
+    DatabaseNotifications.assertOutsideCallback();
+    MANAGER.close();
+    freeAllocatedMemory();
+  }
+
+
   /**
    * Get the database type
    *
@@ -391,6 +398,7 @@ public final class Databases {
   // Throwable identity, not value equality, determines whether addSuppressed would suppress itself.
   @SuppressWarnings("ReferenceEquality")
   public static void removeDatabase(final Path dbFile) {
+    DatabaseNotifications.assertMayRetireDatabase(dbFile);
     requireNonNull(dbFile);
     ResourceAccessScope.checkDatabase(dbFile, true);
     synchronized (Databases.class) {

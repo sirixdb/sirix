@@ -5528,10 +5528,14 @@ node layer (commitInternal):
                                                       ├─ writeUberPageReference(): fsync data + dual beacons  (Ch. 4)
                                                       └─ clear the intent log, free off-heap pages
   4  publish the new RevisionRootPage as the resource's latest revision
-  5  apply JSON update-diff publication policy (docs/JSON_UPDATE_DIFFS.md)
-  6  re-instantiate for the next revision, or mark COMMITTED   (per AfterCommitState)
-  7  post-commit hooks
+  5  enqueue post-commit notifications (delivery: docs/hooks.md)
+  6  apply JSON update-diff publication policy (docs/JSON_UPDATE_DIFFS.md)
+  7  re-instantiate for the next revision, or mark COMMITTED   (per AfterCommitState)
 \end{diagram}
+
+Hook delivery, cursor ownership and lifecycle restrictions are defined by
+\code{docs/hooks.md}; the \code{PreCommitHook} and \code{PostCommitHook} APIs in
+\pp{io/sirix/api/} provide the public callback signatures.
 
 Two details are easy to miss. Secondary indexes are not rebuilt at commit. Node mutations notify
 the index controller synchronously during the write, and the path, CAS and name change-listeners

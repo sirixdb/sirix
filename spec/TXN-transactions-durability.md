@@ -259,9 +259,9 @@ Successful rollback MUST discard uncommitted node changes, diff tuples, pending 
 - **Status:** designed
 - **Since:** 1.0
 - **Code:** [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`rollback`
-- **Verified by:** [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java) **Planned:** RollbackMarkerConformance: failure at every reconstruction stage, closed rollback while a new writer owns the resource, marker and permit assertions.
+- **Verified by:** [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java); [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`closedRollbackCannotMarkAnotherWritersResourceForRecovery`, `failedRollbackRejectsMutationUntilReconstructionSucceeds` **Planned:** RollbackMarkerConformance: failure at every reconstruction stage, closed rollback while a new writer owns the resource, marker and permit assertions.
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Current rollback clears the marker before all reconstruction completes; complete failure/closed-writer fencing remains pending.
+- **Gap/note:** Rollback now retains recovery responsibility through reconstruction and rejects closed writers before recovery handling. See NodeTransactionAbortLifecycleTest; complete outcome classification remains part of TXN-705.
 
 Successful rollback MUST clear the recovery marker only after safe reconstruction. Failed rollback MUST preserve the first failure, keep the writer rollback-only and preserve recovery responsibility. Calling rollback on an already closed transaction MUST NOT touch a subsequent writer’s marker.
 
@@ -307,33 +307,45 @@ Public NodeTrx.close with uncommitted modifications MUST throw `SirixUsageExcept
 - **Status:** designed
 - **Since:** 1.0
 - **Code:** [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`close`; [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`awaitPendingAsyncCommit`
-- **Verified by:** [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java) **Planned:** AsyncCloseOutcomeConformance: known pre-point failure, durable cleanup failure, uncertain force, dirty successor and repeated close; verify result classification, repair flag, no fsync retry and safe ownership.
+- **Verified by:** [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java); [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`terminalHardeningFailureAbortsDirtySuccessorAfterTheWorkerFence`, `inlineDoubleFailureReleasesSlotAndRetainsPrimary` **Planned:** AsyncCloseOutcomeConformance: known pre-point failure, durable cleanup failure, uncertain force, dirty successor and repeated close; verify result classification, repair flag, no fsync retry and safe ownership.
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Current close can log away async failure and delete the marker; the three-way outcome/repair contract is not implemented.
+- **Gap/note:** Close fences async workers, preserves the first failure and retains recovery responsibility. The three-way outcome/repair contract in TXN-307/705 is not implemented.
 
 Close MUST fence in-flight hardening before freeing its owners and MUST preserve its outcome classification. A known durable N with cleanup failure follows TXN-307: log, flag repair and close cleanly without reporting a commit failure. An unknown outcome MUST remain CommitOutcomeUnknownException with resource writes stopped and recovery responsibility intact; close MUST NOT retry fsync or reinterpret it as a known failure/success. Independent teardown is attempted with safe ownership. Listener shutdown follows TXN-803.
 
 ### TXN-503 — Independent cleanup
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`close`; [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`close`
-- **Verified by:** [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java); [AbstractResourceSessionWriteFailureCleanupTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java) **Planned:** TeardownConformance: inject failures in reader, log, backend, pool and session children; verify each cleanup is attempted without freeing live-worker state.
-- **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Page-writer cleanup has coverage; resource-session close can still stop at an earlier failing child on this baseline.
+- **Verified by:** [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java); [AbstractResourceSessionWriteFailureCleanupTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java); [BufferManagerTeardownTest.java](../bundles/sirix-core/src/test/java/io/sirix/cache/BufferManagerTeardownTest.java) **Planned:** TeardownConformance: inject failures in reader, log, backend, pool and session children; verify each cleanup is attempted without freeing live-worker state.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Resource-session and buffer-manager cleanup now accumulate independent failures. See AbstractResourceSessionWriteFailureCleanupTest and BufferManagerTeardownTest; dependency ownership must still be retained when a child cannot terminate.
 
 Transaction/session teardown MUST attempt each independent owner even when another cleanup fails, preserve the first failure with later failures suppressed, and be idempotent after success. A retry after failed teardown MUST complete only the remaining safe work.
+
+Concurrent traversal close, reset and exhaustion MUST report a terminated worker's unreported
+failure, even when a subsequent close succeeds. Reset MUST NOT reuse a producer after failed
+cleanup. An interrupted consumer MUST retain interruption as the primary error, suppress worker
+cleanup failures and restore its interrupt status after termination. Repeated close after a
+reported failure MUST NOT report that same worker failure again.
+Requested cancellation MAY discard the traversal interruption used to stop a nested producer,
+but MUST retain its suppressed failures and all independent cleanup failures, including cleanup
+that itself reports interruption. Unrequested worker interruption MUST still fail traversal.
+Regression mapping: `ConcurrentAxisLifecycleTest.txn503CancellationPreservesFirstCloseFailure`
+and `setExhaustionFencesUnusedProducerAndReleasesOwnedReader` cover JSON/XML cancellation,
+reset, interrupted consumption and set exhaustion with first-close-only reader failure.
 
 ### TXN-504 — Worker ownership fence
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`close`; [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`awaitPendingAsyncFlush`; [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`close`
-- **Verified by:** [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java) **Planned:** WorkerOwnershipConformance: stalled worker, interrupted wait, failed cleanup and retry; assert no successor admission or use-after-free before exit.
-- **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Current node close releases writer ownership before checking scheduler termination and ignores its timeout result.
+- **Verified by:** [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java); [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`stalledFlushRetainsNodeOwnershipUntilWorkerExitAndRetry`, `lateConcurrentCloseRetainsOwnerUntilPermitRelease` **Planned:** WorkerOwnershipConformance: stalled worker, interrupted wait, failed cleanup and retry; assert no successor admission or use-after-free before exit.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Node close now fences scheduler/storage work before exactly-once admission release, retaining unfinished owners for retry. See NodeTransactionAbortLifecycleTest; this does not establish the future outcome API in TXN-705.
 
 A writer MUST NOT release its write permit or free worker-accessible memory until its mutation/flush/hardening workers have terminated. If termination is not established, ownership MUST remain fenced for retry. A listener dispatcher MUST NOT own a mutable writer or block this fence.
 
@@ -343,21 +355,21 @@ A writer MUST NOT release its write permit or free worker-accessible memory unti
 - **Status:** designed
 - **Since:** 1.0
 - **Code:** [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`close`; [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`rollback`
-- **Verified by:** [JsonDatabaseLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/node/json/JsonDatabaseLifecycleTest.java); [AbstractResourceSessionWriteFailureCleanupTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java) **Planned:** SessionAbortConformance: JSON/XML known-uncommitted dirty work, known durable cleanup failure, uncertain async durability and rollback failure; assert each preserved outcome and no repeated fsync on close/reopen.
+- **Verified by:** [JsonDatabaseLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/node/json/JsonDatabaseLifecycleTest.java); [AbstractResourceSessionWriteFailureCleanupTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java); [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`terminalHardeningFailureAbortsDirtySuccessorAfterTheWorkerFence` **Planned:** SessionAbortConformance: JSON/XML known-uncommitted dirty work, known durable cleanup failure, uncertain async durability and rollback failure; assert each preserved outcome and no repeated fsync on close/reopen.
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Current session close attempts rollback of dirty JSON/XML writers; failure-resistant abort and recovery fences are not complete. The sample’s older claim that no session rollback exists does not describe this baseline.
+- **Gap/note:** Session close uses internal abort for dirty JSON/XML writers, fences workers and retains unfinished dependencies for retry. See NodeTransactionAbortLifecycleTest. The future three-way durability outcome contract remains incomplete.
 
 Session close MUST safely discard known uncommitted dirty work without committing it, using rollback or an internal abort path. It MUST preserve known committed N under TXN-307 and MUST NOT roll back, retry fsync or claim absence for an unknown candidate under TXN-705. Uncommitted tails, unknown outcomes and incomplete repair MUST retain recovery responsibility; worker fences MUST precede owner release.
 
 ### TXN-601 — Marker identity
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`getCommitFile`; [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`commitWritePages`
-- **Verified by:** [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java) **Planned:** MarkerIdentityConformance: empty/nonempty regular file, directory, creation failure and deletion failure.
-- **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Location exists; strict non-regular-path checks and persistent failure handling remain lifecycle work.
+- **Verified by:** [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java); [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`failedMarkerCreationSurvivesSessionClose` **Planned:** MarkerIdentityConformance: empty/nonempty regular file, directory, creation failure and deletion failure.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Recovery admission now rejects a non-regular marker path and preserves failed marker obligations. See NodeTransactionAbortLifecycleTest; marker-directory durability remains deferred under TXN-602.
 
 The persistent recovery marker MUST be the regular file `<resource>/log/.commit`; its contents are irrelevant. A non-regular entry at that path MUST fail recovery admission explicitly. Ordinary database `.lock` process ownership is a different mechanism.
 
@@ -376,12 +388,12 @@ Persistent writers MUST establish recovery responsibility before appending uncom
 ### TXN-603 — Marker removal
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`hardenCommit`; [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`rollback`; [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`close`
-- **Verified by:** [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java) **Planned:** MarkerLifecycleConformance: enumerate success and every failure exit, then reopen and recover.
-- **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Current close deletes the marker; intended failure-preserving rule is not implemented throughout.
+- **Verified by:** [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java); [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`failedMarkerDeletionPreservesPublishedRevisionAndBlocksFalseCleanAdmission` **Planned:** MarkerLifecycleConformance: enumerate success and every failure exit, then reopen and recover.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Close now preserves unresolved markers; rollback removes them only after successful reconstruction. NodeTransactionAbortLifecycleTest covers failed marker deletion, rollback reconstruction and recovery admission.
 
 A persistent marker MUST be removed only after successful commit cleanup or successful rollback. Close, commit failure, failed rollback and teardown failure MUST NOT remove unresolved recovery responsibility. A successful recovery admission may leave the marker until the following successful commit/rollback.
 
@@ -391,9 +403,9 @@ A persistent marker MUST be removed only after successful commit cleanup or succ
 - **Status:** designed
 - **Since:** 1.0
 - **Code:** [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists`; [FileChannelWriter.java](../bundles/sirix-core/src/main/java/io/sirix/io/filechannel/FileChannelWriter.java):`truncateTo`
-- **Verified by:** [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java); [CrashRecoveryOrderingTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryOrderingTest.java); [RevisionRecordDurabilityFrontierTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/RevisionRecordDurabilityFrontierTest.java) **Planned:** RecoveryOutcomeConformance: complete durable N with stale beacon/session, staged incomplete record, unknown N both present and absent, sibling cache preservation, repeat recovery and crash during recovery; verify reported outcome before writer admission.
+- **Verified by:** [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java); [CrashRecoveryOrderingTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryOrderingTest.java); [RevisionRecordDurabilityFrontierTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/RevisionRecordDurabilityFrontierTest.java); [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`postBeaconCleanupFailureRecoversPublishedRevision` **Planned:** RecoveryOutcomeConformance: complete durable N with stale beacon/session, staged incomplete record, unknown N both present and absent, sibling cache preservation, repeat recovery and crash during recovery; verify reported outcome before writer admission.
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Current recovery supplies the in-memory lastCommittedRev and uses beacon-based truncation. Record-point authority and an outcome-reporting API are missing; the physical durable-record evidence protocol remains engineering work, not permission to discard a known commit.
+- **Gap/note:** Recovery now reads the verified durable uber beacon before truncation and resource-local cache/catalogue invalidation. Record-point authority and an outcome-reporting API are still missing under TXN-302/705; the physical durable-record evidence protocol remains engineering work.
 
 Recovery MUST determine the complete committed frontier from durable revision records and validated referenced data under TXN-302, reconcile beacons, and resolve an unknown candidate N as wholly present or absent. It MUST preserve every known committed N even if a beacon or session head is stale, and MUST NOT promote a merely staged record with incomplete durability evidence. It MUST truncate only uncommitted tails, invalidate later index catalogues, clear only this resource’s stale cache entries and publish the resolved frontier before admitting a new writer. The API MUST report whether the unknown candidate N committed after recovery.
 
@@ -415,35 +427,35 @@ The explicitly constructed in-process successor based on a pending uber page MUS
 - **Status:** designed
 - **Since:** 1.0
 - **Code:** [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`createPageTransaction`; [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists`
-- **Verified by:** [AbstractResourceSessionWriteFailureCleanupTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java) **Planned:** RecoveryFailureConformance: backend open, root discovery, truncate, catalogue/cache and marker failures; fresh reopen revalidates durable evidence, preserves error/stage and never repeats a failed force to infer success.
+- **Verified by:** [AbstractResourceSessionWriteFailureCleanupTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java); [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`recoveryFailureRejectsAdmissionAndCanBeRetried`, `recoveryBackendOpenFailureNamesMarkerAndReleasesAdmission` **Planned:** RecoveryFailureConformance: backend open, root discovery, truncate, catalogue/cache and marker failures; fresh reopen revalidates durable evidence, preserves error/stage and never repeats a failed force to infer success.
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Current createPageTransaction does not cover every temporary-writer failure exit. Existing writer-binding cleanup tests do not establish full recovery-stage cleanup.
+- **Gap/note:** Recovery admission now closes temporary backend ownership on failure and retains recovery responsibility. NodeTransactionAbortLifecycleTest covers marker/open/truncate failure and retry; the future unknown-outcome API remains incomplete.
 
 Failure at any recovery stage MUST refuse writer admission, identify the marker path and stage, close temporary backend ownership, release the admission permit only when no worker still owns it, and preserve recovery responsibility. A later eligible reopen MUST resume recovery idempotently from fresh durable evidence. This MUST NOT retry a failed fsync/force in the poisoned resource instance or bypass TXN-705; ordinary writer admission remains stopped while durability is unknown.
 
 ### TXN-607 — In-memory resources never write markers
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`commitWritePages`; [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists`; [RAMStorage.java](../bundles/sirix-core/src/main/java/io/sirix/io/ram/RAMStorage.java)
-- **Verified by:** [RAMStorageTruncateToTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/ram/RAMStorageTruncateToTest.java) **Planned:** InMemoryMarkerConformance: inject commit/rollback/close failures and reopen admission; assert no marker creation and no recovery wedge.
-- **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Captain call 2: never write the marker. Current commitWritePages creates it unconditionally and session recovery skips unsupported truncate; neither is the target contract.
+- **Verified by:** [RAMStorageTruncateToTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/ram/RAMStorageTruncateToTest.java); [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`inMemoryCommitFailureNeverCreatesRecoveryMarkersOrBlocksTheNextWriter`, `inMemoryRecoveryRequestNeverCreatesAMarkerOrPoisonsAdmission` **Planned:** InMemoryMarkerConformance: inject commit/rollback/close failures and reopen admission; assert no marker creation and no recovery wedge.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Commit, recovery and failure teardown now exclude non-durable storage from marker/guard creation. NodeTransactionAbortLifecycleTest covers failed in-memory commits and fresh writer admission; durable backends still reject unsupported recovery.
 
 IN_MEMORY resources MUST NOT create the filesystem commit marker on commit, preflush, rollback, abort or teardown failure. No persistent-recovery obligation may make an in-memory resource permanently unwritable. This exemption MUST NOT permit a persistent backend to skip required recovery.
 
 ### TXN-608 — Marker creation failure obligation
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`createPageTransaction`; [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java):`resourceUuid`
-- **Verified by:** No existing test mapped. **Planned:** RecoveryIdentityConformance: marker creation failure, session close/reopen, same-path resource recreation and persisted identity mismatch.
-- **Evidence class:** code-only (implementation inspected); decided target has unverified implementation gaps
-- **Gap/note:** No process-local recovery-obligation registry is present on this baseline. The obligation is not itself durable across process exit.
+- **Verified by:** [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`failedMarkerCreationSurvivesSessionClose`, `removedResourceCannotPoisonRecreatedResourceAtTheSamePath`; [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`restoredBackupDoesNotInheritDeletedRecovery`
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** AbstractResourceSession now retains a process-local recovery obligation keyed by marker path and persisted resource identity. NodeTransactionAbortLifecycleTest covers failed marker creation/retry; DatabaseNotificationLifecycleTest covers deletion retirement. The obligation is not itself durable across process exit.
 
-For a persistent resource, failed marker creation MUST retain a process-local recovery obligation tied to the resource’s persisted identity and path. The next admission MUST re-establish the marker and recover. Deleting/recreating the resource MUST NOT transfer the old obligation to its new identity.
+For a persistent resource, failed marker creation MUST retain a process-local recovery obligation tied to the resource’s persisted identity and path. The next admission MUST re-establish the marker and recover. Deleting/recreating the resource MUST NOT transfer the old obligation to its new identity. Successful removal through `Database.removeResource` MUST release its process-local obligation: restoring a clean backup at the same path, even with the same persisted identity, MUST admit a writer without recreating the deleted resource's recovery marker and MUST preserve the backed-up committed values.
 
 ### TXN-609 — Read admission does not perform tail recovery
 
@@ -712,6 +724,8 @@ Acceptance criteria, each observable through the public API, for JSON and XML:
 - AC15 (failed teardown; clause 7): make session teardown fail once at the final close.
   - The close throws, and the handle stays open.
   - An open that rejoins the instance sees every committed revision.
+  - After user sessions drain, a failed backend teardown leaves the rejoined instance able
+    to admit writers and deliver their pre/post-commit hooks (TXN-801, TXN-802, TXN-803).
   - A retried close succeeds, and the next reopen holds no former IN_MEMORY resource.
 - AC13 (memory released at close; forked JVM with a small heap): in a child JVM whose heap
   cannot hold the IN_MEMORY state of many databases at once, repeatedly open a database, create
@@ -742,24 +756,24 @@ KEEP_OPEN_ASYNC_FLUSH intermediate thresholds MUST write pages without publishin
 ### TXN-702 — Abandoned prewrites
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`close`; [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`createPageTransaction`
 - **Verified by:** [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java):`unboundCloseBlocksSuccessorUntilAbortedTrieTailIsSafeToReuse` **Planned:** AsyncTailRecoveryConformance: abort after page append, warm and cold reopen, sibling resource active, assert no stale page.
-- **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Current teardown uses cache invalidation/permit retention; admission-driven marker repair is the decided target.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Teardown now retains a marker or identity-bound recovery obligation; the next admission repairs the durable tail before cache reuse. AsyncFlushFailurePathTest covers stale-page removal and successor reads.
 
 An abandoned persistent async-flush tail MUST become unreachable and be repaired at the next writer admission before offsets are safely reused. Teardown MUST retain a recovery signal rather than relying on unsafe cache reuse.
 
 ### TXN-703 — Depth-one async commit pipeline
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`asyncCommitInternal`; [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`hardenAndPublish`
-- **Verified by:** [AsyncCommitTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/AsyncCommitTest.java); [AsyncCommitFrontierOrderingTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AsyncCommitFrontierOrderingTest.java) **Planned:** AsyncPipelineConformance: barrier-observed successor overlap; successor-construction plus inline-hardening double failure; submission rejection; assert balanced slot and original cause.
-- **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Normal overlap exists. Combined failure paths need lifecycle fixes; listener delivery must not destroy this overlap.
+- **Verified by:** [AsyncCommitTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/AsyncCommitTest.java); [AsyncCommitFrontierOrderingTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AsyncCommitFrontierOrderingTest.java); [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`inlineDoubleFailureReleasesSlotAndRetainsPrimary` **Planned:** AsyncPipelineConformance: barrier-observed successor overlap; successor-construction plus inline-hardening double failure; submission rejection; assert balanced slot and original cause.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Successor setup/submission fallbacks now fence and retire the predecessor while preserving the first failure and releasing the async slot once. NodeTransactionAbortLifecycleTest covers double failures; DatabaseNotificationLifecycleTest covers delivery without blocking successor mutation.
 
 KEEP_OPEN_ASYNC_COMMIT MUST have at most one hardening in flight. Its successor MUST be based on completed phase-one bytes and may overlap independent work with hardening. Commit/rollback/close MUST fence the predecessor before depending on its durable frontier. Every submission, rejection and inline fallback path MUST release the async slot exactly once.
 
@@ -790,74 +804,82 @@ If durability cannot be determined, including an I/O error during harden/fsync, 
 ### TXN-801 — Pre-commit hooks
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [PreCommitHook.java](../bundles/sirix-core/src/main/java/io/sirix/api/PreCommitHook.java); [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`commitInternal`; [DatabaseHandle.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java):`close`; [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`close`
-- **Verified by:** [CommitSafetyTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/CommitSafetyTest.java) **Planned:** HookLifecycleConformance: each lifecycle entry point from a pre-hook, JSON/XML, sync/async modes; assert immediate exception, no state change, retained dirty data and reusable ownership.
-- **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** The synchronous call exists; complete callback-context lifecycle rejection does not. Decision dated 16 November supersedes older synchronous post-hook/fence proposals.
+- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`preHookVetoRemainsSynchronousAndRetryable`, `allLifecycleEntryPointsRejectCallbackReentry`, `timedCommitResumesAfterTemporaryAdmissionRefusal`
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Synchronous veto, callback guards and skipped scheduled ticks have source-mapped regressions. Full default-CI conformance is not asserted here.
 
-Pre-commit hooks MUST run synchronously inside the writer transaction before durability; their permitted mutations participate in that commit. A hook MUST NOT end that transaction. Reentrant commit, rollback, truncate or close of the same transaction, resource session, database or database handle from a hook MUST immediately throw `IllegalStateException` before taking a lock or waiting. A pre-hook failure before durability follows TXN-305.
+Pre-commit hooks MUST run synchronously inside the writer transaction before durability; their permitted mutations participate in that commit. A hook MUST NOT end a transaction of the same database. Reentrant commit, rollback, truncate or close, including through another resource session or database handle, MUST immediately throw `IllegalStateException` before taking a lock or waiting. A pre-hook failure before durability follows TXN-305. Temporary notification retirement MAY reject hook admission before publication; a scheduled commit MUST preserve later ticks after this transient refusal.
 
 ### TXN-802 — Post-commit dispatcher and view
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [PostCommitHook.java](../bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java):`postCommit`; [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`commitInternal`; [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`asyncCommitInternal`
-- **Verified by:** No existing test mapped. **Planned:** PostCommitDispatcherConformance: stalled listener for N while N+1 commits, thread separation, resource ordering and token identity, exact revision content, read-only ownership; deterministic work/lock counters show no listener wait or replay work on commit.
-- **Evidence class:** code-only (implementation inspected); decided target has unverified implementation gaps
-- **Gap/note:** Baseline still directly invokes postCommit(this). Dispatcher basics are being developed separately; this source snapshot does not contain the required durable-history replay, resume-token and callback-view lifecycle implementation.
+- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`asyncDurabilityAndBlockedDeliveryDoNotBlockSuccessorOrWriterClose`, `notificationViewUsesDurableRootWhilePendingCleanupIsBlocked`; [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java)
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** The dispatcher and independent committed views are implemented. Delivery is best effort under TXN-805; durable replay/resume remains follow-up work.
 
-Post-commit notifications MUST be asynchronous on a dedicated per-database dispatcher, ordered per resource, with at least one delivery invocation per retained committed revision while open under the replay contract in TXN-805. Every notification MUST carry its revision number as a resume token, scoped to its resource. The dispatcher MUST supply a read-only view of exactly that committed revision. Commit MUST NOT wait for, be backpressured by, or be slowed by listener delivery/replay; listener failure MUST NOT roll back an acknowledged commit or poison its successor. No mutable successor transaction may be passed as the view. Explicit listener exceptions and close follow TXN-803/806.
+Post-commit notifications MUST be asynchronous on a dedicated per-database dispatcher, ordered per resource. Every notification MUST carry its resource-local committed revision number. The dispatcher MUST supply a fresh read-only view of exactly that committed revision, initially at the document root. Commit MUST NOT wait for listener delivery or execute callbacks on the committing thread. Listener failure MUST NOT roll back durable data or poison its successor. No mutable successor transaction may be passed as the view. Delivery and overflow follow TXN-805; explicit listener exceptions and close follow TXN-803/806.
+
+Opening a resource that needs no derived initialization MUST NOT retire notification admission,
+including a cold JSON open with valid-time paths but no declared derived index. Direct and handle
+opens MUST preserve subsequent pre-hook and notification delivery while an unrelated listener is
+active. Actual initialization MUST revalidate its need after quiescence and before changing state.
+Regression mapping: `DatabaseNotificationLifecycleTest.sessionOpenWithoutDerivedDeclarationsPreservesAdmission`
+covers cold/warm direct/handle opens; `eagerDerivedRebuildQuiescesOutsideSessionAdmission`
+covers actual initialization.
 
 ### TXN-803 — Bounded listener shutdown
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [DatabaseHandle.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java):`close`; [LocalDatabase.java](../bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java):`close`; [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`close`
-- **Verified by:** No existing test mapped. **Planned:** BoundedListenerCloseConformance: controlled clock/scheduler with default 5-second and custom bounds, never-returning listener, queued replay work, logged abandonment, safe view lifetime and later resume; JSON/XML and close-from-callback rejection.
-- **Evidence class:** code-only (implementation inspected); decided target has unverified implementation gaps
-- **Gap/note:** Default and ownership are decided. The current baseline has no dispatcher timeout configuration or safe timed-out callback/view retirement implementation; exact configuration key/range and cancellation mechanics remain engineering details.
+- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`unreturnedDeliveryRetainsReadersDropsQueueAndAllowsRetry`, `blockedPreHookCannotPinAnExternalCloserForever`
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Bounded retirement retains active callback dependencies for retry instead of freeing them. Timeout configuration is owned by CONF-201; this mapping does not certify every boundary value.
 
-Close MUST stop admitting new notifications and MUST wait at most the configured timeout for in-flight delivery, default 5 seconds. At the bound it MUST abandon remaining delivery/queued work with a logged warning and return without waiting forever for a listener. Queue abandonment MUST NOT erase committed history: a later listener may resume after its token under TXN-805. Dispatcher-owned read views MUST be safely closed/retired without allowing a still-running callback to access freed backing memory; a listener cannot extend the close bound by retaining its view. Mutable writer teardown and listener shutdown remain separate.
+Database, handle and session close MUST stop notification admission and wait at most the configured timeout for admitted delivery. At the bound they MUST abandon remaining queued work with a logged warning. If an active callback still owns readers, close MUST report timeout and retain those readers and their storage/registration dependencies for retry; it MUST NOT free state under that callback. Overlapping retirement scopes MUST keep admission paused until the final scope leaves. Publications from other still-open sessions MAY be deferred during retirement, subject to TXN-805; final database close discards them. Writer close MUST fence its physical workers but MUST NOT wait for independent post-notification views. Configuration is owned by CONF-201.
 
 ### TXN-804 — Close from every callback context
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [DatabaseHandle.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java):`close`; [LocalDatabase.java](../bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java):`close`; [Databases.java](../bundles/sirix-core/src/main/java/io/sirix/access/Databases.java); [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`close`; [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`truncateTo`
-- **Verified by:** No existing test mapped. **Planned:** CallbackEntryPointConformance: one deterministic regression per public/forwarded lifecycle entry point, pre-hook/listener and JSON/XML; include shutdown forwarding, nested handles and cross-thread blocked callback.
-- **Evidence class:** code-only (implementation inspected); decided target has unverified implementation gaps
-- **Gap/note:** Required structural guard is pending. Lock-order/fence implementation is not prescribed; immediate rejection is the observable contract.
+- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`allLifecycleEntryPointsRejectCallbackReentry`, `closedHandleCreationRejectsCallbackReentry`, `closingHandleRejectsCallbackBeforeItsClosingWait`, `callbackRejectsBeforeWaitingOnAnOuterMutationGate`, `callbackScopeRestoresItsCallerAfterSuccessOrFailure`
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Same-database guards cover handle, session, writer, page, mutation-gate and manager/shutdown forwarding. Source-mapped regressions are not a claim of complete default-CI conformance.
 
-Close invoked from inside any pre-commit hook or post-commit listener for its own transaction/session/database MUST immediately throw `IllegalStateException`, before lock acquisition or waiting, including DatabaseHandle, database-manager and shutdown-path forwarding. A dispatcher MUST NOT wait for itself. Page-writer truncation and other lifecycle forwarding MUST NOT bypass the same hook guard.
+Lifecycle calls from any pre-commit hook or post-commit listener targeting the same database, including another handle, session or writer, MUST immediately throw `IllegalStateException` before lock acquisition or waiting. This includes an already-closing handle, mutation-gate entry, page-writer truncation, database-manager and shutdown forwarding. Callback rejection takes precedence over resource-creation argument validation and an already-closed target handle, and its diagnostic MUST identify the callback restriction. A dispatcher MUST NOT wait for itself. Independent read-only work and lifecycle operations on a different database remain permitted.
 
 ### TXN-805 — Revision-token replay and bounded queue
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
-- **Code:** [ResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java):`getHistory`; [ResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java):`beginNodeReadOnlyTrx`; [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`getRevisionNumber`; [SirixRevisionPrunedException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/SirixRevisionPrunedException.java)
-- **Verified by:** No existing test mapped. **Planned:** ListenerResumeConformance: stop at X, commit X+1..N, restart and compare ordered tokens/content with retained history; tiny queue overflow and default 10,000 capacity; two resources with equal revision numbers; retained versus pruned needed revisions, no false HistoryLostException and no commit-thread replay work.
-- **Evidence class:** code-only (implementation inspected); decided target has unverified implementation gaps
-- **Gap/note:** No resume API, HistoryLostException or bounded notification queue exists at this baseline. History/pruned-revision APIs are building blocks only. Registration/token method signatures and explicit-truncate interaction need engineering/API completion; the replay/overflow policy is decided.
+- **Code:** [DatabaseNotifications.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseNotifications.java):`submit`, `retireHistory`; [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`setLastCommittedUberPage`
+- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`saturatedNotificationsDoNotBlockDurableCommits`, `capacityCoversMixedBacklogsAndAbandonment`, `deferredPublicationPreventsHistoryReuse`, `deferredHistoryAdmissionIsScopedToRemovedRevisions`
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** The later bounded, non-blocking queue decision supersedes mandatory replay in this change. Resume registration, durable replay and HistoryLostException are deferred; revision reuse after truncation requires a future timeline-aware token.
 
-A listener that falls behind or restarts MUST be able to resume after revision X of its resource; delivery MUST replay the retained committed revisions greater than X in order. The bounded in-memory queue, default 10,000 notifications per database, MUST be only a fast path. Overflow MUST cause the affected listener to resume/replay from its last delivered revision instead of losing events, failing commits or applying writer backpressure. The dispatcher MUST raise HistoryLostException only when revisions required for that resume have been pruned; overflow, restart and listener exceptions alone MUST NOT be reported as history loss. A revision token identifies a resource-local timeline position, not a global database revision number.
+The dispatcher MUST bound retained notification work across the active job, executor queue and retirement-deferred jobs together. Overflow MUST drop the new job with a warning, without waiting for consumers, running callbacks on the committing thread or vetoing durable publication. Each admitted job runs at most once; source closure, submission failure, timeout or shutdown MAY prevent delivery. Publication can be observed more than once, so handlers SHOULD be idempotent. Hooks expose the committed revision through their view; revision listeners receive it directly. Revision numbers can be reissued after truncation and MUST NOT be presented as durable replay cursors. Destructive history maintenance MUST refuse before invalidating a revision required by a deferred job for that resource, preserving history and work for retry after delivery. Replay/resume is outside this change. Capacity configuration is owned by CONF-201.
 
 ### TXN-806 — Listener failure and callback view ownership
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
 - **Code:** [PostCommitHook.java](../bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java):`postCommit`; [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`commitInternal`; [NodeReadOnlyTrx.java](../bundles/sirix-core/src/main/java/io/sirix/api/NodeReadOnlyTrx.java):`close`; [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`beginNodeReadOnlyTrx`
-- **Verified by:** No existing test mapped. **Planned:** ListenerFailureAndViewConformance: throwing callback invokes once and logs; next token proceeds; explicit consumer resume redelivers from its saved checkpoint; exact-revision view closes after normal/throwing callback, retained access fails safely, timed-out callback cannot read freed memory.
-- **Evidence class:** code-only (implementation inspected); decided target has unverified implementation gaps
-- **Gap/note:** Current direct postCommit(this) passes the writer and provides neither dispatcher-owned view scope nor explicit resume semantics. No automatic retry policy implementation is present.
+- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`notificationErrorCannotVetoDurabilityOrSkipTheNextView`, `unreturnedDeliveryRetainsReadersDropsQueueAndAllowsRetry`; [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java)
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Dispatcher-owned revision views and logged failure isolation are implemented. No automatic callback retry or explicit resume API is provided.
 
-A listener exception MUST be logged and MUST NOT trigger automatic retry of that failed delivery. A delivery means a callback invocation, not an acknowledgement of successful application processing; the listener MAY explicitly resume from its own saved revision token. The dispatcher MUST open and close the read-only revision view; it MUST be valid only during that callback and MUST NOT be retained or used afterwards. Retained references MUST fail safely rather than read a mutable successor or freed storage. The listener MUST NOT own or prolong the lifetime of the view. TXN-803 bounds close even when the callback never returns.
+A listener exception MUST be logged and MUST NOT trigger automatic retry of that failed delivery. A delivery means a callback invocation, not an acknowledgement of successful application processing. The dispatcher MUST open and close the read-only revision view; it MUST be valid only during that callback and MUST NOT be retained or used afterwards. Retained references MUST fail safely rather than read a mutable successor or freed storage. A callback still running at the close deadline retains backing ownership under TXN-803 until a later retirement attempt can complete.
 
 ## Conditional write preconditions (TXN-311)
 
@@ -946,7 +968,7 @@ interruption, stalled workers and stale-forward secondary beacons.
 
 - TXN-602: marker-directory persistence and the two-crash model need analysis. The future
   CommitRecovery model includes marker durability independently from page durability.
-- TXN-802–806: registration/token signatures, configuration keys/ranges, explicit-truncate interaction and safe cancellation/retirement mechanics after a timed-out callback. Replay, no callback retry, view ownership, queue default 10,000 and close default 5 seconds are decided.
+- TXN-802–806: durable replay/resume and timeline-aware token registration remain follow-up work. The implemented bounded queue, overflow policy and callback ownership are specified in those requirements; configuration is owned by CONF-201.
 - TXN-102: existing 5-second node-writer and 20-second page-writer admission bounds are recorded; any API consolidation is outside this P0 draft.
 - TXN-311: the check, its exception, the subtree walk and its work-budget assertion are unimplemented. It depends on VER-206 stamping and on the FMT-209 incarnation id and last-revert metadata, including generation at resource creation, TXN-404 truncate, REST-210 replacement and TXN-613/614 restore.
 - Open (CONV-101), recorded here because TXN-311's rationale establishes it: the rolling hash does not
@@ -990,22 +1012,22 @@ Neither model nor a crash CI lane is delivered by this chapter.
 | TXN-310 | [CommitTimestampPrecisionConformanceTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/CommitTimestampPrecisionConformanceTest.java):`aTieAndABackwardsClockStepAreAdjustedToOneMicrosecondAfterThePredecessor`, `revertUsesTheLatestCommittedTimestamp` (JSON/XML, both persistent backends, warm and cold), `wallClockCommitsStrictlyIncreaseAndKeepMicrosecondPrecision`, `retryUsesItsTimestampAfterSyncOrAsyncPhaseOneFailure`, `retryAfterAutomaticAsyncPhaseOneFailureUsesExplicitTimestamp`; [CommitTimestampLateFailureTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/CommitTimestampLateFailureTest.java) (post-root final-flush failures, warm index, history and lookup before cold reopen, both persistent backends and synchronous/asynchronous phase one); [RevisionIndexIntegrationTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/RevisionIndexIntegrationTest.java); [AsyncCommitTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/AsyncCommitTest.java) **Planned:** StrictCommitTimestampConformance: controlled repeating/regressing live clocks and max(previous+1us,clock) oracle; import equal/decreasing/increasing source sequences with conditional adjustment oracle; original metadata queryability, preserved order, first and unchanged timestamps, live commit after import, sync/async and JSON/XML reopen/recovery without wall-clock timing assertions. | designed |
 | TXN-311 | No existing test mapped. **Planned:** ConditionalWritePreconditionConformance: every target kind, interleaved touching and non-touching commits, concurrent reorder and same-depth move, deleted target, reused node key after revert, tokens from before a truncate and a replacement, token above the head, pruned token revision, document root, empty foreign commit and accepted retry, each with hashing enabled and disabled; **Planned:** ConditionalWritePreconditionBudgetTest record-read bounds (CONV-301). | proposed |
 | TXN-401 | [RollbackStateTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/node/json/RollbackStateTest.java); [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java) **Planned:** RollbackMatrixConformance: JSON/XML, all versioning types, sync/async failure, compare serialization, indexes and diff after retry. | partial |
-| TXN-402 | [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java) **Planned:** RollbackMarkerConformance: failure at every reconstruction stage, closed rollback while a new writer owns the resource, marker and permit assertions. | designed |
+| TXN-402 | See [requirement mapping](#txn-402--rollback-failure). | designed |
 | TXN-403 | [XmlRevertTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/node/xml/XmlRevertTest.java); [JsonIdentityHistoryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/json/JsonIdentityHistoryTest.java); [RevertHandlerTest.kt](../bundles/sirix-rest-api/src/test/kotlin/io/sirix/rest/RevertHandlerTest.kt):`optionalHeadAndMessageAndRevertToHeadAppendARevision`; [RevertHandlerTest.kt](../bundles/sirix-rest-api/src/test/kotlin/io/sirix/rest/RevertHandlerTest.kt):`prunedTargetFailsWithoutAppendingOrReplacingTheTarget` **Planned:** RevertParityConformance: Java/REST/MCP, JSON/XML, current head/old head/pruned target, unchanged history after cold reopen. | partial |
 | TXN-404 | [ExplicitRollbackCrashSimulationTest.java](../bundles/sirix-core/src/test/java/io/sirix/crash/ExplicitRollbackCrashSimulationTest.java); [NodeStorageEngineWriterTruncateToRevisionIntegrationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/NodeStorageEngineWriterTruncateToRevisionIntegrationTest.java); [RAMStorageTruncateToTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/ram/RAMStorageTruncateToTest.java); [SparseRevisionHistoryTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/SparseRevisionHistoryTest.java) **Planned:** TruncateReaderFenceConformance: open readers below/at/above target across handles, dispatcher views and independent page-read paths; blocked set named in immediate error, unchanged bytes/history/state, no wait; reader-admission race; close conflicting readers then successful truncate, JSON/XML and supported backends. | designed |
 | TXN-501 | [CommitSafetyTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/CommitSafetyTest.java):`failedCommitKeepsTransactionUsableAndGuardsClose` | partial |
-| TXN-502 | [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java) **Planned:** AsyncCloseOutcomeConformance: known pre-point failure, durable cleanup failure, uncertain force, dirty successor and repeated close; verify result classification, repair flag, no fsync retry and safe ownership. | designed |
-| TXN-503 | [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java); [AbstractResourceSessionWriteFailureCleanupTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java) **Planned:** TeardownConformance: inject failures in reader, log, backend, pool and session children; verify each cleanup is attempted without freeing live-worker state. | designed |
-| TXN-504 | [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java) **Planned:** WorkerOwnershipConformance: stalled worker, interrupted wait, failed cleanup and retry; assert no successor admission or use-after-free before exit. | designed |
-| TXN-505 | [JsonDatabaseLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/node/json/JsonDatabaseLifecycleTest.java); [AbstractResourceSessionWriteFailureCleanupTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java) **Planned:** SessionAbortConformance: JSON/XML known-uncommitted dirty work, known durable cleanup failure, uncertain async durability and rollback failure; assert each preserved outcome and no repeated fsync on close/reopen. | designed |
-| TXN-601 | [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java) **Planned:** MarkerIdentityConformance: empty/nonempty regular file, directory, creation failure and deletion failure. | designed |
+| TXN-502 | See [requirement mapping](#txn-502--close-preserves-the-classified-async-outcome). | designed |
+| TXN-503 | See [requirement mapping](#txn-503--independent-cleanup). | partial |
+| TXN-504 | See [requirement mapping](#txn-504--worker-ownership-fence). | partial |
+| TXN-505 | See [requirement mapping](#txn-505--session-abort). | designed |
+| TXN-601 | See [requirement mapping](#txn-601--marker-identity). | partial |
 | TXN-602 | [PowerLossSimulationTest.java](../bundles/sirix-core/src/test/java/io/sirix/crash/PowerLossSimulationTest.java); [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java):`tornWriteWithoutMarker_lastCommittedRevisionStillReadable` **Planned:** MarkerLossCrashConformance: first append before marker persistence, lost directory entry, stale-forward SECONDARY then second crash. | designed |
-| TXN-603 | [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java) **Planned:** MarkerLifecycleConformance: enumerate success and every failure exit, then reopen and recover. | designed |
-| TXN-604 | [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java); [CrashRecoveryOrderingTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryOrderingTest.java); [RevisionRecordDurabilityFrontierTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/RevisionRecordDurabilityFrontierTest.java) **Planned:** RecoveryOutcomeConformance: complete durable N with stale beacon/session, staged incomplete record, unknown N both present and absent, sibling cache preservation, repeat recovery and crash during recovery; verify reported outcome before writer admission. | designed |
+| TXN-603 | See [requirement mapping](#txn-603--marker-removal). | partial |
+| TXN-604 | See [requirement mapping](#txn-604--recover-from-durable-disk-frontier). | designed |
 | TXN-605 | [AsyncCommitTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/AsyncCommitTest.java); [AsyncCommitFrontierOrderingTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AsyncCommitFrontierOrderingTest.java) | partial |
-| TXN-606 | [AbstractResourceSessionWriteFailureCleanupTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java) **Planned:** RecoveryFailureConformance: backend open, root discovery, truncate, catalogue/cache and marker failures; fresh reopen revalidates durable evidence, preserves error/stage and never repeats a failed force to infer success. | designed |
-| TXN-607 | [RAMStorageTruncateToTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/ram/RAMStorageTruncateToTest.java) **Planned:** InMemoryMarkerConformance: inject commit/rollback/close failures and reopen admission; assert no marker creation and no recovery wedge. | designed |
-| TXN-608 | No existing test mapped. **Planned:** RecoveryIdentityConformance: marker creation failure, session close/reopen, same-path resource recreation and persisted identity mismatch. | designed |
+| TXN-606 | See [requirement mapping](#txn-606--failed-recovery-refuses-admission). | designed |
+| TXN-607 | See [requirement mapping](#txn-607--in-memory-resources-never-write-markers). | partial |
+| TXN-608 | See [requirement mapping](#txn-608--marker-creation-failure-obligation). | partial |
 | TXN-609 | [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java):`concurrentReader_survivesWriterCrashAndRecovery` **Planned:** ReadAdmissionRecoveryConformance: marker plus unreachable tail; assert unchanged tail size and marker on reads, then repaired state on writer admission. | partial |
 | TXN-610 | [CrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java):`tornWriteWithoutMarker_lastCommittedRevisionStillReadable`; [PreallocatedCommitTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/PreallocatedCommitTest.java); [RevisionRecordDurabilityFrontierTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/RevisionRecordDurabilityFrontierTest.java) | partial |
 | TXN-611 | [InterruptedFirstCommitRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/InterruptedFirstCommitRecoveryTest.java); [InterruptedFirstCommitRecoveryStoreFeaturesTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/InterruptedFirstCommitRecoveryStoreFeaturesTest.java) | partial |
@@ -1014,13 +1036,13 @@ Neither model nor a crash CI lane is delivered by this chapter.
 | TXN-614 | [BackupRestoreTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupRestoreTest.java); [DatabaseOwnershipTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseOwnershipTest.java) **Planned:** BackupStartSnapshotConformance: barrier at start, concurrent create/commit/drop, assert exact resource/head manifest; pinned drop names backup in progress and preserves all state; later-created resource excluded; two overlapping backups and failed-copy cleanup; restore and compare every pinned revision plus hidden derived state. | designed |
 | TXN-615 | [RAMStorageCommittedRevisionTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/ram/RAMStorageCommittedRevisionTest.java) (AC1); [LocalDatabaseInMemoryLifetimeTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/LocalDatabaseInMemoryLifetimeTest.java) (AC2-AC5, AC8, AC9, AC11); [DatabasesInMemoryLifetimeTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabasesInMemoryLifetimeTest.java) (AC6, AC7, AC12, AC15); [InMemoryLifetimeForkedJvmTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/InMemoryLifetimeForkedJvmTest.java) (AC10, AC13); [BackupManagerInMemoryResourcesTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupManagerInMemoryResourcesTest.java) (AC14) **Planned:** AC4 token bullet behind FMT-209/TXN-311/JAPI-111. | partial |
 | TXN-701 | [AsyncAutoCommitTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/AsyncAutoCommitTest.java); [AsyncFlushColdReopenVersioningTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushColdReopenVersioningTest.java) | partial |
-| TXN-702 | [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java):`unboundCloseBlocksSuccessorUntilAbortedTrieTailIsSafeToReuse` **Planned:** AsyncTailRecoveryConformance: abort after page append, warm and cold reopen, sibling resource active, assert no stale page. | designed |
-| TXN-703 | [AsyncCommitTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/AsyncCommitTest.java); [AsyncCommitFrontierOrderingTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AsyncCommitFrontierOrderingTest.java) **Planned:** AsyncPipelineConformance: barrier-observed successor overlap; successor-construction plus inline-hardening double failure; submission rejection; assert balanced slot and original cause. | designed |
+| TXN-702 | See [requirement mapping](#txn-702--abandoned-prewrites). | partial |
+| TXN-703 | See [requirement mapping](#txn-703--depth-one-async-commit-pipeline). | partial |
 | TXN-704 | [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java) **Planned:** AsyncOutcomeFenceConformance: repeated await/mutate/commit/rollback after uncertain force, multiple handles to the same resource, sibling-resource independence, cleanup failure and reopen; assert no further durability attempt or new write admission. | designed |
 | TXN-705 | No existing test mapped. **Planned:** UnknownCommitOutcomeConformance: force/DSYNC faults with both persisted and lost storage outcomes, assert exactly one attempt at the failed durability operation, resource-wide rejection across handles and async fallback/close/rollback, then cold recovery and explicit N-present/N-absent result. | designed |
-| TXN-801 | [CommitSafetyTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/CommitSafetyTest.java) **Planned:** HookLifecycleConformance: each lifecycle entry point from a pre-hook, JSON/XML, sync/async modes; assert immediate exception, no state change, retained dirty data and reusable ownership. | designed |
-| TXN-802 | No existing test mapped. **Planned:** PostCommitDispatcherConformance: stalled listener for N while N+1 commits, thread separation, resource ordering and token identity, exact revision content, read-only ownership; deterministic work/lock counters show no listener wait or replay work on commit. | designed |
-| TXN-803 | No existing test mapped. **Planned:** BoundedListenerCloseConformance: controlled clock/scheduler with default 5-second and custom bounds, never-returning listener, queued replay work, logged abandonment, safe view lifetime and later resume; JSON/XML and close-from-callback rejection. | designed |
-| TXN-804 | No existing test mapped. **Planned:** CallbackEntryPointConformance: one deterministic regression per public/forwarded lifecycle entry point, pre-hook/listener and JSON/XML; include shutdown forwarding, nested handles and cross-thread blocked callback. | designed |
-| TXN-805 | No existing test mapped. **Planned:** ListenerResumeConformance: stop at X, commit X+1..N, restart and compare ordered tokens/content with retained history; tiny queue overflow and default 10,000 capacity; two resources with equal revision numbers; retained versus pruned needed revisions, no false HistoryLostException and no commit-thread replay work. | designed |
-| TXN-806 | No existing test mapped. **Planned:** ListenerFailureAndViewConformance: throwing callback invokes once and logs; next token proceeds; explicit consumer resume redelivers from its saved checkpoint; exact-revision view closes after normal/throwing callback, retained access fails safely, timed-out callback cannot read freed memory. | designed |
+| TXN-801 | See [requirement mapping](#txn-801--pre-commit-hooks). | partial |
+| TXN-802 | See [requirement mapping](#txn-802--post-commit-dispatcher-and-view). | partial |
+| TXN-803 | See [requirement mapping](#txn-803--bounded-listener-shutdown). | partial |
+| TXN-804 | See [requirement mapping](#txn-804--close-from-every-callback-context). | partial |
+| TXN-805 | See [requirement mapping](#txn-805--revision-token-replay-and-bounded-queue). | partial |
+| TXN-806 | See [requirement mapping](#txn-806--listener-failure-and-callback-view-ownership). | partial |

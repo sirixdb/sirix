@@ -42,6 +42,16 @@ class ResourceSessionFactoryTest {
       final var delegate = new ResourceStoreImpl<>(new PathBasedPool<>(), legacyFactory);
       final ResourceStore<JsonResourceSession> legacyStore = new ResourceStore<>() {
         @Override
+        public DatabaseNotifications getNotifications() {
+          return delegate.getNotifications();
+        }
+
+        @Override
+        public void assertCanClose() {
+          delegate.assertCanClose();
+        }
+
+        @Override
         public JsonResourceSession beginResourceSession(final ResourceConfiguration config, final BufferManager manager,
             final Path location) {
           return delegate.beginResourceSession(config, manager, location);

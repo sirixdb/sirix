@@ -1,0 +1,26 @@
+{
+  "sirix-query:test": {
+    "tests": 359,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5
+  },
+  "sirix-query:bitemporalLoaderAllocationTest": {
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "sirix-mcp:test": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "sirix-rest-api:offlineTest": {
+    "tests": 10,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

@@ -368,6 +368,9 @@ public final class EngineWorkCounters {
   public static final WorkCounter REPLAY_RECORD_VISITS = replay("replay.recordVisits",
       "one node cursor move, storage lookup or prepare call, including nested fallbacks and commit lifecycle work",
       ReplayWorkDiagnostics::recordVisits);
+  public static final WorkCounter LIFECYCLE_DOCUMENT_VISITS = replay("lifecycle.documentVisits",
+      "one document cursor move, storage lookup or preparation, including nested delegations",
+      ReplayWorkDiagnostics::documentVisits);
   public static final WorkCounter REPLAY_PATH_STEPS = replay("replay.pathSteps",
       "one path-summary cursor move, including cached moves and commit-time writer initialization",
       ReplayWorkDiagnostics::pathSteps);
