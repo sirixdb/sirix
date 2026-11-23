@@ -406,7 +406,9 @@ it is never reconstructed from XML or census identities alone.
 
 Run completion and loaded-evidence completeness are distinct. The helper keeps one module
 value recording supplied reports/censuses, whether each was read completely and validly,
-and recorded census failures. Its single completeness predicate controls acceptance and
+and recorded census failures. Report and census paths are resolved against the working
+directory before deduplication and grouping, so mixed absolute/relative spellings share one
+module value. Its single completeness predicate controls acceptance and
 absence-based staleness. A restricted run's nonempty report and census must both be supplied;
 report-only or census-only input cannot prove an absent identity stale. A missing helper path
 is not a supplied empty artifact. The lane can record a known zero count because it clears

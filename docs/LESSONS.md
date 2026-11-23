@@ -404,7 +404,8 @@ See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-ope
   to unproven, and preserve it when reloading serialized reports. Load selected targets with
   their completeness: a class emitting no mutant still belongs to the measured scope. Run
   completion is not loaded-evidence completeness: require every nonempty report/census component
-  before judging absence, and retain saved failures even when their artifact is omitted. Use first-parent history for
+  before judging absence, and retain saved failures even when their artifact is omitted. Resolve
+  artifact paths before deduplication and grouping; spelling must not split one generated set. Use first-parent history for
   branch windows, and explicitly schedule new test tasks
   in CI; compilation alone supplies no regression protection. Evidence:
   [mutation reporter review](postmortems/pr-mutation-evidence-review.md).

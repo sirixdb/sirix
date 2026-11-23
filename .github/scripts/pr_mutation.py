@@ -1876,7 +1876,7 @@ class ModuleEvidence:
 def load_evidence(reports, censuses, index):
     modules = {}
     for kind, paths in (('report', reports), ('census', censuses)):
-        for path in dict.fromkeys(Path(value) for value in paths):
+        for path in dict.fromkeys(Path(value).resolve() for value in paths):
             directory = None
             if kind == 'report' and path.name == 'mutations.xml' and path.parent.name == 'report':
                 directory = path.parent.parent

@@ -213,3 +213,27 @@
   and validate test oracles against the contract rather than preserving an earlier expectation.
 - Vision check: the change keeps verification claims about engine results and cost trustworthy;
   there is no product behavior or default change.
+
+
+## Follow-up: artifact identity must precede grouping
+
+- Fix / issue: review finding R16.
+- Symptom: an absolute report path and relative census path for the same completed restricted
+  module created two half-complete evidence values. The checker reported an unmatched existing
+  entry as not judged and could exit zero where a fully loaded generated set proves it stale.
+- Root cause: the loader deduplicated and grouped unresolved path spellings. Both collections
+  now resolve against the working directory before either operation. The same grouped value
+  consequently reaches completeness, survivor acceptance and staleness; remap shares this boundary.
+- Why tests missed it: complete-pair fixtures used matching absolute forms, and repeated-report
+  tests used identical spellings rather than two spellings of the same artifact.
+- Regression tests: `test_mixed_artifact_path_forms_keep_the_stale_verdict` checks all four
+  absolute/relative pairings against CONV-202 rule 5. Companion cases verify acceptance for both
+  disposition kinds in each direction and one failing-mutant record when both path forms are
+  supplied together. They execute the checker against actual lane artifacts and assert labels,
+  failure status and output multiplicity, without inspecting implementation source.
+  Focused command: `python3 -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'`.
+  All three new regressions rejected the starting implementation; the fixed reporter passed
+  all 258 focused tests.
+- Lesson: [canonicalize identity before grouping evidence](../LESSONS.md#mutation-evidence-contracts).
+- Vision check: correct grouping preserves trustworthy verification of engine results and cost;
+  there is no product behavior or default change.

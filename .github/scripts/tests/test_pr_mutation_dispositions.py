@@ -813,6 +813,70 @@ class RefactorHelperTest(unittest.TestCase):
                 self.assertTrue(failing)
                 self.assertIn('FAIL entry 1 [stale] a.Bar.run', text)
 
+    def test_mixed_artifact_path_forms_keep_the_stale_verdict(self):
+        """CONV-203: absolute and relative spellings do not change a complete generated set."""
+        with lane() as work:
+            old = entry(indexes=[42])
+            _, results, _ = work.run([mutant('KILLED', 11)], head=old, base=old,
+                changed=(5,), census=[census_record(21, indexes=(99,))])
+            self.assertEqual(states(results), ['stale'])
+            report = work.output / 'sirix-core/report/mutations.xml'
+            census = work.output / 'sirix-core/census.jsonl'
+            with contextlib.chdir(work.root), \
+                 patch.object(mutation, 'changed_sources', return_value=(
+                     {}, {'sirix-core': {SOURCE: [5]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                for relative_report, relative_census in itertools.product((False, True), repeat=2):
+                    with self.subTest(report=relative_report, census=relative_census):
+                        report_path = report.relative_to(work.root) if relative_report else report
+                        census_path = census.relative_to(work.root) if relative_census else census
+                        failing, text = mutation.check_dispositions(
+                            work.root, [report_path], 'f' * 40, False, [census_path])
+                        self.assertTrue(failing)
+                        self.assertIn('FAIL entry 1 [stale] a.Foo.run', text)
+                        self.assertNotIn('[not judged]', text)
+
+    def test_mixed_artifact_path_forms_preserve_both_kinds_of_acceptance(self):
+        """CONV-203: the same supplied pair authorizes the same survivor in either path form."""
+        for kind in ('equivalent', 'killed-out-of-lane'):
+            with self.subTest(kind=kind), lane() as work:
+                work.run([mutant('SURVIVED', 11)], head=entry(kind),
+                         census=[census_record(21, indexes=(99,))])
+                report = work.output / 'sirix-core/report/mutations.xml'
+                census = work.output / 'sirix-core/census.jsonl'
+                with contextlib.chdir(work.root), \
+                     patch.object(mutation, 'changed_sources', return_value=(
+                         {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=None):
+                    for relative_report, relative_census in itertools.product((False, True), repeat=2):
+                        with self.subTest(report=relative_report, census=relative_census):
+                            report_path = report.relative_to(work.root) if relative_report else report
+                            census_path = census.relative_to(work.root) if relative_census else census
+                            failing, text = mutation.check_dispositions(
+                                work.root, [report_path], 'f' * 40, False, [census_path])
+                            self.assertFalse(failing)
+                            self.assertIn('ok entry 1 [accepted]', text)
+
+    def test_duplicate_path_spellings_report_each_failing_mutant_once(self):
+        """One recorded mutant is one failure, even if its artifact is supplied twice."""
+        with lane() as work:
+            work.run([mutant('SURVIVED', 11)], census=[census_record(21, indexes=(99,))])
+            report = work.output / 'sirix-core/report/mutations.xml'
+            census = work.output / 'sirix-core/census.jsonl'
+            with contextlib.chdir(work.root), \
+                 patch.object(mutation, 'changed_sources', return_value=(
+                     {}, {'sirix-core': {SOURCE: [11]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=None):
+                failing, text = mutation.check_dispositions(work.root,
+                    [report, report.relative_to(work.root)], 'f' * 40, False,
+                    [census.relative_to(work.root), census])
+            self.assertTrue(failing)
+            failures = [line for line in text.splitlines() if line.startswith('FAIL mutant ')]
+            self.assertEqual(len(failures), 1)
+
     def test_check_preserves_lane_completion_for_both_disposition_kinds(self):
         """CONV-203: identical XML cannot promote failed-run evidence to accepted."""
         for kind in ('equivalent', 'killed-out-of-lane'):
