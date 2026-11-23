@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import javax.tools.ToolProvider;
@@ -23,8 +24,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.w3c.dom.Element;
 
 /**
- * CONV-202/205: real PIT must persist completed work behind an unfinished first unit.
- * The oracle is the fixture's arithmetic contract, not a callback invoked by the test.
+ * CONV-202/205: real PIT must persist completed work behind an unfinished first unit. The oracle is
+ * the fixture's arithmetic contract, not a callback invoked by the test.
  */
 final class StreamingDeadlineTest {
   @TempDir
@@ -49,9 +50,11 @@ final class StreamingDeadlineTest {
           "completed fast mutant must be durable while the first unit is still blocked\n" + log());
       final List<String> records = Files.readAllLines(stream);
       assertEquals(1, records.size(), "one MATH mutant in Fast, without duplicate reporting");
-      final Element mutation = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-          .parse(new ByteArrayInputStream(records.getFirst().getBytes(StandardCharsets.UTF_8)))
-          .getDocumentElement();
+      final Element mutation =
+          DocumentBuilderFactory.newInstance()
+                                .newDocumentBuilder()
+                                .parse(new ByteArrayInputStream(records.getFirst().getBytes(StandardCharsets.UTF_8)))
+                                .getDocumentElement();
       assertEquals("deadline.Fast", mutation.getElementsByTagName("mutatedClass").item(0).getTextContent());
       assertEquals("KILLED", mutation.getAttribute("status"));
       assertTrue(process.isAlive(), "the earlier unit has not finished");
@@ -67,19 +70,25 @@ final class StreamingDeadlineTest {
     try {
       assertTrue(process.waitFor(40, TimeUnit.SECONDS), "PIT must finish with the fixture released");
       assertEquals(0, process.exitValue(), log());
-      final List<String> records = Files.readAllLines(directory.resolve("report").resolve(StreamingResultListener.FILE));
+      final List<String> records =
+          Files.readAllLines(directory.resolve("report").resolve(StreamingResultListener.FILE));
       assertEquals(4, records.size(), "three Slow additions and one Fast addition under MATH");
       final Set<String> methods = new HashSet<>();
       for (final String record : records) {
-        final Element mutation = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-            .parse(new ByteArrayInputStream(record.getBytes(StandardCharsets.UTF_8))).getDocumentElement();
+        final Element mutation =
+            DocumentBuilderFactory.newInstance()
+                                  .newDocumentBuilder()
+                                  .parse(new ByteArrayInputStream(record.getBytes(StandardCharsets.UTF_8)))
+                                  .getDocumentElement();
         assertEquals("KILLED", mutation.getAttribute("status"));
         methods.add(mutation.getElementsByTagName("mutatedClass").item(0).getTextContent() + "."
             + mutation.getElementsByTagName("mutatedMethod").item(0).getTextContent());
       }
       assertEquals(Set.of("deadline.Fast.value", "deadline.Slow.a", "deadline.Slow.b", "deadline.Slow.c"), methods);
-      final Element xml = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-          .parse(directory.resolve("report/mutations.xml").toFile()).getDocumentElement();
+      final Element xml = DocumentBuilderFactory.newInstance()
+                                                .newDocumentBuilder()
+                                                .parse(directory.resolve("report/mutations.xml").toFile())
+                                                .getDocumentElement();
       assertEquals(4, xml.getElementsByTagName("mutation").getLength(), "the ordinary XML listener still completes");
     } finally {
       stop(process);
@@ -138,18 +147,20 @@ final class StreamingDeadlineTest {
       compile.add(source.resolve(name + ".java").toString());
     }
     assertEquals(0, ToolProvider.getSystemJavaCompiler().run(null, null, null, compile.toArray(String[]::new)));
-    final List<String> command = new ArrayList<>(List.of(
-        Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-Xmx256m"));
+    final List<String> command =
+        new ArrayList<>(List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-Xmx256m"));
     command.add("-javaagent:" + System.getProperty("pit.regression.agent"));
     command.addAll(List.of("-cp", classpath, "org.pitest.mutationtest.commandline.MutationCoverageReport",
-        "--reportDir", directory.resolve("report").toString(), "--sourceDirs", source.getParent().toString(),
-        "--targetClasses", "deadline.Fast,deadline.Slow", "--targetTests", "deadline.*Test",
-        "--classPath", classes + "," + Path.of(Assert.class.getProtectionDomain().getCodeSource().getLocation().toURI())
-            + "," + Path.of(Matcher.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-        "--mutators", "MATH", "--threads", "2", "--timeoutConst", "120000",
-        "--outputFormats", "XML,STREAM", "--timestampedReports", "false", "--includeLaunchClasspath", "false"));
-    return new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(directory.resolve("pit.log").toFile())
-        .start();
+        "--reportDir", directory.resolve("report").toString(), "--sourceDirs",
+        Objects.requireNonNull(source.getParent(), "fixture source directory must have a parent").toString(),
+        "--targetClasses", "deadline.Fast,deadline.Slow", "--targetTests", "deadline.*Test", "--classPath",
+        classes + "," + Path.of(Assert.class.getProtectionDomain().getCodeSource().getLocation().toURI()) + ","
+            + Path.of(Matcher.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+        "--mutators", "MATH", "--threads", "2", "--timeoutConst", "120000", "--outputFormats", "XML,STREAM",
+        "--timestampedReports", "false", "--includeLaunchClasspath", "false"));
+    return new ProcessBuilder(command).redirectErrorStream(true)
+                                      .redirectOutput(directory.resolve("pit.log").toFile())
+                                      .start();
   }
 
   private void await(final Path receipt, final Process process) throws Exception {
