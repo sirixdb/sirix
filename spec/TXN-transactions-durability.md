@@ -439,11 +439,11 @@ IN_MEMORY resources MUST NOT create the filesystem commit marker on commit, pref
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`createPageTransaction`; [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java):`resourceUuid`
-- **Verified by:** [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`failedMarkerCreationSurvivesSessionClose`, `removedResourceCannotPoisonRecreatedResourceAtTheSamePath`
+- **Verified by:** [NodeTransactionAbortLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java):`failedMarkerCreationSurvivesSessionClose`, `removedResourceCannotPoisonRecreatedResourceAtTheSamePath`; [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`restoredBackupDoesNotInheritDeletedRecovery`
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** AbstractResourceSession now retains a process-local recovery obligation keyed by marker path and persisted resource identity. NodeTransactionAbortLifecycleTest covers failed marker creation/retry; DatabaseNotificationLifecycleTest covers deletion retirement. The obligation is not itself durable across process exit.
 
-For a persistent resource, failed marker creation MUST retain a process-local recovery obligation tied to the resource’s persisted identity and path. The next admission MUST re-establish the marker and recover. Deleting/recreating the resource MUST NOT transfer the old obligation to its new identity.
+For a persistent resource, failed marker creation MUST retain a process-local recovery obligation tied to the resource’s persisted identity and path. The next admission MUST re-establish the marker and recover. Deleting/recreating the resource MUST NOT transfer the old obligation to its new identity. Successful removal through `Database.removeResource` MUST release its process-local obligation: restoring a clean backup at the same path, even with the same persisted identity, MUST admit a writer without recreating the deleted resource's recovery marker and MUST preserve the backed-up committed values.
 
 ### TXN-609 — Read admission does not perform tail recovery
 
@@ -831,11 +831,11 @@ Database, handle and session close MUST stop notification admission and wait at 
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [DatabaseHandle.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java):`close`; [LocalDatabase.java](../bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java):`close`; [Databases.java](../bundles/sirix-core/src/main/java/io/sirix/access/Databases.java); [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`close`; [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`truncateTo`
-- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`allLifecycleEntryPointsRejectCallbackReentry`, `closingHandleRejectsCallbackBeforeItsClosingWait`, `callbackRejectsBeforeWaitingOnAnOuterMutationGate`, `callbackScopeRestoresItsCallerAfterSuccessOrFailure`
+- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`allLifecycleEntryPointsRejectCallbackReentry`, `closedHandleCreationRejectsCallbackReentry`, `closingHandleRejectsCallbackBeforeItsClosingWait`, `callbackRejectsBeforeWaitingOnAnOuterMutationGate`, `callbackScopeRestoresItsCallerAfterSuccessOrFailure`
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Same-database guards cover handle, session, writer, page, mutation-gate and manager/shutdown forwarding. Source-mapped regressions are not a claim of complete default-CI conformance.
 
-Lifecycle calls from any pre-commit hook or post-commit listener targeting the same database, including another handle, session or writer, MUST immediately throw `IllegalStateException` before lock acquisition or waiting. This includes an already-closing handle, mutation-gate entry, page-writer truncation, database-manager and shutdown forwarding. A dispatcher MUST NOT wait for itself. Independent read-only work and lifecycle operations on a different database remain permitted.
+Lifecycle calls from any pre-commit hook or post-commit listener targeting the same database, including another handle, session or writer, MUST immediately throw `IllegalStateException` before lock acquisition or waiting. This includes an already-closing handle, mutation-gate entry, page-writer truncation, database-manager and shutdown forwarding. Callback rejection takes precedence over resource-creation argument validation and an already-closed target handle, and its diagnostic MUST identify the callback restriction. A dispatcher MUST NOT wait for itself. Independent read-only work and lifecycle operations on a different database remain permitted.
 
 ### TXN-805 — Revision-token replay and bounded queue
 

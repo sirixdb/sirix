@@ -163,11 +163,38 @@ The repository file `.github/mutation-test-associations.toml` MUST state which e
 - **Status:** proposed
 - **Since:** 1.0
 - **Code:** [README.md](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md); [VERIFICATION.md](../docs/VERIFICATION.md)
-- **Verified by:** No existing test mapped. **Planned:** Budget inventory reconciliation against executable work-counter assertions; execute the six mapped suites and the Work budgets block for affected product changes.
-- **Evidence class:** doc-only (unverified automation); decided target has unverified implementation gaps
+- **Verified by:** Lifecycle refinement: [LifecycleWorkBudgetTest.java](../bundles/sirix-core/src/test/java/io/sirix/budget/LifecycleWorkBudgetTest.java), [LifecycleLockAllocationBudgetTest.java](../bundles/sirix-core/src/test/java/io/sirix/budget/LifecycleLockAllocationBudgetTest.java) (local execution). **Planned:** Budget inventory reconciliation against executable work-counter assertions; execute the six mapped suites and the Work budgets block for affected product changes.
+- **Evidence class:** doc-only inventory automation; code+local-test lifecycle refinement (not final-head CI acceptance)
 - **Gap/note:** The official classification is decided. Command/catalogue reconciliation remains planned follow-up work. Exact six-class inventory is below.
 
 Existing deterministic work-bound assertions, including those outside the current Work budgets command block, MUST be treated as official performance requirements. A bound MUST NOT be widened merely to pass a regression, and a wall-clock assertion MUST NOT replace it. Read, load and query changes MUST run the applicable work budgets and allocation checks. The six classes listed below MUST join the maintained budget inventory and invocation in follow-up tooling work.
+
+Lifecycle budget refinement (Firstmate097, TXN-503/504/802): on FILE_CHANNEL JSON and XML
+resources with hashing, path summaries and diff storage disabled, an empty KEEP_OPEN,
+KEEP_OPEN_ASYNC_FLUSH or KEEP_OPEN_ASYNC_COMMIT commit (including awaiting its publication)
+after loading a flat 16- or 4,096-value document MUST perform 1–2 data-file forces and at most
+16 document-record visits, including nested cursor/storage delegations. The allowance is four
+root/cursor initialization operations with up to four delegated visits each; it has no term in
+document size or retained revisions. The commit MUST publish the next revision and preserve
+every value. Closing that clean writer, its session, or its database (with eight additional
+readers, while a peer handle/session retains the storage pool) MUST add zero data-file
+forces and at most 16 document-record visits per owned writer;
+closing it again MUST add zero record visits and forces. All owned readers and writers MUST
+be closed; reopening MUST return the committed document. A root traversal of the same
+fixture MUST record nonzero work. Cached cursor self-moves and direct document storage
+reads MUST each have a nonzero control on both the document counter and the preserved
+all-index total, so one connected seam cannot hide a disconnected one.
+The document counter excludes name-dictionary and other index-record visits. These bounds
+exclude final storage-pool shutdown (which has its own safety flush), optional indexing,
+hashing, diff generation and callback delivery,
+whose work has separate contracts; they include lifecycle ownership/fencing work.
+
+The uncontended transaction execution lock used by commit/close MUST allocate zero bytes
+for acquire/release and close-admission checking after warmup. This allocation check runs in
+the existing clean allocation JVM when thread allocation accounting is supported; unsupported
+VMs explicitly skip it. Neither budget asserts elapsed time. Verification:
+`LifecycleWorkBudgetTest` and `LifecycleLockAllocationBudgetTest`; local execution and
+counterfactuals are qualified in [the mutation notes](../docs/lifecycle-mutation-accounting.md).
 
 ## Status and terminology (CONV-101, CONV-102)
 
@@ -234,4 +261,4 @@ and a weekly/RC crash lane are required follow-up work, not completed by Markdow
 | CONV-202 | [test_pr_mutation_dispositions.py](../.github/scripts/tests/test_pr_mutation_dispositions.py) `VerdictTest`, `MergeBaseFileTest`, `ClassReaderTest`. | partial |
 | CONV-203 | [test_pr_mutation_dispositions.py](../.github/scripts/tests/test_pr_mutation_dispositions.py) `ReviewTest`, `RefactorHelperTest`, `CounterfactualTest`; review acceptance; sample-refactor churn in the PR. | partial |
 | CONV-204 | [test_pr_mutation_dispositions.py](../.github/scripts/tests/test_pr_mutation_dispositions.py) `AssociationTest`; release-contract selection tests in test_pr_mutation.py. | partial |
-| CONV-301 | No existing test mapped. **Planned:** Budget inventory reconciliation against executable work-counter assertions; execute the six mapped suites and the Work budgets block for affected product changes. | proposed |
+| CONV-301 | LifecycleWorkBudgetTest and LifecycleLockAllocationBudgetTest locally verify the lifecycle refinement. **Planned:** Budget inventory reconciliation against executable work-counter assertions; execute the six mapped suites and the Work budgets block for affected product changes. | proposed |

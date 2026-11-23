@@ -330,7 +330,6 @@ public final class DatabaseNotifications implements AutoCloseable {
               }
             }
           }
-          progress.notifyAll();
         }
       }
     }

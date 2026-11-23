@@ -1,0 +1,68 @@
+{
+  "sharedArenaRejectGlobalTest": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "sharedArenaDiagnosticGlobalTest": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "dictionaryReadViewAllocationTest": {
+    "tests": 15,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "allocatorColdStartupTest": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "test": {
+    "tests": 1124,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "storageEpochStoreIdentityTest": {
+    "tests": 27,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "cleanerStartupTest": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "sharedArenaRejectSkipTest": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "configurationStartupTest": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "sharedArenaDiagnosticSkipTest": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2
+  },
+  "validTimeDisabledLookupCacheTest": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

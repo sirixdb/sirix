@@ -80,3 +80,8 @@ tests = ["io.sirix.mcp.CommitTimestampOutputTest"]
 [[association]]
 class = "io.sirix.rest.crud.HistoryHandler"
 tests = ["io.sirix.rest.CommitTimestampOutputTest"]
+
+# CONV-301: distinguish document ownership work from XML name-dictionary initialization.
+[[association]]
+class = "io.sirix.utils.ReplayWorkDiagnostics"
+tests = ["io.sirix.budget.LifecycleWorkBudgetTest"]

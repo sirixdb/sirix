@@ -1,0 +1,358 @@
+{
+  "base": "58ec1a784abfe54a9130ea287ebc2631faec6b7e",
+  "candidate_parent": "b19c6bc0b1eb961c990689174b150a7836e74690",
+  "candidate_includes_uncommitted_fixes": true,
+  "all_selected_nested_classes_included": true,
+  "method": "Fresh actual-main compilation; javap -c -p with symbolic references, CP numeric indices redacted in diffs",
+  "qualification": "Differences include intended lifecycle changes and gated diagnostics. This is compiled evidence, not an assertion of native/JIT latency equivalence or unchanged success-path machine code.",
+  "classes": [
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.node.AbstractNodeTrxImpl$State",
+      "main_sha256": "787690c7bf8e990a799f877459b7b4d216e862314ff0cbbede7c1837c8ce7f8d",
+      "candidate_sha256": "a225a8a9c854d0ba6ef3bc4fd30abf92d4f69765761fdf002f4800687ab4b99e"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.node.AbstractNodeTrxImpl",
+      "main_sha256": "f8fc650c9237206f0dad18ccf240eefe06379c1f3e404efa8fabb5e432cec7ef",
+      "candidate_sha256": "5001416ef01a93e4a2dd586986273824b9939f944580f008f86e0ab42b956627"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.node.AbstractResourceSession$CatalogueRevisions",
+      "main_sha256": "1b628cce3619785005f9629cd9307556446498c07856ba92236736f01ad46906",
+      "candidate_sha256": "ce7d47ad5db386b404d57d466f7c01907058d1f671ddd17cf1d63372422ac5d1"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.node.AbstractResourceSession$PendingRevisionRoot",
+      "main_sha256": "2fc06d3579a6454d2090dd5d6bbe241c3d2eadf14283516adc3452d331fce596",
+      "candidate_sha256": "6a4aa543961d1e85f510e71ecd970f2cb78e72349a7549999e68ae2a1480474e"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.node.AbstractResourceSession$RecoveryIdentity",
+      "main_sha256": null,
+      "candidate_sha256": "bc214ff96483b8b53eeb1494c81de07a36e989e9220373316285ecb3087e2da7"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.node.AbstractResourceSession$RevisionInfoKey",
+      "main_sha256": "2569fa4a4fd9811ae20405be8728712a3ae8d27a38ad4f594eab6f621b6ae33c",
+      "candidate_sha256": "3650558f5ead4a7060d67b313e4bf06d1ff3a5b4dbf2e95667f7d263c68ddb61"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.node.AbstractResourceSession",
+      "main_sha256": "24398684f1e90fc183e311118b61b760e408b9cd7c4b58b3bfa4399616c1418d",
+      "candidate_sha256": "bfec4fe8395f21b92312c583167264e9e455ce32f64e4c337d874d21f99a9d2a"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineReader$1",
+      "main_sha256": "a7dc39baf5e202819b8fae06a3b5ebe17b753a93ae060178d8f518ad32ada9a7",
+      "candidate_sha256": "a7dc39baf5e202819b8fae06a3b5ebe17b753a93ae060178d8f518ad32ada9a7"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineReader$PageFragmentsResult",
+      "main_sha256": "e198efe5f3334f7bc518318a55354cf86808d2787fa10d6b5bdf6e32be721423",
+      "candidate_sha256": "f7025dbfa3f0b0181675df1905db6aeec00034fba1a52af2a0476ba4993fe232"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineReader$PageReferenceToPage",
+      "main_sha256": "d70eb3010ed9deccd1e0c8bc33f836250a046a54b17f918cb7cc99c49cb568b9",
+      "candidate_sha256": "3cc725085c2bace791c8fc23def2355beaa63d0e5929b299acde67ceaa6bd22f"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineReader$RecordPage",
+      "main_sha256": "36637ab9557923c64fc2d5f2645e16cb1c38ace11d1fc5d094d48032de3303c5",
+      "candidate_sha256": "36637ab9557923c64fc2d5f2645e16cb1c38ace11d1fc5d094d48032de3303c5"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineReader$SlotLocation",
+      "main_sha256": "765405afcc489fc540e3be4c5ca3ea0a5823f5489f2d172e5ec39dc56869cb7a",
+      "candidate_sha256": "765405afcc489fc540e3be4c5ca3ea0a5823f5489f2d172e5ec39dc56869cb7a"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineReader$SlotOrCachedResult",
+      "main_sha256": "b66c818bec80bf9f95a7adcc9533a3a87710a2d8c3ee971ae80dd28e15922e71",
+      "candidate_sha256": "b66c818bec80bf9f95a7adcc9533a3a87710a2d8c3ee971ae80dd28e15922e71"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineReader",
+      "main_sha256": "b25fd639979279f662a8591a7f455631d2461c32b226a357a5c6e7c36d696493",
+      "candidate_sha256": "e24da4a7fd9bfdc32515af9192c044bf0f28e8d565d7fceb0e8fcb0d205568db"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$1",
+      "main_sha256": "edebd9039072e3496b46accb53303c8a316cc60c3b3135746e0926a052114314",
+      "candidate_sha256": "db3e55d1604a06d39741e87381473758c7538b2b051742a9f6ca0897cf56e7e3"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$2",
+      "main_sha256": "8dbf23ca4ba5ed945268f5fbf98973ce5dc84bbe64e1b8fad1db92e59a458302",
+      "candidate_sha256": "e8965d95cec34c2a734a1ba0ace878c45a667a3c15f951bd98d55344ff9bc8ea"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$AdmittedSnapshotAppendTask",
+      "main_sha256": "f2fabbad244947cb24f2443ce73fd7fed02b36a14b2ee9691647ebd00c9bd0a2",
+      "candidate_sha256": "3f803bde443609e0159098d38a29a30f1b056a5d047e0294920807f88dac3ef9"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$AsyncSnapshotWriteTask",
+      "main_sha256": "47582f4d67342b4972f009616ed7a256bcb6002068c5de1fa1a80412707a992e",
+      "candidate_sha256": "127e54e3d0538fb417b4af06cecdc6d63b9191f569c053e503fa013d49a58337"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$DocumentRecordLocationCache",
+      "main_sha256": "ace1fbd7c73bac9e78d192e874529306a56581679135d9bbd3a0c59842560895",
+      "candidate_sha256": "21fc85d0afd3033e40acc0141c2b5648ed7f9fb76f38a99fdebe18303f492f70"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$FsstSamples",
+      "main_sha256": "45b53cc48e06159696dff2215f301084a27874d2dc8781da434c573105ea497f",
+      "candidate_sha256": "8a8bd5357886d31a7e8dd323a4b250412b1a543d4cfed3b4fe5f15c5eb983d6a"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$IndexLogKeyToPageContainer",
+      "main_sha256": "86ab9ef6c27e37c92c8405e47bfc49fc61c12950d44ee1ae44dd5cd416482e33",
+      "candidate_sha256": "9fe05f4d310089be45c8f4d5c73b87267063c156990c4579ce0c431fdde5d2d2"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$LeakDetectorState",
+      "main_sha256": "5ecf141a877c6c459249d24b676b5b3a537de144f948e811207252a89a7ab5d1",
+      "candidate_sha256": "ff672e7dfbbf1df1fb04928a69e90b12c907d4412a09e685af825e7704a47b3d"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$ReadPageResolution",
+      "main_sha256": "e1f0e9afa1ed5460d2a5a333a0bc93e605c6637404e27eef5616986bfbc90a12",
+      "candidate_sha256": "394927e912ba7357f0ed8203a8f41cf6248c004009b1956c6a74c800bdf8ed81"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$SidePageBatch",
+      "main_sha256": "6eb021c026826d9333bc568b3d4b4c1ca70b1653a6a210163d04d1ef12bd4077",
+      "candidate_sha256": "d81d17b86b322440ff19754e53b5f8e0353a5534dd864b2a5ab1f09424f8622c"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter$SnapshotAppendExecutor",
+      "main_sha256": "0f3dca39793bef179e7c7d642581416fd9dffed375921e451f74d57d0ee26592",
+      "candidate_sha256": "23b36fadbbdf2e1b766e432741ef05591eeb6768d1c6a389481e0372658c925b"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.access.trx.page.NodeStorageEngineWriter",
+      "main_sha256": "13c7ad83a912f00d3f07bfceea1b89a63ee317667030f4389a37b2844bfc89a8",
+      "candidate_sha256": "a6f7b27026318a07bbd83e338edc3039981ddcfc99c41fc7abbff5e7dd27e6fc"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.axis.concurrent.ConcurrentAxis",
+      "main_sha256": "e9832be90fea9e57b971329c2e3c10626343a827d5e12c31d24e320858636311",
+      "candidate_sha256": "3a92ea65a4943a323e36463021a5ca6a9a5f42c6c2c450c505537f2ca13817ff"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.axis.concurrent.ConcurrentAxisHelper",
+      "main_sha256": "d4901a7463d9cd4d300154d4136c815dbd82d29df3cc1d86fec73eaaf320273c",
+      "candidate_sha256": "f00e63c8d9cf2ec643582611cbf289ce36c8ac7d0ae9c19c080ed4b790ff49cc"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$1$1",
+      "main_sha256": "a9e1362416964f04ab04f1420a0ba464e902453cb4b80b6d7c4d9e0890e314eb",
+      "candidate_sha256": "a9e1362416964f04ab04f1420a0ba464e902453cb4b80b6d7c4d9e0890e314eb"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$1",
+      "main_sha256": "0dfc724c238ebc8b15b9e8dc61da60f04a59d1b420c9c31296970ebbbb336b32",
+      "candidate_sha256": "0dfc724c238ebc8b15b9e8dc61da60f04a59d1b420c9c31296970ebbbb336b32"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$2$1",
+      "main_sha256": "6fca1ae9aa1b2ffe32d8281064a1daeb8178c26cf25aac0ab66265a58dc6b872",
+      "candidate_sha256": "6fca1ae9aa1b2ffe32d8281064a1daeb8178c26cf25aac0ab66265a58dc6b872"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$2",
+      "main_sha256": "b7eddfd503e6652076ccd7b16676087e199a473307a2c6ee5a0631fec1b722bd",
+      "candidate_sha256": "b7eddfd503e6652076ccd7b16676087e199a473307a2c6ee5a0631fec1b722bd"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$BlobLocatorCapture",
+      "main_sha256": "023da4e116f7e53e1007aae3c9fc60d6203e0b398c940aaa22c0809be194b733",
+      "candidate_sha256": "023da4e116f7e53e1007aae3c9fc60d6203e0b398c940aaa22c0809be194b733"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$BlobLocators",
+      "main_sha256": "73844f30155a692cb9b41f8cdddd17142bc541fb4e50534ff81ed207f6c1f3b9",
+      "candidate_sha256": "73844f30155a692cb9b41f8cdddd17142bc541fb4e50534ff81ed207f6c1f3b9"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$ColumnPatchResult",
+      "main_sha256": "e8ac77bd87168e70d67e1ac69e4b362fac91ebaf5474c22b0f421714cf0e50f8",
+      "candidate_sha256": "e8ac77bd87168e70d67e1ac69e4b362fac91ebaf5474c22b0f421714cf0e50f8"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$ColumnSegmentSlotRowGroupAccum",
+      "main_sha256": "3a4d69d656a85aa7134c5b3ba55d4b348ebbc9aa7ad4d610e766051d02170121",
+      "candidate_sha256": "3a4d69d656a85aa7134c5b3ba55d4b348ebbc9aa7ad4d610e766051d02170121"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$DirectorySlotBuffer",
+      "main_sha256": "6124e7b861b7b7bf0f732e101b5a0ee6f5ac99a070415ae83bca592ee1695fb5",
+      "candidate_sha256": "64c93dc6c78e76e0a209a72e5139516c77b93e97ffa3b8f5131f92627465292d"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$DirectoryWalk",
+      "main_sha256": "d33cb072b47e7f693b3767be99b4837f681bbb097e5151c78ce37437bb1b3d04",
+      "candidate_sha256": "5cb7062530333dce9e5a9e5e3c5c26844c287c7570496c526b5695a52ba8577e"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$DirectoryWalkWorker",
+      "main_sha256": "d0f1b2a8e52c92480f68a4a3d0a7cfcf84eb8d7496919be4b91665251f576199",
+      "candidate_sha256": "b72b7f9bda830cc955c183dfd51124d5627e4f11e7cfc3bed26bf4d6cb6e8817"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$ParallelWalkReaders",
+      "main_sha256": "066f345a19891327405188fb28335912788944105b6ffc7227fb3f91d39ee956",
+      "candidate_sha256": "066f345a19891327405188fb28335912788944105b6ffc7227fb3f91d39ee956"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$PendingSegRef",
+      "main_sha256": "d5056a6d6ce7457d9f37ac58591c273a38a9824a11b8adb047d1324052b28c5b",
+      "candidate_sha256": "d5056a6d6ce7457d9f37ac58591c273a38a9824a11b8adb047d1324052b28c5b"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$RawBlobSlot",
+      "main_sha256": "cb0363037c911f57a2717ce5ad75bdfc73b04c7760cbeb647015a307ee6262fc",
+      "candidate_sha256": "cb0363037c911f57a2717ce5ad75bdfc73b04c7760cbeb647015a307ee6262fc"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$RowGroupDirectory",
+      "main_sha256": "189b61cf27dcf49e73e231ab6dbb9d48bcbae76b05af9d3d897a355314e196f1",
+      "candidate_sha256": "189b61cf27dcf49e73e231ab6dbb9d48bcbae76b05af9d3d897a355314e196f1"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage$SlotCapture",
+      "main_sha256": "fdb3470ad24b1f1394498c563604dab5046b036ecbeefb3fc546b1d72b05ae46",
+      "candidate_sha256": "f22358e14aaf1ad30cd3316d344ba048852af1e5ff3061886aaa545b2a2a4143"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.index.projection.ProjectionIndexHOTStorage",
+      "main_sha256": "00c57e6e016bf02a9959d393879b84788764ba42ab529c1e2c7e3f383457f162",
+      "candidate_sha256": "2183616cdbdda9ed6c9fffe14eeba5f6bd216dc6120c51a6ed7078cf3b2f0fb9"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.service.json.shredder.ParallelJsonShredder$Outcome",
+      "main_sha256": "1142d698113f5a28f48b6478811c1bae31f2c530dc6b66fc56cd1fe1d9d63104",
+      "candidate_sha256": "1142d698113f5a28f48b6478811c1bae31f2c530dc6b66fc56cd1fe1d9d63104"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.service.json.shredder.ParallelJsonShredder$ShutdownOutcome",
+      "main_sha256": "9d071eddbdcd6bc56145067861b6b93a7c4bd7e54d84e35f29d131bbcd7684b6",
+      "candidate_sha256": "9d071eddbdcd6bc56145067861b6b93a7c4bd7e54d84e35f29d131bbcd7684b6"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.service.json.shredder.ParallelJsonShredder",
+      "main_sha256": "89b0f4c6fd3cc2a5dbbbc3229a8dfc56a3140454956fd4afb2c911d8eaf362ae",
+      "candidate_sha256": "ec949ea0b8bbd5c1db69c082751fe1ced2bbfbf3e9d2025fd197db3c5e60097c"
+    },
+    {
+      "module": "sirix-core",
+      "class": "io.sirix.utils.ReplayWorkDiagnostics",
+      "main_sha256": "5373a0ab59ebe39e4760299b819aa1207420e5a00e2235810f88c1809c56a0fd",
+      "candidate_sha256": "dde8068a206679bfef2530d8e00899160ce564a58e7864d3763249b821bbac94"
+    },
+    {
+      "module": "sirix-query",
+      "class": "io.sirix.query.scan.DirectPageScanner$ChunkTask",
+      "main_sha256": "03adf5c8e11e051e104e45e38a632930d8e6a7950a260a6c4d58fbaf6f424c00",
+      "candidate_sha256": "03ebfb8b7d5364d898a566e7395b12cb00db464a50d3b0eefbbb69c4dbbffedd"
+    },
+    {
+      "module": "sirix-query",
+      "class": "io.sirix.query.scan.DirectPageScanner",
+      "main_sha256": "1f1324eccd39c343fd5cd5aa13e227c80fdbd1add8dc10f1d95b58978103fe1f",
+      "candidate_sha256": "81e24a20b7d0a7f6eb6f5965a4003d456dd9104917aa807038d10b8c61969c50"
+    }
+  ],
+  "source_manifest": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java": {
+      "main": "683fc3abb075cecd63eed9b76c3114a8d761c2b8c14da23293a2dc65b15c3753",
+      "candidate": "65ce61ad69114dd30ba6d873a147c136736f29a1e0930417e3a28d4f851b9ee2"
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java": {
+      "main": "62477e20eff3e74f889f0bf4d6e9b512d9c33aef3de26acd9ba92b026efcd792",
+      "candidate": "df80b3e4a35fd53d7cee70f7423440d4d35fc9b068fbf3088920f2e2fe16c24c"
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineReader.java": {
+      "main": "49a2330506f7ec0609e2af6752e2444c38778d5dfaf5c20c9f29672edb0785bf",
+      "candidate": "189eea571e4c8f0c2b702eb3da5699732050cd044a77344ae59a5787cfdc4e60"
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java": {
+      "main": "611437a7615b1742ca5a4240fc5cd3335ecfa2a5628bdd3775c7e6dc281a6b85",
+      "candidate": "443286b1a89c3eb4907f301f22c53552018b79c2a53d69619f74fff0033b7017"
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/axis/concurrent/ConcurrentAxis.java": {
+      "main": "1ad58b9d47c49415abd445b0872ad545f9155c4b13623e754e2c958c0852c4e1",
+      "candidate": "1f8979d239a01b9fc9e6dd9bb02e2144a5a4ce086a4926c5b52277266049b19c"
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/axis/concurrent/ConcurrentAxisHelper.java": {
+      "main": "3657bb8a6a06182d0468befacb4ffef68acbaa2403f5d05a578b65beff5b8c38",
+      "candidate": "3233ec22ad0a2afe63045407ea7f5140d879657f227441b5e4aedb7cd66a2887"
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionIndexHOTStorage.java": {
+      "main": "03bad11b96a6bd62401980fee157481963d2803ff0e3e6ad3ac8ac290358e28a",
+      "candidate": "30e18b31174ac2845307a645078311963d2800717d5a1de24cd140ee64278cfb"
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/service/json/shredder/ParallelJsonShredder.java": {
+      "main": "ae9583db656e5b5a559da9e7256c30d62ed3b342aea07030f3e233b22ed87de3",
+      "candidate": "6989b024a2491e8c8bb39092a0899f13e809ba9299765e8de1f45adf4b8a2c70"
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/utils/ReplayWorkDiagnostics.java": {
+      "main": "2b6c16bbca5179e7df73053a0a2c552e835ec462d22e76e33994e7aca75668b9",
+      "candidate": "de4d0ee0d85d14dafa8b85301d332b9f279c2cb5092d7252d65b81e0a4b1cb37"
+    },
+    "bundles/sirix-query/src/main/java/io/sirix/query/scan/DirectPageScanner.java": {
+      "main": "ab519fee8a21aa2ad1bc2715ddd91c7fd2aeeeb857f5e78d6d9b690bd484a39f",
+      "candidate": "14c34af30547d8b6a487bc55ae1be24aa4840564392eecd2e25a3c2976bba5d6"
+    }
+  }
+}

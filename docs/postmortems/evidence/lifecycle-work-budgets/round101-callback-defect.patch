@@ -1,0 +1,10 @@
+--- a/bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java
++++ b/bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java
+@@ -41,7 +41,6 @@
+ 
+   @Override
+   public boolean createResource(final ResourceConfiguration config) {
+-    owner.localDatabase.getNotifications().assertNotInCallback();
+     Objects.requireNonNull(config, "config");
+     // A cleanup callback must fail before waiting on the remover's database hold.
+     database();

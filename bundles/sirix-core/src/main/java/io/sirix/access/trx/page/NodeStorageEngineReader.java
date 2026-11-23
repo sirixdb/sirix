@@ -568,7 +568,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   @SuppressWarnings("unchecked")
   public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType, final int index) {
-    ReplayWorkDiagnostics.recordVisited();
+    ReplayWorkDiagnostics.recordVisited(indexType);
     requireNonNull(indexType);
     assertNotClosed();
     validateKeyedTrieRoute(this, indexType, index);

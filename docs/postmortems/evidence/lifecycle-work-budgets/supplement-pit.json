@@ -1,0 +1,138 @@
+{
+  "scope": "Exhaustive default PIT mutants in commitFile/getCommitFile/forgetCommitRecovery and recordVisited/documentVisits; original sampled scopes remain separate",
+  "raw": {
+    "KILLED": 10
+  },
+  "mutants": [
+    {
+      "mutatedClass": "io.sirix.utils.ReplayWorkDiagnostics",
+      "mutatedMethod": "documentVisits",
+      "methodDescription": "()J",
+      "lineNumber": "50",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.returns.PrimitiveReturnsMutator",
+      "description": "replaced long return with 0 for io/sirix/utils/ReplayWorkDiagnostics::documentVisits",
+      "killingTest": "io.sirix.budget.LifecycleWorkBudgetTest.[engine:junit-jupiter]/[class:io.sirix.budget.LifecycleWorkBudgetTest]/[test-template:cleanCommitAndCloseHaveConstantDocumentWork(java.lang.String, int, java.lang.String, io.sirix.access.trx.node.AfterCommitState)]/[test-template-invocation:#3]",
+      "status": "KILLED",
+      "indexes": [
+        "5"
+      ]
+    },
+    {
+      "mutatedClass": "io.sirix.utils.ReplayWorkDiagnostics",
+      "mutatedMethod": "recordVisited",
+      "methodDescription": "()V",
+      "lineNumber": "33",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+      "description": "negated conditional",
+      "killingTest": "io.sirix.budget.LifecycleWorkBudgetTest.[engine:junit-jupiter]/[class:io.sirix.budget.LifecycleWorkBudgetTest]/[test-template:cleanCommitAndCloseHaveConstantDocumentWork(java.lang.String, int, java.lang.String, io.sirix.access.trx.node.AfterCommitState)]/[test-template-invocation:#3]",
+      "status": "KILLED",
+      "indexes": [
+        "4"
+      ]
+    },
+    {
+      "mutatedClass": "io.sirix.utils.ReplayWorkDiagnostics",
+      "mutatedMethod": "recordVisited",
+      "methodDescription": "()V",
+      "lineNumber": "34",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+      "description": "removed call to java/util/concurrent/atomic/LongAdder::increment",
+      "killingTest": "io.sirix.budget.LifecycleWorkBudgetTest.[engine:junit-jupiter]/[class:io.sirix.budget.LifecycleWorkBudgetTest]/[test-template:cleanCommitAndCloseHaveConstantDocumentWork(java.lang.String, int, java.lang.String, io.sirix.access.trx.node.AfterCommitState)]/[test-template-invocation:#3]",
+      "status": "KILLED",
+      "indexes": [
+        "8"
+      ]
+    },
+    {
+      "mutatedClass": "io.sirix.utils.ReplayWorkDiagnostics",
+      "mutatedMethod": "recordVisited",
+      "methodDescription": "()V",
+      "lineNumber": "35",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+      "description": "removed call to java/util/concurrent/atomic/LongAdder::increment",
+      "killingTest": "io.sirix.budget.LifecycleWorkBudgetTest.[engine:junit-jupiter]/[class:io.sirix.budget.LifecycleWorkBudgetTest]/[test-template:cleanCommitAndCloseHaveConstantDocumentWork(java.lang.String, int, java.lang.String, io.sirix.access.trx.node.AfterCommitState)]/[test-template-invocation:#3]",
+      "status": "KILLED",
+      "indexes": [
+        "12"
+      ]
+    },
+    {
+      "mutatedClass": "io.sirix.utils.ReplayWorkDiagnostics",
+      "mutatedMethod": "recordVisited",
+      "methodDescription": "(Lio/sirix/index/IndexType;)V",
+      "lineNumber": "41",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+      "description": "negated conditional",
+      "killingTest": "io.sirix.budget.LifecycleWorkBudgetTest.[engine:junit-jupiter]/[class:io.sirix.budget.LifecycleWorkBudgetTest]/[test-template:cleanCommitAndCloseHaveConstantDocumentWork(java.lang.String, int, java.lang.String, io.sirix.access.trx.node.AfterCommitState)]/[test-template-invocation:#3]",
+      "status": "KILLED",
+      "indexes": [
+        "4"
+      ]
+    },
+    {
+      "mutatedClass": "io.sirix.utils.ReplayWorkDiagnostics",
+      "mutatedMethod": "recordVisited",
+      "methodDescription": "(Lio/sirix/index/IndexType;)V",
+      "lineNumber": "43",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+      "description": "negated conditional",
+      "killingTest": "io.sirix.budget.LifecycleWorkBudgetTest.[engine:junit-jupiter]/[class:io.sirix.budget.LifecycleWorkBudgetTest]/[test-template:cleanCommitAndCloseHaveConstantDocumentWork(java.lang.String, int, java.lang.String, io.sirix.access.trx.node.AfterCommitState)]/[test-template-invocation:#3]",
+      "status": "KILLED",
+      "indexes": [
+        "13"
+      ]
+    },
+    {
+      "mutatedClass": "io.sirix.utils.ReplayWorkDiagnostics",
+      "mutatedMethod": "recordVisited",
+      "methodDescription": "(Lio/sirix/index/IndexType;)V",
+      "lineNumber": "42",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+      "description": "removed call to java/util/concurrent/atomic/LongAdder::increment",
+      "killingTest": "io.sirix.budget.LifecycleWorkBudgetTest.[engine:junit-jupiter]/[class:io.sirix.budget.LifecycleWorkBudgetTest]/[test-template:cleanCommitAndCloseHaveConstantDocumentWork(java.lang.String, int, java.lang.String, io.sirix.access.trx.node.AfterCommitState)]/[test-template-invocation:#3]",
+      "status": "KILLED",
+      "indexes": [
+        "8"
+      ]
+    },
+    {
+      "mutatedClass": "io.sirix.utils.ReplayWorkDiagnostics",
+      "mutatedMethod": "recordVisited",
+      "methodDescription": "(Lio/sirix/index/IndexType;)V",
+      "lineNumber": "44",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+      "description": "removed call to java/util/concurrent/atomic/LongAdder::increment",
+      "killingTest": "io.sirix.budget.LifecycleWorkBudgetTest.[engine:junit-jupiter]/[class:io.sirix.budget.LifecycleWorkBudgetTest]/[test-template:cleanCommitAndCloseHaveConstantDocumentWork(java.lang.String, int, java.lang.String, io.sirix.access.trx.node.AfterCommitState)]/[test-template-invocation:#3]",
+      "status": "KILLED",
+      "indexes": [
+        "17"
+      ]
+    },
+    {
+      "mutatedClass": "io.sirix.access.trx.node.AbstractResourceSession",
+      "mutatedMethod": "commitFile",
+      "methodDescription": "(Ljava/nio/file/Path;)Ljava/nio/file/Path;",
+      "lineNumber": "239",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator",
+      "description": "replaced return value with null for io/sirix/access/trx/node/AbstractResourceSession::commitFile",
+      "killingTest": "io.sirix.access.DatabaseNotificationLifecycleTest.[engine:junit-jupiter]/[class:io.sirix.access.DatabaseNotificationLifecycleTest]/[test-template:contractCallbackPreflightRejectsBeforeAContendedOwnerLock(java.lang.String, java.lang.String)]/[test-template-invocation:#3]",
+      "status": "KILLED",
+      "indexes": [
+        "9"
+      ]
+    },
+    {
+      "mutatedClass": "io.sirix.access.trx.node.AbstractResourceSession",
+      "mutatedMethod": "getCommitFile",
+      "methodDescription": "()Ljava/nio/file/Path;",
+      "lineNumber": "1449",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator",
+      "description": "replaced return value with null for io/sirix/access/trx/node/AbstractResourceSession::getCommitFile",
+      "killingTest": "io.sirix.access.DatabaseNotificationLifecycleTest.[engine:junit-jupiter]/[class:io.sirix.access.DatabaseNotificationLifecycleTest]/[test-template:contractCallbackPreflightRejectsBeforeAContendedOwnerLock(java.lang.String, java.lang.String)]/[test-template-invocation:#3]",
+      "status": "KILLED",
+      "indexes": [
+        "7"
+      ]
+    }
+  ]
+}

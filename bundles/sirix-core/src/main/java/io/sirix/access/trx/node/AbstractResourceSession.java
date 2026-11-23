@@ -232,7 +232,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private final RecoveryIdentity recoveryIdentity;
 
   public static void forgetCommitRecovery(final Path resource) {
-    RECOVERY_REQUIRED.keySet().removeIf(marker -> marker.startsWith(resource));
+    // One marker per resource: deletion must not scan unrelated recovery owners.
+    RECOVERY_REQUIRED.remove(commitFile(resource));
+  }
+
+  private static Path commitFile(final Path resource) {
+    return resource.resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath()).resolve(".commit");
   }
 
   // Volatile publishes the callback; test callbacks synchronize their own captured state.
@@ -1454,8 +1459,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    */
   @Override
   public Path getCommitFile() {
-    return resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
-                                      .resolve(".commit");
+    return commitFile(resourceConfig.resourcePath);
   }
 
   @Override

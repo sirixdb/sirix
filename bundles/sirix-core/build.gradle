@@ -321,17 +321,18 @@ def validTimeDisabledLookupCacheTest = tasks.register('validTimeDisabledLookupCa
 }
 
 // Inline Mockito mocks in sibling suites retransform real storage classes and allocate in their
-// interception prologues. Measure production dictionary, inline-slot, HOT commit and HOT sibling-read
+// interception prologues. Measure production dictionary, inline-slot, lifecycle lock, HOT commit and HOT sibling-read
 // allocations in a clean JVM.
 def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocationTest', Test) {
     group = 'verification'
-    description = 'Checks dictionary read-view, inline-slot, HOT commit and HOT sibling-read allocation bounds in a separate JVM.'
+    description = 'Checks dictionary read-view, inline-slot, lifecycle lock, HOT commit and HOT sibling-read allocation bounds in a separate JVM.'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform()
     filter {
         includeTestsMatching 'io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest'
         includeTestsMatching 'io.sirix.budget.InlineSlotCopyAllocationBudgetTest'
+        includeTestsMatching 'io.sirix.budget.LifecycleLockAllocationBudgetTest'
         includeTestsMatching 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'
         includeTestsMatching 'io.sirix.budget.HotWriterLeafRetentionAllocationBudgetTest'
     }
@@ -502,6 +503,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
     exclude 'io/sirix/budget/InlineSlotCopyAllocationBudgetTest*.class'
+    exclude 'io/sirix/budget/LifecycleLockAllocationBudgetTest*.class'
     exclude 'io/sirix/index/hot/HOTCommitAllocationBudgetTest*.class'
     exclude 'io/sirix/budget/HotWriterLeafRetentionAllocationBudgetTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'

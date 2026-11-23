@@ -1,0 +1,24 @@
+{
+  "reason": "Consumer reads all existing disposition classes, including unchanged CLI entries outside six mutated scopes. Ordinary CI compiles classes globally; this local run had compiled only six-scope modules.",
+  "no_pit_scope_target_sampling_or_lane_change": true,
+  "unchanged_paths": [
+    ".github/mutation-dispositions.toml",
+    "bundles/sirix-kotlin-cli/src/main/kotlin/io/sirix/cli/commands/Backup.kt"
+  ],
+  "unchanged_from_base": true,
+  "compiler_exit": 0,
+  "command": [
+    "python3",
+    "build/ci-100/validation-admission-094.py",
+    "./gradlew",
+    "--no-daemon",
+    "--max-workers=2",
+    "-Dorg.gradle.jvmargs=-Xmx2g",
+    "-I",
+    "build/ci-100/no-container-tasks.gradle",
+    "-Dlifecycle.taskGraph=build/ci-101/cli-classes-task-graph.json",
+    ":sirix-kotlin-cli:classes"
+  ],
+  "class_sha256": "3ede17d00c193ff2207022dd2f5f6bb5200a2e710ab88c022eccf3b4035acee5",
+  "log_sha256": "484c63e5ae823f5eb47ff07bb5018afb8cd2046248b767860cdd6e796a20df14"
+}

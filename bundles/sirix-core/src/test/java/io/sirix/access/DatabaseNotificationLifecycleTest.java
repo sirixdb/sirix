@@ -17,6 +17,7 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.backup.BackupManager;
 import io.sirix.io.StorageType;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
@@ -274,6 +275,46 @@ final class DatabaseNotificationLifecycleTest {
       try (var replacement = fixture.firstDatabase.beginResourceSession("resource");
           var writer = replacement.beginNodeTrx()) {
         writer.commit();
+      }
+    }
+  }
+
+  /** TXN-608: a clean restored incarnation cannot inherit a deleted recovery obligation. */
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void restoredBackupDoesNotInheritDeletedRecovery(final String format) throws Exception {
+    final Path backup = directory.resolve("backup");
+    final Path path = directory.resolve("database");
+    final long databaseId;
+    final long resourceId;
+    final Path marker;
+    try (Fixture fixture = new Fixture(format, directory)) {
+      databaseId = fixture.second.getResourceConfig().getDatabaseId();
+      resourceId = fixture.second.getResourceConfig().getID();
+      marker = fixture.second.getCommitFile();
+      BackupManager.backupDatabase(path, backup);
+      fixture.second.requireCommitRecovery();
+      assertTrue(Files.exists(marker));
+      fixture.first.close();
+      fixture.second.close();
+      fixture.firstDatabase.removeResource("resource");
+      assertFalse(Files.exists(marker));
+    }
+    Databases.removeDatabase(path);
+    BackupManager.restoreDatabase(backup, path);
+    try (var database = Fixture.open(format, path, new User("restored", UUID.randomUUID()));
+        var session = database.beginResourceSession("resource")) {
+      assertEquals(databaseId, session.getResourceConfig().getDatabaseId());
+      assertEquals(resourceId, session.getResourceConfig().getID());
+      assertFalse(Files.exists(marker));
+      try (NodeTrx writer = session.beginNodeTrx()) {
+        assertValue(writer, 0);
+        assertFalse(Files.exists(marker), "TXN-608: deleted recovery must not run against a clean restore");
+        setValue(writer, 7);
+        writer.commit();
+      }
+      try (NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+        assertValue(reader, 7);
       }
     }
   }
@@ -910,12 +951,13 @@ final class DatabaseNotificationLifecycleTest {
 
   static Stream<Arguments> entryCases() {
     return Stream.of("json", "xml")
-                 .flatMap(format -> Stream.of("pre", "post", "listener")
-                                          .flatMap(phase -> Stream.of("handle", "local", "session", "writer", "commit",
-                                              "rollback", "truncate", "page-close", "page-truncate", "page-commit",
-                                              "page-rollback", "manager", "shutdown", "remove", "resource-remove",
-                                              "resource-create", "facade-close", "facade-commit", "facade-rollback")
-                                                                  .map(entry -> Arguments.of(format, phase, entry))));
+                 .flatMap(
+                     format -> Stream.of("pre", "post", "listener")
+                                     .flatMap(phase -> Stream.of("handle", "local", "session", "writer", "commit",
+                                         "rollback", "truncate", "page-close", "page-truncate", "page-commit",
+                                         "page-rollback", "manager", "shutdown", "remove", "resource-remove",
+                                         "resource-create", "resource-create-null", "facade-close", "facade-commit",
+                                         "facade-rollback").map(entry -> Arguments.of(format, phase, entry))));
   }
 
   @ParameterizedTest(name = "callback lifecycle {arguments}")
@@ -977,6 +1019,7 @@ final class DatabaseNotificationLifecycleTest {
       case "resource-remove" -> () -> fixture.firstDatabase.removeResource("resource");
       case "resource-create" ->
         () -> fixture.firstDatabase.createResource(ResourceConfiguration.newBuilder("forbidden").build());
+      case "resource-create-null" -> () -> fixture.firstDatabase.createResource(null);
       case "facade-close" -> () -> new TransactionManagerImpl().beginTransaction().add(writer).close();
       case "facade-commit" -> () -> new TransactionManagerImpl().beginTransaction().add(writer).commit();
       case "facade-rollback" -> () -> new TransactionManagerImpl().beginTransaction().add(writer).rollback();
@@ -987,6 +1030,44 @@ final class DatabaseNotificationLifecycleTest {
   static Stream<Arguments> handleCycles() {
     return Stream.of("json", "xml")
                  .flatMap(format -> Stream.of("pre", "post", "listener").map(phase -> Arguments.of(format, phase)));
+  }
+
+  /** TXN-804: callback rejection precedes handle-state and argument errors in every phase. */
+  @ParameterizedTest
+  @MethodSource("handleCycles")
+  void closedHandleCreationRejectsCallbackReentry(final String format, final String phase) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      fixture.firstDatabase.close();
+      final NodeTrx writer = fixture.second.beginNodeTrx();
+      final CompletableFuture<Void> checked = new CompletableFuture<>();
+      final Consumer<NodeReadOnlyTrx> callback = unused -> {
+        try {
+          final IllegalStateException valid = assertThrows(IllegalStateException.class,
+              () -> fixture.firstDatabase.createResource(ResourceConfiguration.newBuilder("forbidden").build()));
+          assertTrue(valid.getMessage().contains("callback"));
+          final IllegalStateException invalid =
+              assertThrows(IllegalStateException.class, () -> fixture.firstDatabase.createResource(null));
+          assertTrue(invalid.getMessage().contains("callback"));
+          assertTrue(fixture.secondDatabase.isOpen());
+          checked.complete(null);
+        } catch (final Throwable failure) {
+          checked.completeExceptionally(failure);
+          throw failure;
+        }
+      };
+      if (phase.equals("pre")) {
+        writer.addPreCommitHook(callback::accept);
+      } else if (phase.equals("post")) {
+        writer.addPostCommitHook(callback::accept);
+      } else {
+        fixture.second.addRevisionListener(revision -> callback.accept(null));
+      }
+      setValue(writer, 1);
+      writer.commit();
+      checked.get(10, TimeUnit.SECONDS);
+      fixture.notifications().awaitIdle(Duration.ofSeconds(10));
+      writer.close();
+    }
   }
 
   @ParameterizedTest

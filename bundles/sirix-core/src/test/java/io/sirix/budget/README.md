@@ -343,6 +343,17 @@ sibling suite's inline mock of `TransactionIntentLog` had instrumented that clas
 
 ## Adding a budget test
 
+`LifecycleWorkBudgetTest` implements the Firstmate097 refinement of CONV-301 for JSON/XML
+commit and writer/session/database close with a peer retaining the storage pool, using a
+document-only refinement of the existing record-visit diagnostic and data-file-force counter.
+The refinement excludes XML name-dictionary reads without changing the original total. Its
+document traversal supplies the nonzero control; cold reopen checks every value
+and revision publication. `LifecycleLockAllocationBudgetTest` bounds the uncontended execution
+lock and close-admission primitive to zero allocated bytes after warmup in the existing clean
+allocation fork. It does not bound total commit allocations, contention or callback delivery.
+The normative fixture and bounds are in `spec/CONV-conventions.md`; no elapsed-time assertions
+or changes to existing bounds are involved.
+
 1. **Name the regression** in a sentence. If you cannot, there is nothing to budget.
 2. **Build a fixture at fixture scale** (seconds, not minutes) on a schema of your own; nothing here
    may special-case a benchmark. Scale the engine's threshold down rather than the data up when a

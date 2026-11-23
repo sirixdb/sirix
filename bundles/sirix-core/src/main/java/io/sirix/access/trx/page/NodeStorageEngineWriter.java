@@ -1346,7 +1346,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public DataRecord prepareRecordForModification(final long recordKey, final IndexType indexType, final int index) {
-    ReplayWorkDiagnostics.recordVisited();
+    ReplayWorkDiagnostics.recordVisited(indexType);
     storageEngineReader.assertNotClosed();
     checkArgument(recordKey >= 0, "recordKey must be >= 0!");
     requireNonNull(indexType);
@@ -1735,7 +1735,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   // and the reader fallback despite getRecord's existing nonnull contract.
   @SuppressWarnings({"ReferenceEquality", "NullAway"})
   public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType, final int index) {
-    ReplayWorkDiagnostics.recordVisited();
+    ReplayWorkDiagnostics.recordVisited(indexType);
     storageEngineReader.assertNotClosed();
 
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());

@@ -1,0 +1,424 @@
+{
+  "injected-budget-defects": {
+    "exit": 1,
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "--no-daemon",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/injected-budget-defects-task-graph.json",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/budget-controls.gradle",
+      ":sirix-core:lifecycleBudgetControl"
+    ],
+    "cases": [
+      {
+        "class": "io.sirix.budget.LifecycleLockAllocationBudgetTest",
+        "name": "uncontendedExecutionAndCloseAdmissionAllocateNothing()",
+        "failure": "org.opentest4j.AssertionFailedError: uncontended lifecycle admission must not add per-operation garbage ==> expected: <0> but was: <262144>"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[1] \"json\", 16, \"writer\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       39\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[2] \"json\", 16, \"writer\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       39\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[3] \"json\", 16, \"writer\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       39\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[4] \"json\", 16, \"session\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       39\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[5] \"json\", 16, \"session\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       39\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[6] \"json\", 16, \"session\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       39\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[7] \"json\", 16, \"database\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       39\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[8] \"json\", 16, \"database\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       39\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[9] \"json\", 16, \"database\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       39\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[10] \"json\", 4096, \"writer\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       8199\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[11] \"json\", 4096, \"writer\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       8199\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[12] \"json\", 4096, \"writer\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       8199\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[13] \"json\", 4096, \"session\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       8199\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[14] \"json\", 4096, \"session\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       8199\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[15] \"json\", 4096, \"session\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       8199\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[16] \"json\", 4096, \"database\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       8199\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[17] \"json\", 4096, \"database\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       8199\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[18] \"json\", 4096, \"database\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       8199\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[19] \"xml\", 16, \"writer\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       127\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[20] \"xml\", 16, \"writer\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       127\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[21] \"xml\", 16, \"writer\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       127\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[22] \"xml\", 16, \"session\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       127\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[23] \"xml\", 16, \"session\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       127\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[24] \"xml\", 16, \"session\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       127\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[25] \"xml\", 16, \"database\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       127\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[26] \"xml\", 16, \"database\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       127\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[27] \"xml\", 16, \"database\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 39, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  39   <-- broken\n    replay.recordVisits       127\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[28] \"xml\", 4096, \"writer\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       24607\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[29] \"xml\", 4096, \"writer\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       24607\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[30] \"xml\", 4096, \"writer\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       24607\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[31] \"xml\", 4096, \"session\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       24607\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[32] \"xml\", 4096, \"session\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       24607\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[33] \"xml\", 4096, \"session\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       24607\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[34] \"xml\", 4096, \"database\", KEEP_OPEN",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       24607\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[35] \"xml\", 4096, \"database\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       24607\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[36] \"xml\", 4096, \"database\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": "java.lang.AssertionError: work budget broken: lifecycle.documentVisits = 8199, budget is at most 16\n  one unit is: one document cursor move, storage lookup or preparation, including nested delegations\n  guards against: CONV-301: lifecycle rebind must not traverse unchanged document records\n  captured work:\n    lifecycle.documentVisits  8199   <-- broken\n    replay.recordVisits       24607\n    io.dataFileForces         2\n  A budget changes only deliberately, with evidence: see bundles/sirix-core/src/test/java/io/sirix/budget/README.md"
+      }
+    ]
+  },
+  "restored-budget-control": {
+    "exit": 0,
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "--no-daemon",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/restored-budget-control-task-graph.json",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/budget-controls.gradle",
+      ":sirix-core:lifecycleBudgetControl"
+    ],
+    "cases": [
+      {
+        "class": "io.sirix.budget.LifecycleLockAllocationBudgetTest",
+        "name": "uncontendedExecutionAndCloseAdmissionAllocateNothing()",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[1] \"json\", 16, \"writer\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[2] \"json\", 16, \"writer\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[3] \"json\", 16, \"writer\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[4] \"json\", 16, \"session\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[5] \"json\", 16, \"session\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[6] \"json\", 16, \"session\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[7] \"json\", 16, \"database\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[8] \"json\", 16, \"database\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[9] \"json\", 16, \"database\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[10] \"json\", 4096, \"writer\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[11] \"json\", 4096, \"writer\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[12] \"json\", 4096, \"writer\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[13] \"json\", 4096, \"session\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[14] \"json\", 4096, \"session\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[15] \"json\", 4096, \"session\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[16] \"json\", 4096, \"database\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[17] \"json\", 4096, \"database\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[18] \"json\", 4096, \"database\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[19] \"xml\", 16, \"writer\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[20] \"xml\", 16, \"writer\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[21] \"xml\", 16, \"writer\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[22] \"xml\", 16, \"session\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[23] \"xml\", 16, \"session\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[24] \"xml\", 16, \"session\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[25] \"xml\", 16, \"database\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[26] \"xml\", 16, \"database\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[27] \"xml\", 16, \"database\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[28] \"xml\", 4096, \"writer\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[29] \"xml\", 4096, \"writer\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[30] \"xml\", 4096, \"writer\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[31] \"xml\", 4096, \"session\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[32] \"xml\", 4096, \"session\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[33] \"xml\", 4096, \"session\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[34] \"xml\", 4096, \"database\", KEEP_OPEN",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[35] \"xml\", 4096, \"database\", KEEP_OPEN_ASYNC_FLUSH",
+        "failure": null
+      },
+      {
+        "class": "io.sirix.budget.LifecycleWorkBudgetTest",
+        "name": "[36] \"xml\", 4096, \"database\", KEEP_OPEN_ASYNC_COMMIT",
+        "failure": null
+      }
+    ]
+  },
+  "source_integrity": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java": {
+      "sha256": "65ce61ad69114dd30ba6d873a147c136736f29a1e0930417e3a28d4f851b9ee2",
+      "restored": true
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java": {
+      "sha256": "12970a804b92322a8da31520ca9714ba92688a6d09ddca4d75d35af255e7e1f7",
+      "restored": true
+    }
+  }
+}

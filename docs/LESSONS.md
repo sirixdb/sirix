@@ -358,3 +358,23 @@ entry. Trace every `finally` and parent restoration before changing working scop
 Behavioral guard tests verify nesting and exception cleanup; they do not prove removal
 of empty entries.
 See [the lifecycle CI postmortem](postmortems/lifecycle-ci-contexts.md).
+
+## Budget lifecycle work independently of lifecycle correctness
+
+Successful reopen and cleanup do not exclude a document scan or a repeated device barrier.
+Specify commit/close work bounds before measuring, cover each enclosing owner and document
+representation, supply a nonzero counter control, and verify persisted results as well as cost.
+Measure allocation primitives in the existing clean JVM. For one-key ownership, remove the
+key directly rather than searching unrelated owners; do not resurrect a private-state oracle
+to claim that a removed predicate was behaviorally killed.
+See [the lifecycle budget postmortem](postmortems/lifecycle-work-budgets.md).
+
+## Check lifecycle error precedence and identity reuse
+
+A downstream guard does not prove that an early guard is redundant: invalid arguments and
+closed owners may return different errors before reaching it. Derive those boundary cases
+from the lifecycle contract. Deletion/recreation with a fresh identity cannot prove release
+of an obligation keyed by the old identity; restore a clean backup at the same path and
+identity and observe persisted markers and committed values instead of private bookkeeping.
+Remove a wake with no predicate transition rather than claiming universal cost equivalence.
+See [the mutation closure postmortem](postmortems/lifecycle-ci-mutation-closure.md).
