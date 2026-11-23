@@ -391,3 +391,12 @@ must all collect its first unreported failure before replacing the worker or clo
 Use first-close-only failures to distinguish worker error retention from a later close retry.
 Keep process-exit ordering with the embedding application through explicit shutdown.
 See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-open-worker-failure.md).
+
+## Pin negative-control oracles with the toolchain
+
+A compiler/runtime upgrade can change the diagnostics and signal handling of a
+deliberately broken executable. Re-run both normal and omission callers on the
+pinned runtime; require completed data work and specific teardown-worker evidence,
+and use a watchdog signal the stuck runtime cannot catch. Do not treat an arbitrary
+crash or hang as a successful control. See the
+[25i5 shutdown-control postmortem](postmortems/native-25i5-shutdown-control.md).
