@@ -2,6 +2,13 @@
 
 ## 1.0.0 (unreleased)
 
+- Record the structural validator as evidence for
+  [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from
+  reporting the index malformed because a leaf was evicted, and the validation that follows a published
+  splice now has its own conformance case: `HOTStructuralValidatorLeafRetentionTest` retires every leaf
+  nobody holds at the publication boundary and evicts again at every engine call, with released frames
+  poisoned. No requirement text changes.
+
 - Make the PR mutation lane's unit of work its blocking criterion. New
   [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant
   generation to the PR's own lines through a repository interceptor on PIT's tool classpath,

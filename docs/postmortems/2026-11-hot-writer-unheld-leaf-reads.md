@@ -399,3 +399,77 @@ schedule, not the bound.
 - A concurrent evictor is not part of the regression tests. They evict on the writing thread, at
   every call into the storage engine. That is every point at which this thread can cause an
   eviction, and it stands in for another thread only at those points.
+
+## Follow-up: the structural validator half (#1458)
+
+- Fix / issue: [#1458](https://github.com/sirixdb/sirix/issues/1458), the validator half of the same
+  mistake. No production change: the writer-wide retention of this fix already covers it. Verified on
+  `main` at `31c9c16f1`.
+- Symptom: a commit under page-cache pressure failed with `IllegalStateException: HOT published
+  structural splice is malformed (first: I5-leaf-constancy — child[…] stored partial … is not a
+  subset of dense PEXT … of subtree key …)` on a trie whose bytes were sound; on the derived-index
+  maintainer thread the same error marked that resource's maintenance poisoned. Seen on
+  `macos-latest / query` and `windows-latest / query` while
+  [#1454](https://github.com/sirixdb/sirix/pull/1454) was in CI, and reproducible on Linux with
+  released frames zero-filled.
+- Trigger: `BitemporalStorageEpochEvictionTest.unboundedLoadMatchesColdPublicationsUnderEviction`
+  (its cache budget holds one HOT leaf) with
+  `FrameSlotAllocator.setPoisonOnReleaseForTesting(true)`.
+- Root cause: the same unguarded resolver. `HOTMalformedSubtreeDetector` checks `isClosed()` once
+  when it resolves a leaf and then reads `getFirstKey`, `getKey` and the entry count from that
+  leaf's slot memory, so a frame released and reused between the resolution and the read was
+  judged as the leaf's keys. It is the caller that must hold the leaf: the detector resolves
+  through a caller-supplied `PageResolver`, and the writer's is `traversalPageResolver`.
+- Why it no longer reproduces: `enterMutation` holds every cache-backed leaf this writer resolves
+  through `resolveHOTPageForTraversal(ref)` until the mutation exits, and the validator and its
+  bounded size preflight resolve through exactly that resolver, inside the mutation that published
+  the splice (`dispatchInsert` under `doIndex`, `doRemovePostingBit` or `doReplacePostingChunk`).
+  Measured on the trigger above with released frames zero-filled: 45,606 leaf resolves through the
+  validator's resolver, of which 11,260 carried no guard and **none** was a leaf the page cache
+  owned — the unguarded ones are transaction-log pages, which eviction cannot take. With
+  `mutationGuards()` forced to `null` the same run logs the symptom above twice and poisons derived
+  maintenance, while still exiting 0, because the test asserts nothing about the maintainer thread.
+- Why tests missed it: the page cache's own pressure eviction cannot be interleaved between a
+  validator's resolution and its read from a single-threaded test, because the validation walk makes
+  no call into the storage engine once the splice's leaves are resident.
+- Regression test: `HOTStructuralValidatorLeafRetentionTest` — three published splices (a branch, a
+  consolidation and one whose scope holds subtree children), each with every leaf nobody holds
+  retired at the publication boundary, the last point before validation, and evicted again at every
+  engine call, with released frames zero-filled. All three pass on `main` and all three fail with
+  `mutationGuards()` forced to `null`: `MutationTraversalRefusal … status=UNRESOLVABLE_REFERENCE`
+  with a suppressed `whole-node endpoint proof status=0 beta=-1 first=0 last=0`,
+  `IllegalStateException: HOT published structural path is malformed at page 8`, and a consolidation
+  that never publishes.
+  Run with `./gradlew :sirix-core:test --tests
+  'io.sirix.index.hot.HOTStructuralValidatorLeafRetentionTest'`.
+- Regression test for [#1459](https://github.com/sirixdb/sirix/issues/1459), the writer half, which
+  this fix landed without a closing reference: `HOTIndexWriterLeafRetentionTest`. The arm that
+  proves it forces `AbstractHOTIndexWriter.mutationGuards()` to return `null`, removing this fix's
+  mutation-wide retention and leaving the rest of `main` untouched, compiled into a class that
+  precedes the build output on the classpath; released frames are zero-filled. On `main` all 45
+  tests of that class and `HOTIncrementalInsertLeafRetentionTest` pass. On that arm 8 fail, all in
+  `HOTIndexWriterLeafRetentionTest`, each with an outcome #1459 reports:
+  - `writerDeclinesACrossingMergeUnderEvictionAtEveryPoint`, 1 of 318 eviction points:
+    `AssertionError: HOT invariant violations (1)` — the malformed index without an error.
+  - `writerDeclinesAMergeCrossingASubtreeUnderEvictionAtEveryPoint`, 1 of 314 points: the same
+    malformed-index outcome.
+  - `writerKeepsAnOrderedMergeInPlaceUnderEvictionAtEveryPoint`, 1 of 24 points:
+    `IllegalStateException: HOT incremental frontier inputs overlap at ordered child 2`.
+  - `writerTwoLeafMigrationSurvivesEvictionAtEveryPoint`, 4 of 108 points:
+    `MutationTraversalRefusal … 'existing-key routing-to-new-slot'` and
+    `… 'two-leaf candidate invariant …'`.
+  - `writerConsolidationSurvivesEvictionAtEveryPoint` (22 of 29 runs) and
+    `writerConsolidationHoldsLeavesAnEarlierPutResolved`: the consolidation precondition assertion
+    `HOT consolidation requires its caller to hold every direct leaf child of the node it
+    consolidates; a cache-backed child of the node beside the pair at slot 0 is unheld`, and
+    `IllegalStateException: HOT structural height requires a resolved child page`.
+  - `writerConsolidationSatisfiesThePrimitivesPrecondition` and
+    `whenAMutationEndsTheLeavesItHeldBecomeReclaimable`: the same precondition assertion.
+
+  `HOTIncrementalInsertLeafRetentionTest` passes on that arm as well: it hands the consolidation
+  primitive its own retained leaves, so it witnesses the primitive's contract, not the writer-wide
+  retention rule. Reproduce the passing side with
+  `./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOT*LeafRetention*'`.
+- Lesson: an issue can name its fix in a pull request that never merged while a different merged one
+  already removed the cause; re-prove the defect on the current default branch before changing code,
+  and score such a run by its log, not by its exit code. See [Lessons](../LESSONS.md).
