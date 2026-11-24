@@ -1796,15 +1796,46 @@ class CaptureDetailTest(unittest.TestCase):
             )
             expected = {data: "btrfs", Path(directory) / "data" / "pool" / "db": "zfs", Path(directory): "ext4"}
             for index, (path, filesystem) in enumerate(expected.items()):
+                path.mkdir(parents=True, exist_ok=True)
                 capture = self.capture(f"{directory}/root-{index}", data=path, **{"proc/self/mountinfo": mounts})
                 self.assertEqual(filesystem, capture["data_filesystem"], path)
+
+    def test_a_data_symlink_uses_the_targets_mount(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory) / "data"
+            (data / "db").mkdir(parents=True)
+            link = Path(directory) / "link"
+            link.symlink_to("data", target_is_directory=True)
+            for index, path in enumerate((link, link / "db")):
+                capture = self.capture(
+                    f"{directory}/root-{index}",
+                    data=path,
+                    **{"proc/self/mountinfo": f"90 25 0:50 / {data} rw - xfs /dev/sdb1 rw\n"},
+                )
+                self.assertEqual("xfs", capture["data_filesystem"], path)
+
+    def test_a_missing_data_target_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "absent"
+            link = Path(directory) / "link"
+            link.symlink_to("absent")
+            for index, path in enumerate((missing, link, link / "db")):
+                capture = self.capture(f"{directory}/root-{index}", data=path)
+                self.assertEqual(
+                    {"unavailable": "benchmark data path: FileNotFoundError"}, capture["data_filesystem"], path
+                )
 
     def test_a_data_path_that_cannot_be_resolved_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             os.symlink(f"{directory}/b", f"{directory}/a")
             os.symlink(f"{directory}/a", f"{directory}/b")
-            capture = self.capture(f"{directory}/root", data=Path(directory) / "a" / "db")
-        self.assertRegex(capture["data_filesystem"]["unavailable"], "^benchmark data path: (Runtime|OS)Error$")
+            os.symlink("self", f"{directory}/self")
+            for index, name in enumerate(("a", "a/db", "self", "self/db")):
+                with self.subTest(path=name):
+                    capture = self.capture(f"{directory}/root-{index}", data=Path(directory) / name)
+                    self.assertRegex(
+                        capture["data_filesystem"]["unavailable"], "^benchmark data path: (Runtime|OS)Error$"
+                    )
 
     def test_memory_is_fingerprinted_in_whole_gibibytes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -245,7 +245,7 @@ def _filesystem(root: Path, data: Path | None) -> str | dict[str, str]:
     if isinstance(text, dict):
         return text
     try:
-        target = data.resolve()
+        target = data.resolve(strict=True)
     except (OSError, RuntimeError) as error:  # a symbolic-link loop is a RuntimeError before Python 3.13
         return unavailable(f"benchmark data path: {type(error).__name__}")
     best: tuple[int, str] | None = None

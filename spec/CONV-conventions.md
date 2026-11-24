@@ -373,8 +373,10 @@ energy-performance preference; the turbo or boost setting; the powercap limits; 
 `cpupower frequency-info` output; the `sensors` output; total memory; the CPUs the run is allowed
 to use; the version output of every JDK or GraalVM an arm runs on; and the type of the filesystem
 that holds the benchmark data. A probe whose source is missing or unreadable MUST be recorded as
-unavailable with the reason; it MUST NOT be omitted, guessed or copied from an earlier run. The
-capture MUST NOT hold a host name, a user name, a serial number or a path below a home directory,
+unavailable with the reason; it MUST NOT be omitted, guessed or copied from an earlier run.
+The data filesystem MUST be unavailable when the data path cannot be fully resolved, including
+a missing target or a symbolic-link loop in any component; valid links use the target's mount.
+The capture MUST NOT hold a host name, a user name, a serial number or a path below a home directory,
 because conditions are published.
 
 **Fingerprint.** The fingerprint is the SHA-256, in lowercase hexadecimal, of the canonical JSON
