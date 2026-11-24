@@ -59,21 +59,18 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
             val manager = database.beginResourceSession(resource)
 
             manager.use {
-                ctx.response().putHeader(HttpHeaders.ETAG, eTagOf(manager, revision, revisionTimestamp, nodeId))
+                eTagOf(manager, revision, revisionTimestamp, nodeId)?.let {
+                    ctx.response().putHeader(HttpHeaders.ETAG, it)
+                }
             }
         }
 
         ctx.response().end()
     }
-    /**
-     * The ETag for the addressed node, or "" when the resource keeps no hashes. Without hashes and
-     * without a nodeId there is nothing to read; otherwise the node must exist in the selected
-     * revision, hashes or not, exactly as on GET (REST-203), or this throws a 404.
-     */
-    private fun eTagOf(manager: T, revision: String?, revisionTimestamp: String?, nodeId: Long?): String {
+    private fun eTagOf(manager: T, revision: String?, revisionTimestamp: String?, nodeId: Long?): String? {
         val withoutHashes = manager.resourceConfig.hashType == HashType.NONE
         if (withoutHashes && nodeId == null) {
-            return ""
+            return null
         }
         val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
         manager.beginNodeReadOnlyTrx(revisionNumber).use { rtx ->
@@ -83,7 +80,7 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
             } else if (rtx.isDocumentRoot) {
                 cursor.moveToFirstChild()
             }
-            return if (withoutHashes) "" else rtx.hash.toString()
+            return if (withoutHashes) null else rtx.hash.toString()
         }
     }
 

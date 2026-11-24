@@ -39,6 +39,12 @@ class QuerySerializer {
                     PermissionCheckingQuery(sirixCompileChain, query, keycloak, user, authz).execute(queryCtx)
 
                 if (sequence != null) {
+                    if (sequence is Item) {
+                        if (startResultSeqIndex == 0L) {
+                            serialize(serializer, sequence)
+                        }
+                        return
+                    }
                     sequence.iterate().use { itemIterator ->
 
                         // Skip to the window start, STOPPING at end-of-sequence: brackit iterators

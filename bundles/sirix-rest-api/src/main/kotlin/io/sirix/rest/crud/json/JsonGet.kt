@@ -18,15 +18,9 @@ import io.sirix.query.JsonDBSerializer
 import io.sirix.rest.crud.AbstractGetHandler
 import io.sirix.rest.crud.OutputWrapper
 import io.sirix.query.SirixQueryContext
-import io.sirix.query.json.AbstractJsonDBArray
-import io.sirix.query.json.AtomicBooleanJsonDBItem
-import io.sirix.query.json.AtomicNullJsonDBItem
-import io.sirix.query.json.AtomicStrJsonDBItem
 import io.sirix.query.json.JsonDBCollection
 import io.sirix.query.json.JsonDBCollectionImpl
-import io.sirix.query.json.JsonDBObject
 import io.sirix.query.json.JsonItemFactory
-import io.sirix.query.json.NumericJsonDBItem
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.brackit.query.compiler.CompileChain
@@ -310,48 +304,9 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         queryContext: SirixQueryContext,
         jsonSessionDBStore: JsonSessionDBStore
     ) {
-        val jsonItem = JsonItemFactory()
-            .getSequence(rtx, dbCollection)
-
-        if (jsonItem != null) {
-            queryContext.contextItem = jsonItem
-
-            when (jsonItem) {
-                is AbstractJsonDBArray<*> -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                is JsonDBObject -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                is AtomicBooleanJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                is AtomicStrJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                is AtomicNullJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                is NumericJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                else -> {
-                    throw IllegalStateException("Node type not known.")
-                }
-            }
-        }
+        queryContext.contextItem = JsonItemFactory.INSTANCE.getSequence(rtx, dbCollection)
+        dbCollection.setJsonDBStore(jsonSessionDBStore)
+        jsonSessionDBStore.addDatabase(dbCollection, dbCollection.database)
     }
 
     override fun createOutputStream(): OutputWrapper = OutputWrapper.StringBuilderWrapper(StringBuilder())

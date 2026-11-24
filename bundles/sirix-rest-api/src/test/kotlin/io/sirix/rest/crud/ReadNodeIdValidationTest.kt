@@ -312,7 +312,7 @@ class ReadNodeIdValidationTest {
             assertEquals(200, ok.statusCode())
             val etag = ok.getHeader(HttpHeaders.ETAG.toString())
             if (hash == HashType.NONE) {
-                assertEquals("", etag)
+                assertNull(etag)
             } else {
                 assertEquals(nodeHash(format, 2, fixture.firstItemKey).toString(), etag)
                 assertEquals(etag, get(client, port, format, "?nodeId=${fixture.firstItemKey}")
@@ -322,7 +322,7 @@ class ReadNodeIdValidationTest {
             val whole = head(client, port, format, "")
             assertEquals(200, whole.statusCode())
             if (hash == HashType.NONE) {
-                assertEquals("", whole.getHeader(HttpHeaders.ETAG.toString()))
+                assertNull(whole.getHeader(HttpHeaders.ETAG.toString()))
             } else {
                 assertEquals(documentFirstChildHash(format, 2).toString(), whole.getHeader(HttpHeaders.ETAG.toString()))
                 assertEquals(whole.getHeader(HttpHeaders.ETAG.toString()),

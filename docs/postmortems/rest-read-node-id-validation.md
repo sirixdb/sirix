@@ -147,3 +147,48 @@ per request. Requests without `nodeId` are unchanged.
 - Lesson: a fused node's structural role does not replace its field identity; test named and
   unnamed roots independently in every wire representation. See [LESSONS.md](../LESSONS.md).
 - Vision check: retains the selected node's identity and historical result, with no new default.
+
+## Review follow-up: valid node kinds across every read branch
+
+- Symptom: `GET ?nodeId=0&query=1` failed with 500 for a JSON document that passed existence
+  validation. XML attributes and namespaces also failed on serialization, and unhashed HEADs
+  returned an empty ETag header instead of omitting it.
+- Root cause: existence validation accepted every stored kind, but JSON query binding assumed
+  every cursor denoted a JSON value. The item factory had no document item, and the REST handler
+  duplicated collection registration in a list of concrete value classes. XML serialization
+  assumed every result was directly representable as standalone XML; the query serializer
+  explicitly rejected attributes. HEAD conflated an absent ETag with an empty string. The query
+  paginator assumed every `Sequence.iterate()` enumerated query results, but JSON arrays iterate
+  members; its serializer also assumed at least one item would be written before close. Comment
+  delimiter constants contained presentation spaces inside the comment value.
+- The complete matrix additionally exposed array members being mistaken for query-result items,
+  invalid JSON when no result was serialized, and comment delimiters padding the stored value.
+  The first focused run failed on those observable cases; collecting assertions across requests
+  identified all array kinds affected rather than stopping at the first failing target.
+- Correction: represent JSON document contexts with their own stored item anchored at key 0,
+  register the query collection once for all item kinds, emit attributes/namespaces through
+  explicit REST XML representations at the shared serializer, and return no HEAD ETag without
+  hashing. Non-REST XML serialization retains its restrictions. Treat every Item as one result
+  at the pagination boundary, initialize an empty JSON envelope on close, and remove comment
+  delimiter padding at the shared XML boundary.
+- Regression: `ReadNodeKindMatrixTest` derives exact subtree values from REST-203 and worked JSON
+  and XML fixtures. It exercises document roots, named and unnamed containers, all named and
+  unnamed scalar kinds (including integer, long, decimal and large-integer values), and XML
+  elements, attributes, namespaces, text, comments and processing instructions. Attributes and
+  namespaces cover both prefixed and unprefixed forms. Every target is read through ordinary GET,
+  identity/constant/node-key queries, paginated versions of those queries, and HEAD with hashes
+  on/off; JSON also covers record pagination. The node-key query rejects substitution of child 1
+  for document 0. Assertions check parsed public bodies, unchanged subtree scope and the hash
+  independently read from the selected stored node; XML comparisons discard only REST metadata
+  and formatting whitespace, retaining expanded names and user attributes.
+- Verification: focused Gradle runs passed the complete node-kind matrix, existing read-selection
+  tests, query pagination lifecycle tests, JSON/XML query serializer tests, and XML/SAX serializer
+  and escaping tests. The matrix executes all requests before collecting assertion failures, so
+  every node-kind/branch combination runs even when another combination fails. Initial runs
+  reproduced the comment-padding and array-pagination defects; the final matrix passes after
+  their fixes, including valid empty windows. Mutation and broader budget gates remain with the
+  outer executor.
+- Lesson: validation and every downstream consumer must accept the same node-kind domain. A
+  stored document identity cannot be substituted with its JSON payload. See [LESSONS.md](../LESSONS.md).
+- Vision check: preserves identity, exact historical scope and fail-closed behavior; no stored
+  format or default setting changes.
