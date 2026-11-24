@@ -147,8 +147,8 @@ by timestamp; each page read combines at most N fragments. The full strategy wal
 
 ## Quick Start
 
-> **Platform support:** Linux, macOS, and Windows are CI-tested on every pull request.
-> Linux additionally gets native binaries and the Docker images; known limitations are
+> **Platform support:** Linux (x86-64 and arm64), macOS, and Windows are CI-tested on every pull request.
+> Linux x86-64 additionally gets native binaries and the Docker images; known limitations are
 > listed in [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md).
 
 ### Using Docker and the REST API

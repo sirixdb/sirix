@@ -44,67 +44,71 @@ an independent logging cost: stdout logging overlaps test execution. Retain
 `--info --stacktrace` and test diagnostics; do not claim a speedup from suppressing
 logs without an A/B measurement.
 
-Linux CI puts the HOT structural property class and its nested classes in one
-job and all remaining classes in another. Expected baseline-equivalent job times
-are approximately 18 and 15 minutes including setup/compilation/cleanup, giving
-both jobs substantial margin under the unchanged 35-minute timeout. Keep one
-serial test fork per job to avoid multiplying the existing heap budget or
+Linux CI first put the HOT structural property class and its nested classes in one
+job and all remaining classes in another (the `remaining` set, still a valid `coreTestLane`
+value; it is now cut again, see [the next cuts](#macos-and-linux-arm64-core-cut-linux-remaining-cut-2026-11-23)).
+For that initial split, expected baseline-equivalent job times were approximately 18 and 15 minutes
+including setup/compilation/cleanup, giving both jobs substantial margin under the unchanged
+35-minute timeout. Keep one serial test fork per job to avoid multiplying the existing heap budget or
 introducing shared test-database races. Preserve the HOT property workload
 parameters, seeds, versioning types and assertions; oracle checks and cadence are
 specified in [Verification](VERIFICATION.md#running-the-layers).
 
 ## Coverage and gating
 
-Both lanes invoke the existing `:sirix-core:test` task, with all of its existing
+All Linux x86 lanes invoke the existing `:sirix-core:test` task, with all of its existing
 JUnit engines, JVM flags, diagnostic properties and test resources:
 
 ```bash
 ./gradlew :sirix-core:test -PcoreTestLane=hot-property --info --stacktrace
-./gradlew :sirix-core:test -PcoreTestLane=remaining --info --stacktrace
+./gradlew :sirix-core:test -PcoreTestLane=remaining-index --info --stacktrace
+./gradlew :sirix-core:test -PcoreTestLane=non-index --info --stacktrace
 ```
 
 The class-file pattern is `io/sirix/index/hot/HOTStructuralPropertyTest*.class`.
-For the `:sirix-core:test` class set T under the same test configuration and matching set H,
-the lanes select T ∩ H and T ∖ H. Their intersection is empty and their union is T.
-Future classes selected by this task automatically enter exactly one lane; nested property classes stay
-with their enclosing class.
+The [current partition](#macos-and-linux-arm64-core-cut-linux-remaining-cut-2026-11-23)
+covers every class selected by `:sirix-core:test` exactly once under the same test configuration.
+Future classes automatically enter exactly one lane; nested property classes stay with their
+enclosing class.
 An unrecognized lane fails configuration instead of silently skipping coverage.
 Without the property, `:sirix-core:test` retains its existing test selection:
 the default runs the complete suite, while `-PexcludeHeavyTests` still excludes
-heavy-tagged tests on macOS and Windows.
+heavy-tagged tests in the cross-platform jobs.
 
 The `TestCore` matrix has no conditions, `continue-on-error`, tag exclusions or
 reduced workloads. Workflow triggers and the `Build` prerequisite are unchanged,
-so both jobs run on every previously covered pull request, main push, release
-branch push and scheduled run. `fail-fast: false` lets both finish after a failure.
-`Deploy` still depends on `TestCore`, which now requires both matrix jobs to
-succeed. Query and macOS jobs are unchanged; the Windows core job is cut separately, below.
+so all lanes run on every previously covered pull request, main push, release
+branch push and scheduled run. `fail-fast: false` lets all lanes finish after a failure.
+`Deploy` still depends on `TestCore`, which requires all matrix jobs to
+succeed. The cross-platform jobs are cut separately, below.
 
 ## Verification
 
-Use Gradle's `--test-dry-run --info` on the unpartitioned task and on both lanes,
-saving each invocation's log. Count the test cases Gradle reports as `SKIPPED`
-within `:sirix-core:test` only, excluding output from its isolated prerequisite
+Use Gradle's `--test-dry-run --info` on the unpartitioned task and on each lane,
+saving each invocation's log. Check Linux x86 with `hot-property`, `remaining-index` and
+`non-index`; check the cross-platform configuration with `index` and `non-index`, passing
+`-PexcludeHeavyTests` to both the partitioned and unpartitioned invocations.
+Count the test cases Gradle reports as `SKIPPED` within `:sirix-core:test` only,
+excluding output from its isolated prerequisite
 test tasks. Those tasks run in every lane and are outside the partition.
-Both lane counts must be nonzero and their sum must equal
+Each lane count must be nonzero and their sum must equal
 the unpartitioned count at the same commit with the same test configuration.
-Together with the complementary class filters above, this establishes an empty
+Together with the complementary class filters documented here, this establishes an empty
 intersection and a lane union equal to the unpartitioned discovery.
 This exercises Gradle/JUnit discovery and the real include/exclude behavior.
 A discovery pass skips execution and is coverage evidence, not a correctness run.
 
-The PR's CI must execute both lanes successfully. Read each job's start/end times
-from GitHub and compare them with the unchanged 35-minute cap.
+The PR's CI must execute every lane successfully. Read each job's start/end times
+from GitHub and compare them with the workflow's caps: 35 minutes for Linux x86 core
+and 60 minutes for the cross-platform jobs.
 
 ## Windows core cut (2026-11-22)
 
-The Linux cut does not help the cross-platform jobs. They pass `-PexcludeHeavyTests`, which
+The Linux hot-property cut does not help the cross-platform jobs. They pass `-PexcludeHeavyTests`, which
 removes the long `HOTStructuralPropertyTest` workloads, so in
 [run 45062256488](https://github.com/sirixdb/sirix/actions/runs/45062256488) (Windows core,
 24 m 47 s Gradle time) that class took about 259 s of about 1,400 s of test output. Cutting there
-would leave one lane with 4 minutes of work. The 25 min Windows job was a real run at the
-fast end of the 25-35 min range. macOS core is left unchanged because this change has no
-timing evidence for splitting it.
+would leave one lane with 4 minutes of work.
 
 The Windows core job splits on the `io.sirix.index` package tree instead, with two more values of the
 same `coreTestLane` property:
@@ -114,16 +118,47 @@ same `coreTestLane` property:
 ./gradlew :sirix-core:test -PcoreTestLane=non-index -PexcludeHeavyTests=true
 ```
 
-`index` includes `io/sirix/index/**/*.class`, `non-index` excludes it, so the same argument as
-above gives an empty intersection and a union equal to the unpartitioned set. Summing the
+`index` includes `io/sirix/index/**/*.class`, `non-index` excludes it, so their intersection
+is empty and their union is the unpartitioned set. Summing the
 interval between successive test classes' first output lines in run 45062256488 (the same
 imprecise measure as above) gives 714 s for `index` and 689 s for `non-index`.
 
 The same task-only partition guarantee applies here: isolated prerequisite test tasks run in
-both Windows jobs rather than being split by `coreTestLane`.
+every lane rather than being split by `coreTestLane`.
 
-The Windows matrix lane names become `core-index` and `core-non-index`; on failure the jobs upload
-`test-reports-windows-latest-core-index` and `test-reports-windows-latest-core-non-index`.
-macOS retains `Cross-platform tests (macos-latest / core)`, invoking `:sirix-core:test` and
-producing `test-reports-macos-latest-core`. Linux `TestCore`, the coverage artifacts and
-the Sonar inputs are untouched.
+## macOS and Linux arm64 core cut, Linux remaining cut (2026-11-23)
+
+After the Windows cut the workflow was bound by two other jobs: macOS core (a cache-miss
+run takes 21-42 min; a `--build-cache` hit takes about one minute) and Linux `remaining`
+(18-35 min, 31 min in the last two main runs). Both are cut the same way.
+
+**macOS** runs `core-index` and `core-non-index` exactly as Windows does, replacing the single
+`core` lane. **Linux arm64** (`ubuntu-24.04-arm`) is a new first-class platform and runs the same
+three lanes as macOS and Windows (`core-index`, `core-non-index`, `query`) with the same
+`-PexcludeHeavyTests`; Linux x86 keeps the heavy suites. The lanes install their own JDK and
+build, like the other cross-platform jobs, because the restored Linux x86 build output contains
+an x86 `libsirix_lz77.so`.
+
+**Linux x86 `remaining`** cannot use `index` and `non-index` unchanged, because the HOT property
+classes sit in the index tree. The new `remaining-index` value and the existing `non-index`
+value cut the set that `remaining` already selects:
+
+| Lane | Selects |
+| --- | --- |
+| `hot-property` | `HOTStructuralPropertyTest*` |
+| `remaining-index` | `io/sirix/index/**` except `HOTStructuralPropertyTest*` |
+| `non-index` | everything outside `io/sirix/index/**` |
+
+The property classes are outside `non-index`, and
+`remaining-index` ∪ `non-index` = `remaining`. So `hot-property`, `remaining-index`
+and `non-index` have an empty pairwise intersection and their union is the
+unpartitioned set. The measure used above, applied to the log of the
+[last pull-request run's `remaining` job](https://github.com/sirixdb/sirix/actions/runs/45271088107),
+gives about 875 s for `remaining-index` and 915 s for `non-index` (plus about 4 minutes
+of compile and isolated tasks in each), against 1,820 s together. The coverage handoff and
+missing-data checks are documented in [SonarCloud analysis](VERIFICATION.md#sonarcloud-analysis).
+
+Cross-platform job names become `Cross-platform tests (macos-latest / core-index)`,
+`(macos-latest / core-non-index)` and the `ubuntu-24.04-arm` equivalents; on failure the jobs upload
+`test-reports-<os>-<lane>`. Linux `TestCore` lanes upload `coverage-core-<lane>` with the new lane
+names.
