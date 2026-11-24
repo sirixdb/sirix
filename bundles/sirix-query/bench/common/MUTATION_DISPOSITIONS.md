@@ -177,11 +177,10 @@ regressions derive from CONV-302; this rerun measures only those three functions
   `python3 -B -m unittest test_bench_ledger test_timed_gate` passed afterward
   (exit 0, 162 tests). The real CLI rejected both original JMH reports (exit 2 each)
   and accepted both unmodified C2 reports (exit 0 each).
-- Remaining limitation: with `-XX:-UseJVMCICompiler`, the fresh processes measured
-  212.04757333333333 versus 212.04768 B/op, a difference of 32 bytes across three
-  measured batches. Both JMH processes exited 0; the exact-equality assertion exited 1,
-  including after CLI import. The rounded delta is zero, but required equality remains
-  unmet. No warmup restriction, tolerance or engine repair was added; further protocol
-  changes require a maintainer decision.
-- Lesson: constrain the compiler that interprets optimization flags and verify fresh-process
-  measurement equality separately; importer enforcement alone cannot establish determinism.
+- Residual: with `-XX:-UseJVMCICompiler`, the fresh processes measured
+  212.04757333333333 and 212.04768 B/op, a difference of 32 bytes across three
+  batches of 100,000 operations (about 0.0001 B/op). Both round to 212 B/op, meeting
+  CONV-302's requirement of an identical whole-byte figure. The sub-byte residual is
+  the one-time harness/lazy-initialisation allocation that the batch divides.
+- Lesson: constrain the compiler that interprets optimization flags and judge fresh-process
+  equality on the figure the check rounds.

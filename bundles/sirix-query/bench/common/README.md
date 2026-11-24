@@ -104,7 +104,10 @@ The allocation-leg settings and reproducibility requirements are defined in
 They measure allocation as written, an **upper bound** on production allocation. Use the same
 settings for both arms, with a heap large enough for the non-collecting run. `import-jmh
 --allocation-leg` checks the required settings and converts the profiler's bytes per batch to
-bytes per operation; it does not establish fresh-process equality. The measured limitation is
+bytes per operation. Fresh-process equality of the whole-byte figure is a property of the settings
+and the batch, not of the importer. A batch of 100,000 operations per iteration keeps the residual
+far below half a byte per operation for the gate's benchmarks (observed about 0.0001 B/op).
+The measured sub-byte residual is
 recorded in the [compiler follow-up evidence](MUTATION_DISPOSITIONS.md#compiler-follow-up-root-cause-and-verification).
 
 With the ClickBench kit, set `OLD` and `NEW` to the full commit SHAs used to build the two

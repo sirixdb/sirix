@@ -323,7 +323,7 @@ For fresh-process reproducibility, round the leg's per-operation figure to the n
 ties to the even byte. This figure MUST be identical in every process of the same code.
 The batch MUST be large enough to keep one-time
 residual allocation far below half a byte per operation. Importer checks alone do not establish
-fresh-process equality; the measured limitation is recorded in the
+fresh-process equality; the measured sub-byte residual is recorded in the
 [compiler follow-up evidence](../bundles/sirix-query/bench/common/MUTATION_DISPOSITIONS.md#compiler-follow-up-root-cause-and-verification).
 
 ### CONV-303 — Results ledger and conditions record
