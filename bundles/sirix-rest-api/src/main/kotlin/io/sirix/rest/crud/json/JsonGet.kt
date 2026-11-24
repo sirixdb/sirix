@@ -196,6 +196,17 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
         val startNodeKey = ctx.queryParam("startNodeKey").getOrNull(0)?.toLong()
 
+        if (nodeId != null && startNodeKey != null) {
+            for (revision in revisions) {
+                manager.beginNodeReadOnlyTrx(revision).use { rtx ->
+                    require(rtx.moveTo(startNodeKey)) { "startNodeKey must exist inside the nodeId subtree" }
+                    while (rtx.nodeKey != nodeId && rtx.moveToParent()) {
+                    }
+                    require(rtx.nodeKey == nodeId) { "startNodeKey must exist inside the nodeId subtree" }
+                }
+            }
+        }
+
         val numberOfNodes = ctx.queryParam("numberOfNodes").getOrNull(0)?.toLong()
         val maxChildren = ctx.queryParam("maxChildren").getOrNull(0)?.toLong()
 
@@ -246,8 +257,8 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
             val serializerBuilder =
                 JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions)
 
-            // For pagination: startNodeKey is the last loaded child, serialize its right siblings
-            // For initial load: startNodeKey is 0 (default), serialize from document root
+            nodeId?.let { serializerBuilder.rootNodeKey(it) }
+
             if (startNodeKey != null) {
                 serializerBuilder.startNodeKey(startNodeKey)
             }

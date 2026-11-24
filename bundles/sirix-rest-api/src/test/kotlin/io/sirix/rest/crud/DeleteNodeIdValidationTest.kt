@@ -54,7 +54,7 @@ class DeleteNodeIdValidationTest {
     fun malformedNodeIdIsRejectedAndDeletesNothing(format: Format) = runBlocking {
         val itemKey = createResource(format)
         serve { client, port ->
-            for (nodeId in listOf("abc", "1.5", "", "9223372036854775808")) {
+            for (nodeId in listOf("abc", "1.5", "", "9223372036854775808", "%0A", "%0D", "%09", "%00", "%01", "%08", "%0C", "%22", "%5C")) {
                 val response = delete(client, port, "/db/res?nodeId=$nodeId")
                 assertError(response, 400, "nodeId='$nodeId'")
                 assertTrue(response.bodyAsJsonObject().getString("message").contains("nodeId"), response.bodyAsString())

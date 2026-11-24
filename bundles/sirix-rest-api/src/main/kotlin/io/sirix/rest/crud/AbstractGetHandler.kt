@@ -2,7 +2,9 @@ package io.sirix.rest.crud
 
 import io.sirix.api.Database
 import io.sirix.api.NodeCursor
+import io.sirix.api.NodeReadOnlyTrx
 import io.sirix.api.ResourceSession
+import io.sirix.access.trx.node.HashType
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.BasicJsonDBStore
 import io.sirix.query.node.BasicXmlDBStore
@@ -10,6 +12,7 @@ import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.vertx.core.Context
 import io.vertx.core.buffer.Buffer
+import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -179,6 +182,12 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                             rtx.moveToOrNotFound(nodeId)
                         }
 
+                        val nodeHash = if (nodeId != null && manager.resourceConfig.hashType != HashType.NONE) {
+                            (rtx as NodeReadOnlyTrx).hash
+                        } else {
+                            null
+                        }
+
                         handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)
 
                         body = executeQueryAndSerialize(
@@ -193,6 +202,9 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                             manager,
                             revisionNumber
                         )
+                        if (nodeHash != null) {
+                            routingContext.response().putHeader(HttpHeaders.ETAG, nodeHash.toString())
+                        }
                     }
                 } else {
                     body = executeQueryAndSerialize(

@@ -21,6 +21,7 @@ import io.sirix.service.xml.shredder.XmlShredder
 import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
+import io.vertx.core.json.Json
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.client.HttpResponse
@@ -105,7 +106,7 @@ class ReadNodeIdValidationTest {
     fun getWithNonNumericNodeIdIsBadRequest(format: Format, hash: HashType) = runBlocking {
         createResource(format, hash)
         serve { client, port ->
-            for (nodeId in listOf("abc", "1.5", "", "9223372036854775808")) {
+            for (nodeId in listOf("abc", "1.5", "", "9223372036854775808", "%0A", "%0D", "%09", "%00", "%01", "%08", "%0C", "%22", "%5C")) {
                 val response = get(client, port, format, "?nodeId=$nodeId")
                 assertError(response, 400, "nodeId='$nodeId'")
                 assertTrue(response.bodyAsJsonObject().getString("message").contains("nodeId"), response.bodyAsString())
@@ -138,6 +139,105 @@ class ReadNodeIdValidationTest {
             assertEquals(200, ok.statusCode(), ok.bodyAsString())
             assertError(get(client, port, format, "?nodeId=999999&query=1"), 404, "unknown nodeId with query")
             assertError(get(client, port, format, "?nodeId=abc&query=1"), 400, "non-numeric nodeId with query")
+        }
+    }
+
+    @ParameterizedTest(name = "{0}, hashes {1}")
+    @MethodSource("formatsAndHashes")
+    fun queryReturnsSelectedContextETagForEveryResultMode(format: Format, hash: HashType) = runBlocking {
+        val fixture = createResource(format, hash)
+        serve { client, port ->
+            for (revision in listOf(1, 2)) {
+                for (query in listOf("%24%24", "1")) {
+                    for (window in listOf("", "&startResultSeqIndex=0&endResultSeqIndex=0")) {
+                        val response = get(client, port, format,
+                            "?nodeId=${fixture.firstItemKey}&revision=$revision&query=$query$window")
+                        assertEquals(200, response.statusCode(), response.bodyAsString())
+                        if (query == "%24%24") {
+                            assertTrue(response.bodyAsString().contains("first"), response.bodyAsString())
+                            assertFalse(response.bodyAsString().contains("second"), response.bodyAsString())
+                        } else {
+                            assertTrue(response.bodyAsString().contains("1"), response.bodyAsString())
+                        }
+                        val expected = if (hash == HashType.NONE) null
+                            else nodeHash(format, revision, fixture.firstItemKey).toString()
+                        assertEquals(expected, response.getHeader(HttpHeaders.ETAG.toString()))
+                    }
+                }
+            }
+            val failed = get(client, port, format, "?nodeId=${fixture.firstItemKey}&query=1%20div%200")
+            assertError(failed, 400, "query evaluation failure")
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("jsonHashes")
+    fun recordPaginationStaysInsideSelectedSubtree(hash: HashType) = runBlocking {
+        val fixture = createResource(Format.JSON, hash)
+        val fieldKey = childKey(Format.JSON, fixture.firstItemKey)
+        serve { client, port ->
+            val initial = get(client, port, Format.JSON, "?nodeId=${fixture.firstItemKey}&nextTopLevelNodes=2")
+            assertEquals(200, initial.statusCode(), initial.bodyAsString())
+            assertEquals(Json.decodeValue("""{"a":"first","c":"continued"}"""), Json.decodeValue(initial.bodyAsString()))
+            val limited = get(client, port, Format.JSON, "?nodeId=${fixture.firstItemKey}&nextTopLevelNodes=1")
+            assertEquals(200, limited.statusCode(), limited.bodyAsString())
+            assertEquals(Json.decodeValue("""{"a":"first"}"""), Json.decodeValue(limited.bodyAsString()))
+            val continued = get(client, port, Format.JSON,
+                "?nodeId=${fixture.firstItemKey}&nextTopLevelNodes=2&startNodeKey=$fieldKey")
+            assertEquals(200, continued.statusCode(), continued.bodyAsString())
+            assertEquals(Json.decodeValue("""{"value":[{"c":"continued"}]}"""), Json.decodeValue(continued.bodyAsString()))
+            val exhausted = get(client, port, Format.JSON,
+                "?nodeId=${fixture.firstItemKey}&nextTopLevelNodes=2&startNodeKey=${fixture.firstItemKey}")
+            assertEquals(200, exhausted.statusCode(), exhausted.bodyAsString())
+            assertEquals(Json.decodeValue("""{"value":[]}"""), Json.decodeValue(exhausted.bodyAsString()))
+            for (response in listOf(initial, limited, continued, exhausted)) {
+                val expected = if (hash == HashType.NONE) null else nodeHash(Format.JSON, 2, fixture.firstItemKey).toString()
+                assertEquals(expected, response.getHeader(HttpHeaders.ETAG.toString()))
+            }
+            for (cursor in listOf(fixture.secondItemKey, 0L, -1L, 999999L)) {
+                assertError(get(client, port, Format.JSON,
+                    "?nodeId=${fixture.firstItemKey}&nextTopLevelNodes=2&startNodeKey=$cursor"), 400, "outside subtree")
+            }
+            val earlier = get(client, port, Format.JSON,
+                "?nodeId=0&nextTopLevelNodes=2&startNodeKey=${fixture.secondItemKey}&start-revision=1&end-revision=2")
+            assertError(earlier, 400, "cursor missing in an earlier revision")
+            val whole = get(client, port, Format.JSON, "?nextTopLevelNodes=2")
+            assertEquals(200, whole.statusCode(), whole.bodyAsString())
+            assertEquals(Json.decodeValue("""[{"a":"first","c":"continued"},{"b":"second"}]"""),
+                Json.decodeValue(whole.bodyAsString()))
+            val documentRoot = get(client, port, Format.JSON, "?nodeId=0&nextTopLevelNodes=2&startNodeKey=0")
+            assertEquals(200, documentRoot.statusCode(), documentRoot.bodyAsString())
+            assertEquals(Json.decodeValue("""[{"a":"first","c":"continued"},{"b":"second"}]"""),
+                Json.decodeValue(documentRoot.bodyAsString()))
+            val history = get(client, port, Format.JSON,
+                "?nodeId=${fixture.firstItemKey}&nextTopLevelNodes=2&start-revision=1&end-revision=2")
+            assertEquals(200, history.statusCode(), history.bodyAsString())
+            assertEquals(Json.decodeValue("""{"sirix":[{"revisionNumber":1,"revision":{"a":"first","c":"continued"}},{"revisionNumber":2,"revision":{"a":"first","c":"continued"}}]}"""),
+                Json.decodeValue(history.bodyAsString()))
+            val metadata = get(client, port, Format.JSON,
+                "?nodeId=${fixture.firstItemKey}&nextTopLevelNodes=2&withMetaData=nodeKey")
+            assertEquals(200, metadata.statusCode(), metadata.bodyAsString())
+            assertEquals(fixture.firstItemKey, metadata.bodyAsJsonObject().getJsonObject("metadata").getLong("nodeKey"))
+            assertTrue(metadata.bodyAsString().contains("first"), metadata.bodyAsString())
+            assertFalse(metadata.bodyAsString().contains("second"), metadata.bodyAsString())
+            val wholeContinuation = get(client, port, Format.JSON,
+                "?nextTopLevelNodes=2&startNodeKey=${fixture.firstItemKey}")
+            assertEquals(200, wholeContinuation.statusCode(), wholeContinuation.bodyAsString())
+            assertEquals(Json.decodeValue("""{"value":[{"b":"second"}]}"""), Json.decodeValue(wholeContinuation.bodyAsString()))
+            val field = get(client, port, Format.JSON, "?nodeId=$fieldKey&nextTopLevelNodes=2")
+            assertEquals(200, field.statusCode(), field.bodyAsString())
+            assertEquals(Json.decodeValue("""{"a":"first"}"""), Json.decodeValue(field.bodyAsString()))
+        }
+    }
+
+    private fun childKey(format: Format, parentKey: Long): Long = openDatabase(format).use { db ->
+        db.beginResourceSession("res").use { session ->
+            session.beginNodeReadOnlyTrx().use { trx ->
+                val cursor = trx as NodeCursor
+                assertTrue(cursor.moveTo(parentKey))
+                assertTrue(cursor.moveToFirstChild())
+                cursor.nodeKey
+            }
         }
     }
 
@@ -233,7 +333,7 @@ class ReadNodeIdValidationTest {
                     } else {
                         val jtx = trx as JsonNodeTrx
                         jtx.insertSubtreeAsFirstChild(
-                            JsonShredder.createStringReader("""[{"a":"first"}]"""),
+                            JsonShredder.createStringReader("""[{"a":"first","c":"continued"}]"""),
                             JsonNodeTrx.Commit.NO, JsonNodeTrx.CheckParentNode.YES, JsonNodeTrx.SkipRootToken.NO
                         )
                         jtx.commit()
@@ -293,6 +393,9 @@ class ReadNodeIdValidationTest {
     }
 
     companion object {
+        @JvmStatic
+        fun jsonHashes(): Stream<HashType> = Stream.of(HashType.NONE, HashType.ROLLING)
+
         @JvmStatic
         fun formatsAndHashes(): Stream<Arguments> = Stream.of(
             Arguments.of(Format.JSON, HashType.NONE),

@@ -17,6 +17,7 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
@@ -65,6 +66,28 @@ class RouteErrorMappingTest {
             } catch (failure: Throwable) {
                 testContext.failNow(failure)
             }
+        }
+    }
+
+    @Test
+    fun errorMessageRoundTripsJsonEscapesAndUnicode(vertx: Vertx) = runBlocking {
+        val message = "quote \" slash \\ controls " + (0..31).map { it.toChar() }.joinToString("") + " café 水"
+        val router = Router.router(vertx)
+        router.get("/bad").coroutineHandler(CoroutineScope(vertx.dispatcher())) {
+            throw IllegalArgumentException(message)
+        }
+        router.route().failureHandler(routerFailureHandler())
+        val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
+        val client = WebClient.create(vertx)
+        try {
+            val response = client.get(server.actualPort(), "localhost", "/bad").send().coAwait()
+            assertEquals(400, response.statusCode())
+            assertEquals("application/json", response.getHeader("Content-Type"))
+            assertEquals(400, response.bodyAsJsonObject().getInteger("statusCode"))
+            assertEquals(message, response.bodyAsJsonObject().getString("message"))
+        } finally {
+            client.close()
+            server.close().coAwait()
         }
     }
 

@@ -35,6 +35,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
   private final long startNodeKey;
 
+  private final long rootNodeKey;
+
   private enum State {
     IS_OBJECT,
 
@@ -87,6 +89,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     withNodeKeyAndChildNodeKeyMetaData = builder.withNodeKeyAndChildCount;
     numberOfNodes = builder.maxNodes;
     startNodeKey = builder.nodeKey;
+    rootNodeKey = builder.rootNodeKey;
   }
 
   /**
@@ -188,6 +191,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
      */
     private long nodeKey;
 
+    private long rootNodeKey;
+
     /**
      * Determines if an initial indent is needed or not.
      */
@@ -283,6 +288,12 @@ public final class JsonRecordSerializer implements Callable<Void> {
      */
     public Builder startNodeKey(final long nodeKey) {
       this.nodeKey = nodeKey;
+      return this;
+    }
+
+    public Builder rootNodeKey(final long rootNodeKey) {
+      checkArgument(rootNodeKey >= 0, "rootNodeKey must be nonnegative");
+      this.rootNodeKey = rootNodeKey;
       return this;
     }
 
@@ -515,6 +526,11 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @throws IOException if serialization fails
    */
   private void serializeSiblingsAfter(final JsonNodeReadOnlyTrx rtx, final int revision) throws IOException {
+    if (startNodeKey == rootNodeKey) {
+      out.append("{\"value\":[]}");
+      return;
+    }
+
     // Move to the start node (last loaded child)
     if (!rtx.moveTo(startNodeKey)) {
       out.append("{\"value\":[]}");
@@ -606,11 +622,12 @@ public final class JsonRecordSerializer implements Callable<Void> {
   private void serializeWithParentWrapper(final JsonNodeReadOnlyTrx rtx, final int revision) throws IOException {
     var state = State.IS_PRIMITIVE;
 
-    rtx.moveToDocumentRoot();
-    if (!rtx.hasFirstChild()) {
-      return;
+    checkArgument(rtx.moveTo(rootNodeKey), "Subtree root does not exist");
+    if (rootNodeKey == 0) {
+      if (!rtx.moveToFirstChild()) {
+        return;
+      }
     }
-    rtx.moveToFirstChild();
 
     if (rtx.getNodeKey() <= 0) {
       return;
@@ -652,7 +669,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
     // For primitives, serialize the node itself (not children, which don't exist)
     if (state == State.IS_PRIMITIVE) {
-      builder.startNodeKey(rtx.getNodeKey()).build().call();
+      builder.serializeStartNodeWithBrackets(true).startNodeKey(rtx.getNodeKey()).build().call();
     } else if (rtx.hasFirstChild()) {
       // Serialize children for objects/arrays
       rtx.moveToFirstChild();

@@ -84,3 +84,38 @@ per request. Requests without `nodeId` are unchanged.
 - Regression: the same test, which fails on `3dd98238` and passes with the fix; the whole tooling
   suite (156 tests, 99 % branch coverage) passes.
 - Lesson: see the isolation lesson in [Lessons](../LESSONS.md).
+
+## Review follow-up: pagination, query validators and error encoding
+
+- Symptom: record pagination ignored `nodeId`, so a first-object request could return its
+  sibling while hashing the first object. Queries returned no context-node ETag, and malformed
+  parameters containing decoded control characters produced an invalid JSON Error envelope.
+- Root cause: the record serializer conflated the resource root and continuation cursor;
+  the format-specific query serializers bypassed the resource serializer's ETag handling;
+  the shared error boundary escaped only quotes and backslashes by hand.
+- Why tests missed it: tests checked node selection without record pagination, checked query
+  success without its ETag, and supplied malformed parameters containing only printable text.
+- Correction: separate the record subtree root from the continuation cursor, validate cursor
+  ancestry in every selected revision before serialization, attach the selected context hash
+  after successful query evaluation at the shared query boundary, and serialize Error objects
+  with the JSON encoder.
+- Regression tests: `ReadNodeIdValidationTest.recordPaginationStaysInsideSelectedSubtree`
+  compares parsed HTTP bodies with explicit fixture values for initial, limited, continuation,
+  exhausted, historical, metadata and whole-resource pages. It rejects sibling, ancestor,
+  missing and revision-partial cursors. `queryReturnsSelectedContextETagForEveryResultMode`
+  checks JSON/XML, hashes on/off, ordinary/paginated results, transformed queries, historical
+  revisions and query failure. Malformed-key tests on GET and DELETE include decoded controls.
+  `RouteErrorMappingTest.errorMessageRoundTripsJsonEscapesAndUnicode` round-trips every JSON
+  control character and non-ASCII text through the actual HTTP failure boundary (REST-209).
+- Verification: all 44 focused REST cases and 22 focused core serializer cases passed across
+  the focused runs, including the corrected query-syntax and scalar fixtures. The core cases
+  include `JsonRecordSubtreeScopeTest` (character and byte outputs), `JsonRecordSerializerTest`
+  and `JsonSerializerStartNodeRegressionTest`. Pre-fix execution was not run because this review
+  phase requires all fixes before verification. Mutation and broader budget gates remain with
+  the outer executor.
+- Lesson: selecting a node must constrain every serializer and pagination cursor, and query
+  response metadata must be tested independently of body success. Encode protocol strings with
+  the protocol serializer. See [LESSONS.md](../LESSONS.md).
+- Vision check: preserves node identity and historical scope and fails closed rather than
+  returning another subtree; introduces no new default. Existing budget and mutation gates
+  remain owned by the outer validation phases.
