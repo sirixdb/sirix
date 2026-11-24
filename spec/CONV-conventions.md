@@ -303,7 +303,9 @@ each arm in at least one fresh process that contributes no timed measurement, so
 process carries the allocation profiler. An arm's figure is the median over its allocation
 processes, without rounding. The delta is the candidate's median minus the baseline's median,
 rounded to the nearest whole byte, ties to the even byte. The check passes when that delta is at
-most zero. Allocation has no threshold and no `unstable` verdict.
+most zero. If allocation legs were measured for a judged series, each arm MUST retain at least one
+accepted allocation leg; otherwise judgment MUST be refused. A series with no allocation legs has
+no allocation check. Allocation has no threshold and no `unstable` verdict.
 
 ### CONV-303 — Results ledger and conditions record
 
@@ -322,9 +324,14 @@ MUST still record the processes it measured. A figure the timer reports as zero 
 resolution: it is not a measurement and is not recorded, and the kit names it. The ledger is UTF-8
 JSON Lines, one object per line.
 A writer MUST only append and MUST NOT rewrite or remove a line. Retrying a commit MUST NOT
-duplicate a run, measurement or verdict already in the ledger. A reader MUST ignore a field it
-does not know and MUST reject a row whose `schema` it does not know. Without `SIRIX_BENCH_LEDGER`
-a kit still runs and still captures its environment, and its numbers are not protocol results.
+duplicate a run, measurement or verdict already in the ledger. A matching row identity with
+different contents MUST refuse the whole append. A run MUST NOT be rejected after any of its
+measurements has reached the ledger, even if its recording marker is absent.
+A ClickBench hot figure requires every later try of that process to succeed; a failed (null) try
+MUST withhold both that query's hot figure and the suite hot total, without discarding cold figures.
+A reader MUST ignore a field it does not know and MUST reject a row whose `schema` it does not know.
+Without `SIRIX_BENCH_LEDGER` a kit still runs and still captures its environment, and its numbers
+are not protocol results.
 
 Every row carries `schema` (integer, 1), `kind` and `run`. `run` is the run's identifier: its UTC
 start as `YYYYMMDDTHHMMSSZ`, a hyphen and 8 lowercase hexadecimal digits.

@@ -261,17 +261,17 @@ def collect_allocation(
     for row in kept:
         if row["metric"] != ALLOCATION_METRIC or (wanted is not None and row["benchmark"] not in wanted):
             continue
-        if row.get("accepted", True) is not True:
-            continue
         key = _key(row)
         if row["arm"] not in (BASELINE, CANDIDATE):
             raise GateError(f"{_describe(key)}: an allocation leg belongs to baseline or candidate, got {row['arm']!r}")
-        legs.setdefault(key[:2], {}).setdefault(row["arm"], []).append(row["value"])
+        accepted = legs.setdefault(key[:2], {}).setdefault(row["arm"], [])
+        if row.get("accepted", True) is True:
+            accepted.append(row["value"])
     checks = {}
     for key in sorted(legs):
         for arm in (BASELINE, CANDIDATE):
-            if arm not in legs[key]:
-                raise GateError(f"{_describe((key[0], key[1], ALLOCATION_METRIC))}: no {arm} allocation leg")
+            if not legs[key].get(arm):
+                raise GateError(f"{_describe((key[0], key[1], ALLOCATION_METRIC))}: no accepted {arm} allocation leg")
         baseline = allocation_median(legs[key][BASELINE])
         candidate = allocation_median(legs[key][CANDIDATE])
         delta = round(candidate - baseline)

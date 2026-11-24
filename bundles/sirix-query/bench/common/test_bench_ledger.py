@@ -639,6 +639,15 @@ class RowSchemaTest(unittest.TestCase):
 
 class LedgerFileTest(unittest.TestCase):
 
+    def test_a_conflicting_identity_refuses_the_entire_append(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "ledger.jsonl"
+            bench_ledger.append_rows(ledger, [measurement_row()])
+            before = ledger.read_bytes()
+            with self.assertRaisesRegex(LedgerError, "conflicting measurement row"):
+                bench_ledger.append_rows(ledger, [measurement_row(pair=2), measurement_row(value=99.0)])
+            self.assertEqual(before, ledger.read_bytes())
+
     def test_appending_never_changes_what_is_already_there(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             ledger = Path(directory) / "nested" / "ledger.jsonl"
@@ -1022,6 +1031,55 @@ class RunDirectoryTest(unittest.TestCase):
         self.assertEqual(13, bench_ledger.commit(out, self.ledger)["appended"])
         self.assertEqual(rows, bench_ledger.read_ledger(self.ledger))
 
+    def test_rejection_refuses_durable_measurements_without_a_marker(self) -> None:
+        out = self.open_run(tier="control")
+        self.record_pairs(out, QUIET)
+        with mock.patch.object(bench_ledger.os, "replace", side_effect=OSError("marker unavailable")):
+            with self.assertRaisesRegex(OSError, "marker unavailable"):
+                bench_ledger.commit(out, self.ledger)
+        ledger_before = self.ledger.read_bytes()
+        measurements = out / bench_ledger.MEASUREMENTS_FILE
+        before = measurements.read_bytes()
+        self.assertFalse((out / bench_ledger.RECORDED_FILE).exists())
+        with self.assertRaisesRegex(LedgerError, "already judged or recorded"):
+            bench_ledger.reject_run(out, "the differential failed", self.ledger)
+        self.assertEqual(before, measurements.read_bytes())
+        self.assertEqual(ledger_before, self.ledger.read_bytes())
+        self.assertEqual(0, bench_ledger.commit(out, self.ledger)["appended"])
+
+    def test_a_durable_run_row_alone_does_not_prevent_rejection(self) -> None:
+        out = self.open_run(tier="control")
+        self.record_pairs(out, QUIET[:1])
+        bench_ledger.append_rows(self.ledger, [bench_ledger.load_run(out)])
+        self.assertEqual(2, bench_ledger.reject_run(out, "wrong answers", self.ledger))
+        self.assertEqual(2, bench_ledger.commit(out, self.ledger)["appended"])
+        self.assertEqual([False, False], [row["accepted"] for row in bench_ledger.read_ledger(self.ledger)[1:]])
+
+    def test_commit_refuses_conflicting_durable_rows_with_or_without_a_marker(self) -> None:
+        for marker in (True, False):
+            for kind, filename, changed in (
+                ("run", bench_ledger.RUN_FILE, {"kit": "another-kit"}),
+                ("measurement", bench_ledger.MEASUREMENTS_FILE, {"accepted": False, "reject_reason": "load"}),
+                ("verdict", bench_ledger.VERDICTS_FILE, {"difference": 0.5}),
+            ):
+                with self.subTest(kind=kind, marker=marker):
+                    out = self.open_run(f"{kind}-{marker}", tier="control")
+                    self.record_pairs(out, QUIET)
+                    bench_ledger.judge(out, self.ledger)
+                    path = out / filename
+                    if kind == "run":
+                        rows = [bench_ledger.load_run(out)]
+                    else:
+                        rows = bench_ledger.read_ledger(path)
+                    rows[0].update(changed)
+                    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+                    if not marker:
+                        (out / bench_ledger.RECORDED_FILE).unlink()
+                    before = self.ledger.read_bytes()
+                    with self.assertRaisesRegex(LedgerError, f"conflicting {kind} row"):
+                        bench_ledger.commit(out, self.ledger)
+                    self.assertEqual(before, self.ledger.read_bytes())
+
     def test_commit_appends_only_what_the_ledger_does_not_hold_yet(self) -> None:
         out = self.open_run("nightly", tier="nightly", night="2026-11-23")
         rows = [
@@ -1062,7 +1120,7 @@ class RunDirectoryTest(unittest.TestCase):
     def test_a_rejected_run_keeps_its_rows_and_marks_every_one_rejected(self) -> None:
         out = self.open_run()
         self.record_pairs(out, QUIET[:3], rejected=(2,))
-        self.assertEqual(6, bench_ledger.reject_run(out, "the differential failed"))
+        self.assertEqual(6, bench_ledger.reject_run(out, "the differential failed", self.ledger))
         rows = bench_ledger.load_measurements(out)
         self.assertEqual([False] * 6, [row["accepted"] for row in rows])
         self.assertEqual(
@@ -1252,6 +1310,28 @@ class ImporterTest(unittest.TestCase):
             {(row["arm"], row["pair"], row["position"], row["process"], row["accepted"], row["unit"]) for row in rows},
         )
         self.assertEqual([{"groupDense": 3}] * 6, [row["counters"] for row in rows])
+
+    def test_a_failed_hot_try_withholds_query_and_suite_hot_figures(self) -> None:
+        for later in ([0.004, None], [None, 0.004], [None, None], [0.004, None, 0.002]):
+            with self.subTest(later=later):
+                rows, skipped = bench_ledger.clickbench_rows(
+                    {"result": [[0.039, *later], [0.393, 0.04, 0.031]]},
+                    arm="head",
+                    pair=None,
+                    position=None,
+                    process=1,
+                )
+                self.assertEqual(
+                    [
+                        ("q00", "cold_seconds"),
+                        ("q01", "cold_seconds"),
+                        ("q01", "hot_seconds"),
+                        ("suite", "cold_seconds"),
+                    ],
+                    [(row["benchmark"], row["metric"]) for row in rows],
+                )
+                self.assertAlmostEqual(0.432, rows[-1]["value"])
+                self.assertEqual(["q00 hot_seconds contains a failed try"], skipped)
 
     def test_a_clickbench_subset_or_an_unresolved_timing_has_no_suite_figure(self) -> None:
         subset, skipped = bench_ledger.clickbench_rows(

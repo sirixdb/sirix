@@ -58,6 +58,8 @@ STUB_CLICKBENCH = textwrap.dedent(
     scale = FACTOR * math.exp(DEVIATIONS[call % 10] if FACTOR != 1.0 or {deviate} else 0.0)
     out = sys.argv[sys.argv.index("--json") + 1]
     rows = [[round(base * scale, 9), round(base * scale / 10, 9), round(base * scale / 9, 9)] for base in (0.1, 0.2)]
+    if os.environ.get("STUB_FAIL_HOT") == "1":
+        rows[0][-1] = None
     Path(out).write_text(json.dumps({{"result": rows}}))
     print("# served: predicateCounts=2 groupDense=1")
     """
@@ -305,6 +307,28 @@ class ClickBenchColdRoundsTest(KitTestCase):
     def calls(self, stub: Path) -> int:
         counter = stub.with_suffix(".calls")
         return int(counter.read_text()) if counter.exists() else 0
+
+    def test_a_failed_hot_try_never_reaches_the_ledger_as_a_hot_figure(self) -> None:
+        completed = self.kit(
+            "--arm",
+            f"shipped={self.baseline}",
+            "--arm-commit",
+            f"shipped={COMMIT_A}",
+            "--rounds",
+            "1",
+            STUB_FAIL_HOT="1",
+        )
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("q00 hot_seconds contains a failed try", completed.stderr)
+        self.assertEqual(
+            [
+                ("q00", "cold_seconds"),
+                ("q01", "cold_seconds"),
+                ("q01", "hot_seconds"),
+                ("suite", "cold_seconds"),
+            ],
+            [(row["benchmark"], row["metric"]) for row in self.rows()[1:]],
+        )
 
     def test_a_gate_run_stops_on_precision_and_reports_no_regression(self) -> None:
         candidate = self.candidate(1.0)

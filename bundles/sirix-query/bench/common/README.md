@@ -58,6 +58,10 @@ contains only letters, digits, dots, underscores and hyphens, and is never a dat
 A kit that stops early — a failed process, an interrupt — still appends the processes it measured.
 A run whose answers turn out wrong is recorded with every measurement rejected
 (`bench_ledger.py reject --run DIR --reason ...`), so its timings never enter a verdict or a trend.
+Rejection is refused once any measurement is already in the ledger, even without a recording marker.
+Commit retries reconcile complete row contents; a conflicting identity refuses the whole append.
+A failed ClickBench hot try withholds the query's hot figure and the suite hot total; cold figures
+are preserved and the skipped query is reported.
 
 A ledger row needs the commit of every arm. The JVM arms take it from this checkout; for an
 ahead-of-time image pass it (`--commit` to `jsonbench/run-benchmark.sh`, `--arm-commit NAME=SHA` to
@@ -85,7 +89,8 @@ cannot favour a result. A gate run that ended before or after that point gets no
 Allocation is judged apart from time and exactly: one fresh process per arm with the allocation
 profiler and no timing. Each arm's figure is the unrounded median of its accepted allocation legs.
 The candidate's median minus the baseline's is rounded to whole bytes, ties to the even byte, and
-must be at most zero. Reports show both rounded arm figures and the rounded delta.
+must be at most zero. Reports show both rounded arm figures and the rounded delta. If a series has
+allocation legs, both arms must retain an accepted leg or judgment is refused.
 
 With the ClickBench kit, a gate is one command:
 

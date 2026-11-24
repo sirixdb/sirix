@@ -695,6 +695,26 @@ class OtherRowsTest(unittest.TestCase):
         with self.assertRaisesRegex(GateError, "an allocation figure needs at least one measurement"):
             timed_gate.allocation_median([])
 
+    def test_measured_allocation_needs_an_accepted_leg_for_each_arm(self) -> None:
+        for rejected in (("baseline",), ("candidate",), ("baseline", "candidate")):
+            with self.subTest(rejected=rejected):
+                legs = allocation_rows("scan", [168.0], [168.0])
+                for row in legs:
+                    if row["arm"] in rejected:
+                        row.update(accepted=False, reject_reason="foreign load")
+                with self.assertRaisesRegex(
+                    GateError, f"scan alloc_bytes_per_op: no accepted {rejected[0]} allocation leg"
+                ):
+                    timed_gate.judge(pair_rows("scan", shifted(QUIET)) + legs)
+
+    def test_rejected_allocation_outside_the_plan_does_not_require_a_check(self) -> None:
+        legs = allocation_rows("probe", [168.0], [168.0])
+        for row in legs:
+            row.update(accepted=False, reject_reason="foreign load")
+        judgement = timed_gate.judge(pair_rows("scan", shifted(QUIET)) + legs, benchmarks=["scan"])
+        self.assertIsNone(judgement.verdicts[0]["allocation"])
+        self.assertFalse(judgement.failed)
+
 
 class AllocationTest(unittest.TestCase):
 
@@ -740,7 +760,7 @@ class AllocationTest(unittest.TestCase):
     def test_malformed_allocation_legs_fail_the_analysis(self) -> None:
         timed = pair_rows("scan", shifted(QUIET))
         one_arm = [row for row in allocation_rows("scan", [168.0], [168.0]) if row["arm"] == "baseline"]
-        with self.assertRaisesRegex(GateError, "scan alloc_bytes_per_op: no candidate allocation leg"):
+        with self.assertRaisesRegex(GateError, "scan alloc_bytes_per_op: no accepted candidate allocation leg"):
             timed_gate.judge(timed + one_arm)
         with self.assertRaisesRegex(GateError, "must be finite and not negative"):
             timed_gate.judge(timed + allocation_rows("scan", [168.0], [-1.0]))

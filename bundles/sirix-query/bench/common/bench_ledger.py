@@ -702,12 +702,15 @@ def append_rows(path: Path, rows: Sequence[Mapping[str, Any]]) -> int:
                     raise LedgerError(
                         f"{path}: the last line is incomplete; the ledger is not appended to until it is repaired"
                     )
-        seen = {_row_identity(row) for row in read_ledger(path)}
+        seen = {_row_identity(row): row for row in read_ledger(path)}
         pending = []
         for row in rows:
             identity = _row_identity(row)
-            if identity not in seen:
-                seen.add(identity)
+            if identity in seen:
+                if seen[identity] != row:
+                    raise LedgerError(f"{path}: conflicting {row['kind']} row for run {row['run']}")
+            else:
+                seen[identity] = row
                 pending.append(row)
         if not pending:
             return 0
@@ -900,12 +903,17 @@ def record(run_dir: Path, rows: Iterable[Mapping[str, Any]]) -> int:
     return len(complete)
 
 
-def reject_run(run_dir: Path, reason: str) -> int:
+def reject_run(run_dir: Path, reason: str, ledger: Path | None = None) -> int:
     """Reject every measurement of a run whose rows have not reached the ledger. Rejection is never reversed."""
-    load_run(run_dir)
+    run = load_run(run_dir)
     if not reason.strip():
         raise LedgerError("a rejection needs its reason")
     if (run_dir / VERDICTS_FILE).exists() or (run_dir / RECORDED_FILE).exists():
+        raise LedgerError(f"{run_dir} is already judged or recorded; rows in the ledger are never rewritten")
+    ledger = ledger or _ledger_path()
+    if ledger.exists() and any(
+        row["run"] == run["run"] and row["kind"] == "measurement" for row in read_ledger(ledger)
+    ):
         raise LedgerError(f"{run_dir} is already judged or recorded; rows in the ledger are never rewritten")
     rows = load_measurements(run_dir)
     for row in rows:
@@ -928,15 +936,14 @@ def commit(run_dir: Path, ledger: Path | None = None) -> dict[str, int]:
     done = (
         json.loads(marker.read_text(encoding="utf-8"))
         if marker.exists()
-        else {"ledger": str(ledger), "measurements": 0, "verdicts": 0, "run": False}
+        else {"ledger": str(ledger), "measurements": 0, "verdicts": 0}
     )
     if done["ledger"] != str(ledger):
         raise LedgerError(f"{run_dir} is already recorded in {done['ledger']}; one run belongs to one ledger")
     if done["measurements"] > len(measurements) or done["verdicts"] > len(verdicts):
         raise LedgerError(f"{run_dir}: rows that were recorded in the ledger are gone from the run directory")
-    pending = ([] if done["run"] else [run]) + measurements[done["measurements"] :] + verdicts[done["verdicts"] :]
-    appended = append_rows(ledger, pending)
-    done = {"ledger": str(ledger), "run": True, "measurements": len(measurements), "verdicts": len(verdicts)}
+    appended = append_rows(ledger, [run] + measurements + verdicts)
+    done = {"ledger": str(ledger), "measurements": len(measurements), "verdicts": len(verdicts)}
     _write_json(marker, done)
     return {"appended": appended, "measurements": len(measurements), "verdicts": len(verdicts)}
 
@@ -1046,8 +1053,8 @@ def _timing(value: Any, source: str) -> float | None:
 
 
 def _hot_figure(tries: Sequence[Any], source: str) -> tuple[float, dict[str, Any]] | None:
-    """The best later try of a process and its spread; None when a later try is below the timer's resolution."""
-    later = [_timing(value, source) for value in tries[1:] if value is not None]
+    """The best later try and its spread; None when any later try failed or was below timer resolution."""
+    later = [_timing(value, source) if value is not None else None for value in tries[1:]]
     if not later or any(value is None for value in later):
         return None
     return min(later), {"count": len(later), "min": min(later), "max": max(later)}
@@ -1093,7 +1100,12 @@ def clickbench_rows(
             if figure is None:
                 complete[metric] = False
                 if expected:
-                    skipped.append(f"{name} {metric} is below the timer's resolution")
+                    reason = (
+                        "contains a failed try"
+                        if metric == "hot_seconds" and None in tries[1:]
+                        else "is below the timer's resolution"
+                    )
+                    skipped.append(f"{name} {metric} {reason}")
     rows.extend(
         {**series, "benchmark": "suite", "metric": metric, "value": totals[metric]}
         for metric in ("cold_seconds", "hot_seconds")
