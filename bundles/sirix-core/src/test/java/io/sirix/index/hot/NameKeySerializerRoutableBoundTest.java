@@ -6,6 +6,7 @@ package io.sirix.index.hot;
 import io.brackit.query.atomic.QNm;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
@@ -36,8 +37,10 @@ final class NameKeySerializerRoutableBoundTest {
   @Test
   void aNameInsideTheBoundIsStoredWhole() {
     final QNm name = new QNm("a".repeat(BOUND));
-    assertFalse(NameKeySerializer.isTruncated(name), "a name that ends exactly at the bound is not truncated");
-    assertEquals(BOUND, NameKeySerializer.serializedLength(name));
+    final byte[] stored = serialize(name);
+    assertFalse(NameKeySerializer.isTruncated(stored, 0, stored.length),
+        "a name that ends exactly at the bound is not truncated");
+    assertEquals(BOUND, stored.length);
     assertArrayEquals(name.getLocalName().getBytes(StandardCharsets.UTF_8), serialize(name));
     assertEquals(name, SERIALIZER.deserialize(serialize(name), 0, BOUND));
   }
@@ -45,9 +48,8 @@ final class NameKeySerializerRoutableBoundTest {
   @Test
   void aNameLongerThanTheBoundIsStoredUnderItsPrefix() {
     final QNm name = new QNm("a".repeat(BOUND) + "tail");
-    assertTrue(NameKeySerializer.isTruncated(name));
-    assertEquals(BOUND, NameKeySerializer.serializedLength(name));
     final byte[] stored = serialize(name);
+    assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length));
     assertEquals(BOUND, stored.length);
     assertArrayEquals("a".repeat(BOUND - 1).getBytes(StandardCharsets.UTF_8),
         Arrays.copyOf(stored, stored.length - 1));
@@ -63,8 +65,6 @@ final class NameKeySerializerRoutableBoundTest {
     final QNm second = new QNm(head + "y");
     assertArrayEquals(serialize(first), serialize(second), "the shared prefix is the whole stored key");
     assertNotEquals(first, second);
-    assertTrue(NameKeySerializer.isTruncated(first),
-        "a read must re-check a key this long against each node's own name");
     final byte[] stored = serialize(first);
     assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length), "the stored marker agrees");
     final byte[] ordinary = serialize(new QNm("field"));
@@ -94,7 +94,7 @@ final class NameKeySerializerRoutableBoundTest {
     final QNm name = new QNm("u".repeat(BOUND), "p", "local");
     final byte[] stored = serialize(name);
     assertTrue(stored.length <= BOUND, "the stored key stays inside the bound");
-    assertTrue(NameKeySerializer.isTruncated(name));
+    assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length));
     final QNm read = SERIALIZER.deserialize(stored, 0, stored.length);
     assertTrue(read.getNamespaceURI().startsWith("u"), "the URI survives as its own prefix");
     assertFalse(read.getLocalName().isEmpty(), "a key with no local name cannot be read back");
@@ -104,7 +104,7 @@ final class NameKeySerializerRoutableBoundTest {
   void anEscapedNulInTheNamespaceCountsTowardTheBound() {
     final QNm name = new QNm("a\u0000b", "p", "local");
     final byte[] stored = serialize(name);
-    assertEquals(NameKeySerializer.serializedLength(name), stored.length, "the reported length is the written one");
+    assertEquals(12, stored.length, "sentinel, four escaped URI bytes, terminator and five local bytes");
     assertEquals(name.getNamespaceURI(), SERIALIZER.deserialize(stored, 0, stored.length).getNamespaceURI());
   }
 
@@ -126,7 +126,6 @@ final class NameKeySerializerRoutableBoundTest {
     for (final QNm name : new QNm[] {below, exact}) {
       final byte[] stored = serialize(name);
       assertEquals(name, SERIALIZER.deserialize(stored, 0, stored.length));
-      assertFalse(NameKeySerializer.isTruncated(name));
       assertFalse(NameKeySerializer.isTruncated(stored, 0, stored.length));
     }
   }
@@ -138,8 +137,6 @@ final class NameKeySerializerRoutableBoundTest {
       for (int difference = -1; difference <= 1; difference++) {
         final QNm name = new QNm("u".repeat(BOUND - 3 - width + difference), "p", local);
         final byte[] stored = serialize(name);
-        assertEquals(stored.length, NameKeySerializer.serializedLength(name));
-        assertEquals(difference > 0, NameKeySerializer.isTruncated(name));
         assertEquals(difference > 0, NameKeySerializer.isTruncated(stored, 0, stored.length));
         if (difference <= 0) {
           assertEquals(name, SERIALIZER.deserialize(stored, 0, stored.length));
@@ -150,17 +147,44 @@ final class NameKeySerializerRoutableBoundTest {
     final QNm escaped = new QNm("u".repeat(BOUND - 6) + "\u0000", "p", "a");
     assertEquals(BOUND, serialize(escaped).length);
     assertEquals(escaped, SERIALIZER.deserialize(serialize(escaped), 0, BOUND));
-    assertFalse(NameKeySerializer.isTruncated(escaped));
+    final byte[] storedEscaped = serialize(escaped);
+    assertFalse(NameKeySerializer.isTruncated(storedEscaped, 0, storedEscaped.length));
   }
 
   @Test
   void aSupplementaryNamespaceAtTheCutStillHasATruncationMarker() {
     final QNm name = new QNm("urn:" + "u".repeat(4074) + "😀tail", "p", "a");
     final byte[] stored = serialize(name);
-    assertTrue(NameKeySerializer.isTruncated(name));
     assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length));
-    assertEquals(stored.length, NameKeySerializer.serializedLength(name));
+    assertEquals(BOUND, stored.length);
     assertEquals("a", SERIALIZER.deserialize(stored, 0, stored.length).getLocalName());
+  }
+
+  @Test
+  void completeLongComponentsKeepTheirReferenceEncoding() {
+    for (final QNm name : new QNm[] {new QNm("a".repeat(2000)), new QNm("é".repeat(2000)),
+        new QNm("中".repeat(1000)), new QNm("😀".repeat(1000)),
+        new QNm("u".repeat(2000), "p", "a"), new QNm("é".repeat(1000), "p", "field"),
+        new QNm("u".repeat(1000), "p", "a".repeat(1000)),
+        new QNm("u\u0000".repeat(1000), "p", "field")}) {
+      final ByteArrayOutputStream expected = new ByteArrayOutputStream();
+      if (!name.getNamespaceURI().isEmpty()) {
+        expected.write(0xFF);
+        for (final byte value : name.getNamespaceURI().getBytes(StandardCharsets.UTF_8)) {
+          expected.write(value);
+          if (value == 0) {
+            expected.write(0xFF);
+          }
+        }
+        expected.write(0);
+        expected.write(0);
+      }
+      expected.writeBytes(name.getLocalName().getBytes(StandardCharsets.UTF_8));
+      final byte[] stored = serialize(name);
+      assertArrayEquals(expected.toByteArray(), stored);
+      assertFalse(NameKeySerializer.isTruncated(stored, 0, stored.length));
+      assertEquals(name, SERIALIZER.deserialize(stored, 0, stored.length));
+    }
   }
 
   private static byte[] serialize(final QNm name) {

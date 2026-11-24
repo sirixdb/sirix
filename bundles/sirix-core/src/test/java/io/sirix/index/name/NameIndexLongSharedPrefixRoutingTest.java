@@ -17,6 +17,8 @@ import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
+import io.sirix.index.SearchMode;
+import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.HOTInvariantValidator;
 import io.sirix.index.hot.NameKeySerializer;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
@@ -29,6 +31,7 @@ import org.roaringbitmap.longlong.LongIterator;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -181,10 +184,12 @@ final class NameIndexLongSharedPrefixRoutingTest {
     final QNm pastBoundThird = new QNm("a".repeat(bound) + "y" + "z".repeat(64));
     // document() already carries the short name; these are the ones around the bound.
     final List<QNm> names = List.of(belowBound, atBound, pastBoundFirst, pastBoundSecond, pastBoundThird);
-    assertEquals(bound, NameKeySerializer.serializedLength(atBound), "fixture: this name ends at the bound");
-    assertTrue(NameKeySerializer.isTruncated(pastBoundFirst), "fixture: this name is past the bound");
-    assertEquals(NameKeySerializer.serializedLength(pastBoundFirst),
-        NameKeySerializer.serializedLength(pastBoundSecond), "fixture: the past-bound names share a stored key");
+    final byte[] exactKey = serialize(atBound);
+    final byte[] firstKey = serialize(pastBoundFirst);
+    final byte[] secondKey = serialize(pastBoundSecond);
+    assertEquals(bound, exactKey.length, "fixture: this name ends at the bound");
+    assertTrue(NameKeySerializer.isTruncated(firstKey, 0, firstKey.length), "fixture: this name is past the bound");
+    assertTrue(Arrays.equals(firstKey, secondKey), "fixture: the past-bound names share a stored key");
 
     final IndexDef definition = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
     final Path path = directory.resolve("json-routable-bound");
@@ -272,7 +277,12 @@ final class NameIndexLongSharedPrefixRoutingTest {
     }
     assertEquals(all, collect(controller.openNameIndex(reader, definition, new NameFilter(Set.of(), Set.of()))),
         "full NAME index read must equal the scan " + stage);
+    final HOTIndexReader<QNm> direct = HOTIndexReader.create(reader, NameKeySerializer.INSTANCE, IndexType.NAME,
+        definition.getID());
     for (final QNm name : names) {
+      final NodeReferences directPostings = direct.get(name, SearchMode.EQUAL);
+      assertTrue(directPostings != null);
+      assertEquals(scanned.get(name), collect(List.of(directPostings).iterator()), "direct NAME reader " + stage);
       assertEquals(scanned.get(name),
           collect(controller.openNameIndex(reader, definition, new NameFilter(Set.of(name), Set.of()))),
           "exact NAME postings " + stage + " for a " + name.getLocalName().length() + "-character name");
@@ -308,6 +318,12 @@ final class NameIndexLongSharedPrefixRoutingTest {
     assertEquals(List.of(),
         result.violations().stream().map(HOTInvariantValidator.Violation::invariant).distinct().toList(),
         "HOT invariants " + stage + " (" + result.violations().size() + " violations)");
+  }
+
+  private static byte[] serialize(final QNm name) {
+    final byte[] buffer = new byte[NameKeySerializer.INSTANCE.maxSerializedLength(name)];
+    final int length = NameKeySerializer.INSTANCE.serialize(name, buffer, 0);
+    return Arrays.copyOf(buffer, length);
   }
 
   private static Set<Long> collect(final Iterator<NodeReferences> hits) {

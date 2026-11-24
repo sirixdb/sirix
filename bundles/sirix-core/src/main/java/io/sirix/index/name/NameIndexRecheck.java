@@ -58,15 +58,16 @@ public final class NameIndexRecheck {
    * @param reader the reader the postings were read through
    * @param candidates the postings stored under {@code name}'s stored key
    * @param name the name the lookup asked for
+   * @param truncated the marker decision from the serialized lookup key
    * @return {@code candidates} unchanged when the name is inside the bound, the exact subset
    *         otherwise, or {@code null} when no posting survives
    */
   public static @Nullable NodeReferences exactPostings(final StorageEngineReader reader,
-      final NodeReferences candidates, final QNm name) {
+      final NodeReferences candidates, final QNm name, final boolean truncated) {
     requireNonNull(reader, "reader");
     requireNonNull(candidates, "candidates");
     requireNonNull(name, "name");
-    if (!NameKeySerializer.isTruncated(name)) {
+    if (!truncated) {
       return candidates; // the stored key is the whole name: it already answers exactly
     }
     final String namespaceURI = name.getNamespaceURI();

@@ -109,3 +109,34 @@
   removing candidate-sized garbage and redundant encoding work. No default or stored layout changes.
 - Verification: focused NAME/serializer tests and the new clean allocation-fork test run after the
   complete edit round; counterfactual mutation validation remains with the outer executor.
+
+## Review follow-up: one encoding decision and no duplicate sizing API
+
+- Symptom: a complete 2000-character ASCII field still took a scalar UTF-8 counting pass before
+  its ASCII check/copy, and exact lookup repeated that count after serialization. Namespace
+  components had the same cost. The public `serializedLength` helper duplicated the serializer
+  even though only test fixtures still called it.
+- Root cause: the three-bytes-per-UTF-16-character estimate could prove small names fit but could
+  not decide long ASCII names. Moving the count into `isTruncated(QNm)` preserved the traversal.
+  A separately computed truncation decision also gave the read path work the encoder had already done.
+- Correction: ASCII is checked once and copied by the existing direct writer; a non-ASCII component
+  is UTF-8 encoded once, and its produced bytes supply both the length and the bytes copied into
+  the key. Only an overflowing encoded component runs the prefix-budget walk. Namespace escaping
+  retains its existing NUL accounting and backward expansion. The HOT reader captures the serialized
+  marker before lookup, then passes that boolean to component-wise matching; the NAME facade no
+  longer applies a second re-check. Candidate caching stays below the exact re-check, so names
+  sharing a stored key cannot contaminate each other's cached results.
+- Removal: `serializedLength`, the name-based truncation predicate and the character-counting size
+  helpers are gone. Fixtures assert actual serialized bytes and lengths. `maxSerializedLength` and
+  the caller's buffer-sizing contract are unchanged.
+- Evidence: serializer cases compare complete long ASCII, two/three/four-byte UTF-8 and escaped-URI
+  inputs with an independently framed JDK UTF-8 oracle. Direct HOT NAME lookup and the NAME facade
+  are both compared with the document scan, including shared boundary prefixes and cold cached
+  lookups. Earlier boundary, namespace, record-read and allocation tests remain selected.
+  Those budgets cannot observe redundant character counting: the traversal argument is the code
+  path itself, which has no whole-component UTF-8 size loop and uses encoding output to decide
+  truncation. No timing claim is inferred from those budgets.
+- Lesson: consume metadata produced by encoding at the read boundary; do not reconstruct it from
+  the original value or preserve a second implementation merely for test expectations.
+- Vision check: exact revision-local answers, the 4096-byte bound and ordinary-name record-read
+  cost stay unchanged; redundant traversal and the duplicate public sizing API are removed.

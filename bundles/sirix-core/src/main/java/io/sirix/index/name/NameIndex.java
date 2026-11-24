@@ -46,12 +46,7 @@ public interface NameIndex<B, L extends ChangeListener> {
       if (refs == null) {
         return Collections.emptyIterator();
       }
-      // A name past the routable bound shares its stored key with every name of the same prefix, so
-      // those postings are candidates (FMT-305). A name inside the bound returns here untouched.
-      final NodeReferences exact = NameIndexRecheck.exactPostings(storageEngineReader, refs, name);
-      return exact == null
-          ? Collections.emptyIterator()
-          : Iterators.forArray(exact);
+      return Iterators.forArray(refs);
     }
 
     final boolean filtering = !includes.isEmpty() || !excludes.isEmpty();

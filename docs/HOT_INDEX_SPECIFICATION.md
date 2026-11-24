@@ -295,8 +295,13 @@ Namespaced name (with either an empty or non-empty prefix):
   dictionary name. Complete keys incur no such record reads. Stored-byte order governs the buckets;
   a shortened bucket does not represent an exact name-order range. Re-check matching compares
   resolved URI and local-name strings directly, ignoring prefixes, with include/exclude lookups
-  prepared once per read. Complete components go straight to the existing UTF-8/ASCII writer;
-  only truncated components need a character-budget scan.
+  prepared once per read. Each complete component uses its existing ASCII check/copy or one UTF-8
+  encoding. ASCII length or the produced UTF-8 byte-array length determines its stored size; those
+  same bytes are written without a separate size traversal. Only an overflowing encoded component
+  needs a prefix-budget scan. Exact HOT NAME lookup captures the trailing marker before its chunk
+  walk and passes that decision to the re-check; it never recounts the requested name. The chunk
+  cache retains candidate postings, so different names sharing one key are each re-checked against
+  their own requested components.
 - This replaces the old prefix/local codec. Existing NAME index data must be rebuilt; there is no
   old-format reader.
 

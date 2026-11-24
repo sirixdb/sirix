@@ -27,10 +27,12 @@
  */
 package io.sirix.index.hot;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
+import io.sirix.index.name.NameIndexRecheck;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import org.jspecify.annotations.Nullable;
 
@@ -133,10 +135,15 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
       setKeyBuffer(keyBuf);
     }
     final int prefixLen = serializeKey(key, keyBuf, 0);
+    final boolean nameKey = keySerializer instanceof NameKeySerializer;
+    final boolean truncatedName = nameKey && NameKeySerializer.isTruncated(keyBuf, 0, prefixLen);
     // Through the cache: for a committed revision the walk below is deterministic, so a key already
     // asked about under this revision is answered without re-walking. A writer-backed reader gets a
     // null cache and always computes — see AbstractHOTIndexReader#lookupCache.
-    return pointLookup(keyBuf, prefixLen);
+    final NodeReferences refs = pointLookup(keyBuf, prefixLen);
+    return nameKey && refs != null
+        ? NameIndexRecheck.exactPostings(storageEngineReader, refs, (QNm) key, truncatedName)
+        : refs;
   }
 
   /**

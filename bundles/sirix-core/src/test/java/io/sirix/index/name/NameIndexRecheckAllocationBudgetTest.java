@@ -46,9 +46,9 @@ final class NameIndexRecheckAllocationBudgetTest {
     reader.records[9] = new XmlDocumentRootNode(9, null);
     final NodeReferences candidates = postings(1, 10);
 
-    assertEquals(postings(1, 2), NameIndexRecheck.exactPostings(reader, candidates, REQUESTED));
+    assertEquals(postings(1, 2), NameIndexRecheck.exactPostings(reader, candidates, REQUESTED, true));
     assertEquals(9, reader.reads);
-    assertEquals(postings(4, 6), NameIndexRecheck.exactPostings(reader, candidates, new QNm(LOCAL)));
+    assertEquals(postings(4, 6), NameIndexRecheck.exactPostings(reader, candidates, new QNm(LOCAL), true));
     assertEquals(18, reader.reads);
 
     final NameIndexRecheck.NamePredicate included = NameIndexRecheck.filter(
@@ -65,7 +65,7 @@ final class NameIndexRecheckAllocationBudgetTest {
     assertEquals(45, reader.reads);
 
     final NodeReferences ordinary = postings(1, 2);
-    assertSame(ordinary, NameIndexRecheck.exactPostings(reader, ordinary, new QNm("field")));
+    assertSame(ordinary, NameIndexRecheck.exactPostings(reader, ordinary, new QNm("field"), false));
     assertEquals(45, reader.reads);
   }
 
@@ -86,7 +86,7 @@ final class NameIndexRecheckAllocationBudgetTest {
     long allocated = 0;
     for (int pass = 0; pass < 256; pass++) {
       final long before = bean.getThreadAllocatedBytes(thread);
-      postingSink = NameIndexRecheck.exactPostings(reader, candidates, REQUESTED);
+      postingSink = NameIndexRecheck.exactPostings(reader, candidates, REQUESTED, true);
       postingSink = NameIndexRecheck.filteredPostings(reader, candidates, included);
       postingSink = NameIndexRecheck.filteredPostings(reader, candidates, excluded);
       allocated = bean.getThreadAllocatedBytes(thread) - before;

@@ -26,6 +26,7 @@ import org.junit.jupiter.api.parallel.Isolated;
 import org.roaringbitmap.longlong.LongIterator;
 
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -91,11 +92,13 @@ final class NameIndexRecheckWorkBudgetTest {
         controller.createIndexes(Set.of(definition), trx);
         final StorageEngineReader reader = trx.getStorageEngineReader();
 
-        assertTrue(NameKeySerializer.isTruncated(LONG_FIRST), "fixture: the long names exceed the bound");
-        assertEquals(NameKeySerializer.MAX_NAME_KEY_BYTES, NameKeySerializer.serializedLength(LONG_FIRST),
+        final byte[] firstKey = serialize(LONG_FIRST);
+        final byte[] secondKey = serialize(LONG_SECOND);
+        assertTrue(NameKeySerializer.isTruncated(firstKey, 0, firstKey.length),
+            "fixture: the long names exceed the bound");
+        assertEquals(NameKeySerializer.MAX_NAME_KEY_BYTES, firstKey.length,
             "fixture: a name past the bound is stored at the bound");
-        assertEquals(NameKeySerializer.serializedLength(LONG_FIRST), NameKeySerializer.serializedLength(LONG_SECOND),
-            "fixture: both long names share one stored key");
+        assertTrue(Arrays.equals(firstKey, secondKey), "fixture: both long names share one stored key");
 
         final WorkCapture.Captured<Set<Long>> shortLookup =
             CAPTURE.call(() -> postings(controller, reader, definition, SHORT));
@@ -156,6 +159,12 @@ final class NameIndexRecheckWorkBudgetTest {
       }
     }
     return keys;
+  }
+
+  private static byte[] serialize(final QNm name) {
+    final byte[] buffer = new byte[NameKeySerializer.INSTANCE.maxSerializedLength(name)];
+    final int length = NameKeySerializer.INSTANCE.serialize(name, buffer, 0);
+    return Arrays.copyOf(buffer, length);
   }
 
   private static Set<Long> intersection(final Set<Long> first, final Set<Long> second) {

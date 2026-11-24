@@ -28,6 +28,7 @@
 package io.sirix.index.hot;
 
 import io.brackit.query.atomic.QNm;
+import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 
@@ -77,25 +78,40 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     checkFromIndexSize(offset, 0, dest.length);
     final String localName = checkedLocalName(key);
     final String uri = key.getNamespaceURI();
-    final boolean truncated = isTruncated(key);
+    final boolean localAscii = AsciiKeyBytes.isAsciiPrefix(localName, localName.length());
+    final byte[] localBytes = localAscii ? null : localName.getBytes(StandardCharsets.UTF_8);
+    final int localLength = localBytes == null ? localName.length() : localBytes.length;
+    final boolean uriAscii = AsciiKeyBytes.isAsciiPrefix(uri, uri.length());
+    final byte[] uriBytes = uriAscii ? null : uri.getBytes(StandardCharsets.UTF_8);
+    final int uriLength = uriBytes == null ? uri.length() : uriBytes.length;
+    int uriZeros = 0;
+    for (int index = uri.indexOf(0); index >= 0; index = uri.indexOf(0, index + 1)) {
+      uriZeros++;
+    }
+    final boolean truncated = (long) localLength + (uri.isEmpty() ? 0L
+        : (long) NAMESPACE_FRAMING_BYTES + uriLength + uriZeros) > MAX_NAME_KEY_BYTES;
     int pos = offset;
     int budget = MAX_NAME_KEY_BYTES - (truncated ? 1 : 0);
     if (!uri.isEmpty()) {
-      final int uriChars = truncated
-          ? charsWithinBudget(uri, budget - NAMESPACE_FRAMING_BYTES - utf8Width(localName.codePointAt(0)), true)
-          : uri.length();
+      final int firstLocalWidth = localBytes == null ? 1 : utf8Width(localBytes[0] & 0xFF);
+      final int uriBudget = budget - NAMESPACE_FRAMING_BYTES - firstLocalWidth;
+      final int uriPrefix = (long) uriLength + uriZeros <= uriBudget ? uriLength
+          : prefixWithinBudget(uri, uriBytes, uriLength, uriBudget, true);
       dest[pos++] = NAMESPACE_SENTINEL;
       final int start = pos;
-      final int uriLength = writeUtf8(uri, uriChars, dest, start);
-      pos += uriLength;
-      // Only NUL needs escaping. Expand backwards in the caller buffer, with no temporary array.
-      int zeros = 0;
-      for (int i = uri.indexOf(0); i >= 0 && i < uriChars; i = uri.indexOf(0, i + 1)) {
-        zeros++;
+      writeEncodedPrefix(uri, uriBytes, uriPrefix, dest, start);
+      pos += uriPrefix;
+      if (uriPrefix != uriLength) {
+        uriZeros = 0;
+        for (int index = start; index < pos; index++) {
+          if (dest[index] == 0) {
+            uriZeros++;
+          }
+        }
       }
-      if (zeros != 0) {
-        checkFromIndexSize(start, uriLength + zeros, dest.length);
-        int target = pos + zeros;
+      if (uriZeros != 0) {
+        checkFromIndexSize(start, uriPrefix + uriZeros, dest.length);
+        int target = pos + uriZeros;
         for (int source = pos - 1; source >= start; source--) {
           final byte value = dest[source];
           if (value == 0) {
@@ -103,64 +119,20 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
           }
           dest[--target] = value;
         }
-        pos += zeros;
+        pos += uriZeros;
       }
       dest[pos++] = 0;
       dest[pos++] = 0;
-      budget -= NAMESPACE_FRAMING_BYTES + uriLength + zeros;
+      budget -= NAMESPACE_FRAMING_BYTES + uriPrefix + uriZeros;
     }
-    final int localChars = truncated ? charsWithinBudget(localName, budget, false) : localName.length();
-    pos += writeUtf8(localName, localChars, dest, pos);
+    final int localPrefix = localLength <= budget ? localLength
+        : prefixWithinBudget(localName, localBytes, localLength, budget, false);
+    writeEncodedPrefix(localName, localBytes, localPrefix, dest, pos);
+    pos += localPrefix;
     if (truncated) {
       dest[pos++] = TRUNCATION_MARKER;
     }
     return pos - offset;
-  }
-
-  /**
-   * The length {@link #serialize} would return for {@code key} — what the index stores for it.
-   *
-   * @param key the name
-   * @return its stored key length in bytes, never above {@link #MAX_NAME_KEY_BYTES}
-   */
-  public static int serializedLength(final QNm key) {
-    requireNonNull(key, "Key cannot be null");
-    final String localName = checkedLocalName(key);
-    final String uri = key.getNamespaceURI();
-    final boolean truncated = isTruncated(key);
-    int budget = MAX_NAME_KEY_BYTES - (truncated ? 1 : 0);
-    int length = truncated ? 1 : 0;
-    if (!uri.isEmpty()) {
-      final int uriChars = truncated
-          ? charsWithinBudget(uri, budget - NAMESPACE_FRAMING_BYTES - utf8Width(localName.codePointAt(0)), true)
-          : uri.length();
-      final int uriBytes = escapedUtf8Length(uri, uriChars);
-      length += NAMESPACE_FRAMING_BYTES + uriBytes;
-      budget -= NAMESPACE_FRAMING_BYTES + uriBytes;
-    }
-    final int localChars = truncated ? charsWithinBudget(localName, budget, false) : localName.length();
-    return length + utf8Length(localName, localChars);
-  }
-
-  /**
-   * Whether {@code key} is longer than the bound and therefore stored under a prefix of itself, so
-   * its postings are candidates an exact read has to re-check (FMT-305).
-   *
-   * @param key the name a lookup asks for
-   * @return {@code true} iff its stored key is a prefix rather than the whole name
-   */
-  public static boolean isTruncated(final QNm key) {
-    requireNonNull(key, "Key cannot be null");
-    final String localName = checkedLocalName(key);
-    final String uri = key.getNamespaceURI();
-    if (certainlyWithin(localName, uri, MAX_NAME_KEY_BYTES)) {
-      return false; // an ordinary name decides this without walking its characters
-    }
-    final long full = uri.isEmpty()
-        ? utf8Length(localName, localName.length())
-        : (long) NAMESPACE_FRAMING_BYTES + escapedUtf8Length(uri, uri.length())
-            + utf8Length(localName, localName.length());
-    return full > MAX_NAME_KEY_BYTES;
   }
 
   public static boolean isTruncated(final byte[] bytes, final int offset, final int length) {
@@ -169,70 +141,31 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     return length > 0 && bytes[offset + length - 1] == TRUNCATION_MARKER;
   }
 
-  /**
-   * Whether the key of these components is certainly no longer than {@code limit}, judged from
-   * character counts alone: three bytes bound one character's UTF-8 encoding, surrogate pairs
-   * included, and an escaped NUL is two bytes, which that bound already covers.
-   */
-  private static boolean certainlyWithin(final String localName, final String uri, final int limit) {
-    return 3L * localName.length() + (uri.isEmpty()
-        ? 0L
-        : NAMESPACE_FRAMING_BYTES + 3L * uri.length()) <= limit;
-  }
-
-  private static int charsWithinBudget(final String value, final int budget, final boolean escapeZeros) {
-    final int length = value.length();
-    if (budget >= (escapeZeros
-        ? escapedUtf8Length(value, length)
-        : utf8Length(value, length))) {
-      return length;
-    }
+  private static int prefixWithinBudget(final String value, final byte @Nullable [] encoded,
+      final int length, final int budget, final boolean escapeZeros) {
     int bytes = 0;
-    int chars = 0;
-    while (chars < length) {
-      final int codePoint = value.codePointAt(chars);
-      final int width = utf8Width(codePoint) + (escapeZeros && codePoint == 0
-          ? 1
-          : 0);
-      if (bytes + width > budget) {
+    int prefix = 0;
+    while (prefix < length) {
+      final int leadingByte = encoded == null ? value.charAt(prefix) : encoded[prefix] & 0xFF;
+      final int width = utf8Width(leadingByte);
+      final int storedWidth = width + (escapeZeros && leadingByte == 0 ? 1 : 0);
+      if (bytes + storedWidth > budget) {
         break;
       }
-      bytes += width;
-      chars += Character.charCount(codePoint);
+      bytes += storedWidth;
+      prefix += width;
     }
-    return chars;
+    return prefix;
   }
 
-  /** UTF-8 length of the first {@code chars} characters of {@code value}. */
-  private static int utf8Length(final String value, final int chars) {
-    int bytes = 0;
-    for (int index = 0; index < chars;) {
-      final int codePoint = value.codePointAt(index);
-      bytes += utf8Width(codePoint);
-      index += Character.charCount(codePoint);
-    }
-    return bytes;
-  }
-
-  /** As {@link #utf8Length}, plus one byte for every NUL the namespace escaping expands. */
-  private static int escapedUtf8Length(final String value, final int chars) {
-    int bytes = utf8Length(value, chars);
-    for (int index = value.indexOf(0); index >= 0 && index < chars; index = value.indexOf(0, index + 1)) {
-      bytes++;
-    }
-    return bytes;
-  }
-
-  private static int utf8Width(final int codePoint) {
-    if (codePoint < 0x80) {
+  private static int utf8Width(final int leadingByte) {
+    if (leadingByte < 0x80) {
       return 1;
     }
-    if (codePoint < 0x800) {
+    if (leadingByte < 0xE0) {
       return 2;
     }
-    return codePoint < 0x10000
-        ? 3
-        : 4;
+    return leadingByte < 0xF0 ? 3 : 4;
   }
 
   private static String checkedLocalName(final QNm key) {
@@ -243,16 +176,13 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     return localName;
   }
 
-  /** Write the first {@code chars} characters of {@code value} as UTF-8 and return the bytes written. */
-  private static int writeUtf8(final String value, final int chars, final byte[] dest, final int offset) {
-    if (AsciiKeyBytes.isAsciiPrefix(value, chars)) {
-      return AsciiKeyBytes.writeAsciiPrefix(value, chars, dest, offset);
+  private static void writeEncodedPrefix(final String value, final byte @Nullable [] encoded,
+      final int length, final byte[] dest, final int offset) {
+    if (encoded == null) {
+      AsciiKeyBytes.writeAsciiPrefix(value, length, dest, offset);
+    } else {
+      System.arraycopy(encoded, 0, dest, offset, length);
     }
-    final byte[] bytes = (chars == value.length()
-        ? value
-        : value.substring(0, chars)).getBytes(StandardCharsets.UTF_8);
-    System.arraycopy(bytes, 0, dest, offset, bytes.length);
-    return bytes.length;
   }
 
   @Override

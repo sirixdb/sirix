@@ -364,7 +364,9 @@ answers exactly, and the read MUST NOT read a record to confirm it. Only a name 
 and then one record read per candidate posting. Re-check matching MUST compare the resolved URI
 and local-name components without allocating a name object per candidate; include/exclude lookup
 preparation belongs to the read, not to each posting. Serializing a complete name MUST NOT add a
-character-counting pass to its existing encoding work.
+character-counting pass to its existing encoding work. Truncation is determined from the bytes
+produced by encoding, or from the character length already established by the ASCII fast path;
+an exact read MUST reuse that serialization decision rather than re-count the requested name.
 
 Within the bound an index read at revision `r` MUST equal a scan at `r` for keys of any length,
 whether the index was bulk-built or maintained incrementally, before and after commit and after cold
