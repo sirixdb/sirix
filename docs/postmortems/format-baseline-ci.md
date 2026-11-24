@@ -545,3 +545,107 @@ timeouts, associations or dispositions were changed. The local fresh artifacts a
 
 The already rerun provider-cancelled macOS job required no action. No push, PR-body edit,
 workflow trigger or pipeline-control command was performed in this phase.
+
+## CI follow-up: rebase onto 7c9603baa and repeat the unchanged mutation lane
+
+- Rebased submitted head `c7649e481d401f8e846d0d9616afb666a4496ad3` onto the
+  requested current base, `7c9603baa5131f7aa51dd637aa9e537fa23c226e`, producing
+  `96f179d24856b7829115b27e0b720eb14b69cb2e`. All 34 branch commits were replayed;
+  none was skipped. Two conflicts in `LocalDatabase` combined the base's explicit
+  derived-activation reasons and narrowed optional fallback with this branch's strict
+  format refusal and failed-open ownership cleanup.
+- Combined invariant: a foreign format version always propagates; explicit aggregate
+  declarations propagate installation failures; opportunistic activation absorbs only
+  the base's named unusable-store failures. Both callers retain the base's
+  `DerivedActivation` enum, with the format exception caught before its superclass.
+  The method documentation makes that exception explicit.
+- Failing-path retrace: derived open refuses the foreign version before rebuilding,
+  activation propagates it, and completion closes only a newly acquired session while
+  preserving the original failure. Both direct and database-handle opens use completion;
+  retry prepares the cached shared session again. Ordinary opens still register valid
+  derived resources. Explicit declarations run the `DECLARED` initializer, propagating
+  the named failures; optional activation still logs them and preserves source reads.
+  No helper, branch or caller became unreachable.
+- Immediately after the rebase, 63 of the branch's 65 changed files were byte-identical
+  to the submitted head. Only `LocalDatabase` and the mutation-test associations combine base
+  changes. The latter retains both the format tests and the base's declaration/history
+  associations. The vision sentence, baseline work, incomplete-frame decision table and
+  FMT-401 twin, named `sirix-repair-format-gate` gap, repair matched pairs, discovery
+  counters/bounds/positive controls/cold start/both backends and registrations, golden
+  pins, postmortems and fragments remain intact. No direct shared changelog or lesson
+  addition was restored. Evidence: `build/ci-round12/{before.json,rebase-audit.json,
+  rebase-range-diff.txt}`.
+- Compilation passed in 4m 49s: `./gradlew :sirix-core:classes :sirix-core:testClasses
+  :sirix-kotlin-cli:classes -PerrorProne --no-daemon`. This includes the CLI prerequisite
+  that the previous local reproduction omitted. The real fragment guard passed against
+  the new base; `git diff --check` passed. Log: `build/ci-round12/compile.log`.
+
+Fresh mutation commands, after the rebase:
+
+```bash
+python3 .github/scripts/pr_mutation.py select \
+  --base 7c9603baa5131f7aa51dd637aa9e537fa23c226e \
+  --head 96f179d24856b7829115b27e0b720eb14b69cb2e \
+  --output build/ci-round12/pr-mutation
+ORG_GRADLE_PROJECT_errorProne=true python3 .github/scripts/pr_mutation.py run \
+  --seconds 1320 --blocking --output build/ci-round12/pr-mutation
+```
+
+The production diff at selection includes the documentation-only clarification above;
+no executable source changed after compilation or during mutation analysis.
+
+The fresh run exited **1** at the unchanged **1,320-second** execution share with
+`sirix-core` state **timed out** and `partial: true`. It retained all 24 changed sources,
+83 exact compiled targets, 42 test patterns and 631 changed lines, with no per-class limit.
+The base's activation enum accounts for the additional compiled target. Baseline coverage
+passed in 223 seconds and produced 15 mutation units. The final partial stream preserved
+30 changed-line results: **24 killed, six survived, zero uncovered**, with zero unattributed
+results and zero disposition errors. The seven individually unmapped sources are still
+reported; all targets remain in the union. The census records 7,690 off-diff exclusions,
+with no malformed records or changed-line violations; exclusions are not verdicts.
+
+The six retained survivors are in `FileChannelReader`: removal of `requireRootEnvelope`
+in `getRevisionFileData`, removal of `RepairProof.requireChannels` in `healRevisionRecord`,
+and four mutations in `requireCompatibleRevisionRoots` (two multiplication/division changes,
+one addition/subtraction change and removal of `RevisionFileData.requireReadable`). These
+are preserved **unresolved findings**, not accepted equivalents. The earlier hosted set of
+32 survivors remains unresolved as a set: this incomplete run does not establish the
+remaining identities' outcomes, explain away any survivor, or authorize dispositions under
+CONV-202. No disposition, test association, selector, target, sample or timeout was changed.
+PIT is **not green**.
+
+Two thread-dump captures of each worker show different fixture operations at successive
+captures, including database-ownership child-JVM work, during PIT/JUnit test discovery.
+They show ongoing execution, not a completed mutation verdict or a proven cause of the
+survivors. Captures: `build/ci-round12/pit-worker-*.txt`. The local runtime is the installed
+GraalVM 25.0.3; hosted CI uses Temurin 25. No JDK was installed or changed.
+Full fresh artifacts: `build/ci-round12/pr-mutation/{selection.json,results.json,summary.md}`
+and its `sirix-core/{targets.txt,changed-lines.tsv,census.jsonl,pitest.log,report/}`.
+
+Post-rebase regression verification passed in **6m 1s**: **668 tests**, zero failures or
+errors, and two existing shared-arena policy skips (612 main-task tests and 56 isolated
+startup/allocation/storage-epoch cases). The public behavior oracles remain FMT-401/FMT-402
+and the base's declared-aggregate/fallback contracts; no new test or test oracle was added.
+The selection exercises both refused and ordinary paths after combining the conflicts:
+
+```bash
+./gradlew :sirix-core:test \
+  --tests 'io.sirix.access.FormatRepairBoundaryTest' \
+  --tests 'io.sirix.format.*' \
+  --tests 'io.sirix.access.InterruptedFirstCommitRecovery*' \
+  --tests 'io.sirix.access.ResourceSessionFactoryTest' \
+  --tests 'io.sirix.index.aggregate.DeclaredTemporalAggregateFailureTest' \
+  --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest' \
+  --tests 'io.sirix.budget.*' \
+  --tests 'io.sirix.index.projection.*WorkBudgetTest' \
+  --tests 'io.sirix.access.trx.page.RefusedOverflowLeafTableTest' \
+  -PerrorProne --no-daemon
+```
+
+Log and counts: `build/ci-round12/{regressions.log,test-counts.json}`. No work-budget bound
+was changed. The specified base is an ancestor of HEAD; the full branch whitespace check
+(`git diff --check origin/main`) passed. Vision check: the merge retains both the format
+refusal/history route and the base's declared-failure semantics, adding no default or new
+engine behavior. The PR body's Vision check was not edited. The already rerun macOS query
+job required no action. No push, PR update, remote workflow trigger, pipeline-control
+command, system installation or global configuration change was performed in this phase.

@@ -300,7 +300,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * frontier has no durable mapping ({@link IllegalStateException}), or a derived subtree that cannot
    * be walked or removed ({@link UncheckedIOException}), or an authorization policy that does not
    * grant writes to the hidden derived resource ({@link SecurityException}) — and lets anything else
-   * through. Runtime failures outside these named types are not treated as an optional fallback.
+   * through. Foreign format versions always propagate. Runtime failures outside these named types are
+   * not treated as an optional fallback.
    */
   private void enableDerivedIndexes(final JsonResourceSession source, final DerivedActivation activation) {
     final boolean onlyIfDeclared = activation == DerivedActivation.OPPORTUNISTIC;
