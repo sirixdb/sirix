@@ -485,3 +485,63 @@ test, production change, target reduction, selector relaxation or timeout change
 this result. Complete mutation evidence and requirement-based review of the surviving
 identities are still required; this round does not claim PIT is green. The downloaded hosted
 artifact is retained locally under `build/ci-round9/hosted-pr-mutation/`.
+
+
+## CI follow-up: current-base rebase and fresh PIT evidence
+
+- Rebased submitted head `33ee97a8c31ee5ed29d351180fcc178005f79384` onto current
+  `origin/main`, `31c9c16f1324bc6623bb17a64583e4763ee5ca92` (PRs #1490 and #1491),
+  yielding `eded0daed` before this evidence update. All 31 branch commits were replayed;
+  none was skipped. The only conflicts were two historical edits of `spec/CHANGELOG.md`.
+  Resolution retains the base's benchmark entry and the branch's final format entry.
+- Preservation invariant: replay must retain both sides' entries and all branch behavior.
+  Of the branch's 62 changed files, 60 are byte-identical to the submitted head; only
+  `spec/CHANGELOG.md` and `spec/CONV-conventions.md` gain the base's content. The vision
+  sentence, format baseline, incomplete-frame decision table and FMT-401 twin, named
+  `sirix-repair-format-gate` gap, repair matched pairs, discovery counters/bounds/positive
+  controls/cold start/both backends and registrations, golden byte pins, postmortems and
+  changelog/lesson fragments remain intact. No direct shared-file additions were restored.
+- Path retrace: no production function, caller, test or executable configuration changed
+  during conflict resolution. Both specification entries remain, and CONV-301 retains the
+  discovery-budget registration alongside the base's new benchmark requirements.
+- Verification: `./gradlew :sirix-core:classes :sirix-core:testClasses -PerrorProne
+  --no-daemon` passed. The real fragment guard passed against the new base, and
+  `git diff --check` passed. The preservation audit and full commit range comparison are
+  local evidence in `build/ci-round10/rebase-audit.json` and `rebase-range-diff.txt`.
+
+Fresh mutation commands, executed after the rebase, with the lane's scope and deadline
+unchanged:
+
+```bash
+python3 .github/scripts/pr_mutation.py select \
+  --base 31c9c16f1324bc6623bb17a64583e4763ee5ca92 \
+  --head eded0daed94bb47b2d15d8c9ce472b3a33598379 \
+  --output build/ci-round10/pr-mutation
+ORG_GRADLE_PROJECT_errorProne=true python3 .github/scripts/pr_mutation.py run \
+  --seconds 1320 --blocking --output build/ci-round10/pr-mutation
+```
+
+The fresh run exited **1**, with `sirix-core` state **timed out** and
+`1320s module execution share exceeded`. Selection retained 24 changed sources, 82 exact
+compiled targets, 40 test patterns and 604 changed lines, with no per-class limit. Baseline
+coverage completed successfully in 204 seconds, producing 15 mutation units. Two minions
+reported `TIMED_OUT`; neither the XML report nor the completion stream contained a finished
+mutation result when the overall deadline terminated the run. The census contains 7,687
+unique off-diff exclusions; exclusions have no verdict and do not establish any kill or
+survivor count. Seven individually unmapped sources remain reported, with all targets kept.
+
+The report also flags two inherited `BackupKt` dispositions because the local reproduction
+compiled core, not the CLI's classes. This missing local prerequisite is not evidence that
+those unchanged dispositions are stale in the hosted all-module build. No disposition was
+edited on that basis.
+
+The earlier hosted evidence (111 kills and 32 changed-line survivors) remains separate and
+unresolved. This fresh unfinished run cannot establish whether those 32 survivors persist;
+it does not invalidate them or authorize any disposition under CONV-202. No production or
+behavior-test change is justified by the new evidence. No selectors, targets, sampling,
+timeouts, associations or dispositions were changed. The local fresh artifacts are
+`build/ci-round10/pr-mutation/{selection.json,results.json,summary.md}` and
+`sirix-core/{pitest.log,census.jsonl,report/}` beneath that directory. PIT is **not green**.
+
+The already rerun provider-cancelled macOS job required no action. No push, PR-body edit,
+workflow trigger or pipeline-control command was performed in this phase.
