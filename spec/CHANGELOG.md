@@ -2,6 +2,23 @@
 
 ## 1.0.0 (unreleased)
 
+- Make the PR mutation lane's unit of work its blocking criterion. New
+  [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant
+  generation to the PR's own lines through a repository interceptor on PIT's tool classpath,
+  applied before any sampling, forbids a per-class mutant limit, requires a census of what the
+  restriction removed and a verdict that fails when a censused mutant is on a changed line, and
+  bounds coverage collection to once per module. New
+  [CONV-206](CONV-conventions.md#conv-206--scheduled-full-scope-mutation-report) moves the
+  advisory report on unchanged lines to a scheduled full-scope run that never runs for a pull
+  request and never decides an outcome.
+  [CONV-202](CONV-conventions.md#conv-202--pr-mutation-verdict-with-dispositions) judges entries
+  against the census as well as the report, retires its per-class sampling caveat, requires a
+  module killed by its deadline to report every status it had already recorded, and makes a report
+  with no mutant complete when the census explains it: the run generated mutants and none was on a
+  changed line, which is nothing to judge rather than nothing to measure. Commands, the
+  measured cost this replaces and the scheduled report are in
+  [Verification](../docs/VERIFICATION.md#pr-mutation-testing).
+
 - Store the commit timestamp as signed epoch microseconds instead of epoch milliseconds.
   VER-201 fixes the unit in the unchanged 64-bit timestamp field, requires truncation toward
   the past and explicit rejection of an out-of-range instant, and requires the public API to

@@ -20,7 +20,7 @@ It explains the *why*. The authoritative detail lives in the documents it points
 | Document | What it owns |
 |---|---|
 | [spec/README.md](../spec/README.md) | The requirement chapters: format, transactions, versioning, configuration, APIs. |
-| [spec/CONV-conventions.md](../spec/CONV-conventions.md) | Requirement conventions, IDs, evidence rules, mutation dispositions (CONV-201 to CONV-204) and the official work budgets. |
+| [spec/CONV-conventions.md](../spec/CONV-conventions.md) | Requirement conventions, IDs, evidence rules, mutation policy (CONV-201 to CONV-206) and the official work budgets. |
 | [docs/VERIFICATION.md](VERIFICATION.md) | Every verification layer, the bug class it catches, how to run it, and the PR mutation lane. |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Build, branch and pull-request mechanics. |
 | [AGENTS.md](../AGENTS.md) | The HFT and low-latency hot-path rules every change must respect. |

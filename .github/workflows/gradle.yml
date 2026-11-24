@@ -49,6 +49,15 @@ jobs:
             **/build
           key: build-${{ github.run_id }}
 
+      - name: Cache mutation task history
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .gradle
+            **/.gradle
+          key: mutation-task-history-${{ github.run_id }}
+
   TestCore:
     name: Test sirix-core (${{ matrix.lane }})
     needs: Build
@@ -97,7 +106,7 @@ jobs:
           retention-days: 3
 
   TestQuery:
-    name: Test sirix-query, sirix-kotlin-api, sirix-kotlin-cli
+    name: Test query, Kotlin, and PIT tooling
     needs: Build
     runs-on: ubuntu-latest
     # Instrumented tests exceeded 20 minutes before MCP/offline REST reporting could start.
@@ -121,18 +130,28 @@ jobs:
           path: |
             **/build
           key: build-${{ github.run_id }}
-      - name: Test sirix-query, sirix-kotlin-api, and sirix-kotlin-cli
+      - name: Test query, Kotlin, and PIT tooling
         run: >-
           ./gradlew :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test
+          :sirix-pit-changed-lines:test
           ${{ needs.Build.outputs.sonar-enabled == 'true' && '-Pcoverage' || '' }} --parallel --info --stacktrace
       # These also ran in the old Sonar build. Keep their probes, including offline REST's
       # contribution to the query report, without starting the Docker-backed REST suite.
-      - name: Test MCP and report offline REST coverage
+      - name: Test MCP and report offline REST and PIT tooling coverage
         if: needs.Build.outputs.sonar-enabled == 'true'
         run: >-
           ./gradlew :sirix-query:jacocoTestReport :sirix-kotlin-api:jacocoTestReport
           :sirix-kotlin-cli:jacocoTestReport :sirix-mcp:jacocoTestReport :sirix-rest-api:jacocoTestReport
+          :sirix-pit-changed-lines:jacocoTestReport
           -x :sirix-rest-api:test --info --stacktrace
+      - name: Upload PIT tooling coverage
+        if: needs.Build.outputs.sonar-enabled == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-pit-tooling
+          path: tools/pit-changed-lines/build/reports/jacoco/test/jacocoTestReport.xml
+          if-no-files-found: error
+          retention-days: 3
       - name: Upload query, Kotlin, MCP, and offline REST coverage
         if: needs.Build.outputs.sonar-enabled == 'true'
         uses: actions/upload-artifact@v4
@@ -205,6 +224,8 @@ jobs:
 
   MutationTesting:
     name: PIT changed-source mutation testing
+    env:
+      ORG_GRADLE_PROJECT_errorProne: 'true'
     needs: [Build, PythonTooling]
     if: github.event_name == 'pull_request'
     # Advisory rollout policy and blocking switch: docs/VERIFICATION.md#pr-mutation-testing.
@@ -244,6 +265,14 @@ jobs:
           path: |
             **/build
           key: build-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: Restore mutation task history
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .gradle
+            **/.gradle
+          key: mutation-task-history-${{ github.run_id }}
           fail-on-cache-miss: true
       - name: Run bounded PIT analysis
         # Always enforce internally so incomplete runs remain visible as a failed informational
@@ -324,9 +353,15 @@ jobs:
         with:
           name: coverage-python
           path: build/reports/python
+      - name: Download PIT tooling coverage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: coverage-pit-tooling
+          path: tools/pit-changed-lines/build/reports/jacoco/test
       - name: Merge core coverage and verify reports
         run: |
           test -s build/reports/python/python-coverage.xml
+          test -s tools/pit-changed-lines/build/reports/jacoco/test/jacocoTestReport.xml
           for lane in hot-property remaining; do
             cp -a "build/sonar-coverage/coverage-core-$lane/test-results" bundles/sirix-core/build/
           done

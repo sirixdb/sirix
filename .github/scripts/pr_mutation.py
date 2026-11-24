@@ -2,6 +2,9 @@
 """Bounded, secret-free PR mutation analysis. See docs/VERIFICATION.md."""
 import argparse
 from collections import Counter
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from functools import cached_property
 import hashlib
 import html
 import json
@@ -22,20 +25,18 @@ MODULES = {name: name for name in ('sirix-core', 'sirix-query', 'sirix-rest-api'
 MODULES['sirix-examples'] = 'sirix-example'
 DIRECTORIES = {module: directory for directory, module in MODULES.items()}
 
-# PIT collects baseline coverage for every targetTests class. Bound test selection as well as
-# mutant sampling, so coverage collection cannot fall back to the whole module suite.
+# PIT collects baseline coverage for every targetTests class. Bound each source's test
+# candidates so coverage collection cannot fall back to the whole module suite (CONV-205).
 TEST_SUFFIXES = ('Test', 'Tests', 'IT')
 PACKAGE_TEST_LIMIT = 25
-MODULE_TEST_LIMIT = 60
-# Best first: an exactly named test, then a name-related one, then the source's own package.
-KIND_ORDER = ('named', 'related', 'package')
+SOURCE_TEST_LIMIT = 60
 UNRESOLVED_KINDS = ('unmapped', 'over-limit')
 # Reviewed repository files (spec/CONV-conventions.md, CONV-201 to CONV-204). Fixed paths: no flag,
 # environment variable or other input may add, ignore or relax a disposition (CONV-203).
 DISPOSITIONS_FILE = '.github/mutation-dispositions.toml'
 ASSOCIATIONS_FILE = '.github/mutation-test-associations.toml'
 # These entry points share an executable release contract whose name spans several classes.
-# Augment the heuristic matches; the ordinary module cap still applies to their union.
+# Augment the heuristic matches; the ordinary source candidate limit still applies.
 CONTRACT_TESTS = {name: ('io.sirix.query.scan.VectorizedReleaseCorrectnessTest',) for name in (
     'io.sirix.query.SirixCompileChain',
     'io.sirix.query.compiler.translator.SirixBlockPipelineStrategy',
@@ -88,19 +89,23 @@ for _name in ('DerefDescendantExpr', 'SirixLazySequence'):
 for _package, _name in (('json', 'SirixJsonStream'), ('node', 'SirixNodeStream')):
     LIFECYCLE_TESTS[f'io.sirix.query.stream.{_package}.{_name}'] = (
         'io.sirix.query.compiler.translator.TraversalCloseOwnershipTest',)
-# Bound coverage and restart units independently. Every source is assigned exactly once; a
-# timed-out partition remains incomplete and cannot consume a later partition's reserved share.
-PARTITION_SOURCE_LIMIT = 12
-
 # Execution time reserved for each module still waiting, so none is starved by an earlier one.
 MIN_MODULE_SECONDS = 120
-# A large diff cannot afford every mutant of every changed class. A mutant whose covering test
-# hangs costs a whole minion restart, and those restarts - not the mutant count - exhausted the
-# budget for PR 1351's 57 changed sirix-core classes once the test scope was fixed. Sample per
-# class instead, so the work scales with the diff and even a small diff has a per-class cap.
-MUTANT_BUDGET = 300
-MIN_MUTANTS_PER_CLASS = 4
-MAX_MUTANTS_PER_CLASS = 40
+# CONV-205: the lane mutates the PR's own lines and nothing else, and applies no per-class sample
+# to them. A changed-line count is therefore a complete measurement. The in-repo CHANGEDLINES
+# interceptor reads this map and appends the identity of every mutant it removed to the census,
+# which it writes beside the map (ChangedLineInterceptorFactory.CENSUS_FILE).
+CHANGED_LINES_FILE = 'changed-lines.tsv'
+CHANGED_LINES_HEADER = '# sirix-changed-lines 1'
+CENSUS_FILE = 'census.jsonl'
+# PIT's XML listener serialises at the end of the run, so a killed process wrote a 0-byte report
+# and discarded every finished mutant. The STREAM listener flushes each analysed class as it
+# arrives; the reporter falls back to it and tolerates a record torn by the kill (CONV-202).
+STREAM_FILE = 'mutations-stream.xml'
+DAEMON_JVM_ARGS = '-Xmx3g'
+# CONV-206: the scheduled full-scope report mutates every line of the sources the default branch
+# changed within its window, which is stated in the report rather than fixed by the criterion.
+WINDOW_DAYS = 7
 # Job-summary bounds; GitHub drops a summary above 1 MiB and the artifact retains every entry.
 SUMMARY_MUTANT_LIMIT = 100
 ADVISORY_CLASS_LIMIT = 10
@@ -445,22 +450,15 @@ def resolve_tests(stem, package, tests):
     return [], 'unmapped'
 
 
-def mutants_per_class(targets):
-    """Bound PIT's per-class sampling, so a module's work scales with the size of the diff."""
-    return max(MIN_MUTANTS_PER_CLASS,
-               min(MAX_MUTANTS_PER_CLASS, MUTANT_BUDGET // max(1, len(targets))))
-
-
-def test_scope(module_root, sources, associations=None, tests=None):
+def test_scope(module_root, sources, associations=None):
     """Bounded per-source test selection. No input may widen the scope to the module suite.
 
     `associations` maps a changed top-level class to the existing behaviour tests the lane must
-    also run for it (CONV-204); they augment the name-based matches and share the module cap.
+    also run for it (CONV-204); they augment the name-based matches and share the source limit.
     """
     associations = associations or {}
     candidates = []
-    if tests is None:
-        tests = module_test_classes(module_root)
+    tests = module_test_classes(module_root)
     for source in sources:
         path = source_path(module_root, source)
         classes = source_classes(path, file_facade=True)
@@ -482,41 +480,17 @@ def test_scope(module_root, sources, associations=None, tests=None):
             if kind == 'unmapped':
                 kind = 'related'
         candidates.append({'source': source, 'kind': kind, 'patterns': patterns})
-    # Admit named matches before related/package matches; any candidate can exceed the cap.
     selected = set()
-    for kind in KIND_ORDER:
-        for candidate in candidates:
-            if candidate['kind'] != kind:
-                continue
-            merged = selected | set(candidate['patterns'])
-            if len(merged) > MODULE_TEST_LIMIT:
-                candidate['kind'] = 'over-limit'
-                continue
-            selected = merged
+    for candidate in candidates:
+        if len(candidate['patterns']) > SOURCE_TEST_LIMIT:
+            candidate['kind'] = 'over-limit'
+        else:
+            selected.update(candidate['patterns'])
     # A trailing glob reaches @Nested classes and may also match other name-prefixed classes.
     return (sorted(name + '*' for name in selected),
             sorted(candidate['source'] for candidate in candidates
                    if candidate['kind'] in UNRESOLVED_KINDS),
             {candidate['source']: candidate['kind'] for candidate in candidates})
-
-
-def partition_sources(module_root, sources, associations=None):
-    """Keep every source, splitting before either the source or selected-test cap is exceeded."""
-    if len(sources) <= 1:
-        return [sources] if sources else []
-    partitions, current = [], []
-    tests = module_test_classes(module_root)
-    for source in sources:
-        candidate = current + [source]
-        _, _, mapping = test_scope(module_root, candidate, associations, tests=tests)
-        if current and (len(candidate) > PARTITION_SOURCE_LIMIT
-                        or 'over-limit' in mapping.values()):
-            partitions.append(current)
-            current = []
-        current.append(source)
-    if current:
-        partitions.append(current)
-    return partitions
 
 
 def mutant_line(element):
@@ -554,10 +528,38 @@ def tally(elements):
             'detected': sum(element.get('detected') == 'true' for element in elements)}
 
 
-def read_report(path, index):
-    mutations = ET.parse(path).getroot().findall('mutation')
+def read_report(path, index, allow_empty=False):
+    return build_report(ET.parse(path).getroot().findall('mutation'), index, allow_empty)
+
+
+def read_stream(path, index):
+    """The statuses a killed run already recorded: whole records only, torn tail dropped.
+
+    The STREAM listener writes one `mutation` element per line and flushes each analysed class, so
+    an intact prefix is always parsable. A record the kill truncated is discarded rather than
+    guessed at, and `None` means nothing survived (CONV-202).
+    """
+    mutations = []
+    for record in path.read_bytes().splitlines():
+        if not record.strip():
+            continue
+        try:
+            mutations.append(ET.fromstring(record.decode('utf-8')))
+        except (UnicodeError, ET.ParseError):
+            break  # only the last write can be torn; stop rather than read past it
     if not mutations:
-        raise ValueError('PIT produced no mutations; no score is available')
+        return None
+    report = build_report(mutations, index)
+    report['partial'] = True
+    return report
+
+
+NO_MUTANTS = 'PIT produced no mutations; no score is available'
+
+
+def build_report(mutations, index, allow_empty=False):
+    if not mutations and not allow_empty:
+        raise ValueError(NO_MUTANTS)
     groups = {'changed': [], 'unchanged': []}
     unattributed = 0
     records = []
@@ -574,8 +576,10 @@ def read_report(path, index):
     advisory = tally(groups['unchanged'])
     debt = Counter(element.findtext('mutatedClass', '?')
                    for element in undetected(groups['unchanged']))
-    advisory['classes'] = [[name, count] for name, count in debt.most_common(ADVISORY_CLASS_LIMIT)]
+    advisory['classes'] = [[name, count] for name, count in debt.most_common()]
     report = tally(mutations)
+    report['classes'] = [[name, count] for name, count in Counter(
+        element.findtext('mutatedClass', '?') for element in undetected(mutations)).most_common()]
     report.update(statuses=dict(sorted(Counter(element.get('status', 'UNKNOWN')
                                                for element in mutations).items())),
                   survivors=[describe_mutant(element) for element in undetected(mutations)],
@@ -587,9 +591,18 @@ def read_report(path, index):
 def is_clean(results):
     """Only failing changed-line mutants and incomplete analysis fail a module (CONV-202)."""
     for result in results:
-        if result['state'] != 'complete' or result.get('total', 0) <= 0:
+        if result['state'] != 'complete':
             return False
-        # A report whose mutants all failed to map to a changed source judged nothing at all.
+        # The restriction removed a mutant the verdict judges: its own decision is not evidence,
+        # so the reporter's independent attribution decides and this run proves nothing (CONV-205).
+        if result.get('census', {}).get('violations'):
+            return False
+        # PIT mutated the targets and no mutant of theirs is on a changed line: nothing to judge.
+        if result.get('off_diff_only'):
+            continue
+        # A report with no mutant, or whose mutants all failed to map to a changed source,
+        # judged nothing at all. A complete module always has a report; one without mutants
+        # returned earlier as the case its census explains.
         if result['total'] - result.get('unattributed', 0) <= 0:
             return False
         changed = result.get('changed')
@@ -1001,6 +1014,7 @@ def judge_entry(entry, context):
 
 def judge_entry_scope(entry, context, mutant, added):
     """Re-confirm changed methods before judging matched or unmatched PIT evidence."""
+    censused = None if mutant else context['census'].get(identity_of(entry))
     if not added and (method_changed(context['compiled'].find(entry['class']), entry,
                                      context['changed_index'])
                       or (mutant and mutant['changed'])):
@@ -1008,9 +1022,20 @@ def judge_entry_scope(entry, context, mutant, added):
             f"this PR changes method {entry['method']}; re-review the argument"
             + (' and re-run the counterfactual' if entry['kind'] == 'killed-out-of-lane' else '')
             + ', then update the entry, at least `checked_at`'
-            + ('' if mutant else '; no reported mutant matches it any more, so ' + REMAP_HINT))
+            + ('' if mutant or censused
+               else '; no reported mutant matches it any more, so ' + REMAP_HINT))
     if mutant:
         return judge_matched_mutant(mutant, added)
+    if censused:
+        evidence = context['evidence'].get(entry['class'])
+        if evidence is not None and not evidence.permits('staleness'):
+            return 'not judged', evidence.action
+        # Generated and removed off the diff: the mutant exists, so the entry is neither stale nor
+        # unconfirmed, but this run measured no status for it and cannot accept it (CONV-202).
+        return 'not judged', (f"matches a mutant the lane removed off the diff "
+                              f"({censused['source']}:{censused['line']}); no status was measured "
+                              f"- rerun and omit -PprMutationChangedLinesFile or read the scheduled "
+                              f"full-scope report")
     return judge_unmatched_entry(entry, context, added)
 
 
@@ -1018,6 +1043,9 @@ def judge_matched_mutant(mutant, added):
     if mutant['detected']:
         return 'detected-other', f"matches a {mutant['status']} mutant; reported, not failed"
     if mutant['status'] == 'SURVIVED':
+        evidence = mutant['evidence']
+        if not evidence.permits('rule_1_status') or not evidence.permits('acceptance'):
+            return 'not judged', 'matches a preserved SURVIVED status; ' + evidence.action
         if added:
             return 'accepted', ('on a changed line' if mutant['changed']
                                 else 'on an unchanged line of a changed file')
@@ -1029,16 +1057,17 @@ def judge_matched_mutant(mutant, added):
 
 
 def judge_unmatched_entry(entry, context, added):
-    complete = context['mutated'].get(entry['class'])
-    if complete:
+    evidence = context['evidence'].get(entry['class'])
+    if evidence is not None and evidence.permits('staleness'):
         return 'stale', f'PIT no longer generates this mutant for its class; {REMAP_HINT}'
     if added and identity_of(entry) not in context['base_identities']:
-        where = ("not in this run's sample of its class" if complete is not None
+        where = ("not in this run's sample of its class" if evidence is not None
                  else 'its class was not mutated in this run')
         return 'unconfirmed', (f'no reported mutant matches ({where}); a new entry must match a '
-                               f'SURVIVED mutant of a class this PR changes')
-    if complete is not None:
-        return 'not judged', 'no reported mutant matches and the class sample is incomplete'
+                               f'SURVIVED mutant of a class this PR changes'
+                               + ('; ' + evidence.action if evidence is not None else ''))
+    if evidence is not None:
+        return 'not judged', evidence.action
     if added:
         return 'not judged', 'no reported mutant matches; its class was not mutated in this run'
     return 'out of scope', 'class not mutated in this run'
@@ -1091,7 +1120,11 @@ def apply_dispositions(result, accepted, judged):
         if not mutant['changed'] or mutant['detected']:
             continue
         entry = accepted.get(mutant['identity'])
-        if mutant['status'] == 'SURVIVED' and entry:
+        judgement = ('dispositioned_equivalent' if entry and entry['kind'] == 'equivalent'
+                     else 'dispositioned_out_of_lane')
+        if (mutant['status'] == 'SURVIVED' and entry
+                and mutant['evidence'].permits('rule_1_status')
+                and mutant['evidence'].permits(judgement)):
             target = equivalent if entry['kind'] == 'equivalent' else out_of_lane
             target.append({'mutant': mutant['text'], 'entry': entry['position'],
                            'checked_at': entry['checked_at'], 'test': entry.get('test'),
@@ -1123,7 +1156,7 @@ def format_verdict(result):
     changed = result.get('changed')
     if not changed:
         return []
-    # The changed-line count beside the mutant count keeps a sampled-away verdict visible.
+    # The changed-line count beside the mutant count exposes lines PIT cannot mutate.
     counted = (f"Changed lines: {result['changed_line_count']}. "
                if 'changed_line_count' in result else '')
     equivalent = changed.get('dispositioned_equivalent', [])
@@ -1161,7 +1194,7 @@ def format_verdict(result):
 
 def format_report(result):
     """The whole report, for context: PIT's own score over every mutated class."""
-    if 'total' not in result:
+    if not result.get('total'):
         return []
     total = result['total']
     lines = [f"Killed: {result['killed']}/{total} ({100 * result['killed'] / total:.1f}%). "
@@ -1175,17 +1208,47 @@ def format_report(result):
     return lines
 
 
-def format_advisory(result):
-    """Unchanged-line debt: counts and the classes carrying the most of it. Never blocking."""
-    advisory = result.get('unchanged')
-    if not advisory or not advisory['total']:
+def format_census(result):
+    """What the changed-line restriction removed: a count, never a score (CONV-205)."""
+    census = result.get('census')
+    if census is None:
         return []
-    lines = [f"Unchanged lines of the same classes (advisory, never blocking). "
+    lines = [f"Mutants removed off the diff: {census['count']}. These are generated and never "
+             f"run, so they carry no status and no score; the scheduled full-scope report "
+             f"measures them (CONV-206). Identities: `{Path(census['file']).name}`.", '']
+    if census['malformed']:
+        lines.extend([f"Census records the run could not read: {census['malformed']}. The "
+                      f'restriction wrote them, so this is a defect in it:', ''])
+        lines.extend('- ' + escape(value) for value in census['unreadable'])
+        if census['malformed'] > len(census['unreadable']):
+            lines.append(f"- and {census['malformed'] - len(census['unreadable'])} more; see "
+                         f"`{Path(census['file']).name}`.")
+        lines.append('')
+    if census['violations']:
+        lines.extend(['The restriction removed mutants on changed lines, which fails this run '
+                      '(CONV-205); every one is in `results.json`:', ''])
+        lines.extend('- ' + escape(value) for value in census['violations'][:SUMMARY_MUTANT_LIMIT])
+        lines.append('')
+    return lines
+
+
+def format_advisory(result, full_scope=False):
+    """Undetected class debt in the requested scope. Never blocking."""
+    advisory = result if full_scope else result.get('unchanged')
+    if not advisory or not advisory.get('total'):
+        return []
+    scope = 'All lines' if full_scope else 'Unchanged lines of the same classes'
+    lines = [f"{scope} (advisory, never blocking). "
              f"Mutants: {advisory['total']}. Killed: {advisory['killed']}. "
              f"Survived: {advisory['survived']}. No coverage: {advisory['no_coverage']}.", '']
-    if advisory['classes']:
-        lines.extend(['Classes with the most undetected unchanged-line mutants:', ''])
-        lines.extend(f'- {escape(name)}: {escape(count)}' for name, count in advisory['classes'])
+    shown = advisory['classes'][:ADVISORY_CLASS_LIMIT]
+    if shown:
+        scope = '' if full_scope else 'unchanged-line '
+        lines.extend([f'Classes with the most undetected {scope}mutants:', ''])
+        lines.extend(f'- {escape(name)}: {escape(count)}' for name, count in shown)
+        if len(advisory['classes']) > len(shown):
+            lines.append(f"- and {len(advisory['classes']) - len(shown)} more; see "
+                         f'`results.json`.')
         lines.append('')
     return lines
 
@@ -1231,28 +1294,64 @@ def format_dispositions(dispositions, associations):
         lines.extend(f"- {entry_label(record)} | {escape(record['state'])}: "
                      f"{escape(record['action'])}" for record in reported)
         lines.append('')
-    if associations and associations['errors']:
+    if associations['errors']:
         lines.extend([f"`{ASSOCIATIONS_FILE}` is invalid; no association applies:", ''])
         lines.extend('- ' + escape(error) for error in associations['errors'])
         lines.append('')
     return lines
 
 
+def format_full_scope(window, results, stale, associations):
+    """The scheduled debt report: what no test detects, per class, and nothing blocking."""
+    lines = ['# Full-scope mutation report (scheduled)', '',
+             f"Every mutant of the sources this branch changed in the last {window['days']} day(s)"
+             f" - no changed-line restriction, no per-class sample. Base "
+             f"`{escape(window['base'][:12])}`, head `{escape(window['head'][:12])}`, produced "
+             f"{escape(window['produced_at'])}. This report never decides an outcome (CONV-206); "
+             'the pull-request lane judges the changed lines (CONV-202).', '',
+             'A class nothing changed in the window is absent from this report.', '']
+    for result in results:
+        lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", ''])
+        if 'error' in result:
+            lines.extend([escape(result['error']), ''])
+        if result['state'] != 'complete':
+            lines.extend(['Incomplete: this is not a complete debt report for the module.', ''])
+        lines.extend(format_report(result))
+        lines.extend(format_advisory(result, full_scope=True))
+    if associations['errors']:
+        # It changes no outcome here, but a broken file silently narrows the lane's test scope.
+        lines.extend([f"`{associations['file']}` is invalid; the lane would reject it:", '']
+                     + ['- ' + escape(error) for error in associations['errors']] + [''])
+    if stale['errors']:
+        lines.extend([f"`{stale['file']}` is invalid; no entry was judged:", '']
+                     + ['- ' + escape(error) for error in stale['errors']] + [''])
+    if stale['entries']:
+        lines.extend([f"## Dispositions entries this report proves stale (advisory)", '',
+                      'Their classes were mutated with nothing sampled and nothing restricted, '
+                      'and no mutant matches them. The pull-request lane cannot judge this '
+                      '(CONV-202); remove or remap each entry in dedicated work.', ''])
+        lines.extend(f"- entry {record['position']} [{record['kind']}] {escape(record['class'])}."
+                     f"{escape(record['method'])}{escape(record['descriptor'])} | "
+                     f"{escape(record['mutator'])} | indexes {escape(record['indexes'])}"
+                     for record in stale['entries'])
+        lines.append('')
+    return '\n'.join(lines)
+
+
 def format_summary(results, dispositions=None, associations=None):
     lines = ['# Changed-source mutation testing', '',
              'Blocking criterion: undetected mutants on the lines this pull request changed, '
              'unless a reviewed disposition accepts them (CONV-202). '
-             'Mutants on unchanged lines of the same classes are advisory pre-existing debt. '
+             'Mutants are generated on those lines only and never sampled per class (CONV-205); '
+             'the ones removed off the diff are counted here and measured by the scheduled '
+             'full-scope report (CONV-206). '
              'Informational unless `MUTATION_BLOCKING` is enabled. Full reports, targets and logs '
              'are in the `pr-mutation` artifact.', '']
     lines.extend(format_dispositions(dispositions, associations))
     if not results:
         return '\n'.join(lines + ['No changed main Java/Kotlin sources; PIT skipped.', ''])
     for result in results:
-        label = result['module']
-        if 'partition' in result:
-            label += f" / part {result['partition']}"
-        lines.extend([f"## {escape(label)}: {escape(result['state'])}", ''])
+        lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", ''])
         if 'error' in result:
             lines.extend([escape(result['error']), ''])
         if result['state'] == 'unmapped':
@@ -1260,13 +1359,26 @@ def format_summary(results, dispositions=None, associations=None):
         if 'tests' in result:
             lines.extend([f"Changed target classes: {len(result['targets'])}. "
                           f"Test patterns: {len(result['tests'])}. "
-                          f"Mutants sampled per class: {result['mutants_per_class']}.", ''])
+                          'Requested mutant scope: the changed lines, without a per-class limit.', ''])
+        if result.get('off_diff_only'):
+            lines.extend(['No mutant of this module sits on a changed line: PIT generated '
+                          f"{result['census']['count']} mutant(s) for these classes and the "
+                          'changed-line restriction removed every one. Nothing is judged here, '
+                          'and nothing is claimed as killed.', ''])
+        if result.get('partial'):
+            lines.extend(['Partial results: this module did not finish, and the statuses below '
+                          'are the ones its result stream recorded before the deadline killed it '
+                          '(CONV-202). An incomplete module is never clean.', ''])
+        if result.get('stream_error'):
+            lines.extend(['The result stream could not be read, so nothing was recovered from '
+                          f"it: {escape(result['stream_error'])}.", ''])
         if result.get('unmapped'):
             lines.extend(['Changed sources for which no mapped test was selected:', ''])
             lines.extend('- ' + escape(value) for value in result['unmapped'])
             lines.append('')
         lines.extend(format_verdict(result))
         lines.extend(format_report(result))
+        lines.extend(format_census(result))
         lines.extend(format_advisory(result))
     return '\n'.join(lines)
 
@@ -1278,9 +1390,6 @@ def execute(command, root, log, timeout):
         try:
             return process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # Gradle's single-use daemon detaches from the launcher's session. Snapshot its
-            # descendants before killing any parent, including detached workers in timeout
-            # cleanup. This runner already requires POSIX process-group semantics.
             parents = {int(pid): int(parent) for pid, parent in
                        (line.split() for line in subprocess.check_output(
                            ['ps', '-e', '-o', 'pid=,ppid='], text=True).splitlines())}
@@ -1300,10 +1409,35 @@ def execute(command, root, log, timeout):
             except ProcessLookupError:
                 pass
             process.wait()
+            pending = descendants - {process.pid}
+            while pending:
+                active = {int(pid) for pid, state in
+                          (line.split() for line in subprocess.check_output(
+                              ['ps', '-e', '-o', 'pid=,stat='], text=True).splitlines())
+                          if not state.startswith('Z')}
+                pending.intersection_update(active)
+                if pending:
+                    time.sleep(.01)
             raise
 
 
-def prepare_analysis(root, directory, module, sources, result, associations=None):
+def write_changed_lines(path, index):
+    """The map the CHANGEDLINES interceptor reads: one record per selected source (CONV-205)."""
+    records = [CHANGED_LINES_HEADER]
+    for (package, source), numbers in sorted(index.items()):
+        records.append(f'{package}\t{source}\t' + ' '.join(str(line) for line in sorted(numbers)))
+    path.write_text('\n'.join(records) + '\n')
+    return path
+
+
+def prepare_analysis(root, directory, module, sources, result, associations=None, index=None,
+                     restrict=False):
+    """The PIT command for one module.
+
+    `restrict` is what the lane asks for: mutants on the changed lines of `index` only, with a
+    census of what was removed (CONV-205). It is never implied, so a caller that wants the
+    restriction states it and supplies the map.
+    """
     module_root = root / 'bundles' / DIRECTORIES[module]
     targets, missing = resolve_targets(module_root, sources)
     if missing:
@@ -1311,49 +1445,176 @@ def prepare_analysis(root, directory, module, sources, result, associations=None
     if not targets:
         raise ValueError('Empty target selection; refusing whole-module mutation')
     tests, unmapped, mapping = test_scope(module_root, sources, associations)
-    mutants = result.get("mutants_per_class", mutants_per_class(targets))
+    # No per-class sample (CONV-205): every mutant the lane generates on a changed line is
+    # analysed, so a changed-line count is a complete measurement rather than a sample.
     result.update(targets=targets, tests=tests, unmapped=unmapped, resolution=mapping,
-                  mutants_per_class=mutants)
+                  mutants_per_class=None, restricted=restrict)
     if not tests:
         raise Unmapped('No test maps to any changed source; PIT has no baseline to collect')
     target_file = directory / 'targets.txt'
     target_file.write_text('\n'.join(targets) + '\n')
-    return [str(root / 'gradlew'), f':{module}:pitest', '--no-daemon',
-            f'-PprMutationModule={module}', f'-PprMutationTargetsFile={target_file}',
-            f'-PprMutationReportDir={directory / "report"}',
-            f'-PprMutationMaxMutations={mutants}',
-            f'-PprMutationTests={",".join(tests)}']
+    command = [str(root / 'gradlew'), f':{module}:pitest',
+               f'-Dorg.gradle.jvmargs={DAEMON_JVM_ARGS}',
+               '--no-daemon',
+               f'-PprMutationModule={module}', f'-PprMutationTargetsFile={target_file}',
+               f'-PprMutationReportDir={directory / "report"}',
+               f'-PprMutationTests={",".join(tests)}']
+    if restrict:
+        if not index:
+            # Restricting to an empty map would mutate nothing and report success (CONV-205).
+            raise ValueError('No changed-line map for this module; refusing to restrict the scope')
+        # The interceptor writes its census beside the map (CONV-205): PIT 1.25.5's feature
+        # parser reads only a feature's first parameter, so the census has no knob of its own.
+        command.append(f'-PprMutationChangedLinesFile='
+                       f'{write_changed_lines(directory / CHANGED_LINES_FILE, index)}')
+    return command
 
 
-def attach_report(result, report, index):
+CENSUS_TEXT_FIELDS = ('class', 'method', 'descriptor', 'mutator', 'description', 'sourceFile')
+# Enough to name the defect in the restriction that wrote them; the file itself holds the rest.
+CENSUS_REASON_LIMIT = 10
+
+
+def reason(error):
+    """One readable cause for a census record the reporter refused, whatever raised it."""
+    if isinstance(error, KeyError):
+        return f'census record has no {error.args[0]!r} field'
+    return str(error) or error.__class__.__name__
+
+
+def census_identity(record):
+    """The CONV-201 identity of a censused mutant, in `mutant_identity`'s field order.
+
+    The census is evidence the verdict reads, so a record whose fields are not of the type the
+    identity needs is rejected rather than turned into an identity that matches nothing: a silent
+    near-miss would cost an entry its existence proof and read as staleness (CONV-202).
+    """
+    for field in CENSUS_TEXT_FIELDS:
+        if not isinstance(record[field], str):
+            raise ValueError(f'census `{field}` must be a string')
+    indexes = record['indexes']
+    if not isinstance(indexes, list) or not all(
+            isinstance(index, int) and not isinstance(index, bool) for index in indexes):
+        raise ValueError('census `indexes` must be a list of integers')
+    if not isinstance(record['lineNumber'], int) or isinstance(record['lineNumber'], bool):
+        raise ValueError('census `lineNumber` must be an integer')
+    return (record['class'], record['method'], record['descriptor'], record['mutator'],
+            tuple(indexes), record['description'])
+
+
+def read_census(path, index):
+    """What the changed-line restriction removed, judged again by the reporter (CONV-205).
+
+    Returns the identities (never a status) plus every record whose own line is a changed line:
+    the restriction decided to remove it, and this independent attribution says it should not
+    have, which fails the run. A record the kill truncated is reported, never guessed at, and a
+    record two interceptor passes both wrote is counted once.
+    """
+    census = {'file': str(path), 'count': 0, 'violations': [], 'malformed': 0, 'unreadable': [],
+              'readable': True}
+    records = {}
+    if not path.exists():
+        return census, records
     try:
-        result.update(read_report(report, index))
+        lines = path.read_bytes().splitlines()
+    except OSError as error:
+        census.update(malformed=1, unreadable=[reason(error)], readable=False)
+        return census, records
+    for number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line.decode('utf-8'))
+            identity = census_identity(record)
+        except (ValueError, TypeError, KeyError) as error:
+            census['malformed'] += 1
+            # Say why, not only how many: this run fails on it, and the next reader needs to
+            # know which field of which record the restriction wrote wrongly.
+            if len(census['unreadable']) < CENSUS_REASON_LIMIT:
+                census['unreadable'].append(f'line {number}: {reason(error)}')
+            continue
+        records.setdefault(identity, {'line': record['lineNumber'],
+                                      'source': record['sourceFile']})
+        # Every record is attributed, not only the first of an identity: a line is not part of a
+        # mutant's identity (CONV-201), so judging the deduplicated map could miss a violation.
+        package = record['class'].rpartition('.')[0]
+        if record['lineNumber'] in index.get((package, record['sourceFile']), set()):
+            violation = (f"{record['class']}:{record['lineNumber']} ({record['mutator']}) is on "
+                         f"a changed line")
+            if violation not in census['violations']:
+                census['violations'].append(violation)
+    census['count'] = len(records)
+    return census, records
+
+
+def attach_census(result, path, index):
+    census, records = read_census(path, index)
+    result['census'] = census
+    result['_census'] = records
+
+
+def resolve_empty_scope(result, index, evidence):
+    """Promote a census-explained empty report only on accepted completion evidence."""
+    if not evidence.permits('empty_scope'):
+        return False
+    result.pop('error', None)
+    result.update(state='complete', off_diff_only=True,
+                  **build_report([], index, allow_empty=True))
+    return True
+
+
+def attach_report(result, report, index, stream=None):
+    empty_report = False
+    try:
+        empty_report = not report.exists() or report.stat().st_size == 0
+        if not empty_report:
+            parsed = read_report(report, index, allow_empty=True)
+            empty_report = parsed['total'] == 0
+            if not empty_report:
+                result['_report_valid'] = True
+                result.update(parsed)
+                return False
+        failure = ValueError(NO_MUTANTS)
     except (OSError, ValueError, ET.ParseError) as error:
-        if result['state'] == 'complete':
-            result.update(state='error', error=str(error))
+        failure = error
+    recovered = None
+    # Only a run that did not finish writing its report may be read from the stream; a complete
+    # run with a malformed report is incomplete, as it always was.
+    if result['state'] != 'complete' and stream is not None and stream.exists():
+        try:
+            recovered = read_stream(stream, index)
+        except (OSError, ValueError) as stream_error:
+            result['stream_error'] = str(stream_error)
+    if recovered:
+        result.update(recovered)
+        return False
+    if result['state'] == 'complete':
+        # Name the file: a parse error carries only a line and column, and this run reads two.
+        result.update(state='error', error=f'cannot read {Path(report).name}: {failure}')
+    return empty_report
 
 
-def analyze_module(root, output, module, sources, lines, deadline, seconds, associations=None,
-                   partition=None, mutant_limit=None):
-    result = {'module': module, 'sources': sources, 'state': 'error'}
+def analyze_module(root, output, module, sources, lines, deadline, seconds, associations,
+                   restrict):
+    result = {'module': module, 'sources': sources, 'state': 'error',
+              '_evidence': CompletionEvidence({'unfinished': COMPLETION_FACTS['unfinished']})}
     if module not in DIRECTORIES:
         return {**result, 'error': 'Unknown module; refusing to execute PIT'}
     directory = output / module
-    if partition is not None:
-        result['partition'] = partition
-        directory /= f'part-{partition}'
-    if mutant_limit is not None:
-        result['mutants_per_class'] = mutant_limit
     directory.mkdir(parents=True, exist_ok=True)
     report = directory / 'report/mutations.xml'
-    index = {}
+    stream = directory / 'report' / STREAM_FILE
+    census = directory / CENSUS_FILE
+    index, executed = {}, False
     try:
-        # Never attach cached/rerun XML to a new selection, even when mapping fails.
-        if report.exists():
-            report.unlink()
+        # Never attach cached/rerun output to a new selection, even when mapping fails.
+        for stale in (report, stream, census):
+            if stale.exists():
+                stale.unlink()
         index = changed_line_index(root / 'bundles' / DIRECTORIES[module], lines)
         result['changed_line_count'] = sum(len(numbers) for numbers in index.values())
-        command = prepare_analysis(root, directory, module, sources, result, associations)
+        command = prepare_analysis(root, directory, module, sources, result, associations, index,
+                                   restrict)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise subprocess.TimeoutExpired('PIT module execution share', seconds)
@@ -1361,13 +1622,32 @@ def analyze_module(root, output, module, sources, lines, deadline, seconds, asso
         if code != 0:
             raise ValueError(f'PIT exited {code}; see {module}/pitest.log')
         result['state'] = 'complete'
+        executed = True
     except subprocess.TimeoutExpired:
         result.update(state='timed out', error=f'{seconds}s module execution share exceeded')
     except Unmapped as error:
         result.update(state='unmapped', error=str(error))
     except (OSError, ValueError, IndexError, struct.error) as error:
         result.update(state='error', error=str(error))
-    attach_report(result, report, index)
+    empty_report = attach_report(result, report, index, stream)
+    if restrict:
+        attach_census(result, census, index)
+    value = ModuleEvidence(directory, result, result.get('targets', []), executed,
+                           report_supplied=True,
+                           report_valid=(result.pop('_report_valid', False)
+                                         or empty_report and bool(result.get('census', {}).get('count'))),
+                           census_supplied=restrict, census_valid=True,
+                           records=result.get('_mutants', []),
+                           summaries=[result['census']] if restrict else [])
+    evidence = value.completion
+    result['_evidence'] = evidence
+    result['completion_rejections'] = evidence.rejections
+    for record in value.records:
+        record['evidence'] = evidence
+    if empty_report and result.get('census', {}).get('count'):
+        resolve_empty_scope(result, index, evidence)
+    if evidence.rejections and result['state'] == 'complete':
+        result.update(state='error', error=evidence.action)
     return result
 
 
@@ -1402,19 +1682,15 @@ def global_changed_index(root, changed):
     return index
 
 
-def mutated_classes(results):
-    """Classes mutated by a completed module, mapped to whether PIT's sample of them is complete.
-
-    Only a run without a per-class limit proves a complete sample: PIT applies CLASSLIMIT before
-    later equivalence filters, so a count below the limit may still be a sample (CONV-202).
-    """
-    mutated = {}
+def class_evidence(results):
+    evidence = {}
     for result in results:
-        if result['state'] != 'complete':
-            continue
+        value = result['_evidence']
         for target in result.get('targets', ()):
-            mutated[target] = result.get('mutants_per_class') is None
-    return mutated
+            previous = evidence.get(target)
+            evidence[target] = (value if previous is None else
+                                CompletionEvidence({**previous.rejections, **value.rejections}))
+    return evidence
 
 
 def judge_run(root, results, changed, base_text):
@@ -1432,10 +1708,17 @@ def judge_run(root, results, changed, base_text):
     mutants = {}
     for result in results:
         for mutant in result.get('_mutants', ()):
+            mutant['evidence'] = result['_evidence']
             mutants.setdefault(mutant['identity'], mutant)
+    # Census identities prove a mutant exists without proving anything about its status, which is
+    # what keeps staleness and re-identification judgeable in a changed-line-only run (CONV-202).
+    census = {}
+    for result in results:
+        for identity, record in result.get('_census', {}).items():
+            census.setdefault(identity, record)
     context = {'compiled': CompiledClasses(root), 'tests': test_names, 'mutants': mutants,
-               'changed_index': global_changed_index(root, changed),
-               'mutated': mutated_classes(results)}
+               'census': census, 'changed_index': global_changed_index(root, changed),
+               'evidence': class_evidence(results)}
     verdict, accepted = judge_dispositions(entries, errors, base_text, context)
     for result in results:
         apply_dispositions(result, accepted, verdict['entries'])
@@ -1463,11 +1746,9 @@ def read_selection(output):
     return selected, lines, base_text
 
 
-def run(root, output, seconds, blocking):
-    selected, changed, base_text = read_selection(output)
-    associations, association_errors = load_associations(root)
-    association_verdict = {'file': ASSOCIATIONS_FILE, 'errors': association_errors,
-                           'count': len(associations)}
+def analyze_modules(root, output, selected, changed, seconds, associations, restrict,
+                    progress=None):
+    """Run PIT per module inside one budget; one coverage scope per module (CONV-205)."""
     deadline = time.monotonic() + seconds
     results = []
     pending = len(selected)
@@ -1477,26 +1758,88 @@ def run(root, output, seconds, blocking):
         remaining = max(0.0, deadline - time.monotonic())
         reserve = min(MIN_MODULE_SECONDS, remaining / pending)
         share = remaining - reserve * (pending - 1)
-        module_deadline = time.monotonic() + share
-        parts = partition_sources(root / 'bundles' / DIRECTORIES[module], sources, associations)
-        limit = None
-        if len(parts) > 1:
-            targets, _ = resolve_targets(root / 'bundles' / DIRECTORIES[module], sources)
-            limit = mutants_per_class(targets)
-        for number, part in enumerate(parts, 1):
-            part_share = max(0.0, module_deadline - time.monotonic()) / (len(parts) - number + 1)
-            result = analyze_module(root, output, module, part,
-                                    {source: changed[module][source] for source in part},
-                                    time.monotonic() + part_share, round(part_share),
-                                    partition=number if len(parts) > 1 else None,
-                                    mutant_limit=limit, associations=associations)
-            results.append(result)
-            write_results(output, results, associations=association_verdict)
+        results.append(analyze_module(root, output, module, sources, changed[module],
+                                      time.monotonic() + share, round(share), associations,
+                                      restrict))
         pending -= 1
+        if progress is not None:
+            progress(results)
+    return results
+
+
+def run(root, output, seconds, blocking):
+    selected, changed, base_text = read_selection(output)
+    associations, association_errors = load_associations(root)
+    association_verdict = {'file': ASSOCIATIONS_FILE, 'errors': association_errors,
+                           'count': len(associations)}
+    results = analyze_modules(
+        root, output, selected, changed, seconds, associations, restrict=True,
+        progress=lambda interim: write_results(output, interim,
+                                               associations=association_verdict))
     dispositions = judge_run(root, results, changed, base_text)
     write_results(output, results, dispositions, association_verdict)
     clean = is_clean(results) and dispositions['clean'] and not association_errors
     return int(blocking and not clean)
+
+
+def window_base(root, days):
+    """The last first-parent commit before the report's window (CONV-206)."""
+    if days <= 0:
+        raise ValueError('--window-days must be positive')
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    found = subprocess.check_output(['git', '-C', str(root), 'rev-list', '--first-parent', '-1',
+                                     f'--before={cutoff}', 'HEAD'], shell=False).decode().strip()
+    if not found:
+        raise ValueError(f'no commit of this branch predates {cutoff}; widen --window-days')
+    return found
+
+
+def stale_entries(root, results):
+    """Entries this full-scope report proves stale (CONV-202 rule 5), as advisory information.
+
+    Only a run that mutated the class with a complete generated set says anything: the entry's
+    mutant is absent from a report that sampled nothing and restricted nothing.
+    """
+    entries, errors = read_dispositions(root)
+    evidence = class_evidence(results)
+    reported = set()
+    for result in results:
+        for mutant in result.get('_mutants', ()):
+            reported.add(mutant['identity'])
+    stale = [{name: entry[name] for name in IDENTITY_FIELDS + ('position', 'kind')}
+             for entry in ([] if errors else entries)
+             if entry['class'] in evidence and evidence[entry['class']].permits('staleness')
+             and identity_of(entry) not in reported]
+    return {'file': DISPOSITIONS_FILE, 'errors': errors, 'entries': stale}
+
+
+def full_scope(root, output, seconds, days):
+    """CONV-206: the debt report the PR lane no longer produces. Never decides an outcome.
+
+    Every line of the sources the branch changed within the window is mutated, with no per-class
+    limit and no changed-line restriction, and no disposition verdict is computed.
+    """
+    base, head = window_base(root, days), current_commit(root)
+    selected, changed = changed_sources(root, base, head)
+    window = {'days': days, 'base': base, 'head': head,
+              'produced_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}
+    (output / 'selection.json').write_text(json.dumps(
+        {'modules': selected, 'changed_lines': changed, 'window': window}, indent=2) + '\n')
+    associations, association_errors = load_associations(root)
+    association_verdict = {'file': ASSOCIATIONS_FILE, 'errors': association_errors,
+                           'count': len(associations)}
+    results = analyze_modules(root, output, selected, changed, seconds, associations,
+                              restrict=False)
+    stale = stale_entries(root, results)
+    modules = [{key: value for key, value in result.items() if not key.startswith('_')}
+               for result in results]
+    (output / 'results.json').write_text(json.dumps(
+        {'window': window, 'modules': modules, 'stale_entries': stale,
+         'associations': association_verdict}, indent=2) + '\n')
+    (output / 'summary.md').write_text(
+        format_full_scope(window, results, stale, association_verdict))
+    # A mutation result never decides an outcome here (CONV-206); broken tooling still raises.
+    return 0
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1510,13 +1853,191 @@ class CounterfactualError(Exception):
     """The counterfactual run produced no valid evidence; the message says why."""
 
 
-def report_records(paths, index):
-    records = []
-    for path in paths:
-        for element in ET.parse(path).getroot().findall('mutation'):
-            kind, _ = classify_mutant(element, index)
-            records.append(mutant_record(element, kind == 'changed'))
-    return records
+COMPLETION_FACTS = {
+    'unfinished': 'unfinished run or unknown module completion',
+    'report_unreadable': 'the report could not be read completely and validly',
+    'census_unreadable': 'the census could not be read',
+    'census_malformed': 'the census holds malformed records',
+    'census_violations': 'the census holds changed-line violations',
+    'missing_artifacts': 'required artifacts or their scope metadata were not supplied',
+    'sampled': 'a per-class mutant limit was applied',
+    'invalid_evidence': 'recorded evidence failed validation',
+}
+COMPLETION_JUDGEMENTS = (
+    'acceptance', 'dispositioned_equivalent', 'dispositioned_out_of_lane',
+    'staleness', 'empty_scope', 'rule_1_status',
+)
+
+
+@dataclass
+class CompletionEvidence:
+    rejections: dict
+
+    def permits(self, judgement):
+        if judgement not in COMPLETION_JUDGEMENTS:
+            raise ValueError(f'Unknown completion judgement: {judgement}')
+        return not self.rejections
+
+    @property
+    def failed(self):
+        return any(fact not in ('missing_artifacts', 'sampled') for fact in self.rejections)
+
+    @property
+    def action(self):
+        return ('completion judgement withheld; evidence rejected: '
+                + '; '.join(f'{fact}: {reason}' for fact, reason in self.rejections.items())
+                + '; supply complete valid evidence or rerun the analysis')
+
+
+@dataclass
+class ModuleEvidence:
+    path: Path
+    metadata: dict
+    targets: list
+    completed: bool | None
+    report_supplied: bool = False
+    report_valid: bool = False
+    census_supplied: bool = False
+    census_valid: bool = False
+    records: list = field(default_factory=list)
+    census: dict = field(default_factory=dict)
+    summaries: list = field(default_factory=list)
+    errors: list = field(default_factory=list)
+    sampled: bool = False
+
+    @cached_property
+    def completion(self):
+        recorded_facts = self.metadata.get('completion_rejections', {})
+        valid = (isinstance(recorded_facts, dict)
+                 and all(isinstance(fact, str) and isinstance(reason, str)
+                         for fact, reason in recorded_facts.items()))
+        facts = dict(recorded_facts) if valid else {
+            'invalid_evidence': 'invalid recorded completion rejection metadata'}
+        if self.completed is False or self.completed is None and self.report_supplied:
+            facts['unfinished'] = COMPLETION_FACTS['unfinished']
+        if self.report_supplied and not self.report_valid:
+            facts['report_unreadable'] = COMPLETION_FACTS['report_unreadable']
+        for summary in self.summaries:
+            if summary.get('readable') is False:
+                facts['census_unreadable'] = (COMPLETION_FACTS['census_unreadable'] + ': '
+                                              + '; '.join(summary['unreadable']))
+            if summary['malformed']:
+                facts['census_malformed'] = (f"{summary['malformed']} malformed census record(s): "
+                                             + '; '.join(summary['unreadable']))
+            if summary['violations']:
+                facts['census_violations'] = (COMPLETION_FACTS['census_violations'] + ': '
+                                              + '; '.join(summary['violations']))
+        if self.errors:
+            facts['invalid_evidence'] = '; '.join(self.errors)
+        total = self.metadata.get('total')
+        report_loaded = (self.report_valid if self.report_supplied else
+                         type(total) is int and total == 0)
+        recorded = self.metadata.get('census', {})
+        empty_census = (isinstance(recorded, dict) and type(recorded.get('count')) is int
+                        and recorded['count'] == 0)
+        census_loaded = self.census_valid if self.census_supplied else empty_census
+        restricted = self.metadata.get('restricted')
+        if (not self.targets or 'mutants_per_class' not in self.metadata or not report_loaded
+                or not (restricted is False or restricted is True and census_loaded)):
+            facts['missing_artifacts'] = COMPLETION_FACTS['missing_artifacts']
+        if self.sampled or self.metadata.get('mutants_per_class') is not None:
+            facts['sampled'] = COMPLETION_FACTS['sampled']
+        return CompletionEvidence(facts)
+
+
+def load_evidence(reports, censuses, index, sampled=False):
+    modules = {}
+    for kind, paths in (('report', reports), ('census', censuses)):
+        for path in dict.fromkeys(Path(value).resolve() for value in paths):
+            directory = None
+            if kind == 'report' and path.name == 'mutations.xml' and path.parent.name == 'report':
+                directory = path.parent.parent
+            elif kind == 'census' and path.name == CENSUS_FILE:
+                directory = path.parent
+            if directory is not None and directory.name not in DIRECTORIES:
+                directory = None
+            key = directory if directory is not None else path
+            evidence = modules.get(key)
+            if evidence is None:
+                metadata = {}
+                if directory is not None:
+                    try:
+                        document = json.loads((directory.parent / 'results.json').read_text())
+                        matching = [module for module in document['modules']
+                                    if isinstance(module, dict)
+                                    and module.get('module') == directory.name]
+                        if len(matching) == 1:
+                            metadata = matching[0]
+                    except (OSError, ValueError, KeyError, TypeError):
+                        pass
+                targets = metadata.get('targets', [])
+                if not isinstance(targets, list) or any(
+                        not isinstance(name, str) or not QUALIFIED_NAME.fullmatch(name)
+                        for name in targets):
+                    targets = []
+                completed = ((metadata.get('state') == 'complete'
+                              and metadata.get('partial', False) is False) if metadata else None)
+                evidence = ModuleEvidence(key, metadata, targets, completed, sampled=sampled)
+                modules[key] = evidence
+                if metadata and not completed:
+                    evidence.errors.append(f'Run completion is unfinished or unknown for {key}')
+                recorded = metadata.get('census')
+                if recorded is not None:
+                    valid = (isinstance(recorded, dict) and isinstance(recorded.get('file'), str)
+                             and all(type(recorded.get(name)) is int and recorded[name] >= 0
+                                     for name in ('count', 'malformed'))
+                             and all(isinstance(recorded.get(name), list)
+                                     and all(isinstance(value, str) for value in recorded[name])
+                                     for name in ('violations', 'unreadable')))
+                    if not valid:
+                        evidence.errors.append(f'Invalid recorded census metadata in {key}')
+                    elif recorded['malformed'] or recorded['violations']:
+                        evidence.summaries.append(recorded)
+                        evidence.errors.append(f'Recorded census failures in {key}')
+            if kind == 'report':
+                evidence.report_supplied = path.exists()
+                if not evidence.completed and not evidence.metadata:
+                    evidence.errors.append(f'Run completion is unfinished or unknown for {path}')
+                if not evidence.report_supplied:
+                    continue
+                try:
+                    empty = (type(evidence.metadata.get('total')) is int
+                             and evidence.metadata['total'] == 0 and path.stat().st_size == 0)
+                    elements = [] if empty else ET.parse(path).getroot().findall('mutation')
+                    for element in elements:
+                        changed, _ = classify_mutant(element, index)
+                        evidence.records.append(mutant_record(element, changed == 'changed'))
+                    expected = evidence.metadata.get('total')
+                    if type(expected) is int and len(elements) != expected:
+                        raise ValueError(f'expected {expected} mutations, read {len(elements)}')
+                    evidence.report_valid = True
+                except (OSError, ValueError, ET.ParseError) as error:
+                    evidence.errors.append(f'cannot read {path}: {error}')
+            else:
+                evidence.census_supplied = path.exists()
+                if not evidence.census_supplied:
+                    continue
+                summary, records = read_census(path, index)
+                evidence.summaries.append(summary)
+                evidence.census.update(records)
+                evidence.census_valid = not summary['malformed'] and not summary['violations']
+                recorded = evidence.metadata.get('census', {})
+                expected = recorded.get('count') if isinstance(recorded, dict) else None
+                if type(expected) is int and summary['count'] != expected:
+                    evidence.census_valid = False
+                    evidence.errors.append(f'census {path}: expected {expected} identities, '
+                                           f"read {summary['count']}")
+                if not evidence.census_valid:
+                    evidence.errors.append(f'Census validation failed for {path}')
+    unassigned = [str(evidence.path) for evidence in modules.values()
+                  if evidence.census_supplied and not evidence.census_valid and not evidence.metadata]
+    for evidence in modules.values():
+        if unassigned and evidence.metadata:
+            evidence.errors.append('Cannot attribute invalid census evidence: ' + ', '.join(unassigned))
+        completion = evidence.completion
+        for record in evidence.records:
+            record['evidence'] = completion
+    return list(modules.values())
 
 
 def current_commit(root):
@@ -1529,22 +2050,38 @@ def read_dispositions(root):
     return parse_dispositions(path.read_text() if path.is_file() else None)
 
 
-def check_dispositions(root, reports, base, sampled):
-    """Judge the working tree's entries against local reports, as the lane would."""
+def check_dispositions(root, reports, base, sampled, censuses=()):
+    """Judge the working tree's entries against local reports, as the lane would.
+
+    `censuses` are the lane's `census.jsonl` files: with them a local judgement of a lane report
+    reaches the same states the lane reached, since a censused mutant exists without a status.
+    """
     _, lines = changed_sources(root, base, current_commit(root))
-    records = report_records(reports, global_changed_index(root, lines))
-    classes = {record['identity'][0] for record in records}
+    index = global_changed_index(root, lines)
+    evidence = load_evidence(reports, censuses, index, sampled)
+    records, census, results = [], {}, []
+    for module in evidence:
+        records.extend(module.records)
+        census.update(module.census)
+        results.append({'targets': module.targets, '_evidence': module.completion})
     entries, errors = read_dispositions(root)
     context = {'compiled': CompiledClasses(root), 'tests': lambda: declared_tests(root),
-               'mutants': {record['identity']: record for record in records},
-               'changed_index': global_changed_index(root, lines),
-               'mutated': dict.fromkeys(classes, not sampled)}
+               'mutants': {record['identity']: record for record in records}, 'census': census,
+               'changed_index': index,
+               'evidence': class_evidence(results)}
     verdict, accepted = judge_dispositions([] if errors else entries, errors,
                                            merge_base_file(root, base, DISPOSITIONS_FILE), context)
     module = {'changed': {}, '_mutants': records}
     apply_dispositions(module, accepted, verdict['entries'])
     lines_out = [f'{DISPOSITIONS_FILE}: {len(entries)} valid entries, {len(errors)} errors']
     lines_out.extend(f'error: {error}' for error in errors)
+    for supplied in evidence:
+        lines_out.extend('error: ' + error for error in supplied.errors)
+        for summary in supplied.summaries:
+            lines_out.extend(format_census({'census': summary}))
+        if supplied.completion.rejections and not supplied.errors:
+            lines_out.append(f'Generated set incompletely loaded for {supplied.path}; '
+                             + supplied.completion.action)
     for record in verdict['entries']:
         if record['state'] != 'out of scope':
             marker = 'FAIL' if record['failing'] else 'ok'
@@ -1552,7 +2089,8 @@ def check_dispositions(root, reports, base, sampled):
                              f"{record['class']}.{record['method']}: {record['action']}")
     lines_out.extend(f"FAIL mutant {value['mutant']}: {value['reason']}"
                      for value in module['changed']['failing'])
-    failing = bool(errors or verdict['failing'] or module['changed']['failing'])
+    failing = bool(errors or any(value.completion.failed for value in evidence) or verdict['failing']
+                   or module['changed']['failing'])
     return failing, '\n'.join(lines_out)
 
 
@@ -1579,10 +2117,13 @@ def remap_candidates(entry, records):
 
 def remap_dispositions(root, reports):
     """Propose identities for every entry no report mutant matches; never writes the file."""
-    records = report_records(reports, {})
+    evidence = load_evidence(reports, (), {})
+    records = [record for module in evidence for record in module.records]
     present = {record['identity'] for record in records}
     entries, errors = read_dispositions(root)
     lines = [f'error: {error}' for error in errors]
+    lines.extend('error: ' + error for module in evidence if not module.report_valid
+                 for error in module.errors)
     for entry in entries:
         if identity_of(entry) in present:
             continue
@@ -1676,12 +2217,18 @@ def build_parser():
     commands = parser.add_subparsers(dest='command', required=True)
     select = commands.add_parser('select', help='record changed sources and lines (CI)')
     analysis = commands.add_parser('run', help='run bounded PIT and judge the result (CI)')
-    for command in (select, analysis):
+    full = commands.add_parser('full-scope',
+                               help='scheduled: the unchanged-line debt report (CI, CONV-206)')
+    for command in (select, analysis, full):
         command.add_argument('--output', type=Path, required=True)
     select.add_argument('--base')
     select.add_argument('--head')
     analysis.add_argument('--seconds', type=int, default=1320)
     analysis.add_argument('--blocking', action='store_true')
+    full.add_argument('--seconds', type=int, default=5400,
+                      help="the report's own budget; never the PR lane's")
+    full.add_argument('--window-days', type=int, default=WINDOW_DAYS,
+                      help='how far back the report looks for changed sources')
     dispositions = commands.add_parser(
         'dispositions', help='local: check entries or propose identities after a refactor')
     dispositions.add_argument('--report', action='append', required=True,
@@ -1690,14 +2237,17 @@ def build_parser():
     dispositions.add_argument('--remap', action='store_true')
     dispositions.add_argument('--base', help='commit the change is judged against (--check)')
     dispositions.add_argument('--sampled', action='store_true',
-                              help='the reports come from a run with a per-class mutant limit')
+                              help='the reports come from a rerun with a per-class mutant limit')
+    dispositions.add_argument('--census', action='append', default=[],
+                              help="a lane census.jsonl of mutants removed off the diff; "
+                                   'repeatable')
     evidence = commands.add_parser(
         'counterfactual', help='local: produce killed-out-of-lane evidence for one mutant')
     evidence.add_argument('--patch', required=True,
                           help='unified diff injecting exactly the mutant')
     evidence.add_argument('test_command', nargs=argparse.REMAINDER,
                           help='after `--`: the command that runs the test in its own process')
-    for command in (select, analysis, dispositions, evidence):
+    for command in (select, analysis, full, dispositions, evidence):
         command.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
     return parser
 
@@ -1713,7 +2263,8 @@ def main():
             parser.error('dispositions --check requires --base')
         failing = False
         if args.check:
-            failing, text = check_dispositions(root, args.report, args.base, args.sampled)
+            failing, text = check_dispositions(root, args.report, args.base, args.sampled,
+                                               args.census)
             print(text)
         if args.remap:
             print(remap_dispositions(root, args.report))
@@ -1739,6 +2290,10 @@ def main():
         return 0
     if args.seconds <= 0:
         parser.error('--seconds must be positive')
+    if args.command == 'full-scope':
+        if args.window_days <= 0:
+            parser.error('--window-days must be positive')
+        return full_scope(root, output, args.seconds, args.window_days)
     return run(root, output, args.seconds, args.blocking)
 
 

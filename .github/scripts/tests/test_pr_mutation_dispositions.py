@@ -97,6 +97,14 @@ def mutant(status, line, method='run', descriptor='(I)Z', indexes=(7,), descript
             f'<description>{html.escape(description)}</description></mutation>')
 
 
+def census_record(line, method='run', descriptor='(I)Z', indexes=(7,), description=DESCRIPTION,
+                  klass='a.Foo', source='Foo.java', mutator=MUTATOR):
+    """One line of the census the CHANGEDLINES interceptor writes: identity, never a status."""
+    return json.dumps({'class': klass, 'method': method, 'descriptor': descriptor,
+                       'mutator': mutator, 'indexes': list(indexes), 'description': description,
+                       'sourceFile': source, 'lineNumber': line})
+
+
 def toml_value(value):
     if isinstance(value, bool):
         return 'true' if value else 'false'
@@ -121,6 +129,19 @@ def entry(kind='equivalent', **fields):
     values.update(fields)
     return '[[mutant]]\n' + ''.join(f'{json.dumps(key)} = {toml_value(value)}\n'
                                     for key, value in values.items() if value is not None)
+
+
+def lane_report(root, mutants, state='complete', limit=None, partial=False, targets=('a.Foo',),
+                restricted=False):
+    """The lane artifact contract: module XML plus results.json completion and sampling."""
+    output = root / 'out'
+    path = output / 'sirix-core/report/mutations.xml'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('<mutations>' + ''.join(mutants) + '</mutations>')
+    (output / 'results.json').write_text(json.dumps({'modules': [
+        {'module': 'sirix-core', 'state': state, 'mutants_per_class': limit, 'partial': partial,
+         'targets': list(targets), 'restricted': restricted, 'total': len(mutants)}]}))
+    return path
 
 
 class Lane:
@@ -148,7 +169,9 @@ class Lane:
         test.write_text('package a;\nclass FooAllocationTest {}\n')
         (root / '.github').mkdir()
 
-    def run(self, mutants, head=None, base=None, changed=(11,), exit_code=0, baz_changed=()):
+    def run(self, mutants, head=None, base=None, changed=(11,), exit_code=0, baz_changed=(),
+            census=(), stream=(), report=True, timed_out=False, stream_unreadable=False,
+            report_bytes=None, census_unreadable=False, targets=('a.Foo',)):
         dispositions = self.root / mutation.DISPOSITIONS_FILE
         if head is None:
             dispositions.unlink(missing_ok=True)
@@ -160,11 +183,31 @@ class Lane:
             'dispositions_base': base}))
 
         def execute(command, root, log, timeout):
-            report = self.output / 'sirix-core/report/mutations.xml'
-            report.parent.mkdir(parents=True, exist_ok=True)
-            report.write_text('<mutations>' + ''.join(mutants) + '</mutations>')
+            directory = self.output / 'sirix-core'
+            (directory / 'report').mkdir(parents=True, exist_ok=True)
+            if report:
+                (directory / 'report/mutations.xml').write_text(
+                    '<mutations>' + ''.join(mutants) + '</mutations>')
+            if report_bytes is not None:
+                (directory / 'report/mutations.xml').write_bytes(report_bytes)
+            if stream:
+                (directory / 'report' / mutation.STREAM_FILE).write_bytes(
+                    stream if isinstance(stream, bytes) else
+                    ''.join(record + '\n' for record in stream).encode())
+            if stream_unreadable:
+                # Whatever stands where the stream belongs, the reporter must not pretend to
+                # have read it: a directory is the simplest unreadable thing.
+                (directory / 'report' / mutation.STREAM_FILE).mkdir()
+            if census:
+                (directory / mutation.CENSUS_FILE).write_bytes(
+                    census if isinstance(census, bytes) else
+                    ''.join(record + '\n' for record in census).encode())
+            if census_unreadable:
+                (directory / mutation.CENSUS_FILE).mkdir()
+            if timed_out:
+                raise subprocess.TimeoutExpired(command, timeout)
             return exit_code
-        with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+        with patch.object(mutation, 'resolve_targets', return_value=(list(targets), [])), \
              patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
              patch.object(mutation, 'execute', side_effect=execute):
             code = mutation.run(self.root, self.output, 10, blocking=True)
@@ -180,6 +223,161 @@ def lane():
 
 def states(results):
     return [record['state'] for record in results['dispositions']['entries']]
+
+
+class CompletionEvidenceTest(unittest.TestCase):
+    """CONV-202: each rejected fact withholds every completion claim, never rule 4."""
+
+    FACTS = ('unfinished', 'report_unreadable', 'census_unreadable', 'census_malformed',
+             'census_violations', 'missing_artifacts', 'sampled', 'invalid_evidence')
+    JUDGEMENTS = ('acceptance', 'dispositioned_equivalent', 'dispositioned_out_of_lane',
+                  'staleness', 'empty_scope', 'rule_1_status')
+
+    def evidence(self, work, fact, status='SURVIVED'):
+        report = lane_report(work.root, [mutant(status, 11)], restricted=True)
+        census = report.parent.parent / mutation.CENSUS_FILE
+        census.write_text(census_record(21, indexes=(99,)) + '\n')
+        manifest = work.output / 'results.json'
+        document = json.loads(manifest.read_text())
+        module = document['modules'][0]
+        module['census'] = {'file': str(census), 'count': 1, 'malformed': 0,
+                            'violations': [], 'unreadable': []}
+        if fact == 'unfinished':
+            module['state'] = 'timed out'
+        elif fact == 'report_unreadable':
+            module['total'] = 2
+        elif fact == 'census_unreadable':
+            census.unlink()
+            census.mkdir()
+        elif fact == 'census_malformed':
+            census.write_text('{broken\n')
+        elif fact == 'census_violations':
+            census.write_text(census_record(11, indexes=(99,)) + '\n')
+        elif fact == 'missing_artifacts':
+            census.unlink()
+        elif fact == 'sampled':
+            module['mutants_per_class'] = 1
+        elif fact == 'invalid_evidence':
+            module['census'] = {'count': 'unknown'}
+        manifest.write_text(json.dumps(document))
+        loaded, = mutation.load_evidence([report], [census], {('a', 'Foo.java'): {11}})
+        result = mutation.read_report(report, {('a', 'Foo.java'): {11}})
+        result.update(module='sirix-core', state=module['state'], targets=['a.Foo'],
+                      _mutants=loaded.records, _evidence=loaded.completion)
+        return loaded, result
+
+    def test_every_rejection_withholds_every_completion_judgement(self):
+        self.assertEqual(set(self.FACTS), set(mutation.COMPLETION_FACTS))
+        self.assertEqual(set(self.JUDGEMENTS), set(mutation.COMPLETION_JUDGEMENTS))
+        for fact, judgement in itertools.product(self.FACTS, self.JUDGEMENTS):
+            with self.subTest(fact=fact, judgement=judgement), lane() as work:
+                loaded, result = self.evidence(work, fact)
+                self.assertIn(fact, loaded.completion.rejections)
+                self.assertFalse(loaded.completion.permits(judgement))
+                if judgement in ('acceptance', 'dispositioned_equivalent',
+                                 'dispositioned_out_of_lane', 'rule_1_status'):
+                    kind = ('killed-out-of-lane' if judgement == 'dispositioned_out_of_lane'
+                            else 'equivalent')
+                    (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(kind))
+                    verdict = mutation.judge_run(work.root, [result],
+                                                 {'sirix-core': {SOURCE: [11]}}, None)
+                    self.assertEqual(verdict['entries'][0]['state'], 'not judged')
+                    self.assertIn(fact, verdict['entries'][0]['action'])
+                    if judgement.startswith('dispositioned_'):
+                        candidate, = mutation.parse_dispositions(entry(kind))[0]
+                        mutation.apply_dispositions(
+                            result, {mutation.identity_of(candidate): candidate}, [])
+                    self.assertEqual(result['changed']['dispositioned_equivalent'], [])
+                    self.assertEqual(result['changed']['dispositioned_out_of_lane'], [])
+                    self.assertEqual(len(result['changed']['failing']), 1)
+                elif judgement == 'staleness':
+                    old = entry(indexes=[42])
+                    (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+                    verdict = mutation.judge_run(work.root, [result], {}, old)
+                    self.assertEqual(verdict['entries'][0]['state'], 'not judged')
+                    self.assertIn(fact, verdict['entries'][0]['action'])
+                    self.assertEqual(mutation.stale_entries(work.root, [result])['entries'], [])
+                else:
+                    empty = {'state': 'error'}
+                    self.assertFalse(mutation.resolve_empty_scope(empty, {}, loaded.completion))
+                    self.assertNotIn('off_diff_only', empty)
+
+    def test_every_rejection_retains_rule_four(self):
+        for fact, kind in itertools.product(self.FACTS, ('equivalent', 'killed-out-of-lane')):
+            with self.subTest(fact=fact, kind=kind), lane() as work:
+                _, result = self.evidence(work, fact, 'KILLED')
+                (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(kind))
+                verdict = mutation.judge_run(work.root, [result], {}, None)
+                self.assertEqual(verdict['entries'][0]['state'],
+                                 'contradicted' if kind == 'equivalent' else 'superseded')
+                self.assertFalse(verdict['clean'])
+
+    def test_complete_evidence_permits_every_judgement(self):
+        for judgement in self.JUDGEMENTS:
+            with self.subTest(judgement=judgement), lane() as work:
+                loaded, result = self.evidence(work, None)
+                self.assertEqual(loaded.completion.rejections, {})
+                self.assertTrue(loaded.completion.permits(judgement))
+                if judgement == 'empty_scope':
+                    empty = {'state': 'error'}
+                    self.assertTrue(mutation.resolve_empty_scope(empty, {}, loaded.completion))
+                    self.assertTrue(empty['off_diff_only'])
+                elif judgement == 'staleness':
+                    old = entry(indexes=[42])
+                    (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+                    verdict = mutation.judge_run(work.root, [result], {}, old)
+                    self.assertEqual(verdict['entries'][0]['state'], 'stale')
+                    self.assertEqual(len(mutation.stale_entries(work.root, [result])['entries']), 1)
+                else:
+                    kind = ('killed-out-of-lane' if judgement == 'dispositioned_out_of_lane'
+                            else 'equivalent')
+                    (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(kind))
+                    verdict = mutation.judge_run(work.root, [result], {}, None)
+                    self.assertEqual(verdict['entries'][0]['state'], 'accepted')
+                    key = ('dispositioned_out_of_lane' if kind == 'killed-out-of-lane'
+                           else 'dispositioned_equivalent')
+                    self.assertEqual(len(result['changed'][key]), 1)
+                    self.assertTrue(mutation.is_clean([result]))
+
+    def test_checker_uses_rejection_facts_and_retains_rule_four(self):
+        for fact, kind, status in itertools.product(
+                self.FACTS, ('equivalent', 'killed-out-of-lane'), ('SURVIVED', 'KILLED')):
+            with self.subTest(fact=fact, kind=kind, status=status), lane() as work:
+                self.evidence(work, fact, status)
+                (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(kind))
+                directory = work.output / 'sirix-core'
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=None):
+                    failing, text = mutation.check_dispositions(
+                        work.root, [directory / 'report/mutations.xml'], 'f' * 40, False,
+                        [directory / mutation.CENSUS_FILE])
+                self.assertTrue(failing)
+                expected = ('not judged' if status == 'SURVIVED' else
+                            'contradicted' if kind == 'equivalent' else 'superseded')
+                self.assertIn('entry 1 [' + expected + ']', text)
+                if status == 'SURVIVED':
+                    self.assertIn(fact, text)
+
+    def test_lane_violations_reject_survivors_and_empty_scope(self):
+        for empty, kind in itertools.product((False, True), ('equivalent', 'killed-out-of-lane')):
+            with self.subTest(empty=empty, kind=kind), lane() as work:
+                code, results, summary = work.run(
+                    [] if empty else [mutant('SURVIVED', 11)], head=entry(kind),
+                    census=[census_record(11, indexes=(99,))])
+                self.assertEqual(code, 1)
+                module = results['modules'][0]
+                self.assertEqual(module['state'], 'error')
+                self.assertIn('census_violations', module['completion_rejections'])
+                self.assertNotIn('off_diff_only', module)
+                self.assertNotIn('No mutant of this module sits on a changed line', summary)
+                self.assertNotIn('complete and unsampled', summary)
+                if not empty:
+                    self.assertEqual(states(results), ['not judged'])
+                    self.assertIn('census_violations', results['dispositions']['entries'][0]['action'])
+                    self.assertEqual(module['changed']['dispositioned_equivalent'], [])
+                    self.assertEqual(module['changed']['dispositioned_out_of_lane'], [])
 
 
 class DispositionRecordTest(unittest.TestCase):
@@ -413,13 +611,16 @@ class VerdictTest(unittest.TestCase):
                     self.assertTrue('--remap' in action or 'counterfactual' in action, action)
                     self.assertIn('Entries that fail this run', summary)
 
-    def test_sampled_lane_runs_do_not_judge_an_absent_mutant(self):
+    def test_an_absent_mutant_of_a_mutated_class_is_stale(self):
+        # CONV-202 rule 5: nothing was sampled and nothing else was restricted away, so a
+        # generated set that lists neither a report mutant nor a census identity is complete
+        # evidence that this mutant no longer exists.
         with lane() as work:
             code, results, summary = work.run([mutant('KILLED', 11)],
                                               head=entry(method='other', descriptor='()V'),
                                               base=entry(method='other', descriptor='()V'))
-            self.assertEqual((code, states(results)), (0, ['not judged']))
-            self.assertIn('Reported entries (not failing)', summary)
+            self.assertEqual((code, states(results)), (1, ['stale']))
+            self.assertIn('Entries that fail this run', summary)
 
     def test_an_invalid_file_disposes_of_nothing(self):
         with lane() as work:
@@ -562,10 +763,394 @@ class ReviewTest(unittest.TestCase):
 class RefactorHelperTest(unittest.TestCase):
     """CONV-203: local check, remap and counterfactual helpers; CI never runs them."""
 
-    def report(self, root, mutants):
-        path = root / 'mutations.xml'
-        path.write_text('<mutations>' + ''.join(mutants) + '</mutations>')
-        return path
+    def report(self, root, mutants, restricted=False):
+        return lane_report(root, mutants, restricted=restricted)
+
+    def test_check_and_lane_judge_a_completed_silent_target_stale(self):
+        """CONV-203: a completed generated set includes targets that emitted no mutant."""
+        with lane() as work:
+            old = entry(**{'class': 'a.Bar', 'checked_at': 'b' * 40})
+            head = entry(**{'class': 'a.Bar'})
+            _, results, _ = work.run([mutant('KILLED', 11)], head=head, base=old,
+                                      targets=('a.Foo', 'a.Bar'))
+            self.assertEqual(states(results), ['stale'])
+            report = work.output / 'sirix-core/report/mutations.xml'
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [11]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+            self.assertTrue(failing)
+            self.assertIn('FAIL entry 1 [stale] a.Bar.run', text)
+            self.assertNotIn('[not judged]', text)
+
+    def test_check_loads_silent_targets_from_census_module_metadata(self):
+        """CONV-203: report and census inputs load the same complete target membership."""
+        with lane() as work:
+            old = entry(**{'class': 'a.Bar', 'checked_at': 'b' * 40})
+            (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(**{'class': 'a.Bar'}))
+            lane_report(work.root, [], targets=('a.Foo', 'a.Bar'), restricted=True)
+            census = work.output / 'sirix-core/census.jsonl'
+            census.write_text(census_record(21) + '\n')
+            report = work.output / 'sirix-query/report/mutations.xml'
+            report.parent.mkdir(parents=True)
+            report.write_text('<mutations>' + mutant('KILLED', 5, klass='a.b.Baz',
+                source='Baz.java', method='go', descriptor='()V') + '</mutations>')
+            manifest = work.output / 'results.json'
+            document = json.loads(manifest.read_text())
+            document['modules'].append({'module': 'sirix-query', 'state': 'complete',
+                                        'mutants_per_class': None, 'targets': ['a.b.Baz']})
+            manifest.write_text(json.dumps(document))
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [11], BAZ: [5]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                            False, [census])
+            self.assertTrue(failing)
+            self.assertIn('FAIL entry 1 [stale] a.Bar.run', text)
+
+    def test_check_unknown_target_membership_cannot_prove_staleness(self):
+        """CONV-203: completion alone cannot prove a class was selected."""
+        for targets in (None, 'a.Bar', ['*'], [7]):
+            with self.subTest(targets=targets), lane() as work:
+                old = entry(**{'class': 'a.Bar', 'checked_at': 'b' * 40})
+                (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(**{'class': 'a.Bar'}))
+                report = lane_report(work.root, [mutant('KILLED', 11)])
+                manifest = work.output / 'results.json'
+                document = json.loads(manifest.read_text())
+                document['modules'][0]['targets'] = targets
+                manifest.write_text(json.dumps(document))
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=old):
+                    _, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+                self.assertNotIn('[stale]', text)
+
+    def test_check_census_without_its_nonempty_report_cannot_prove_absence(self):
+        """CONV-202 rule 5: the census cannot replace a missing report component."""
+        with lane() as work:
+            old = entry(checked_at='b' * 40)
+            _, results, _ = work.run([mutant('KILLED', 11)], head=entry(), base=old,
+                                      changed=(5,), census=[census_record(21, indexes=(99,))])
+            self.assertEqual(states(results), ['contradicted'])
+            report = work.output / 'sirix-query/report/mutations.xml'
+            report.parent.mkdir(parents=True)
+            report.write_text('<mutations>' + mutant('KILLED', 5, klass='a.b.Baz',
+                source='Baz.java', method='go', descriptor='()V') + '</mutations>')
+            manifest = work.output / 'results.json'
+            document = json.loads(manifest.read_text())
+            document['modules'].append({'module': 'sirix-query', 'state': 'complete',
+                'mutants_per_class': None, 'targets': ['a.b.Baz'], 'restricted': False, 'total': 1})
+            manifest.write_text(json.dumps(document))
+            census = work.output / 'sirix-core/census.jsonl'
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [5]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                            False, [census])
+            self.assertFalse(failing)
+            self.assertIn('entry 1 [not judged]', text)
+            self.assertNotIn('[stale]', text)
+
+    def test_missing_census_path_cannot_be_used_as_an_empty_census(self):
+        """CONV-202: a helper lacks the producer's proof that a nonexistent census is empty."""
+        with lane() as work:
+            old = entry(indexes=[42])
+            work.run([mutant('KILLED', 11)], head=old, base=old, changed=(5,),
+                     census=[census_record(21, indexes=(99,))])
+            report = work.output / 'sirix-core/report/mutations.xml'
+            census = work.output / 'sirix-core/census.jsonl'
+            census.unlink()
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [5]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                            False, [census])
+            self.assertFalse(failing)
+            self.assertIn('entry 1 [not judged]', text)
+            self.assertNotIn('[stale]', text)
+
+    def test_omitted_census_cannot_hide_the_lanes_recorded_failures(self):
+        """CONV-203: saved census failures remain failures when their file is not supplied."""
+        for record, reason in ((census_record(11, indexes=(99,)), 'is on a changed line'),
+                               ('{', 'line 1:')):
+            with self.subTest(record=record), lane() as work:
+                code, _, _ = work.run([mutant('KILLED', 11)], census=[record])
+                self.assertEqual(code, 1)
+                report = work.output / 'sirix-core/report/mutations.xml'
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=None):
+                    failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+                self.assertTrue(failing)
+                self.assertIn(reason, text)
+
+    def test_added_survivors_need_the_complete_restricted_artifact_pair(self):
+        """CONV-202: accepting either disposition kind needs completely loaded evidence."""
+        for kind in ('equivalent', 'killed-out-of-lane'):
+            with self.subTest(kind=kind), lane() as work:
+                work.run([mutant('SURVIVED', 11)], head=entry(kind),
+                         census=[census_record(21, indexes=(99,))])
+                report = work.output / 'sirix-core/report/mutations.xml'
+                census = work.output / 'sirix-core/census.jsonl'
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=None):
+                    failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+                    self.assertTrue(failing)
+                    self.assertIn('entry 1 [not judged]', text)
+                    failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                                False, [census])
+                    self.assertFalse(failing)
+                    self.assertIn('entry 1 [accepted]', text)
+
+    def test_invalid_or_missing_components_cannot_prove_staleness(self):
+        """CONV-202 rule 5: completeness requires every supplied component to be valid."""
+        for defect in ('malformed-report', 'malformed-census', 'unreadable-census',
+                       'missing-report', 'missing-census', 'report-count', 'census-count'):
+            with self.subTest(defect=defect), lane() as work:
+                old = entry(indexes=[42])
+                (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+                report = self.report(work.root, [mutant('KILLED', 11)], restricted=True)
+                census = work.output / 'sirix-core/census.jsonl'
+                if defect == 'unreadable-census':
+                    census.mkdir()
+                elif defect != 'missing-census':
+                    census.write_text('{' if defect == 'malformed-census' else
+                                      census_record(21, indexes=(99,)) + '\n')
+                if defect == 'malformed-report':
+                    report.write_text('<mutations>')
+                elif defect == 'missing-report':
+                    report.unlink()
+                if defect in ('report-count', 'census-count'):
+                    manifest = work.output / 'results.json'
+                    document = json.loads(manifest.read_text())
+                    if defect == 'report-count':
+                        document['modules'][0]['total'] = 2
+                    else:
+                        document['modules'][0]['census'] = {
+                            'file': str(census), 'count': 2, 'malformed': 0,
+                            'violations': [], 'unreadable': []}
+                    manifest.write_text(json.dumps(document))
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [5]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=old):
+                    failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                                False, [census])
+                self.assertEqual(failing, defect not in ('missing-report', 'missing-census'))
+                self.assertIn('entry 1 [not judged]', text)
+                self.assertNotIn('[stale]', text)
+
+    def test_producer_recorded_zero_report_is_distinct_from_missing_nonempty_evidence(self):
+        """CONV-202: a verified zero report has no missing identities to load."""
+        for contents in (None, b'', b'<mutations/>'):
+            with self.subTest(contents=contents), lane() as work:
+                old = entry(**{'class': 'a.Bar', 'checked_at': 'b' * 40})
+                head = entry(**{'class': 'a.Bar'})
+                _, results, _ = work.run([], head=head, base=old, report=False,
+                    report_bytes=contents, targets=('a.Foo', 'a.Bar'), census=[census_record(21)])
+                self.assertEqual(states(results), ['stale'])
+                report = work.output / 'sirix-core/report/mutations.xml'
+                census = work.output / 'sirix-core/census.jsonl'
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=old):
+                    failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                                False, [census])
+                self.assertTrue(failing)
+                self.assertIn('FAIL entry 1 [stale] a.Bar.run', text)
+
+    def test_mixed_artifact_path_forms_keep_the_stale_verdict(self):
+        """CONV-203: absolute and relative spellings do not change a complete generated set."""
+        with lane() as work:
+            old = entry(indexes=[42])
+            _, results, _ = work.run([mutant('KILLED', 11)], head=old, base=old,
+                changed=(5,), census=[census_record(21, indexes=(99,))])
+            self.assertEqual(states(results), ['stale'])
+            report = work.output / 'sirix-core/report/mutations.xml'
+            census = work.output / 'sirix-core/census.jsonl'
+            with contextlib.chdir(work.root), \
+                 patch.object(mutation, 'changed_sources', return_value=(
+                     {}, {'sirix-core': {SOURCE: [5]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                for relative_report, relative_census in itertools.product((False, True), repeat=2):
+                    with self.subTest(report=relative_report, census=relative_census):
+                        report_path = report.relative_to(work.root) if relative_report else report
+                        census_path = census.relative_to(work.root) if relative_census else census
+                        failing, text = mutation.check_dispositions(
+                            work.root, [report_path], 'f' * 40, False, [census_path])
+                        self.assertTrue(failing)
+                        self.assertIn('FAIL entry 1 [stale] a.Foo.run', text)
+                        self.assertNotIn('[not judged]', text)
+
+    def test_mixed_artifact_path_forms_preserve_both_kinds_of_acceptance(self):
+        """CONV-203: the same supplied pair authorizes the same survivor in either path form."""
+        for kind in ('equivalent', 'killed-out-of-lane'):
+            with self.subTest(kind=kind), lane() as work:
+                work.run([mutant('SURVIVED', 11)], head=entry(kind),
+                         census=[census_record(21, indexes=(99,))])
+                report = work.output / 'sirix-core/report/mutations.xml'
+                census = work.output / 'sirix-core/census.jsonl'
+                with contextlib.chdir(work.root), \
+                     patch.object(mutation, 'changed_sources', return_value=(
+                         {}, {'sirix-core': {SOURCE: [11]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=None):
+                    for relative_report, relative_census in itertools.product((False, True), repeat=2):
+                        with self.subTest(report=relative_report, census=relative_census):
+                            report_path = report.relative_to(work.root) if relative_report else report
+                            census_path = census.relative_to(work.root) if relative_census else census
+                            failing, text = mutation.check_dispositions(
+                                work.root, [report_path], 'f' * 40, False, [census_path])
+                            self.assertFalse(failing)
+                            self.assertIn('ok entry 1 [accepted]', text)
+
+    def test_duplicate_path_spellings_report_each_failing_mutant_once(self):
+        """One recorded mutant is one failure, even if its artifact is supplied twice."""
+        with lane() as work:
+            work.run([mutant('SURVIVED', 11)], census=[census_record(21, indexes=(99,))])
+            report = work.output / 'sirix-core/report/mutations.xml'
+            census = work.output / 'sirix-core/census.jsonl'
+            with contextlib.chdir(work.root), \
+                 patch.object(mutation, 'changed_sources', return_value=(
+                     {}, {'sirix-core': {SOURCE: [11]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=None):
+                failing, text = mutation.check_dispositions(work.root,
+                    [report, report.relative_to(work.root)], 'f' * 40, False,
+                    [census.relative_to(work.root), census])
+            self.assertTrue(failing)
+            failures = [line for line in text.splitlines() if line.startswith('FAIL mutant ')]
+            self.assertEqual(len(failures), 1)
+
+    def test_check_preserves_lane_completion_for_both_disposition_kinds(self):
+        """CONV-203: identical XML cannot promote failed-run evidence to accepted."""
+        for kind in ('equivalent', 'killed-out-of-lane'):
+            for exit_code in (1, 0):
+                with self.subTest(kind=kind, exit_code=exit_code), lane() as work:
+                    _, results, _ = work.run([mutant('SURVIVED', 11)], head=entry(kind),
+                                              exit_code=exit_code)
+                    report = work.output / 'sirix-core/report/mutations.xml'
+                    args = ['pr_mutation.py', 'dispositions', '--root', str(work.root),
+                            '--report', str(report), '--check', '--base', 'f' * 40]
+                    with patch.object(sys, 'argv', args), \
+                         patch.object(mutation, 'changed_sources', return_value=(
+                             {}, {'sirix-core': {SOURCE: [11]}})), \
+                         patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                         patch.object(mutation, 'merge_base_file', return_value=None), \
+                         patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
+                        self.assertEqual(mutation.main(), int(exit_code != 0))
+                    expected = 'not judged' if exit_code else 'accepted'
+                    self.assertEqual(states(results), [expected])
+                    self.assertIn('entry 1 [' + expected + ']', out.getvalue())
+                    if exit_code:
+                        self.assertNotIn('[accepted]', out.getvalue())
+
+    def test_check_and_lane_withhold_acceptance_when_census_validation_failed(self):
+        """CONV-203: a final analysis error cannot be lost behind a successful PIT exit."""
+        with lane() as work:
+            _, results, _ = work.run([mutant('SURVIVED', 11)], head=entry(), census=['{'])
+            self.assertEqual(states(results), ['not judged'])
+            report = work.output / 'sirix-core/report/mutations.xml'
+            census = work.output / 'sirix-core/census.jsonl'
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [11]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=None):
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40,
+                                                            False, [census])
+            self.assertTrue(failing)
+            self.assertIn('entry 1 [not judged]', text)
+            self.assertNotIn('[accepted]', text)
+
+    def test_check_keeps_each_modules_completion_with_its_own_report(self):
+        """CONV-203: one completed module cannot authorize another module's survivor."""
+        with lane() as work:
+            (work.root / mutation.DISPOSITIONS_FILE).write_text(
+                entry() + entry(**{'class': 'a.b.Baz', 'method': 'go', 'descriptor': '()V'}))
+            complete = lane_report(work.root, [mutant('SURVIVED', 11)])
+            failed = work.output / 'sirix-query/report/mutations.xml'
+            failed.parent.mkdir(parents=True)
+            failed.write_text('<mutations>' + mutant('SURVIVED', 5, klass='a.b.Baz',
+                source='Baz.java', method='go', descriptor='()V') + '</mutations>')
+            manifest = work.output / 'results.json'
+            document = json.loads(manifest.read_text())
+            document['modules'].append({'module': 'sirix-query', 'state': 'error',
+                                        'mutants_per_class': None, 'targets': ['a.b.Baz']})
+            manifest.write_text(json.dumps(document))
+            for reports in ([complete, failed], [failed, complete]):
+                with self.subTest(reports=reports), \
+                     patch.object(mutation, 'changed_sources', return_value=(
+                         {}, {'sirix-core': {SOURCE: [11], BAZ: [5]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=None):
+                    failing, text = mutation.check_dispositions(work.root, reports, 'f' * 40, False)
+                self.assertTrue(failing)
+                self.assertIn('ok entry 1 [accepted] a.Foo.run', text)
+                self.assertIn('ok entry 2 [not judged] a.b.Baz.go', text)
+
+    def test_check_withholds_staleness_without_completed_unsampled_evidence(self):
+        """CONV-202/203: only completed, unsampled generated sets prove absence."""
+        for state, limit, partial, expected in (
+                ('complete', None, False, 'stale'), ('error', None, False, 'not judged'),
+                ('timed out', None, False, 'not judged'), ('complete', 3, False, 'not judged'),
+                ('complete', None, True, 'not judged')):
+            with self.subTest(state=state, limit=limit, partial=partial), lane() as work:
+                old = entry(indexes=[42])
+                (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+                report = lane_report(work.root, [mutant('KILLED', 11)], state, limit, partial)
+                with patch.object(mutation, 'changed_sources', return_value=(
+                        {}, {'sirix-core': {SOURCE: [5]}})), \
+                     patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                     patch.object(mutation, 'merge_base_file', return_value=old):
+                    _, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+                self.assertIn('entry 1 [' + expected + ']', text)
+                if expected != 'stale':
+                    self.assertNotIn('[stale]', text)
+
+    def test_check_unknown_completion_never_authorizes_and_keeps_detected_status_rules(self):
+        """CONV-203: absent or invalid completion evidence is not proof of success."""
+        for metadata in ('standalone', 'missing', 'malformed', 'no module', 'duplicate'):
+            for kind, status, expected in (
+                    ('equivalent', 'SURVIVED', 'not judged'),
+                    ('killed-out-of-lane', 'SURVIVED', 'not judged'),
+                    ('equivalent', 'KILLED', 'contradicted'),
+                    ('killed-out-of-lane', 'KILLED', 'superseded')):
+                with self.subTest(metadata=metadata, kind=kind, status=status), lane() as work:
+                    (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(kind))
+                    report = lane_report(work.root, [mutant(status, 11)])
+                    manifest = work.output / 'results.json'
+                    if metadata == 'standalone':
+                        report.rename(work.root / 'mutations.xml')
+                        report = work.root / 'mutations.xml'
+                    elif metadata == 'missing':
+                        manifest.unlink()
+                    elif metadata == 'malformed':
+                        manifest.write_text('{')
+                    elif metadata == 'no module':
+                        manifest.write_text('{"modules": []}')
+                    else:
+                        data = json.loads(manifest.read_text())
+                        data['modules'].append(dict(data['modules'][0]))
+                        manifest.write_text(json.dumps(data))
+                    with patch.object(mutation, 'changed_sources', return_value=(
+                            {}, {'sirix-core': {SOURCE: [11]}})), \
+                         patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                         patch.object(mutation, 'merge_base_file', return_value=None):
+                        failing, text = mutation.check_dispositions(
+                            work.root, [report], 'f' * 40, False)
+                    self.assertTrue(failing)
+                    self.assertIn('entry 1 [' + expected + ']', text)
+                    self.assertIn('completion', text)
 
     def test_remap_proposes_tiered_candidates_without_writing_the_file(self):
         with lane() as work:
@@ -626,7 +1211,7 @@ class RefactorHelperTest(unittest.TestCase):
         with lane() as work:
             (work.root / mutation.DISPOSITIONS_FILE).write_text(
                 entry() + entry(method='gone', descriptor='()V'))
-            report = self.report(work.root, [mutant('SURVIVED', 11)])
+            report = self.report(work.root, [mutant('SURVIVED', 11)], restricted=True)
             lines = {'sirix-core': {SOURCE: [11]}}
             with patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
                  patch.object(mutation, 'current_commit', return_value='e' * 40), \
@@ -636,16 +1221,129 @@ class RefactorHelperTest(unittest.TestCase):
             self.assertIn('FAIL entry 1 [needs re-confirmation]', text)
             self.assertIn('FAIL entry 2 [stale]', text)
             self.assertIn('--remap', text)
-            # Without a per-class limit the sample is complete, so an absent mutant is stale.
             (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(indexes=[42]))
             lines = {'sirix-core': {SOURCE: [5]}}  # no method changed
             with patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
                  patch.object(mutation, 'current_commit', return_value='e' * 40), \
                  patch.object(mutation, 'merge_base_file', return_value=entry(indexes=[42])):
                 failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
-                self.assertIn('[stale] a.Foo.run: PIT no longer generates', text)
+                self.assertFalse(failing)
+                self.assertIn('[not judged]', text)
                 failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, True)
                 self.assertIn('[not judged]', text)
+                census = work.output / 'sirix-core/census.jsonl'
+                census.write_text(census_record(21, indexes=(99,)) + '\n')
+                failing, text = mutation.check_dispositions(
+                    work.root, [report], 'f' * 40, False, [census])
+                self.assertTrue(failing)
+                self.assertIn('[stale] a.Foo.run: PIT no longer generates', text)
+                failing, text = mutation.check_dispositions(
+                    work.root, [report], 'f' * 40, True, [census])
+                self.assertFalse(failing)
+                self.assertIn('[not judged]', text)
+
+    def test_check_reaches_the_lane_states_when_it_is_given_the_lane_census(self):
+        # CONV-203: a local judgement of a lane report must reach the state the lane reached, so
+        # the helper reads the same census the lane's verdict read (CONV-205).
+        with lane() as work:
+            (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(indexes=[42]))
+            report = self.report(work.root, [mutant('SURVIVED', 11)], restricted=True)
+            census = work.output / 'sirix-core' / mutation.CENSUS_FILE
+            census.write_text(census_record(21, indexes=(42,)) + '\n')
+            lines = {'sirix-core': {SOURCE: [5]}}  # no method of the entry changed
+            with patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=entry(indexes=[42])):
+                without, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
+                self.assertFalse(without)
+                self.assertIn('[not judged]', text)
+                self.assertNotIn('[stale]', text)
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False,
+                                                            [str(census)])
+            self.assertFalse(failing)
+            self.assertIn('ok entry 1 [not judged]', text)
+            self.assertIn('removed off the diff', text)
+            self.assertIn('omit -PprMutationChangedLinesFile', text)
+
+    def test_check_rejects_invalid_census_evidence_and_withholds_completeness(self):
+        """CONV-203: the CLI must reject every census defect the lane rejects."""
+        invalid = [('malformed', b'{"class":', 'line 1:'),
+                   ('unreadable', None, 'Is a directory'),
+                   ('changed-line', (census_record(11, indexes=(9,)) + '\n').encode(),
+                    'a.Foo:11'),
+                   ('torn-utf8', b'{"description":"\xc3', 'utf-8')]
+        for kind, contents, reason in invalid:
+            for has_entry in (False, True):
+                with self.subTest(kind=kind, has_entry=has_entry), lane() as work:
+                    old = entry(method='other', descriptor='()V', indexes=[42])
+                    if has_entry:
+                        (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+                    report = self.report(work.root, [mutant('KILLED', 11)])
+                    valid = work.root / 'valid.jsonl'
+                    valid.write_text(census_record(21, indexes=(8,)) + '\n')
+                    broken = work.root / 'broken.jsonl'
+                    if contents is None:
+                        broken.mkdir()
+                    else:
+                        broken.write_bytes(contents)
+                    args = ['pr_mutation.py', 'dispositions', '--root', str(work.root),
+                            '--report', str(report), '--check', '--base', 'f' * 40,
+                            '--census', str(valid), '--census', str(broken)]
+                    with patch.object(sys, 'argv', args), \
+                         patch.object(mutation, 'changed_sources', return_value=(
+                             {}, {'sirix-core': {SOURCE: [11]}})), \
+                         patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                         patch.object(mutation, 'merge_base_file',
+                                      return_value=old if has_entry else None), \
+                         patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
+                        self.assertEqual(mutation.main(), 1)
+                    text = out.getvalue()
+                    self.assertIn('broken.jsonl', text)
+                    self.assertIn(reason, text)
+                    if has_entry:
+                        self.assertIn('ok entry 1 [not judged]', text)
+                        self.assertNotIn('[stale]', text)
+
+    def test_check_includes_classes_seen_only_in_the_census(self):
+        """CONV-202/203: the complete generated set is report plus valid census."""
+        with lane() as work:
+            old = entry(indexes=[42])
+            (work.root / mutation.DISPOSITIONS_FILE).write_text(old)
+            report = self.report(work.root, [mutant('KILLED', 11, klass='a.Bar', source='Bar.java')])
+            census = work.output / 'sirix-core' / mutation.CENSUS_FILE
+            census.write_text(census_record(21) + '\n')
+            with patch.object(mutation, 'changed_sources', return_value=(
+                    {}, {'sirix-core': {SOURCE: [5]}})), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=old):
+                failing, text = mutation.check_dispositions(
+                    work.root, [report], 'f' * 40, False, [census])
+                self.assertTrue(failing)
+                self.assertIn('FAIL entry 1 [stale] a.Foo.run', text)
+                sampled_failing, sampled_text = mutation.check_dispositions(
+                    work.root, [report], 'f' * 40, True, [census])
+                self.assertFalse(sampled_failing)
+                self.assertIn('ok entry 1 [not judged]', sampled_text)
+
+    def test_the_cli_passes_every_census_it_is_given(self):
+        with lane() as work:
+            (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(indexes=[42]))
+            report = self.report(work.root, [mutant('SURVIVED', 11)])
+            first = work.root / 'first.jsonl'
+            first.write_text(census_record(21, method='elsewhere') + '\n')
+            second = work.root / 'second.jsonl'
+            second.write_text(census_record(21, indexes=(42,)) + '\n')
+            args = ['pr_mutation.py', 'dispositions', '--root', str(work.root), '--report',
+                    str(report), '--check', '--base', 'f' * 40,
+                    '--census', str(first), '--census', str(second)]
+            lines = {'sirix-core': {SOURCE: [5]}}
+            with patch.object(sys, 'argv', args), \
+                 patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
+                 patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                 patch.object(mutation, 'merge_base_file', return_value=entry(indexes=[42])), \
+                 patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
+                self.assertEqual(mutation.main(), 0)
+            self.assertIn('[not judged]', out.getvalue())
 
     def test_dispositions_cli_runs_check_and_remap_and_reports_failure(self):
         with lane() as work:
@@ -731,6 +1429,28 @@ class CounterfactualTest(unittest.TestCase):
             document = tomllib.loads(entry('killed-out-of-lane', evidence=None) + rendered)
             self.assertEqual(document['mutant'][0]['evidence'], evidence)
             self.assertEqual(mutation.evidence_problems(evidence), [])
+
+    def test_helper_commands_and_patch_paths_keep_shell_metacharacters_literal(self):
+        """CONV-203's executable interface preserves literal argv and restores the patch."""
+        with tempfile.TemporaryDirectory() as temp:
+            root, patch_file = self.repository(temp)
+            payload = '; touch OWNED; #'
+            echo = mutation.run_test_command(
+                [sys.executable, '-c', 'import sys; print(sys.argv[1])', payload], root)
+            self.assertEqual((echo.returncode, echo.stdout), (0, (payload + '\n').encode()))
+            literal_patch = patch_file.with_name('mutant; touch OWNED; #.patch')
+            patch_file.rename(literal_patch)
+            command = [sys.executable, '-c',
+                       'import sys; from pathlib import Path; '
+                       'assert sys.argv[1] == "; touch OWNED; #"; '
+                       'sys.exit(0 if "bound = 4" in Path("Foo.java").read_text() else 7)',
+                       payload]
+            before = (root / 'Foo.java').read_bytes()
+            evidence = mutation.counterfactual(root, literal_patch, command)
+            self.assertEqual((evidence['baseline_exit'], evidence['injected_exit']), (0, 7))
+            self.assertEqual((root / 'Foo.java').read_bytes(), before)
+            self.assertFalse((root / 'OWNED').exists())
+            self.assertFalse((Path(temp) / 'OWNED').exists())
 
     def test_runner_refuses_evidence_that_proves_nothing(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -839,7 +1559,7 @@ class AssociationTest(unittest.TestCase):
             self.assertEqual(mutation.test_scope(module, ['src/main/java/a/Bar.java'],
                                                  associations)[2],
                              {'src/main/java/a/Bar.java': 'unmapped'})
-            with patch.object(mutation, 'MODULE_TEST_LIMIT', 0):
+            with patch.object(mutation, 'SOURCE_TEST_LIMIT', 0):
                 self.assertEqual(mutation.test_scope(module, ['src/main/java/a/Foo.java'],
                                                      associations)[2],
                                  {'src/main/java/a/Foo.java': 'over-limit'})
@@ -959,6 +1679,500 @@ class AssociationTest(unittest.TestCase):
             (REPOSITORY / mutation.DISPOSITIONS_FILE).read_text())
         self.assertEqual(errors, [])
         self.assertTrue(all(entry['kind'] in mutation.KINDS for entry in entries))
+
+
+class CensusVerdictTest(unittest.TestCase):
+    """CONV-205/CONV-202: what the changed-line restriction removed is evidence of existence.
+
+    A census identity proves the mutant exists and says nothing about its status, so an entry it
+    matches is neither stale nor unconfirmed and can never be accepted. The reporter also judges
+    the census again from its own changed-line index: a removed mutant on a changed line fails
+    the run, whatever the restriction decided.
+    """
+
+    OTHER = {'method': 'other', 'descriptor': '()V'}
+
+    def test_an_entry_matching_only_the_census_is_reported_without_a_status(self):
+        with lane() as work:
+            code, results, summary = work.run(
+                [mutant('KILLED', 11)], head=entry(**self.OTHER), base=entry(**self.OTHER),
+                census=[census_record(21, **self.OTHER)])
+            self.assertEqual((code, states(results)), (0, ['not judged']))
+            action = results['dispositions']['entries'][0]['action']
+            self.assertIn('removed off the diff', action)
+            self.assertIn('Foo.java:21', action)
+            self.assertIn('no status was measured', action)
+            self.assertIn('Reported entries (not failing)', summary)
+
+    def test_a_new_entry_matching_only_the_census_is_not_judged_rather_than_unconfirmed(self):
+        # CONV-202 rule 3: the mutant exists, which is what lets an author re-identify an entry
+        # after a refactor without the lane running a single off-diff mutant.
+        with lane() as work:
+            code, results, _ = work.run([mutant('KILLED', 11)], head=entry(**self.OTHER),
+                                        census=[census_record(21, **self.OTHER)])
+            self.assertEqual((code, states(results)), (0, ['not judged']))
+
+    def test_the_same_entry_is_stale_when_the_census_does_not_list_its_mutant(self):
+        with lane() as work:
+            code, results, _ = work.run([mutant('KILLED', 11)], head=entry(**self.OTHER),
+                                        base=entry(**self.OTHER),
+                                        census=[census_record(21, method='third')])
+            self.assertEqual((code, states(results)), (1, ['stale']))
+
+    def test_a_census_identity_accepts_no_changed_line_mutant(self):
+        # Rule 1 accepts a changed-line survivor only through an added entry that matches a
+        # reported SURVIVED mutant. An entry whose only evidence is a census identity has no
+        # measured status, so the survivor it does not match stays failing.
+        with lane() as work:
+            code, results, _ = work.run([mutant('SURVIVED', 11)], head=entry(**self.OTHER),
+                                        census=[census_record(21, **self.OTHER)])
+            failing = results['modules'][0]['changed']['failing']
+            self.assertEqual((code, states(results)), (1, ['not judged']))
+            self.assertEqual(len(failing), 1)
+            self.assertEqual(failing[0]['reason'], 'no disposition entry')
+
+    def test_a_removed_mutant_on_a_changed_line_fails_the_run(self):
+        with lane() as work:
+            code, results, summary = work.run([mutant('KILLED', 11)],
+                                              census=[census_record(11, **self.OTHER)])
+            census = results['modules'][0]['census']
+            self.assertEqual(code, 1)
+            self.assertEqual(census['count'], 1)
+            self.assertEqual(len(census['violations']), 1)
+            self.assertIn('a.Foo:11', census['violations'][0])
+            self.assertIn('is on a changed line', census['violations'][0])
+            self.assertIn('removed mutants on changed lines', summary)
+            # Each violation is listed, not only counted.
+            self.assertIn(f"- {mutation.escape(census['violations'][0])}", summary)
+
+    def test_a_census_count_is_reported_but_never_as_a_score(self):
+        with lane() as work:
+            code, results, summary = work.run([mutant('KILLED', 11)],
+                                              census=[census_record(21, **self.OTHER),
+                                                      census_record(22, method='third')])
+            module = results['modules'][0]
+            self.assertEqual((code, module['census']['count'], module['total']), (0, 2, 1))
+            self.assertIn('Mutants removed off the diff: 2.', summary)
+            self.assertIn('carry no status and no score', summary)
+            self.assertIn('Killed: 1/1 (100.0%)', summary)
+
+    def test_a_censused_mutant_of_a_nested_package_is_attributed_to_its_own_source(self):
+        # The package of `a.b.Baz` is `a.b`, not `a`: the changed-line index is keyed that way,
+        # and a census entry on a changed line of that source must fail the run.
+        with lane() as work:
+            code, results, _ = work.run([mutant('KILLED', 11)], baz_changed=(5,),
+                                        census=[census_record(5, klass='a.b.Baz',
+                                                              source='Baz.java', method='go',
+                                                              descriptor='()V')])
+            census = results['modules'][0]['census']
+            self.assertEqual(code, 1)
+            self.assertEqual(census['violations'],
+                             [f'a.b.Baz:5 ({MUTATOR}) is on a changed line'])
+
+    def test_a_censused_mutant_of_an_unlisted_source_is_no_violation(self):
+        # The lane only ever censuses mutants of classes it mutated, but a source the map does
+        # not list has no changed line at all, so it cannot be a violation either.
+        with lane() as work:
+            code, results, _ = work.run([mutant('KILLED', 11)],
+                                        census=[census_record(11, klass='z.Other',
+                                                              source='Other.java')])
+            census = results['modules'][0]['census']
+            self.assertEqual((code, census['count'], census['violations']), (0, 1, []))
+
+    def test_a_census_the_reporter_read_completely_bounds_only_what_it_prints(self):
+        with lane() as work:
+            exactly = ['{"class":'] * mutation.CENSUS_REASON_LIMIT
+            code, results, summary = work.run([mutant('KILLED', 11)], census=exactly)
+            self.assertEqual((code, results['modules'][0]['census']['malformed']),
+                             (1, len(exactly)))
+            self.assertNotIn('more; see', summary)
+
+    def test_a_census_record_the_reporter_cannot_read_fails_a_complete_run(self):
+        with lane() as work:
+            code, results, summary = work.run(
+                [mutant('KILLED', 11)], census=[census_record(21, **self.OTHER), '{"class":'])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state'], module['census']['malformed']),
+                             (1, 'error', 1))
+            self.assertIn('malformed census record', summary)
+
+    def test_the_lane_summary_names_each_module_and_its_state(self):
+        with lane() as work:
+            _, results, summary = work.run([mutant('KILLED', 11)])
+            module = results['modules'][0]
+            self.assertIn(f"## {module['module']}: {module['state']}", summary)
+
+    def test_a_record_two_interceptor_passes_both_wrote_is_counted_once(self):
+        # PIT may build its pipeline for a pre-scan pass and again for the analysis pass, and the
+        # census appends rather than truncating, so the reporter is what deduplicates - by
+        # identity for the count, and by message for a violation it would otherwise list twice.
+        with lane() as work:
+            code, results, summary = work.run(
+                [mutant('KILLED', 11)],
+                census=[census_record(21), census_record(21), census_record(22, indexes=(8,)),
+                        census_record(11, indexes=(9,)), census_record(11, indexes=(9,))])
+            census = results['modules'][0]['census']
+            self.assertEqual((code, census['count']), (1, 3))
+            self.assertEqual(census['violations'],
+                             [f'a.Foo:11 ({MUTATOR}) is on a changed line'])
+            self.assertIn('Mutants removed off the diff: 3.', summary)
+
+    def test_a_record_whose_fields_are_not_the_identity_types_is_malformed(self):
+        # A near-miss identity would match nothing and read as staleness, so the reporter rejects
+        # the record instead of deriving an identity from it - and says which field it refused,
+        # because the restriction wrote the record and a defect in it has to be findable.
+        wrong = [(json.dumps({**json.loads(census_record(21)), 'indexes': ['7']}),
+                  'census `indexes` must be a list of integers'),
+                 (json.dumps({**json.loads(census_record(21)), 'indexes': [True]}),
+                  'census `indexes` must be a list of integers'),
+                 (json.dumps({**json.loads(census_record(21)), 'lineNumber': '21'}),
+                  'census `lineNumber` must be an integer'),
+                 (json.dumps({**json.loads(census_record(21)), 'lineNumber': True}),
+                  'census `lineNumber` must be an integer'),
+                 (json.dumps({**json.loads(census_record(21)), 'class': 7}),
+                  'census `class` must be a string'),
+                 (json.dumps({**json.loads(census_record(21)), 'description': 7}),
+                  'census `description` must be a string'),
+                 (json.dumps({key: value for key, value in json.loads(census_record(21)).items()
+                              if key != 'mutator'}),
+                  "census record has no 'mutator' field"),
+                 ('{"class":', 'Expecting value')]
+        for record, because in wrong:
+            with self.subTest(record=record), lane() as work:
+                code, results, summary = work.run([mutant('KILLED', 11)], census=[record])
+                module = results['modules'][0]
+                self.assertEqual((code, module['state'], module['census']['malformed']),
+                                 (1, 'error', 1))
+                self.assertEqual(module['census']['count'], 0)
+                unreadable = module['census']['unreadable']
+                self.assertEqual(len(unreadable), 1)
+                self.assertTrue(unreadable[0].startswith(f'line 1: {because}'), unreadable[0])
+                # The census section lists each refused record on its own line, and the summary
+                # escapes file-derived text as CONV-202 requires of all of it.
+                self.assertIn(f'- {mutation.escape(unreadable[0])}', summary)
+                self.assertIn(because, module['error'])
+
+    def test_the_reported_reasons_are_bounded_but_the_count_is_not(self):
+        with lane() as work:
+            broken = ['{"class":'] * (mutation.CENSUS_REASON_LIMIT + 3)
+            code, results, summary = work.run([mutant('KILLED', 11)], census=broken)
+            census = results['modules'][0]['census']
+            self.assertEqual((code, census['malformed']), (1, len(broken)))
+            self.assertEqual(len(census['unreadable']), mutation.CENSUS_REASON_LIMIT)
+            self.assertIn('and 3 more', summary)
+
+    def test_the_summary_points_at_the_census_file_it_read(self):
+        with lane() as work:
+            _, results, summary = work.run([mutant('KILLED', 11)], census=[census_record(21)])
+            self.assertTrue(results['modules'][0]['census']['file'].endswith(
+                f'sirix-core/{mutation.CENSUS_FILE}'))
+            self.assertIn(f'Identities: `{mutation.CENSUS_FILE}`.', summary)
+
+    def test_an_absent_census_file_is_an_empty_census(self):
+        with lane() as work:
+            code, results, _ = work.run([mutant('KILLED', 11)])
+            self.assertEqual((code, results['modules'][0]['census']['count']), (0, 0))
+
+
+class EmptyScopeTest(unittest.TestCase):
+    """CONV-205: no mutant on a changed line is a measurement when the census explains it.
+
+    PIT generated mutants for the target classes and the restriction removed all of them: the
+    lane judged nothing and claims nothing, which is what a diff of comments, declarations or
+    lines PIT does not mutate always produced. An empty report the census cannot explain is a
+    broken run and stays incomplete.
+    """
+
+    def test_report_failures_cannot_be_resolved_by_an_off_diff_census(self):
+        """CONV-202/205: removed mutants cannot prove unreadable results empty."""
+        for report in (b'<mutation', b'\xff'):
+            with self.subTest(report=report), lane() as work:
+                code, results, summary = work.run([], report_bytes=report,
+                                                  census=[census_record(21)])
+                module = results['modules'][0]
+                self.assertEqual((code, module['state']), (1, 'error'))
+                self.assertIn('cannot read mutations.xml', module['error'])
+                self.assertIn(mutation.escape(module['error']), summary)
+                self.assertNotIn('off_diff_only', module)
+
+    def test_verified_empty_report_forms_can_resolve_an_off_diff_scope(self):
+        """CONV-205: absent, zero-byte and well-formed empty XML are empty evidence."""
+        for report in (None, b'', b'<mutations/>'):
+            with self.subTest(report=report), lane() as work:
+                code, results, _ = work.run([], report=False, report_bytes=report,
+                                            census=[census_record(21)])
+                module = results['modules'][0]
+                self.assertEqual((code, module['state'], module['total']), (0, 'complete', 0))
+                self.assertTrue(module['off_diff_only'])
+
+    def test_a_scope_the_census_explains_is_complete_and_clean(self):
+        with lane() as work:
+            code, results, summary = work.run([], census=[census_record(21),
+                                                          census_record(22, method='other',
+                                                                        descriptor='()V')])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state'], module['off_diff_only']),
+                             (0, 'complete', True))
+            self.assertEqual((module['total'], module['changed']['total']), (0, 0))
+            self.assertIn('No mutant of this module sits on a changed line', summary)
+            self.assertIn('generated 2 mutant(s)', summary)
+            self.assertIn('Changed lines: 1.', summary)
+
+    def test_an_explained_empty_scope_does_not_excuse_a_later_module(self):
+        # The verdict skips such a module and keeps going: the run is as clean as its worst
+        # module, whatever order they come in.
+        results = [{'module': 'a', 'state': 'complete', 'off_diff_only': True, 'total': 0,
+                    'census': {'count': 2, 'violations': []}, 'changed': {'failing': []}},
+                   {'module': 'b', 'state': 'complete', 'total': 1, 'unattributed': 0,
+                    'census': {'count': 0, 'violations': []},
+                    'changed': {'failing': [{'mutant': 'SURVIVED | a.Foo', 'reason': 'no entry'}]}}]
+
+        self.assertFalse(mutation.is_clean(results))
+        self.assertFalse(mutation.is_clean(list(reversed(results))))
+        self.assertTrue(mutation.is_clean(results[:1]))
+
+    def test_an_empty_report_the_census_cannot_explain_is_still_incomplete(self):
+        with lane() as work:
+            code, results, _ = work.run([])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'error'))
+            self.assertNotIn('off_diff_only', module)
+            self.assertIn(mutation.NO_MUTANTS, module['error'])
+
+    def test_a_failed_run_is_never_read_as_an_empty_scope(self):
+        with lane() as work:
+            code, results, _ = work.run([], exit_code=1, census=[census_record(21)])
+            self.assertEqual((code, results['modules'][0]['state']), (1, 'error'))
+
+    def test_a_malformed_census_is_never_read_as_an_empty_scope(self):
+        with lane() as work:
+            code, results, _ = work.run([], census=['{"class":'])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'error'))
+            self.assertNotIn('off_diff_only', module)
+
+    def test_an_explained_empty_scope_still_judges_the_dispositions_file(self):
+        # The entry names a method the compiled class does not declare, which is stale from the
+        # build alone: judging entries does not depend on this run having analysed a mutant.
+        with lane() as work:
+            code, results, summary = work.run([], head=entry(method='gone', descriptor='()V'),
+                                              census=[census_record(21)])
+            self.assertEqual((code, states(results)), (1, ['stale']))
+            self.assertIn('no longer exists in a.Foo', summary)
+
+
+class PartialResultTest(unittest.TestCase):
+    """CONV-202: a module its deadline killed reports every status recorded before the kill.
+
+    PIT's XML listener serialises at the end of a run, so a killed partition left a zero-byte
+    report and discarded finished mutants (PR 1353: 810 s of 975 s). The STREAM listener flushes
+    each analysed class, and a preserved status is evidence only - never a clean run.
+    """
+
+    def stream(self, status, line, **fields):
+        return mutant(status, line, **fields)
+
+    def test_a_killed_module_reports_what_its_stream_recorded_and_stays_incomplete(self):
+        with lane() as work:
+            code, results, summary = work.run(
+                [], report=False, timed_out=True,
+                stream=[self.stream('KILLED', 11), self.stream('SURVIVED', 21, method='other',
+                                                               descriptor='()V')])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state'], module.get('partial')),
+                             (1, 'timed out', True))
+            self.assertEqual((module['total'], module['killed']), (2, 1))
+            self.assertEqual(module['changed']['killed'], 1)
+            self.assertIn('Partial results', summary)
+            self.assertIn('never clean', summary)
+
+    def test_preserved_statuses_judge_entries_but_cannot_accept_a_changed_line_mutant(self):
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True, head=entry(),
+                                        stream=[self.stream('KILLED', 11)])
+            # An `equivalent` entry contradicted by a preserved KILLED status still fails.
+            self.assertEqual((code, states(results)), (1, ['contradicted']))
+
+    def test_preserved_survivors_never_authorize_either_disposition_kind(self):
+        """CONV-202: unfinished-run statuses cannot satisfy rule 1 or disposition counts."""
+        runs = [('deadline-stream', False, True, 0),
+                ('deadline-xml', True, True, 0),
+                ('failed-stream', False, False, 1),
+                ('failed-xml', True, False, 1)]
+        for kind in ('equivalent', 'killed-out-of-lane'):
+            for name, xml_report, timed_out, exit_code in runs:
+                for reconfirmation in (False, True):
+                    with self.subTest(kind=kind, run=name, reconfirmation=reconfirmation), lane() as work:
+                        old = entry(kind, checked_at='b' * 40) if reconfirmation else None
+                        survivor = self.stream('SURVIVED', 11)
+                        code, results, summary = work.run(
+                            [survivor] if xml_report else [], head=entry(kind), base=old,
+                            report=xml_report, timed_out=timed_out, exit_code=exit_code,
+                            stream=[] if xml_report else [survivor])
+                        self.assertEqual((code, states(results)), (1, ['not judged']))
+                        module = results['modules'][0]
+                        self.assertEqual(module['state'], 'timed out' if timed_out else 'error')
+                        self.assertEqual((module['total'], module['changed']['survived']), (1, 1))
+                        changed = module['changed']
+                        self.assertEqual(changed['dispositioned_equivalent'], [])
+                        self.assertEqual(changed['dispositioned_out_of_lane'], [])
+                        self.assertEqual(len(changed['failing']), 1)
+                        self.assertIn('unfinished run', changed['failing'][0]['reason'])
+                        record = results['dispositions']['entries'][0]
+                        self.assertFalse(record['failing'])
+                        self.assertIn('SURVIVED', record['action'])
+                        self.assertIn('unfinished run', record['action'])
+                        self.assertIn('state not judged', summary)
+                        self.assertIn('Dispositioned as equivalent: 0.', summary)
+                        self.assertIn('Dispositioned as killed out of lane: 0.', summary)
+
+    def test_completed_report_survivors_still_authorize_both_disposition_kinds(self):
+        """CONV-202: a completed report remains sufficient evidence for an added entry."""
+        for kind in ('equivalent', 'killed-out-of-lane'):
+            with self.subTest(kind=kind), lane() as work:
+                code, results, _ = work.run([mutant('SURVIVED', 11)], head=entry(kind))
+                self.assertEqual((code, states(results)), (0, ['accepted']))
+                module = results['modules'][0]
+                self.assertEqual(module['state'], 'complete')
+                self.assertEqual(len(module['changed']['dispositioned_equivalent']),
+                                 1 if kind == 'equivalent' else 0)
+                self.assertEqual(len(module['changed']['dispositioned_out_of_lane']),
+                                 1 if kind == 'killed-out-of-lane' else 0)
+                self.assertEqual(module['changed']['failing'], [])
+
+    def test_preserved_detected_statuses_still_apply_rule_four(self):
+        """CONV-202: incomplete provenance cannot hide contradiction or supersession."""
+        cases = [('equivalent', 'KILLED', 'contradicted'),
+                 ('equivalent', 'TIMED_OUT', 'detected-other'),
+                 ('equivalent', 'MEMORY_ERROR', 'detected-other'),
+                 ('equivalent', 'RUN_ERROR', 'detected-other'),
+                 ('killed-out-of-lane', 'KILLED', 'superseded'),
+                 ('killed-out-of-lane', 'TIMED_OUT', 'superseded'),
+                 ('killed-out-of-lane', 'MEMORY_ERROR', 'superseded'),
+                 ('killed-out-of-lane', 'RUN_ERROR', 'superseded')]
+        for kind, status, expected in cases:
+            for xml_report in (False, True):
+                with self.subTest(kind=kind, status=status, xml=xml_report), lane() as work:
+                    recorded = self.stream(status, 11, killing='a.FooTest.detects')
+                    code, results, summary = work.run(
+                        [recorded] if xml_report else [], head=entry(kind), report=xml_report,
+                        timed_out=True, stream=[] if xml_report else [recorded])
+                    self.assertEqual((code, states(results)), (1, [expected]))
+                    changed = results['modules'][0]['changed']
+                    self.assertEqual(changed['dispositioned_equivalent'], [])
+                    self.assertEqual(changed['dispositioned_out_of_lane'], [])
+                    self.assertEqual(changed['detected'], 1)
+                    self.assertIn(expected, summary)
+
+    def test_a_record_the_kill_tore_is_dropped_rather_than_guessed_at(self):
+        with lane() as work:
+            torn = self.stream('SURVIVED', 21)[:40]
+            code, results, _ = work.run([], report=False, timed_out=True,
+                                        stream=[self.stream('KILLED', 11), torn])
+            module = results['modules'][0]
+            self.assertEqual((code, module['total'], module['killed']), (1, 1, 1))
+
+    def test_a_torn_utf8_stream_tail_preserves_finished_statuses(self):
+        """CONV-202: kill during a UTF-8 write must preserve the complete prefix."""
+        prefix = (self.stream('KILLED', 11) + '\n').encode()
+        tail = self.stream('SURVIVED', 21, description='torn é').encode().split(b'\xc3')[0] + b'\xc3'
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True, stream=prefix + tail)
+            module = results['modules'][0]
+            self.assertEqual((code, module['state'], module['total'], module['killed']),
+                             (1, 'timed out', 1, 1))
+            self.assertTrue(module['partial'])
+
+    def test_an_unreadable_census_fails_without_losing_the_mutant_report(self):
+        """CONV-202/205: unreadable evidence is an error with its concrete reason."""
+        with lane() as work:
+            code, results, summary = work.run([mutant('KILLED', 11)], census_unreadable=True)
+            module = results['modules'][0]
+            self.assertEqual((code, module['state'], module['total']), (1, 'error', 1))
+            self.assertEqual(module['census']['malformed'], 1)
+            self.assertIn('Is a directory', module['census']['unreadable'][0])
+            self.assertIn('Is a directory', summary)
+
+    def test_a_torn_utf8_census_tail_preserves_identities_and_reports_the_failure(self):
+        """CONV-202/205: intact census evidence survives, unreadable evidence fails."""
+        prefix = (census_record(21) + '\n').encode()
+        tail = census_record(22, description='torn é').replace('\\u00e9', 'é').encode()
+        tail = tail.split(b'\xc3')[0] + b'\xc3'
+        for timed_out in (False, True):
+            with self.subTest(timed_out=timed_out), lane() as work:
+                code, results, summary = work.run([mutant('KILLED', 11)],
+                                                  timed_out=timed_out, census=prefix + tail)
+                module = results['modules'][0]
+                self.assertEqual((code, module['census']['count'], module['census']['malformed']),
+                                 (1, 1, 1))
+                self.assertEqual(module['state'], 'timed out' if timed_out else 'error')
+                self.assertIn('line 2:', module['census']['unreadable'][0])
+                self.assertIn('utf-8', summary)
+
+    def test_a_stream_with_no_intact_record_leaves_the_module_without_a_report(self):
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True, stream=['<mutation'])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'timed out'))
+            self.assertNotIn('total', module)
+
+    def test_a_killed_module_proves_no_generated_set_complete(self):
+        # The class was mutated, but by a run that did not finish: an unmatched entry of it is
+        # reported, never stale (CONV-202's definition of a mutated class).
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True,
+                                        head=entry(method='other', descriptor='()V'),
+                                        base=entry(method='other', descriptor='()V'),
+                                        stream=[self.stream('KILLED', 11)])
+            self.assertEqual((code, states(results)), (1, ['not judged']))
+            self.assertIn('unfinished', results['dispositions']['entries'][0]['action'])
+
+    def test_blank_lines_in_the_stream_and_the_census_are_ignored(self):
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True,
+                                        stream=['', self.stream('KILLED', 11), ''],
+                                        census=['', census_record(21), ''])
+            module = results['modules'][0]
+            self.assertEqual((code, module['total'], module['census']['count']), (1, 1, 1))
+            self.assertEqual(module['census']['malformed'], 0)
+
+    def test_a_stream_the_reporter_cannot_read_leaves_the_module_without_a_report(self):
+        with lane() as work:
+            code, results, _ = work.run([], report=False, timed_out=True,
+                                        stream_unreadable=True)
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'timed out'))
+            self.assertNotIn('total', module)
+
+    def test_an_unreadable_stream_is_reported_with_its_cause(self):
+        with lane() as work:
+            code, results, summary = work.run([], report=False, timed_out=True,
+                                              stream_unreadable=True)
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'timed out'))
+            # The deadline stays the module's state; the stream failure says why nothing was
+            # recovered from it, instead of being swallowed.
+            self.assertEqual(module['error'], '10s module execution share exceeded')
+            self.assertIn(mutation.STREAM_FILE, module['stream_error'])
+            self.assertIn('Is a directory', module['stream_error'])
+            self.assertIn('nothing was recovered from it', summary)
+
+    def test_a_complete_run_with_a_malformed_report_says_what_it_could_not_read(self):
+        with lane() as work:
+            code, results, summary = work.run(['<mutation'])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'error'))
+            self.assertIn('cannot read mutations.xml', module['error'])
+            self.assertIn('not well-formed', module['error'], 'the cause, not only the file')
+            self.assertIn(mutation.escape(module['error']), summary)
+            self.assertNotIn('stream_error', module)
+
+    def test_a_complete_run_with_a_malformed_report_is_an_error_not_a_stream_fallback(self):
+        with lane() as work:
+            code, results, _ = work.run(['<mutation'], stream=[self.stream('KILLED', 11)])
+            module = results['modules'][0]
+            self.assertEqual((code, module['state']), (1, 'error'))
+            self.assertNotIn('total', module)
 
 
 class MergeBaseFileTest(unittest.TestCase):

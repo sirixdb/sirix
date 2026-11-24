@@ -5,16 +5,22 @@
 #     execute it: a surviving mutant is a code change no test noticed. Scope is configured
 #     in bundles/sirix-core/build.gradle (pitest block).
 #
+#   * full-scope-mutation — the unchanged-line debt of the sources the branch changed in the
+#     last week, with no changed-line restriction and no per-class sample. This is the report
+#     the pull-request lane stopped producing (CONV-205/CONV-206); it never runs for a pull
+#     request and never decides an outcome.
+#
 #   * error-prone — compiles core and MCP with the shared static-analysis gate.
 #     Gate policy and coverage across workflows: docs/VERIFICATION.md.
 #
-# Trigger paths: manual workflow_dispatch, or the weekly Monday 04:00 UTC cron.
+# Trigger paths: manual workflow_dispatch, or the weekly Sunday 04:00 UTC cron. Scheduled runs
+# stay off the working week, when the machine is reserved for timed benchmarks.
 name: Deep verification
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 4 * * 1'
+    - cron: '0 4 * * 0'
 
 jobs:
   mutation-testing:
@@ -51,6 +57,52 @@ jobs:
           name: pitest-report
           path: bundles/sirix-core/build/reports/pitest
           if-no-files-found: ignore
+
+  full-scope-mutation:
+    name: PIT full-scope unchanged-line report
+    # CONV-206: schedule and manual dispatch only - this workflow has no pull_request trigger,
+    # and the report decides no outcome. Its budget is its own; the PR lane's stays untouched.
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history: the window base is the last commit before the report's window.
+          fetch-depth: 0
+      - name: Install JDK
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - name: Compile the mutated modules
+        run: ./gradlew classes testClasses --parallel
+      - name: Run the full-scope analysis
+        # 80 minutes of the 120-minute job, leaving the compile step and the upload their room.
+        run: >-
+          python3 .github/scripts/pr_mutation.py full-scope --seconds 4800 --window-days 7
+          --output "$RUNNER_TEMP/full-scope-mutation"
+      - name: Publish the report
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/full-scope-mutation/summary.md" ]]; then
+            cat "$RUNNER_TEMP/full-scope-mutation/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Full-scope analysis incomplete: selection or setup failed; see job logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: full-scope-mutation
+          path: ${{ runner.temp }}/full-scope-mutation
+          if-no-files-found: warn
+          retention-days: 30
 
   error-prone:
     name: Error Prone + NullAway (core and MCP)
