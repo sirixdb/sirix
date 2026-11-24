@@ -442,12 +442,34 @@ schedule, not the bound.
   that never publishes.
   Run with `./gradlew :sirix-core:test --tests
   'io.sirix.index.hot.HOTStructuralValidatorLeafRetentionTest'`.
-- Also re-verified for [#1459](https://github.com/sirixdb/sirix/issues/1459), the writer half, which
-  this fix landed without a closing reference: its own guards still bind. All 45 tests of
-  `HOTIncrementalInsertLeafRetentionTest` and `HOTIndexWriterLeafRetentionTest` pass on `main`, and
-  8 of them fail with `mutationGuards()` forced to `null` — the crossing merge accepted, the ordered
-  merge mishandled, the two-leaf migration and all three consolidation cases, and the reclaimability
-  check. Nothing needed to be added for it.
+- Regression test for [#1459](https://github.com/sirixdb/sirix/issues/1459), the writer half, which
+  this fix landed without a closing reference: `HOTIndexWriterLeafRetentionTest`. The arm that
+  proves it forces `AbstractHOTIndexWriter.mutationGuards()` to return `null`, removing this fix's
+  mutation-wide retention and leaving the rest of `main` untouched, compiled into a class that
+  precedes the build output on the classpath; released frames are zero-filled. On `main` all 45
+  tests of that class and `HOTIncrementalInsertLeafRetentionTest` pass. On that arm 8 fail, all in
+  `HOTIndexWriterLeafRetentionTest`, each with an outcome #1459 reports:
+  - `writerDeclinesACrossingMergeUnderEvictionAtEveryPoint`, 1 of 318 eviction points:
+    `AssertionError: HOT invariant violations (1)` — the malformed index without an error.
+  - `writerDeclinesAMergeCrossingASubtreeUnderEvictionAtEveryPoint`, 1 of 314 points: the same
+    malformed-index outcome.
+  - `writerKeepsAnOrderedMergeInPlaceUnderEvictionAtEveryPoint`, 1 of 24 points:
+    `IllegalStateException: HOT incremental frontier inputs overlap at ordered child 2`.
+  - `writerTwoLeafMigrationSurvivesEvictionAtEveryPoint`, 4 of 108 points:
+    `MutationTraversalRefusal … 'existing-key routing-to-new-slot'` and
+    `… 'two-leaf candidate invariant …'`.
+  - `writerConsolidationSurvivesEvictionAtEveryPoint` (22 of 29 runs) and
+    `writerConsolidationHoldsLeavesAnEarlierPutResolved`: the consolidation precondition assertion
+    `HOT consolidation requires its caller to hold every direct leaf child of the node it
+    consolidates; a cache-backed child of the node beside the pair at slot 0 is unheld`, and
+    `IllegalStateException: HOT structural height requires a resolved child page`.
+  - `writerConsolidationSatisfiesThePrimitivesPrecondition` and
+    `whenAMutationEndsTheLeavesItHeldBecomeReclaimable`: the same precondition assertion.
+
+  `HOTIncrementalInsertLeafRetentionTest` passes on that arm as well: it hands the consolidation
+  primitive its own retained leaves, so it witnesses the primitive's contract, not the writer-wide
+  retention rule. Reproduce the passing side with
+  `./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOT*LeafRetention*'`.
 - Lesson: an issue can name its fix in a pull request that never merged while a different merged one
   already removed the cause; re-prove the defect on the current default branch before changing code,
   and score such a run by its log, not by its exit code. See [Lessons](../LESSONS.md).
