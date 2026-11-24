@@ -625,12 +625,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
     checkArgument(rtx.moveTo(rootNodeKey), "Subtree root does not exist");
     if (rootNodeKey == 0) {
       if (!rtx.moveToFirstChild()) {
+        out.append("null");
         return;
       }
-    }
-
-    if (rtx.getNodeKey() <= 0) {
-      return;
     }
 
     // Pre-compute metadata flag for efficiency

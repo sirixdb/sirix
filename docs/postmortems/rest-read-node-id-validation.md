@@ -192,3 +192,39 @@ per request. Requests without `nodeId` are unchanged.
   stored document identity cannot be substituted with its JSON payload. See [LESSONS.md](../LESSONS.md).
 - Vision check: preserves identity, exact historical scope and fail-closed behavior; no stored
   format or default setting changes.
+
+## Review follow-up: empty document revisions
+
+- Symptom: deleting the only top-level JSON node leaves document key 0 readable, but GET returned
+  an empty payload; identity queries and multi-revision record responses contained `"revision":`
+  without a JSON value.
+- Root cause: the item factory correctly preserved document identity after R5, while serializers
+  still assumed every valid document root had a payload child. The unlimited emitter skipped
+  document nodes, the record emitter returned without writing a value, and the limited emitter
+  continued without finishing the already-open revision wrapper. The earlier node-kind matrix
+  covered populated documents but omitted the populated-to-empty state transition.
+- Correction: all three serialization boundaries emit the agreed JSON `null` for an empty
+  document. The limited path also closes that revision before continuing. This applies before
+  REST buffering and header generation, so direct reads, query items, record pages, metadata
+  options and revision histories share the same rule without response-body fallbacks.
+- Regression: `ReadNodeKindMatrixTest.deletingOnlyTopLevelNodeLeavesReadableNullDocument` creates
+  `{"a":1}`, deletes its top-level object through HTTP, verifies revision 2 retains key 0 and
+  no payload child, then checks plain/limited/record reads, ordinary and paginated identity
+  queries, historical revision 1, mixed revision envelopes, ETags on/off, HEAD, and rejection
+  of the deleted key. Null document items remain distinct from an excluded query-result window.
+  `JsonEmptyDocumentSerializationTest.emptyRevisionsEmitNullInEveryOutputMode` independently
+  asserts literal `null` and a present null revision field across character/byte output, all
+  metadata modes, all limit delegation options, record serializers, direct limited query
+  wrappers and populated-empty-populated histories. The oracle is REST-203's explicit empty
+  document rule; empty output and an absent revision value are wrong behaviors these tests reject.
+- Verification: focused runs passed 60 existing read/serializer cases and all four new
+  parameterized empty-document cases. The new history fixtures use finite depth and node limits
+  that include their populated payloads, so those payloads have an independent unchanged-value
+  oracle. Pre-fix execution was omitted under this review phase's ordering rule. Mutation and
+  broader budget checks remain with the outer executor.
+- Lesson: cover valid node kinds across lifecycle states, especially deletion of the last child;
+  every opened revision wrapper still requires a value and a closing delimiter. See
+  [LESSONS.md](../LESSONS.md).
+- Vision check: keeps committed empty and historical revisions readable without substituting a
+  different node or changing storage format; the explicit null representation follows the
+  captain's decision for this review.

@@ -278,6 +278,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
       switch (kind) {
         case JSON_DOCUMENT:
+          if (!hasChildren) {
+            appendObjectValue("null");
+          }
           break;
         case OBJECT:
           emitMetaData(rtx);

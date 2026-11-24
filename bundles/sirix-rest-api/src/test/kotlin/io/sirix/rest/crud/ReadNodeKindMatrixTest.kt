@@ -34,6 +34,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.function.Executable
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
@@ -53,6 +55,94 @@ class ReadNodeKindMatrixTest {
     lateinit var location: Path
 
     private data class Target(val key: Long, val expected: String, val page: String = expected)
+
+    @ParameterizedTest
+    @EnumSource(value = HashType::class, names = ["NONE", "ROLLING"])
+    fun deletingOnlyTopLevelNodeLeavesReadableNullDocument(hash: HashType) = runBlocking {
+        Databases.createJsonDatabase(DatabaseConfiguration(location.resolve("db")))
+        val topKey = Databases.openJsonDatabase(location.resolve("db")).use { db ->
+            db.createResource(ResourceConfiguration.newBuilder("res").hashKind(hash).build())
+            db.beginResourceSession("res").use { session ->
+                session.beginNodeTrx().use { writer ->
+                    writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""{"a":1}"""), JsonNodeTrx.Commit.NO)
+                    writer.commit()
+                    writer.moveToDocumentRoot()
+                    assertTrue(writer.moveToFirstChild())
+                    writer.nodeKey
+                }
+            }
+        }
+        serve { client, port ->
+            val delete = client.delete(port, "localhost", "/json/db/res?nodeId=$topKey")
+            expectedHash(false, hash, topKey)?.let { delete.putHeader("If-Match", it) }
+            val deleted = delete.send().coAwait()
+            assertEquals(204, deleted.statusCode(), deleted.bodyAsString())
+            Databases.openJsonDatabase(location.resolve("db")).use { db ->
+                assertTrue(db.existsResource("res"))
+                db.beginResourceSession("res").use { session ->
+                    assertEquals(2, session.mostRecentRevisionNumber)
+                    session.beginNodeReadOnlyTrx().use { cursor ->
+                        assertTrue(cursor.moveTo(0))
+                        assertFalse(cursor.hasFirstChild())
+                        assertFalse(cursor.moveTo(topKey))
+                    }
+                }
+            }
+            val emptyHash = expectedHash(false, hash, 0, 2)
+            val options = listOf("", "&maxLevel=2", "&maxChildren=1", "&numberOfNodes=10",
+                "&nextTopLevelNodes=2", "&nextTopLevelNodes=2&startNodeKey=0", "&nextTopLevelNodes=2&maxLevel=2")
+            val checks = mutableListOf<Executable>()
+            for (selection in listOf("", "&nodeId=0")) {
+                for (option in options) {
+                    for (metadata in listOf("", "&withMetaData=nodeKey", "&withMetaData=nodeKeyAndChildCount", "&withMetaData=all")) {
+                        val response = client.get(port, "localhost", "/json/db/res?revision=2$selection$option$metadata").send().coAwait()
+                        checks.add {
+                            assertSuccess(response, emptyHash, "empty document $selection$option$metadata")
+                            assertEquals("null", response.bodyAsString()!!.trim())
+                        }
+                    }
+                }
+            }
+            for (option in options) {
+                val history = client.get(port, "localhost", "/json/db/res?nodeId=0&start-revision=1&end-revision=2$option").send().coAwait()
+                checks.add {
+                    assertSuccess(history, expectedHash(false, hash, 0), "history $option")
+                    assertEquals(Json.decodeValue("""{"sirix":[{"revisionNumber":1,"revision":{"a":1}},{"revisionNumber":2,"revision":null}]}"""),
+                        Json.decodeValue(history.bodyAsString()))
+                }
+            }
+            for (revision in listOf(1, 2)) {
+                for (window in listOf("", "&startResultSeqIndex=0&endResultSeqIndex=0")) {
+                    val response = client.get(port, "localhost", "/json/db/res?nodeId=0&revision=$revision&query=%24%24$window").send().coAwait()
+                    checks.add {
+                        assertSuccess(response, expectedHash(false, hash, 0, revision), "identity query revision $revision$window")
+                        val items = response.bodyAsJsonObject()!!.getJsonArray("rest")!!
+                        assertEquals(1, items.size())
+                        val item = items.getJsonObject(0)
+                        assertEquals(revision, item.getInteger("revisionNumber"))
+                        assertTrue(item.containsKey("revision"))
+                        if (revision == 2) assertNull(item.getValue("revision"))
+                        else assertEquals(Json.decodeValue("""{"a":1}"""), item.getValue("revision"))
+                    }
+                }
+            }
+            val emptyWindow = client.get(port, "localhost", "/json/db/res?nodeId=0&query=%24%24&startResultSeqIndex=1&endResultSeqIndex=1").send().coAwait()
+            checks.add {
+                assertSuccess(emptyWindow, emptyHash, "excluded document query item")
+                assertEquals(Json.decodeValue("""{"rest":[]}"""), Json.decodeValue(emptyWindow.bodyAsString()))
+            }
+            val head = client.head(port, "localhost", "/json/db/res?nodeId=0").send().coAwait()
+            checks.add { assertSuccess(head, emptyHash, "empty document HEAD") }
+            for (option in listOf("", "&query=%24%24", "&query=%24%24&startResultSeqIndex=0", "&nextTopLevelNodes=2")) {
+                val missing = client.get(port, "localhost", "/json/db/res?nodeId=$topKey$option").send().coAwait()
+                checks.add {
+                    assertEquals(404, missing.statusCode(), missing.bodyAsString())
+                    assertNull(missing.getHeader(HttpHeaders.ETAG.toString()))
+                }
+            }
+            assertAll(checks)
+        }
+    }
 
     @ParameterizedTest
     @EnumSource(value = HashType::class, names = ["NONE", "ROLLING"])
@@ -252,12 +342,12 @@ class ReadNodeKindMatrixTest {
         return factory.newDocumentBuilder().parse(InputSource(StringReader(xml))).documentElement
     }
 
-    private fun expectedHash(xml: Boolean, hash: HashType, key: Long): String? {
+    private fun expectedHash(xml: Boolean, hash: HashType, key: Long, revision: Int = 1): String? {
         if (hash == HashType.NONE) return null
         val db = if (xml) Databases.openXmlDatabase(location.resolve("db")) else Databases.openJsonDatabase(location.resolve("db"))
         return db.use {
             it.beginResourceSession("res").use { session ->
-                session.beginNodeReadOnlyTrx(1).use { trx ->
+                session.beginNodeReadOnlyTrx(revision).use { trx ->
                     assertTrue((trx as NodeCursor).moveTo(key))
                     (trx as NodeReadOnlyTrx).hash.toString()
                 }
@@ -288,6 +378,9 @@ class ReadNodeKindMatrixTest {
                     if (format == "json") JsonHead(location).handle(it) else XmlHead(location).handle(it)
                 }
             }
+            router.delete("/json/:database/:resource")
+                .handler { ctx -> ctx.put("user", NoneAuth.createUser()); ctx.next() }
+                .coroutineHandler(scope) { DeleteHandler(location, NoneAuth).handle(it) }
             router.route().failureHandler(routerFailureHandler())
             val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
             try { block(client, server.actualPort()) } finally { server.close().coAwait() }
