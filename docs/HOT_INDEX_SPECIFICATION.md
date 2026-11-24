@@ -305,6 +305,30 @@ Namespaced name (with either an empty or non-empty prefix):
 - This replaces the old prefix/local codec. Existing NAME index data must be rebuilt; there is no
   old-format reader.
 
+The NAME read surface has two layers:
+
+| Entry point | Posting contract |
+|---|---|
+| `HOTIndexReader.get`, `HOTIndexWriter.get` | Exact expanded-name lookup. Both capture the serialized marker before candidate chunk assembly and call `NameIndexRecheck.exactPostings`; complete keys pass through without dictionary reads. |
+| `NameIndex.openIndex`, one include and no excludes | Uses the exact reader point lookup. |
+| `NameIndex.openIndex`, multiple includes or excludes | Walks stored buckets, tests the raw marker and uses the shared component-matching loop for marked candidates. Filter lookup preparation is once per read. |
+| `NameIndex.openIndex`, no filter | Includes every posting from every bucket; a shared bucket needs no name decision. |
+| `HOTIndexReader.iterator`, both `range` overloads, `iteratorFrom`, `iteratorTo` | Deliberately return stored-key **candidate buckets**, with `RawKeyBytes` metadata. Bounds and exclusivity apply to serialized buckets, not full expanded-name order. A NAME consumer selecting original names must apply the residual; `NameIndex.openIndex` does. The direct NAME cursor tests check bucket order, while production CAS/VALIDTIME callers use their own serializers. |
+| `ChunkAggregatingIterator`, `pointLookup` and its cache, writer `reassembleChunksForPrefix`, raw `HOTTrieReader` cursors, protected mutation reads | Candidate-only assembly/physical access. Keeping shared candidates is necessary for later exact requests for different names and for mutation membership. |
+
+`HOTIndexWriter` has no public range or iteration read; its `index` return value is the supplied
+mutation input, not a lookup. Primitive long readers/writers have PATH keys, not expanded names.
+Interval/temporal adapters (`ValidTimeIntervalIndexFactory`, `HotOrderedStore`) use
+`ValidTimeKeySerializer`; projection/derived storage uses numeric or dedicated tuple codecs.
+Repository NAME serialization originates only in the NAME builder/listener factories and the NAME
+read facade, so these entry points cover its public posting reads without adding name residuals to
+unrelated index kinds. No separate NAME prefix-read API exists; the bounded cursor family above is
+the serialized-prefix surface.
+
+The shared NAME matching loop copies the local-name key, URI key and node kind before the first
+dictionary lookup. Dictionary reconstruction can perform record reads and release the candidate's
+page guard, so no page-backed candidate field is accessed after that boundary.
+
 #### 2.3.3 CAS (`hot/CASKeySerializer.java`)
 
 The stored framing is owned by [On-disk format](DISK_FORMAT.md#cas-and-validtime-posting-chunks);

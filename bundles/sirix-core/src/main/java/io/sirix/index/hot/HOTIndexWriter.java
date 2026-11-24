@@ -27,12 +27,14 @@
  */
 package io.sirix.index.hot;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.index.hot.reader.HOTRangeCursor;
 import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
+import io.sirix.index.name.NameIndexRecheck;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
@@ -674,7 +676,12 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
 
     final byte[] keyBuf = prefixKeyBuffer(key);
     final int prefixLen = keySerializer.serialize(key, keyBuf, 0);
-    return reassembleChunksForPrefix(keyBuf, prefixLen);
+    final boolean nameKey = keySerializer instanceof NameKeySerializer;
+    final boolean truncatedName = nameKey && NameKeySerializer.isTruncated(keyBuf, 0, prefixLen);
+    final NodeReferences refs = reassembleChunksForPrefix(keyBuf, prefixLen);
+    return nameKey && refs != null
+        ? NameIndexRecheck.exactPostings(storageEngineWriter, refs, (QNm) key, truncatedName)
+        : refs;
   }
 
   /**

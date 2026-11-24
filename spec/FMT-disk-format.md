@@ -356,8 +356,19 @@ Namespace truncation MUST reserve only the actual UTF-8 width of the first local
 Such a key MAY therefore stand for several names,
 so its postings are candidates: a read that answers for a name MUST re-check each candidate against
 the name the addressed node actually carries, resolved from the name dictionary rather than from a
-cached name on a page-backed view, and MUST return only the postings that match. A filtered read
-whose entry key may be truncated MUST decide inclusion per node for the same reason.
+cached name on a page-backed view, and MUST return only the postings that match. The local-name key,
+URI key and node kind MUST be copied while the candidate record's page is held, before dictionary
+access can reconstruct other records and release that hold. A filtered read whose entry key may be
+truncated MUST decide inclusion per node for the same reason.
+
+Both public point lookups, `HOTIndexReader.get` and `HOTIndexWriter.get`, MUST apply that same
+marker-driven exact re-check after candidate chunk assembly. Stored-key cursors (`iterator`, both
+`range` overloads, `iteratorFrom`, `iteratorTo`, and the underlying trie cursors) deliberately expose
+serialized buckets and their raw-key metadata, not exact expanded-name ranges. A NAME consumer that
+selects names from those cursors MUST apply the marker-driven residual; `NameIndex.openIndex` does so
+for includes/excludes. An unfiltered full scan includes every candidate and needs no name residual.
+Internal assembly and caches MUST retain candidates so one name cannot remove another's postings
+from a shared bucket.
 
 That re-check MUST cost nothing for a name inside the bound: such a name is stored whole, its key
 answers exactly, and the read MUST NOT read a record to confirm it. Only a name past the bound pays,

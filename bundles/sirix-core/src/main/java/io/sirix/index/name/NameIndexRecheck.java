@@ -116,14 +116,15 @@ public final class NameIndexRecheck {
         continue;
       }
       final int localNameKey = nameNode.getLocalNameKey();
+      final int uriKey = nameNode.getURIKey();
+      final NodeKind nodeKind = node.getKind();
       if (localNameKey == -1) {
         continue;
       }
-      final String localName = reader.getName(localNameKey, node.getKind());
+      final String localName = reader.getName(localNameKey, nodeKind);
       if (localName == null) {
         continue;
       }
-      final int uriKey = nameNode.getURIKey();
       final String uri = uriKey == -1 ? "" : reader.getName(uriKey, NodeKind.NAMESPACE);
       if (keep.test(uri == null ? "" : uri, localName)) {
         surviving.addLong(nodeKey);

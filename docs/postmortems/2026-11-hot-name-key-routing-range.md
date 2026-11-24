@@ -140,3 +140,36 @@
   the original value or preserve a second implementation merely for test expectations.
 - Vision check: exact revision-local answers, the 4096-byte bound and ordinary-name record-read
   cost stay unchanged; redundant traversal and the duplicate public sizing API are removed.
+
+## Review follow-up: candidate lifetime and the writer read surface
+
+- Symptom: a cold XML dictionary reconstruction could release the candidate page before the
+  re-check fetched its URI key. Separately, `HOTIndexWriter.get` returned both nodes from a shared
+  marked bucket even though `HOTIndexReader.get` returned exact postings.
+- Root cause: a borrowed page-backed record crossed a dictionary call that may itself read records;
+  the public exact-read policy was also enforced on one wrapper rather than its writer sibling.
+- Correction: the shared matching loop snapshots all three name fields before dictionary access.
+  The writer captures the serialized marker before chunk assembly and invokes the same exact
+  re-check as the reader. Candidate assembly and caches retain all postings.
+- Surface audit: `NameIndex.openIndex` routes single-name requests through exact lookup, filtered
+  bucket scans through shared matching, and unfiltered scans through all candidates. `iterator`,
+  both `range` overloads, `iteratorFrom` and `iteratorTo` are explicitly serialized-bucket cursors;
+  they preserve raw marker metadata for their NAME consumer's residual. Raw trie/physical mutation
+  reads likewise have no original-name answer to give. The writer has no other public posting read;
+  its `index` returns its supplied mutation input. Long-key readers/writers are PATH APIs, and
+  interval/temporal/projection adapters use non-NAME codecs. The full contracts and caller inventory
+  are in `HOT_INDEX_SPECIFICATION.md` section 2.3.2. No additional NAME prefix API exists.
+- Regression oracles: a real page-backed XML element's native arena is closed by the local-name
+  dictionary read; exact, include and exclude matching must still use the original URI, and a direct
+  post-close URI getter is the positive witness that the frame is invalid. A real JSON document
+  supplies distinct node keys for two long names sharing a marked key; writer and committed reader
+  lookups must return only each name's own key, including after an ordinary lookup reuses scratch.
+  The record budget now covers writer reads of short, boundary-1 and boundary names at zero and
+  shared long names at exactly one read per candidate. Candidate cursor tests exercise all four
+  cursor methods, both range overloads and both directions/inclusivities, then apply the shared
+  residual against a document-scan oracle before commit and after cold reopen.
+- Why tests missed it: the dictionary stub never invalidated its returned record, and the shared
+  writer mutation fixture used only short names. The earlier boundary test exercised the reader
+  and NAME facade, leaving the supported writer get path outside its long-name fixture.
+- Vision check: both fixes restore exact answers under cold reconstruction and writer-side reads
+  without changing stored fields, normal-name re-check cost or the candidate-cache contract.

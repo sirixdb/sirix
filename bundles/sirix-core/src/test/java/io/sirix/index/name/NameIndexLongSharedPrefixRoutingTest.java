@@ -18,6 +18,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
+import io.sirix.index.hot.AbstractHOTIndexReader.RawKeyBytes;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.HOTInvariantValidator;
 import io.sirix.index.hot.NameKeySerializer;
@@ -209,6 +210,8 @@ final class NameIndexLongSharedPrefixRoutingTest {
         assertIndexEqualsScan(controller, trx.getStorageEngineReader(), definition, names, scanned, "at the bound");
         assertFilteredIndexEqualsScan(controller, trx.getStorageEngineReader(), definition, names, scanned,
             "at the bound");
+        assertCandidateCursorsKeepResidualsExact(trx.getStorageEngineReader(), definition, pastBoundFirst,
+            pastBoundSecond, scanned);
         assertStructurallyValid(trx.getStorageEngineReader(), definition, "at the bound");
         trx.commit();
       }
@@ -219,6 +222,8 @@ final class NameIndexLongSharedPrefixRoutingTest {
             definition, names, scan(rtx), "at the bound after cold reopen");
         assertFilteredIndexEqualsScan(session.getRtxIndexController(rtx.getRevisionNumber()),
             rtx.getStorageEngineReader(), definition, names, scan(rtx), "at the bound after cold reopen");
+        assertCandidateCursorsKeepResidualsExact(rtx.getStorageEngineReader(), definition, pastBoundFirst,
+            pastBoundSecond, scan(rtx));
         assertStructurallyValid(rtx.getStorageEngineReader(), definition, "at the bound after cold reopen");
       }
     } finally {
@@ -308,6 +313,42 @@ final class NameIndexLongSharedPrefixRoutingTest {
           "excluded name " + stage);
       assertEquals(Set.of(), collect(controller.openNameIndex(reader, definition,
           new NameFilter(Set.of(name, missing), Set.of(name)))), "include then exclude " + stage);
+    }
+  }
+
+  private static void assertCandidateCursorsKeepResidualsExact(final StorageEngineReader storage,
+      final IndexDef definition, final QNm first, final QNm second, final Map<QNm, Set<Long>> scanned) {
+    final HOTIndexReader<QNm> reader = HOTIndexReader.create(storage, NameKeySerializer.INSTANCE, IndexType.NAME,
+        definition.getID());
+    final List<Iterator<Map.Entry<QNm, NodeReferences>>> inclusive = List.of(reader.iterator(),
+        reader.range(first, second), reader.range(first, second, true, true), reader.iteratorFrom(first, true),
+        reader.iteratorTo(second, true));
+    for (final Iterator<Map.Entry<QNm, NodeReferences>> cursor : inclusive) {
+      int markedBuckets = 0;
+      while (cursor.hasNext()) {
+        final Map.Entry<QNm, NodeReferences> entry = cursor.next();
+        final RawKeyBytes raw = (RawKeyBytes) entry;
+        final boolean truncated = NameKeySerializer.isTruncated(raw.rawKeyBytes(), 0, raw.rawKeyLength());
+        if (truncated) {
+          markedBuckets++;
+          for (final QNm name : List.of(first, second)) {
+            final NodeReferences exact = NameIndexRecheck.exactPostings(storage, entry.getValue(), name, truncated);
+            assertTrue(exact != null);
+            assertEquals(scanned.get(name), collect(List.of(exact).iterator()));
+          }
+        }
+      }
+      assertEquals(1, markedBuckets, "each candidate cursor includes the shared serialized bucket once");
+    }
+    final List<Iterator<Map.Entry<QNm, NodeReferences>>> exclusive = List.of(reader.iteratorFrom(first, false),
+        reader.iteratorTo(second, false), reader.range(first, second, false, true),
+        reader.range(first, second, true, false));
+    for (final Iterator<Map.Entry<QNm, NodeReferences>> cursor : exclusive) {
+      while (cursor.hasNext()) {
+        final RawKeyBytes raw = (RawKeyBytes) cursor.next();
+        assertTrue(!NameKeySerializer.isTruncated(raw.rawKeyBytes(), 0, raw.rawKeyLength()),
+            "exclusive serialized bounds exclude the entire shared bucket");
+      }
     }
   }
 

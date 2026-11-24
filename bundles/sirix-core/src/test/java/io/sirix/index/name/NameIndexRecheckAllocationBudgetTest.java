@@ -15,12 +15,16 @@ import net.openhft.hashing.LongHashFunction;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import java.lang.management.ManagementFactory;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -32,6 +36,44 @@ final class NameIndexRecheckAllocationBudgetTest {
   private static final int BYTES_PER_READ = 1024;
   private static volatile QNm nameSink;
   private static volatile NodeReferences postingSink;
+
+  @Test
+  void dictionaryReconstructionMayReleaseTheCandidateFrameBeforeMatching() {
+    for (int mode = 0; mode < 3; mode++) {
+      final Arena arena = Arena.ofConfined();
+      try {
+        final DictionaryReader reader = new DictionaryReader(2);
+        final ElementNode source = reader.put(1, "urn:a", LOCAL);
+        final MemorySegment page = arena.allocate(source.estimateSerializedSize());
+        source.serializeToHeap(page, 0L);
+        final ElementNode bound = new ElementNode(1, LongHashFunction.xx3());
+        bound.bind(page, 0L, 1, 0);
+        reader.records[1] = bound;
+        reader.beforeDictionaryRead = arena::close;
+        final NodeReferences candidates = postings(1, 2);
+        final NodeReferences actual = switch (mode) {
+          case 0 -> NameIndexRecheck.exactPostings(reader, candidates, REQUESTED, true);
+          case 1 -> NameIndexRecheck.filteredPostings(reader, candidates,
+              NameIndexRecheck.filter(Set.of(REQUESTED), Set.of()));
+          default -> NameIndexRecheck.filteredPostings(reader, candidates,
+              NameIndexRecheck.filter(Set.of(), Set.of(REQUESTED)));
+        };
+        if (mode < 2) {
+          assertEquals(candidates, actual);
+        } else {
+          assertNull(actual);
+        }
+        assertEquals(1, reader.reads);
+        assertFalse(arena.scope().isAlive());
+        assertThrows(IllegalStateException.class, bound::getURIKey,
+            "the dictionary read must really invalidate the candidate's native frame");
+      } finally {
+        if (arena.scope().isAlive()) {
+          arena.close();
+        }
+      }
+    }
+  }
 
   @Test
   void rechecksPreserveExpandedNameEqualityAndRejectUnresolvableCandidates() {
@@ -117,6 +159,7 @@ final class NameIndexRecheckAllocationBudgetTest {
     private final DataRecord[] records;
     private final String[] dictionary;
     private long reads;
+    private Runnable beforeDictionaryRead;
 
     private DictionaryReader(final int size) {
       records = new DataRecord[size];
@@ -146,6 +189,11 @@ final class NameIndexRecheckAllocationBudgetTest {
 
     @Override
     public String getName(final int key, final NodeKind kind) {
+      final Runnable beforeRead = beforeDictionaryRead;
+      beforeDictionaryRead = null;
+      if (beforeRead != null) {
+        beforeRead.run();
+      }
       return dictionary[key];
     }
 

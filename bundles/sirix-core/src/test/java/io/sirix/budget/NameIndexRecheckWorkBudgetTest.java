@@ -14,6 +14,9 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.index.IndexType;
+import io.sirix.index.SearchMode;
+import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.hot.NameKeySerializer;
 import io.sirix.index.name.NameFilter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
@@ -136,6 +139,25 @@ final class NameIndexRecheckWorkBudgetTest {
                    .assertExactly(RECHECK_READS, 4,
                        "the exact re-check reads one record per candidate posting, and reads the "
                            + "candidates rather than the whole index");
+        final HOTIndexWriter<QNm> writer = HOTIndexWriter.create(trx.getStorageEngineWriter(),
+            NameKeySerializer.INSTANCE, IndexType.NAME, definition.getID());
+        final WorkCapture.Captured<List<NodeReferences>> ordinaryWriterReads = CAPTURE.call(() -> List.of(
+            writer.get(SHORT, SearchMode.EQUAL), writer.get(belowBound, SearchMode.EQUAL),
+            writer.get(atBound, SearchMode.EQUAL)));
+        for (final NodeReferences references : ordinaryWriterReads.result()) {
+          assertEquals(1, references.cardinality());
+        }
+        ordinaryWriterReads.work().assertZero(RECHECK_READS,
+            "writer point reads of complete names owe no dictionary re-check");
+        final WorkCapture.Captured<List<NodeReferences>> longWriterReads = CAPTURE.call(() -> List.of(
+            writer.get(LONG_FIRST, SearchMode.EQUAL), writer.get(LONG_SECOND, SearchMode.EQUAL)));
+        for (int index = 0; index < 2; index++) {
+          final NodeReferences references = longWriterReads.result().get(index);
+          assertEquals(1, references.cardinality());
+          assertTrue(references.contains(longLookups.result().get(index).iterator().next()));
+        }
+        longWriterReads.work().assertExactly(RECHECK_READS, 4,
+            "writer point reads re-check each of the two shared-key candidates exactly once per name");
         trx.commit();
       }
     } finally {

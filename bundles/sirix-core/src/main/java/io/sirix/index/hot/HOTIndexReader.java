@@ -147,8 +147,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Create a range iterator over logical entries with keys in {@code [fromKey, toKey]}, both
-   * inclusive.
+   * Create a stored-key bucket cursor between the serialized {@code fromKey} and {@code toKey},
+   * both inclusive. Marked NAME buckets carry candidates; selecting expanded names requires the
+   * NAME residual.
    *
    * @param fromKey start key (inclusive)
    * @param toKey end key (inclusive)
@@ -158,8 +159,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Create a range iterator over logical entries between {@code fromKey} and {@code toKey} with
-   * explicit bound inclusivity.
+   * Create a stored-key bucket cursor between the serialized {@code fromKey} and {@code toKey}
+   * with explicit bound inclusivity. Marked NAME buckets expose {@link RawKeyBytes} metadata for
+   * the caller's exact-name residual; the decoded shortened key cannot select their postings.
    *
    * <p>
    * Inclusivity is enforced by the cursor itself, on each group's logical key bytes — see
@@ -180,9 +182,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Iterate every logical entry in the index. Overrides the abstract base's per-slot iterator — with
-   * chunked-bitmap storage, "all entries" means one logical {@link Map.Entry} per prefix, not per
-   * chunk slot.
+   * Iterate every stored-key bucket in the index, aggregating its chunk slots. Marked NAME
+   * buckets retain their candidate postings and {@link RawKeyBytes} marker metadata. An unfiltered
+   * scan includes every posting; a name-selecting consumer applies the NAME residual.
    */
   @Override
   public Iterator<Map.Entry<K, NodeReferences>> iterator() {
@@ -190,8 +192,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Iterate every logical entry above {@code fromKey}, inclusive or not. Used for {@code GREATER} /
-   * {@code GREATER_OR_EQUAL} CAS queries.
+   * Iterate stored-key buckets above serialized {@code fromKey}, inclusive or not. Used for
+   * {@code GREATER} / {@code GREATER_OR_EQUAL} CAS queries. Marked NAME buckets require a residual
+   * before selecting expanded names, as with {@link #range(Comparable, Comparable)}.
    */
   public Iterator<Map.Entry<K, NodeReferences>> iteratorFrom(K fromKey, boolean inclusive) {
     requireNonNull(fromKey);
@@ -199,7 +202,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     return new ChunkAggregatingIterator(fromPrefix, inclusive, null, true);
   }
 
-  /** Iterate every logical entry below {@code toKey}, inclusive or not. */
+  /** Iterate stored-key buckets below serialized {@code toKey}; NAME residuals follow {@link #iteratorFrom}. */
   public Iterator<Map.Entry<K, NodeReferences>> iteratorTo(K toKey, boolean inclusive) {
     requireNonNull(toKey);
     final byte[] toPrefix = serializeKeyToArray(toKey);
