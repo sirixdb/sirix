@@ -307,7 +307,7 @@ most zero. If allocation legs were measured for a judged series, each arm MUST r
 accepted allocation leg; otherwise judgment MUST be refused. A series with no allocation legs has
 no allocation check. Allocation has no threshold and no `unstable` verdict.
 
-An allocation leg MUST count the allocation as the code writes it, the same in every process:
+An allocation leg MUST count the allocation as the code writes it:
 escape analysis disabled (`-XX:-DoEscapeAnalysis`), the Graal JIT disabled
 (`-XX:-UseJVMCICompiler`, so the top-tier compiler is HotSpot C2 on every JDK), a collector that
 never collects (`-XX:+UseEpsilonGC`), and a fixed number of operations per measured iteration (JMH single-shot
@@ -317,6 +317,14 @@ share that escape analysis happens to remove in one process: whether C2 scalar-r
 decided per compilation, and a collecting run adds allocation that follows GC timing. On GraalVM,
 the Graal compiler ignores `-XX:-DoEscapeAnalysis` and keeps partial escape analysis, so the leg
 forces C2. A leg measured otherwise MUST be refused.
+
+For fresh-process reproducibility, the judged quantity is the leg's whole-byte figure: its
+per-operation figure rounded to the nearest whole byte, ties to the even byte. This figure MUST be
+identical in every process of the same code. A leg still carries a one-time residual allocation of
+a few tens of bytes per run (harness work and lazy initialisation), which the batch divides. The
+batch MUST be large enough that this residual stays far below half a byte per operation, so the
+rounded figure cannot move. A batch of 100,000 operations per iteration meets this requirement for
+the gate's benchmarks (observed: 32 bytes over 300,000 operations, about 0.0001 B/op).
 
 ### CONV-303 — Results ledger and conditions record
 

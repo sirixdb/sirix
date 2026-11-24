@@ -99,8 +99,8 @@ The candidate's median minus the baseline's is rounded to whole bytes, ties to t
 must be at most zero. Reports show both rounded arm figures and the rounded delta. If a series has
 allocation legs, both arms must retain an accepted leg or judgment is refused.
 
-An allocation leg counts allocation as the code writes it, so that two processes of the same code
-measure the same figure: escape analysis off (`-XX:-DoEscapeAnalysis`), the Graal JIT disabled
+An allocation leg counts allocation as the code writes it: escape analysis off
+(`-XX:-DoEscapeAnalysis`), the Graal JIT disabled
 (`-XX:-UseJVMCICompiler`, forcing HotSpot C2 on every JDK), a collector that never
 collects (`-XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC`, with a heap large enough for the
 run) and a fixed number of operations per measured iteration (`-bm ss -bs N`). `import-jmh
@@ -111,6 +111,14 @@ escape analysis happens to remove in one process. On GraalVM the Graal compiler 
 leaf gate's `compactMaterialize`: two fresh legs of identical code differed by 24 B/op because C2
 scalar-replaced a transient `Arena` in one process and not in the other, and by up to 1 B/op through
 the automatic arena's Cleaner, whose bookkeeping follows GC timing.
+
+For fresh-process reproducibility, the judged quantity is the leg's whole-byte figure: its
+per-operation figure rounded to the nearest whole byte, ties to the even byte. This figure must be
+identical in every process of the same code. A leg still carries a one-time residual allocation of
+a few tens of bytes per run (harness work and lazy initialisation), which the batch divides. The
+batch must be large enough that this residual stays far below half a byte per operation, so the
+rounded figure cannot move. A batch of 100,000 operations per iteration meets this requirement for
+the gate's benchmarks (observed: 32 bytes over 300,000 operations, about 0.0001 B/op).
 
 With the ClickBench kit, set `OLD` and `NEW` to the full commit SHAs used to build the two
 images, then run the gate:

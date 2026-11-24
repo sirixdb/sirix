@@ -11,7 +11,9 @@
 
 - CONV-302: an allocation leg counts allocation as written: escape analysis off, the Graal JIT
   disabled (`-XX:-UseJVMCICompiler`, forcing HotSpot C2 on every JDK), a non-collecting
-  collector and a fixed batch per iteration, so two processes of the same code measure the same figure.
+  collector and a fixed batch per iteration. Fresh processes of the same code must measure identical
+  whole-byte figures; the batch must keep one-time residual allocation far below half a byte per
+  operation so the rounded figure cannot move.
 - Make the PR mutation lane's unit of work its blocking criterion. New
   [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant
   generation to the PR's own lines through a repository interceptor on PIT's tool classpath,
