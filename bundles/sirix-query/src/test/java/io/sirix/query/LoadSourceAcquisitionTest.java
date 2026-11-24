@@ -46,10 +46,13 @@ final class LoadSourceAcquisitionTest {
       if (existing) {
         store.create("database", "keep", new DocumentParser("<original/>"));
       }
-      final String target = named ? "'keep'" : "()";
-      assertThrows(QueryException.class, () -> new Query(chain,
-          "xn:load('database'," + target + ",('" + available.toUri() + "','" + missing.toUri() + "'))")
-              .execute(context));
+      final String target = named
+          ? "'keep'"
+          : "()";
+      assertThrows(QueryException.class,
+          () -> new Query(chain,
+              "xn:load('database'," + target + ",('" + available.toUri() + "','" + missing.toUri() + "'))").execute(
+                  context));
       if (existing) {
         final var database = store.lookup("database").getDatabase();
         assertEquals(1, database.listResources().size());
