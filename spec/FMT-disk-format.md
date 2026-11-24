@@ -384,6 +384,49 @@ whether the index was bulk-built or maintained incrementally, before and after c
 reopen. No layout choice, frontier cut or key length inside the bound MAY change which postings a
 lookup returns.
 
+### FMT-306 — HOT stored height and spine continuity
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [HOTIndirectPage.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTIndirectPage.java):`setHeightForWrite`; [HOTIndirectPage.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTIndirectPage.java):`getHeight`; [AbstractHOTIndexWriter.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/AbstractHOTIndexWriter.java):`refreshOuterHeight`; [AbstractHOTIndexWriter.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/AbstractHOTIndexWriter.java):`propagateStructuralSpliceUpSpine`; [HOTCommitNormalizer.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTCommitNormalizer.java):`normalize`; [SiblingMerger.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/SiblingMerger.java):`mergeSiblings`
+- **Verified by:** [HOTSubInsertSpineTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTSubInsertSpineTest.java):`sequentialLeavesFoldIntoOneBlockAtCommit`, `localInsertionRetainsNonzeroOuterChildSlots`, `skewedDescendingMaintainsExactAncestorHeights`, `structuralInsertionRearmsAnUnchangedHeightCommittedSpine`; [HOTOuterHeightMaintenanceTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTOuterHeightMaintenanceTest.java):`propagatesOnlyTheChangedMaximum`; [HOTConstructedShapeIntegrationTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTConstructedShapeIntegrationTest.java):`consolidationAfterValueUpdatesRearmsTheOuterSpine` **Planned:** HOTStoredHeightConformance: an independent structural walk asserts exact stored heights and ancestor continuity after every mutation shape that replaces a subtree below a committed ancestor (branch insert, subtree-local split, fold, consolidation, sibling merge, node-type upgrade, posting removal, revert), for growing and shrinking subtrees, on every versioning strategy, live in the writing transaction and after cold reopen; the walk rejects an ancestor still addressing a replaced subtree, and the invariant validator rejects an injected off-by-one stored height.
+- **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
+- **Gap/note:** The height is per-node wire state inside the page image, so this is a format decision rather than an algorithm choice. Writer propagation and commit-time normalization exist and the listed regressions assert exact heights live and cold, but the shared test-side invariant validator does not compare stored heights with the structure it walks, so enforcement rests on those dedicated tests rather than on the validator every HOT test uses; FMT-302 records the same validator gap for its own bound. No decoder check exists either: a store whose bytes carry an inexact height is accepted. The height bounds inside those regressions are workload bounds, not this requirement.
+
+Each indirect HOT node carries its own height: the number of indirect levels on the longest path
+from that node down to a leaf page below it, counting itself, so a node whose children are all leaf
+pages has height 1. For the index root this equals the logical height `h` of FMT-302.
+
+A reachable or persisted indirect node's stored height MUST equal that structural height. This MUST
+hold at every point the engine can traverse the node: after each completed index mutation inside the
+writing transaction, in every published revision, and after cold decode. Heights MUST be maintained
+exactly in both directions, so a subtree that shrinks MUST NOT leave a larger stored height behind,
+and an inexact height MUST NOT be left for a later maintenance pass to discover.
+
+A structural change below a node MUST be carried back along the entire parent chain up to the index
+root. After the mutation completes, no reachable ancestor may still describe the subtree that the
+change replaced: each ancestor on that chain MUST address the published replacement, its routing
+metadata MUST describe that replacement's keys, and its stored height MUST be recomputed exactly —
+including when the change leaves that ancestor's own height unchanged, because an unchanged maximum
+does not imply an unchanged subtree. Publishing a replacement into a locally built spine while its
+outer ancestors keep their pre-change references MUST NOT occur, and a mutation that cannot complete
+the propagation MUST fail the transaction rather than publish the partial chain.
+
+Locating a key MUST NOT depend on a stored height: a point lookup, a range scan and a writer descent
+MUST reach the same leaf for a key whatever the stored heights are, so an inexact height MUST NOT be
+able to misroute a key. Mutation and maintenance MAY read stored heights for structural decisions —
+merging siblings, upgrading a node type, folding a compatible child, scheduling normalization — which
+is why an inexact stored height MUST be treated as a malformed subtree, on the same footing as
+FMT-301, rather than as a cost matter. The invariant validator MUST compare each walked node's stored
+height with the structure below it and MUST reject any difference.
+
+Optional maintenance that reduces height, such as consolidation or commit-time normalization, MAY
+decline under FMT-304 clause 3, and a decline MUST leave every clause above satisfied. The height
+such maintenance leaves behind is otherwise unconstrained here: FMT-302 states the only height
+guarantee, and in particular a committed trie MAY exceed the smallest height admissible for its own
+leaf partitioning.
+
 ### FMT-401 — 1.0 format baseline
 
 - **Level:** MUST
@@ -462,6 +505,7 @@ are the current encoder evidence; the ring is bounded to 16 recent records.
 - FMT-102/401/402: the single-format baseline, the removal of the zero UUID/stride exceptions and history-preserving export/import are decided. The removal and the scoped refusal checks above are implemented here; complete envelope discovery before destructive repair remains task `sirix-repair-format-gate`. Remaining export/import implementation and evidence gaps are owned by [FMT-402](#fmt-402--history-preserving-export-and-import).
 - FMT-302: the numeric bound and indirect-level height convention are decided. Enforcing the key-derived bound and rejecting undefined discriminative positions remain implementation/test gaps, not open product choices.
 - FMT-305: the cross-kind/layout-boundary conformance sweep remains planned; see the [requirement and current evidence](#fmt-305--hot-routable-key-bound). Widening the bound later would need the leading-bit field read as unsigned (8192 bytes) or a per-node base for `MULTI_MASK` extraction positions (65536 bytes), so it is a format decision rather than a later addition.
+- FMT-306: exact stored heights and outer-spine continuity are decided and implemented in the writer and in commit-time normalization. Comparing stored heights in the shared invariant validator, and refusing an inexact height on decode, remain implementation/test gaps, not open product choices.
 - FMT-208: produce and check in the immutable 1.0-created feature/index/config corpus and CI coverage manifest; the compatibility policy is decided. The corpus MUST include a resource carrying the FMT-209 last-revert entry and one without it, and a resource whose incarnation id was regenerated by a truncate.
 - FMT-209: the extension tag, the feature bit, the carry-forward in the revision-root clone, the settings member and cryptographically secure id generation at the four lifecycle boundaries are unimplemented. The tag and bit assignments above are the first entries in the otherwise empty FMT-203 tag and FMT-205 feature registries and must be reviewed before the format freeze; TXN-311 cannot be retrofitted compatibly afterwards.
 - Node hash defaults are owned by [CONF-104](CONF-configuration.md#conf-104--current-creation-defaults).
@@ -492,5 +536,6 @@ are the current encoder evidence; the ring is bounded to 16 recent records.
 | FMT-303 | [GoldenFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenFormatTest.java):`indexTypeIdsArePinned` | partial |
 | FMT-304 | See [HOT mutation leaf lifetime](#fmt-304--hot-mutation-leaf-lifetime) for verification and remaining gaps. | partial |
 | FMT-305 | [Current evidence and planned conformance](#fmt-305--hot-routable-key-bound) | partial |
+| FMT-306 | [HOTSubInsertSpineTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTSubInsertSpineTest.java); [HOTOuterHeightMaintenanceTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTOuterHeightMaintenanceTest.java); [HOTConstructedShapeIntegrationTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTConstructedShapeIntegrationTest.java) **Planned:** HOTStoredHeightConformance: exact stored heights and ancestor continuity after every subtree-replacing mutation shape, growing and shrinking, on every versioning strategy, live and after cold reopen; injected off-by-one height rejected by the invariant validator. | partial |
 | FMT-401 | [FormatVersionBaselineTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/FormatVersionBaselineTest.java); [FormatRepairBoundaryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/FormatRepairBoundaryTest.java); [StorageTypeTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/StorageTypeTest.java); [InterruptedFirstCommitProofTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/InterruptedFirstCommitProofTest.java); [GoldenFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenFormatTest.java); [GoldenCompositePageTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenCompositePageTest.java) **Planned:** FormatBaselineConformance: mandatory later-reader compatibility with the frozen 1.0 corpus. | partial |
 | FMT-402 | Evidence and planned conformance: [FMT-402](#fmt-402--history-preserving-export-and-import). | partial |
