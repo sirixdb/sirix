@@ -281,14 +281,15 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * store is unusable" — a broken or forward-incompatible store ({@link SirixException}, {@link
    * SirixRuntimeException}, {@link UnsupportedStoreFeatureException}), a snapshot whose frontier
    * has no durable mapping ({@link IllegalStateException}), or a derived subtree that cannot be
-   * walked or removed ({@link UncheckedIOException}) — and lets anything else through, so a
-   * programming error never hides behind the fallback either.
+   * walked or removed ({@link UncheckedIOException}), or an authorization policy that does not
+   * grant writes to the hidden derived resource ({@link SecurityException}) — and lets anything
+   * else through, so a programming error never hides behind the fallback either.
    */
   private void enableDerivedIndexes(final JsonResourceSession source, final DerivedActivation activation) {
     try {
       installDerivedIndexes(source, activation);
     } catch (final SirixException | SirixRuntimeException | UnsupportedStoreFeatureException
-        | IllegalStateException | UncheckedIOException unavailable) {
+        | IllegalStateException | UncheckedIOException | SecurityException unavailable) {
       if (activation == DerivedActivation.DECLARED) {
         throw unavailable;
       }

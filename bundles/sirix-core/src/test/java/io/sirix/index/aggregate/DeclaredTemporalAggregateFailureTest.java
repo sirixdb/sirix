@@ -10,6 +10,7 @@ import io.sirix.access.ResourceAccessScope;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.Database;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixUsageException;
@@ -18,14 +19,20 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.utils.SirixFiles;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -47,8 +54,13 @@ final class DeclaredTemporalAggregateFailureTest {
   @TempDir
   private File directory;
 
-  /** A policy that grants everything except creating a derived resource. */
-  private static final class DenyDerivedCreation implements ResourceAccessScope.Policy {
+  private static final class DenyDerivedWrites implements ResourceAccessScope.Policy {
+    private final boolean securityFailure;
+
+    private DenyDerivedWrites(final boolean securityFailure) {
+      this.securityFailure = securityFailure;
+    }
+
     @Override
     public void checkDatabase(final java.nio.file.Path database, final boolean write) {
       // Every database access is granted; only the derived resource is withheld below.
@@ -57,7 +69,11 @@ final class DeclaredTemporalAggregateFailureTest {
     @Override
     public void checkResource(final java.nio.file.Path database, final String resource, final boolean write) {
       if (write && DerivedIndexMaintainer.isDerivedResourceName(resource)) {
-        throw new SirixUsageException("No permission to create " + resource);
+        final String message = "No permission to write " + resource;
+        if (securityFailure) {
+          throw new SecurityException(message);
+        }
+        throw new SirixUsageException(message);
       }
     }
 
@@ -67,8 +83,9 @@ final class DeclaredTemporalAggregateFailureTest {
     }
   }
 
-  @Test
-  void aDeclarationWhoseDerivedResourceCannotBeInstalledFails() {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void aDeclarationWhoseDerivedResourceCannotBeInstalledFails(final boolean securityFailure) {
     final var path = directory.toPath().resolve("denied");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
@@ -77,8 +94,11 @@ final class DeclaredTemporalAggregateFailureTest {
           JsonNodeTrx writer = session.beginNodeTrx()) {
         final IndexDef projection = declareProjection(session, writer);
 
-        final SirixUsageException denied = assertThrows(SirixUsageException.class,
-            () -> ResourceAccessScope.where(new DenyDerivedCreation())
+        final Class<? extends RuntimeException> failureType = securityFailure
+            ? SecurityException.class
+            : SirixUsageException.class;
+        final RuntimeException denied = assertThrows(failureType,
+            () -> ResourceAccessScope.where(new DenyDerivedWrites(securityFailure))
                                      .run(() -> TemporalAggregateDeclarations.declare(
                                          session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]",
                                          List.of("g"), List.of("sum(n)"))),
@@ -94,6 +114,51 @@ final class DeclaredTemporalAggregateFailureTest {
         writer.rollback();
       }
     }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+  void deniedOptionalDerivedWritesPreserveSourceReads(final boolean securityFailure, final boolean corrupt)
+      throws Exception {
+    final var path = directory.toPath().resolve("optional");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(newRecordsResource());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareProjection(session, writer);
+        TemporalAggregateDeclarations.declare(session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]",
+            List.of("g"), List.of("sum(n)"));
+        final DerivedIndexMaintainer.Resource derived = ((AbstractResourceSession<?, ?>) session).getDerivedResource();
+        assertNotNull(derived);
+        derived.pause();
+        writer.commit();
+        derived.drain();
+      }
+    }
+    final var derivedPath = path.resolve("resources").resolve("records" + DerivedIndexMaintainer.SUFFIX);
+    assertTrue(Files.isDirectory(derivedPath));
+    if (corrupt) {
+      Files.writeString(derivedPath.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()), "broken");
+    } else {
+      SirixFiles.recursiveRemove(derivedPath);
+      assertFalse(Files.exists(derivedPath));
+    }
+    Databases.clearGlobalCaches();
+    ResourceAccessScope.where(new DenyDerivedWrites(securityFailure)).run(() -> {
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
+          JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+        assertNull(((AbstractResourceSession<?, ?>) session).getDerivedResource());
+        assertEquals(1, reader.getRevisionNumber());
+        assertTrue(reader.moveToFirstChild());
+        assertTrue(reader.moveToFirstChild());
+        assertTrue(reader.moveToFirstChild());
+        assertTrue(reader.moveToRightSibling());
+        assertEquals("n", reader.getName().getLocalName());
+        assertEquals(10L, reader.getNumberValue().longValue());
+      }
+    });
   }
 
   /**
