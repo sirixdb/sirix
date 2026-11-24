@@ -286,8 +286,32 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * through. Runtime failures outside these named types are not treated as an optional fallback.
    */
   private void enableDerivedIndexes(final JsonResourceSession source, final DerivedActivation activation) {
+    final boolean onlyIfDeclared = activation == DerivedActivation.OPPORTUNISTIC;
     try {
-      installDerivedIndexes(source, activation);
+      synchronized (this) {
+        assertAcceptingResources();
+        if (!needsDerivedInitialization(source, onlyIfDeclared)) {
+          return;
+        }
+      }
+      try (var retirement = notifications.retire()) {
+        synchronized (this) {
+          assertAcceptingResources();
+          if (!needsDerivedInitialization(source, onlyIfDeclared)) {
+            return;
+          }
+          final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) source;
+          final JsonResourceSession derived = openDerivedResource(source);
+          shared.retainForDerivedIndexes();
+          ((AbstractResourceSession<?, ?>) derived).retainForDerivedIndexes();
+          resourceSessions.removeObject(source.getResourcePath(), source);
+          resourceSessions.removeObject(derived.getResourcePath(), derived);
+          if (derivedMaintainer == null) {
+            derivedMaintainer = new DerivedIndexMaintainer(getName());
+          }
+          shared.setDerivedResource(derivedMaintainer.register(source, derived));
+        }
+      }
     } catch (final SirixException | SirixRuntimeException | UnsupportedStoreFeatureException | IllegalStateException
         | UncheckedIOException | SecurityException unavailable) {
       if (activation == DerivedActivation.DECLARED) {
@@ -295,34 +319,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       }
       logger.error("Derived resource unavailable for {}; queries retain exact fallback", source.getResourcePath(),
           unavailable);
-    }
-  }
-
-  private void installDerivedIndexes(final JsonResourceSession source, final DerivedActivation activation) {
-    final boolean onlyIfDeclared = activation == DerivedActivation.OPPORTUNISTIC;
-    synchronized (this) {
-      assertAcceptingResources();
-      if (!needsDerivedInitialization(source, onlyIfDeclared)) {
-        return;
-      }
-    }
-    try (var retirement = notifications.retire()) {
-      synchronized (this) {
-        assertAcceptingResources();
-        if (!needsDerivedInitialization(source, onlyIfDeclared)) {
-          return;
-        }
-        final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) source;
-        final JsonResourceSession derived = openDerivedResource(source);
-        shared.retainForDerivedIndexes();
-        ((AbstractResourceSession<?, ?>) derived).retainForDerivedIndexes();
-        resourceSessions.removeObject(source.getResourcePath(), source);
-        resourceSessions.removeObject(derived.getResourcePath(), derived);
-        if (derivedMaintainer == null) {
-          derivedMaintainer = new DerivedIndexMaintainer(getName());
-        }
-        shared.setDerivedResource(derivedMaintainer.register(source, derived));
-      }
     }
   }
 
