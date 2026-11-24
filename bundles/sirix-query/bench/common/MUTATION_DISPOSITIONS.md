@@ -115,3 +115,17 @@ runtime evidence, report dates and error statuses, and rejection before any engi
 mutations reproduced a three-second timeout. Counts and counterfactual observations are recorded
 in the [postmortem](../../../../docs/postmortems/benchmark-evidence-boundaries.md); historical
 whole-module totals above remain unchanged.
+
+## Empty run recording review supplement (R14)
+
+All 21 tests in `test_kit_recording` passed. Both kits' first-process-failure regressions then
+detected two mutations of the shared exit hook: restoring the previous measurements-file guard,
+and inverting the opened-run guard. Each mutation caused both tests to fail because the latest
+nightly run row was absent. There were no survivors. Tests derive their oracle from CONV-303's
+run persistence and CONV-304's latest-night contract, checking ledger rows and the trend CLI's
+date and status after a stub engine fails on its first invocation. Existing refusal cases and
+the added unregistered ClickBench case confirm that an unopened run appends nothing.
+
+Mutations ran in temporary copies with stub engines and a stub rig lock; repository sources and
+the shared rig lock were untouched. This is a focused supplement, not a whole-module recount.
+Details are in the [postmortem](../../../../docs/postmortems/benchmark-empty-run-recording.md).

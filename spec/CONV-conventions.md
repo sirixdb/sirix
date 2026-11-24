@@ -320,8 +320,10 @@ no allocation check. Allocation has no threshold and no `unstable` verdict.
 **Ledger.** Every timed run under the benchmark protocol — a per-change gate, a control such as an
 A/A run, a nightly run — MUST append its rows to the results ledger, the file `SIRIX_BENCH_LEDGER`
 names, before it reports a verdict and whatever the verdict is; a run that was rejected or aborted
-MUST still record the processes it measured. A figure the timer reports as zero is below its
-resolution: it is not a measurement and is not recorded, and the kit names it. The ledger is UTF-8
+MUST still record the processes it measured. Every successfully opened ledger run MUST record its
+run row at exit, including a run that measured no processes. Refusal before the run is opened MUST
+NOT append a run row. A figure the timer reports as zero is below its resolution: it is not a
+measurement and is not recorded, and the kit names it. The ledger is UTF-8
 JSON Lines, one object per line.
 A writer MUST only append and MUST NOT rewrite or remove a line. Retrying a commit MUST NOT
 duplicate a run, measurement or verdict already in the ledger. A matching row identity with

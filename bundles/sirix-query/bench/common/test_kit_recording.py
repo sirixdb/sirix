@@ -13,6 +13,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -20,6 +21,7 @@ from pathlib import Path
 
 import bench_ledger
 from test_bench_ledger import condition_entry
+from test_bench_trend import LedgerBuilder, night_name
 
 COMMON = Path(__file__).resolve().parent
 BENCH = COMMON.parent
@@ -137,6 +139,31 @@ class KitTestCase(unittest.TestCase):
     def rows(self) -> list[dict]:
         return bench_ledger.read_ledger(self.ledger)
 
+    def record_previous_night(self, kit: str) -> None:
+        builder = LedgerBuilder(bench_ledger.capture_environment())
+        builder.night(0, {"q1": 1.0})
+        builder.rows[0]["kit"] = kit
+        bench_ledger.append_rows(self.ledger, builder.rows)
+
+    def assert_empty_nightly_run_recorded(self, completed: subprocess.CompletedProcess[str], kit: str) -> None:
+        self.assertNotEqual(0, completed.returncode)
+        rows = self.rows()
+        self.assertEqual(["run"] + ["measurement"] * 20 + ["run"], [row["kind"] for row in rows])
+        run = rows[-1]
+        self.assertEqual((kit, "nightly", night_name(1)), (run["kit"], run["tier"], run["night"]))
+        self.assertEqual(json.loads((self.out / "run.json").read_text(encoding="utf-8")), run)
+        trend = subprocess.run(
+            [sys.executable, "-B", str(COMMON / "bench_trend.py"), "report", "--ledger", str(self.ledger)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            stdin=subprocess.DEVNULL,
+        )
+        self.assertEqual(2, trend.returncode)
+        self.assertEqual("", trend.stdout)
+        self.assertIn(f"no series has a recorded night {night_name(1)}", trend.stderr)
+
 
 class JsonBenchKitTest(KitTestCase):
 
@@ -226,6 +253,21 @@ class JsonBenchKitTest(KitTestCase):
         rows = self.rows()
         self.assertEqual(["run"] + ["measurement"] * 4, [row["kind"] for row in rows])
         self.assertEqual({("q1", True), ("q2", True)}, {(row["benchmark"], row["accepted"]) for row in rows[1:]})
+
+    def test_a_first_process_failure_records_its_nightly_run(self) -> None:
+        self.record_previous_night("jsonbench")
+        completed = self.kit(
+            "--commit",
+            COMMIT_B,
+            ledger=True,
+            SKIP_DIFF="1",
+            STUB_FAIL_CALL="1",
+            SIRIX_BENCH_TIER="nightly",
+            SIRIX_BENCH_NIGHT=night_name(1),
+        )
+        self.assertIn("the native runner failed", completed.stderr)
+        self.assertEqual("1", self.engine.with_suffix(".calls").read_text())
+        self.assert_empty_nightly_run_recorded(completed, "jsonbench")
 
     def test_completed_attempts_survive_failure_or_interrupt_within_a_query(self) -> None:
         for variable in ("STUB_FAIL_CALL", "STUB_INTERRUPT_CALL"):
@@ -431,6 +473,21 @@ class ClickBenchColdRoundsTest(KitTestCase):
         self.assertEqual({1, 2}, {row["pair"] for row in rows[1:]})
         self.assertNotIn("outcome:", completed.stdout)
 
+    def test_a_first_process_failure_records_its_nightly_run(self) -> None:
+        self.record_previous_night("clickbench-cold")
+        completed = self.kit(
+            "--arm",
+            f"shipped={self.baseline}",
+            "--arm-commit",
+            f"shipped={COMMIT_A}",
+            STUB_FAIL_CALL="1",
+            SIRIX_BENCH_TIER="nightly",
+            SIRIX_BENCH_NIGHT=night_name(1),
+        )
+        self.assertIn("arm 'shipped' failed in round 1", completed.stderr)
+        self.assertEqual(1, self.calls(self.baseline))
+        self.assert_empty_nightly_run_recorded(completed, "clickbench-cold")
+
     def test_a_control_run_records_its_rounds_without_a_verdict(self) -> None:
         completed = self.paired(self.candidate(1.0), "--rounds", "2")
         self.assertEqual(0, completed.returncode, completed.stderr + completed.stdout)
@@ -484,6 +541,17 @@ class ClickBenchColdRoundsTest(KitTestCase):
                 self.assertIn("--dataset", completed.stderr)
                 self.assertEqual(0, self.calls(self.baseline))
                 self.assertFalse(self.ledger.exists())
+
+    def test_an_unregistered_machine_records_no_run(self) -> None:
+        self.conditions.write_text(
+            condition_entry("2026-11-23", "elsewhere", "new baseline", "5" * 64), encoding="utf-8"
+        )
+        completed = self.kit("--arm", f"shipped={self.baseline}", "--arm-commit", f"shipped={COMMIT_A}")
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("the run was not opened for the results ledger", completed.stderr)
+        self.assertEqual(0, self.calls(self.baseline))
+        self.assertFalse((self.out / "run.json").exists())
+        self.assertFalse(self.ledger.exists())
 
     def test_without_a_ledger_any_arms_run_as_before(self) -> None:
         other = executable(self.base / "new.py", STUB_CLICKBENCH.format(factor=1.0, deviate=True))

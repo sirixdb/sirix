@@ -218,9 +218,9 @@ bench_run_begin() {
 # measured: what the kit lost is the rest of the run, not the evidence it already has. Rows the
 # ledger already holds are not appended twice, so this is a no-op after a normal finish.
 bench_run_at_exit() {
-  if [ -n "${BENCH_RUN_DIR}" ] && [ -s "${BENCH_RUN_DIR}/measurements.jsonl" ]; then
+  if [ -n "${BENCH_RUN_DIR}" ]; then
     python3 "${BENCH_LEDGER_PY}" commit --run "${BENCH_RUN_DIR}" > /dev/null \
-      || warn "the measurements in ${BENCH_RUN_DIR} could not be appended to the results ledger"
+      || warn "the run in ${BENCH_RUN_DIR} could not be appended to the results ledger"
   fi
 }
 

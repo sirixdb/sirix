@@ -61,6 +61,8 @@ contains only letters, digits, dots, underscores and hyphens, and is never a dat
 `import-jsonbench` and `import-clickbench` accept repeatable `--param NAME=VALUE` options.
 
 A kit that stops early — a failed process, an interrupt — still appends the processes it measured.
+Every successfully opened ledger run also appends its run row, even if its first process failed
+and no measurements exist. A kit refused before opening the run appends nothing.
 A run whose answers turn out wrong is recorded with every measurement rejected
 (`bench_ledger.py reject --run DIR --reason ...`), so its timings never enter a verdict or a trend.
 Rejection is refused once any measurement is already in the ledger, even without a recording marker.
