@@ -74,7 +74,9 @@ final class CompactImageAllocatorLifecycleTest {
       assertEquals(0L, allocator.getPhysicalMemoryBytes());
       assertEquals(0L, allocator.nonExecutionCommittedBytes());
       assertEquals(0L, allocator.getSlabBytes());
-      assertEquals(failure == Failure.RESERVE || failure == Failure.HEAP_RESERVE ? 0 : 1, memory.releases);
+      assertEquals(failure == Failure.RESERVE || failure == Failure.HEAP_RESERVE
+          ? 0
+          : 1, memory.releases);
       allocator.setSlabMemoryForTesting(FrameSlotAllocator.virtualMemory());
       final MemorySegment recovered = allocator.allocatePermanentSlab(8192);
       assertNotNull(recovered);
@@ -163,8 +165,8 @@ final class CompactImageAllocatorLifecycleTest {
     final FrameSlotAllocator allocator = FrameSlotAllocator.getInstance();
     final CompactImageStore store = CompactImageStore.getInstance();
     final long budget = allocator.getMaxBufferSize();
-    final long remaining = budget - budget / 8 - allocator.oversizedHeadroomBytes()
-        - allocator.nonExecutionCommittedBytes();
+    final long remaining =
+        budget - budget / 8 - allocator.oversizedHeadroomBytes() - allocator.nonExecutionCommittedBytes();
     assertTrue(allocator.reserveSlabCommittedBytes(remaining));
     final List<Block> held = new ArrayList<>();
     try {
@@ -302,7 +304,9 @@ final class CompactImageAllocatorLifecycleTest {
       if (failure == Failure.HEAP_RESERVE) {
         throw heapFailure;
       }
-      return failure == Failure.RESERVE ? null : delegate.tryReserve(bytes);
+      return failure == Failure.RESERVE
+          ? null
+          : delegate.tryReserve(bytes);
     }
 
     @Override
@@ -334,7 +338,9 @@ final class CompactImageAllocatorLifecycleTest {
       if (failure == Failure.HEAP_POPULATE) {
         throw heapFailure;
       }
-      return failure == Failure.POPULATE ? POPULATE_REFUSED : delegate.tryPopulate(segment);
+      return failure == Failure.POPULATE
+          ? POPULATE_REFUSED
+          : delegate.tryPopulate(segment);
     }
   }
 }

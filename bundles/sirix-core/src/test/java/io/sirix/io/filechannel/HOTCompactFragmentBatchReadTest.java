@@ -184,8 +184,8 @@ final class HOTCompactFragmentBatchReadTest {
           // The pooled block a compact image owns is its packed bytes rounded up to the pool's
           // class granularity, which is still far below writable leaf capacity.
           assertTrue(newPage.slots().byteSize() >= newPage.getUsedSlotsSize());
-          assertTrue(newPage.slots().byteSize() - newPage.getUsedSlotsSize() <= Math.max(64,
-              newPage.getUsedSlotsSize() / 8));
+          assertTrue(
+              newPage.slots().byteSize() - newPage.getUsedSlotsSize() <= Math.max(64, newPage.getUsedSlotsSize() / 8));
           assertArrayEquals(serialize(oldPage), serialize(ordinary[i]), "ordinary batch versus scalar fragment " + i);
           assertArrayEquals(serialize(oldPage), serialize(newPage), "fragment " + i);
           expected.add(oldPage);

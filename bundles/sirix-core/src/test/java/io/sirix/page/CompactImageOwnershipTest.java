@@ -39,10 +39,10 @@ import org.junit.jupiter.params.provider.CsvSource;
  *
  * <p>
  * The image used to live on an automatic arena — an allocation per decode, on the per-fragment read
- * path. It now lives in a block the page owns and gives back, which means the bytes can be handed to
- * another image. These tests pin the two properties that makes safe: the block comes back only when
- * no guard holds the page, and an optimistic reader whose page was closed can never certify reads
- * taken over bytes the next lease overwrote.
+ * path. It now lives in a block the page owns and gives back, which means the bytes can be handed
+ * to another image. These tests pin the two properties that makes safe: the block comes back only
+ * when no guard holds the page, and an optimistic reader whose page was closed can never certify
+ * reads taken over bytes the next lease overwrote.
  * </p>
  */
 @Isolated
@@ -166,11 +166,10 @@ final class CompactImageOwnershipTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"true,32,1,1", "false,32,1,1", "true,-1,1,1", "false,-1,1,1",
-      "true,7,1,1", "false,7,1,1", "true,0,7,1", "false,0,7,1",
-      "true,0,1,4", "false,0,1,4", "true,2147483647,1,1", "false,2147483647,1,1"})
-  void packedExtentRejectsSlackFromAnEarlierImage(final boolean segmentInput, final int offset,
-      final int suffixLength, final int valueLength) throws IOException {
+  @CsvSource({"true,32,1,1", "false,32,1,1", "true,-1,1,1", "false,-1,1,1", "true,7,1,1", "false,7,1,1", "true,0,7,1",
+      "false,0,7,1", "true,0,1,4", "false,0,1,4", "true,2147483647,1,1", "false,2147483647,1,1"})
+  void packedExtentRejectsSlackFromAnEarlierImage(final boolean segmentInput, final int offset, final int suffixLength,
+      final int valueLength) throws IOException {
     final CompactImageStore store = CompactImageStore.getInstance();
     final HOTLeafPage first = decode(rawCompactWire(38, 32, 1, 1), segmentInput);
     final long address = first.slots().address();
@@ -195,13 +194,14 @@ final class CompactImageOwnershipTest {
     }
   }
 
-  private static byte[] rawCompactWire(final int used, final int declaredOffset,
-      final int suffixLength, final int valueLength) {
+  private static byte[] rawCompactWire(final int used, final int declaredOffset, final int suffixLength,
+      final int valueLength) {
     final byte[] payload = new byte[used];
     final MemorySegment bytes = MemorySegment.ofArray(payload);
-    final int storedOffset = declaredOffset == 32 && used == 38 ? 32 : 0;
-    bytes.set(ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN), storedOffset,
-        (short) suffixLength);
+    final int storedOffset = declaredOffset == 32 && used == 38
+        ? 32
+        : 0;
+    bytes.set(ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN), storedOffset, (short) suffixLength);
     bytes.set(ValueLayout.JAVA_BYTE, storedOffset + 2, (byte) 7);
     if (suffixLength == 1) {
       bytes.set(ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN), storedOffset + 3,

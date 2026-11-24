@@ -81,8 +81,9 @@ final class HOTCompactFragmentReadTest {
       // A compact image owns a pooled block (CompactImageStore), so its storage is its packed bytes
       // rounded up to that pool's class granularity — never writable leaf capacity.
       assertTrue(compact.slots().byteSize() >= compact.getUsedSlotsSize());
-      assertTrue(compact.slots().byteSize() - compact.getUsedSlotsSize() <= Math.max(64,
-          compact.getUsedSlotsSize() / 8), "a compact image's storage must stay proportional to its image");
+      assertTrue(
+          compact.slots().byteSize() - compact.getUsedSlotsSize() <= Math.max(64, compact.getUsedSlotsSize() / 8),
+          "a compact image's storage must stay proportional to its image");
       assertEquals(count, compact.size());
       assertTrue(compact.isCompleteDump());
       assertEquals(9, compact.getRevision());

@@ -273,8 +273,7 @@ final class CompactImageStoreTest {
 
   @ParameterizedTest
   @CsvSource({"0,false", "0,true", "4,false", "4,true", "12,false", "12,true"})
-  void unpublishedSlabIsReturnedWithoutReplacingTheFailure(final int heldBlocks,
-      final boolean cleanupFails) {
+  void unpublishedSlabIsReturnedWithoutReplacingTheFailure(final int heldBlocks, final boolean cleanupFails) {
     final SlabRecordingAllocator allocator = new SlabRecordingAllocator();
     try {
       final CompactImageStore store = storeOver(allocator);
@@ -286,7 +285,9 @@ final class CompactImageStoreTest {
       }
       final OutOfMemoryError failure = new OutOfMemoryError("publication failed");
       final IllegalStateException cleanupFailure = new IllegalStateException("cleanup failed");
-      allocator.releaseFailure = cleanupFails ? cleanupFailure : null;
+      allocator.releaseFailure = cleanupFails
+          ? cleanupFailure
+          : null;
       store.setSlabPublicationHookForTesting(() -> {
         throw failure;
       });
@@ -295,7 +296,9 @@ final class CompactImageStoreTest {
       assertEquals(1, allocator.releasedSlabCount());
       assertEquals(heldBlocks, store.blockCount());
       assertEquals((long) heldBlocks * 4096, store.pooledBytes());
-      assertEquals(cleanupFails ? 1 : 0, failure.getSuppressed().length);
+      assertEquals(cleanupFails
+          ? 1
+          : 0, failure.getSuppressed().length);
       if (cleanupFails) {
         assertSame(cleanupFailure, failure.getSuppressed()[0]);
       }

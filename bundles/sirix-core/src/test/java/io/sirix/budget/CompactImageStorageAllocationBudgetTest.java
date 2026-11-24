@@ -36,10 +36,10 @@ import org.junit.jupiter.api.parallel.Isolated;
  * <p>
  * It used to cost one {@code Arena.ofAuto()} per decoded fragment on the per-fragment read path: a
  * 24-byte arena object whenever escape analysis fails to remove it — which is decided per
- * compilation, so 11 of 12 benchmark forks paid 994.5 bytes per operation and one paid 1018.4 — plus
- * a session and a {@code Cleaner} registration whose bookkeeping follows GC timing. The pooled block
- * the image now owns is leased and returned without allocating, which is what this test bounds. The
- * automatic arena is kept as the positive control, so the zero bound cannot be vacuous.
+ * compilation, so 11 of 12 benchmark forks paid 994.5 bytes per operation and one paid 1018.4 —
+ * plus a session and a {@code Cleaner} registration whose bookkeeping follows GC timing. The pooled
+ * block the image now owns is leased and returned without allocating, which is what this test
+ * bounds. The automatic arena is kept as the positive control, so the zero bound cannot be vacuous.
  * </p>
  */
 @Isolated
@@ -83,9 +83,8 @@ final class CompactImageStorageAllocationBudgetTest {
     }
     final long allocated = Math.min(legs[0], Math.min(legs[1], legs[2]));
 
-    assertEquals(0L, allocated,
-        "a warmed lease/release cycle must allocate no heap; " + MEASURED_ROUNDS + " rounds allocated "
-            + Arrays.toString(legs) + " bytes");
+    assertEquals(0L, allocated, "a warmed lease/release cycle must allocate no heap; " + MEASURED_ROUNDS
+        + " rounds allocated " + Arrays.toString(legs) + " bytes");
   }
 
   @Test
