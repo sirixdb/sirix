@@ -64,7 +64,7 @@ public final class Store extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param createIfNotExists determines if a new collection has to be created or not
+   * @param createIfNotExists whether this overload omits the explicit {@code $create-new} argument
    */
   public Store(final boolean createIfNotExists) {
     this(STORE, createIfNotExists);
@@ -74,7 +74,7 @@ public final class Store extends AbstractFunction {
    * Constructor.
    *
    * @param name the function name
-   * @param createIfNotExists determines if a new collection has to be created or not
+   * @param createIfNotExists whether this overload omits the explicit {@code $create-new} argument
    */
   public Store(final QNm name, final boolean createIfNotExists) {
     super(name, createIfNotExists
@@ -174,7 +174,9 @@ public final class Store extends AbstractFunction {
       final Object options) {
     if (nodes instanceof Str) {
       final String input = ((Str) nodes).stringValue();
-      try (final JsonReader reader = input.isEmpty() ? null : JsonShredder.createStringReader(input)) {
+      try (final JsonReader reader = input.isEmpty()
+          ? null
+          : JsonShredder.createStringReader(input)) {
         collection.importResource(resourceName, reader, options);
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));

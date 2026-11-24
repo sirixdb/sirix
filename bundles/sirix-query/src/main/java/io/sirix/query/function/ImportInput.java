@@ -23,7 +23,7 @@ import java.io.StringWriter;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamConstants;
 
-/** Content validation before a load can create, replace or write its target. */
+/** Content validation before a load can create or write its target. */
 public final class ImportInput {
   private ImportInput() {}
 

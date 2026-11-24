@@ -29,8 +29,8 @@
   `jn:load`, `xn:store`, `xn:load` and the collection API, a single unnamed add, and a
   deterministic concurrent creator that takes the candidate while the caller waits for it. All 10
   failed before the fix. The REST tests were translated to the contract: CREATE suffices for
-  automatic names, the existing resource is unchanged, and named adds into an existing resource
-  still need MODIFY.
+  automatic names and the existing resource is unchanged. Named collection API adds still need
+  MODIFY for existing targets; query store/load target rules are in the [README](../../README.md#using-the-cli-native-binaries).
 - Review follow-up: `createResource` also returns false after creation/bootstrap failures, not
   only collisions. Treating every false as a taken name caused unbounded retries. Both collection
   naming paths now retry only when the candidate exists and otherwise report creation failure.

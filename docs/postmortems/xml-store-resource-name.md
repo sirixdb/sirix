@@ -23,16 +23,14 @@
 
 ## Review follow-up: singleton sequence representations
 
-- Invariant (S1–S3): one node uses `$res` for creation, missing-database creation with
-  `false()`, recreation and append, regardless of its sequence representation; absent names
-  and multiple nodes retain the existing automatic names on those same paths.
+- Current singleton and automatic naming rules: [README](../../README.md#using-the-cli-native-binaries).
 - Trigger: `xn:store('db','products',xn:sort(<a/>))`.
 - Root cause: dispatch classified Java `Node` instances as singleton inputs; a sorted singleton
   is a sequence, so both create and append selected bulk operations that ignore `$res`.
 - Why tests missed it: singleton tests supplied only bare element constructors, and automatic
   naming tests omitted bulk append and recreation.
 - Regression: `StoreResourceNameTest` exercises bare nodes, sorted singletons and lazy filtered
-  singletons on all four paths, plus absent-name and multi-node controls. The oracle is the
-  S1–S3 resource-name contract and retrieval by name; automatic `resource1` rejects the singleton
+  singletons for database creation and resource addition, plus absent-name and multi-node controls.
+  The oracle is retrieval by name; automatic `resource1` rejects the named singleton
   case. Parser lookahead must consume the input once and close its iterator on every path.
 - Lesson: test cardinality independently of runtime representation; see [Lessons](../LESSONS.md).

@@ -361,9 +361,11 @@ For XML collections, the `sirix-query` module provides
 [`BasicXmlDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/node/BasicXmlDBStore.java).
 Its builder's resource settings, including `versioningType(...)`, apply to direct imports and
 resources added to collections returned by `create` or `lookup` — through `collection.add(...)`,
-`xn:store(..., false())`, or `xn:load(..., false())`. Reopening a collection with different store
+`xn:store(...)`, or `xn:load(...)`. Reopening a collection with different store
 settings affects future additions; existing resources retain their persisted configuration.
-The `numberOfNodesBeforeAutoCommit(...)` threshold applies only to direct store imports.
+The `numberOfNodesBeforeAutoCommit(...)` threshold applies to direct store imports and query
+store/load imports into existing databases. Ordinary `collection.add(...)` calls retain their
+unbounded write transactions.
 
 The single-argument `create(name)` overload of the XML store and
 [`BasicJsonDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/json/BasicJsonDBStore.java)

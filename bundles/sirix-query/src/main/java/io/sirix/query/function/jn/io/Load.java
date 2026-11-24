@@ -67,7 +67,7 @@ public final class Load extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param createIfNotExists determines if a new collection has to be created or not
+   * @param createIfNotExists whether this overload omits the explicit {@code $create-new} argument
    */
   public Load(final boolean createIfNotExists) {
     this(LOAD, createIfNotExists);
@@ -77,7 +77,7 @@ public final class Load extends AbstractFunction {
    * Constructor.
    *
    * @param name the function name
-   * @param createIfNotExists determines if a new collection has to be created or not
+   * @param createIfNotExists whether this overload omits the explicit {@code $create-new} argument
    */
   public Load(final QNm name, final boolean createIfNotExists) {
     super(name, createIfNotExists

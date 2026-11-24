@@ -86,8 +86,8 @@ tests = ["io.sirix.rest.CommitTimestampOutputTest"]
 class = "io.sirix.utils.ReplayWorkDiagnostics"
 tests = ["io.sirix.budget.LifecycleWorkBudgetTest"]
 
-# Store/load into an existing database (#1384): one contract for the four functions, the shared
-# target rule and the context-based delete check, specified in the two StoreIntoExistingDatabase
+# Store/load into an existing database (#1384): one contract for the four functions and the shared
+# target rule, specified in the two StoreIntoExistingDatabase
 # suites; the JSON collection's URI acquisition is specified by LoadSourceAcquisitionTest.
 [[association]]
 class = "io.sirix.query.function.jn.io.Load"

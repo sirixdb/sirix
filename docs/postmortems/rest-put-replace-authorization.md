@@ -26,7 +26,7 @@
 - Review follow-up: per-call lifecycle holds left authorization stale between creation and
   shredding, and XML authorization refusal occurred outside upload cleanup. One resource hold now
   covers creation, the complete write and failed-write cleanup on one worker thread, including
-  suspension and bulk creation; XML upload cleanup encloses transfer, authorization and writing.
+  suspension; XML upload cleanup encloses transfer, authorization and writing.
   `creationAndCleanupHoldAuthorizationThroughSuspension` serializes racing JSON/XML replacements,
   `aFailedWriteRemovesOnlyItsOwnNewResource` checks cleanup ownership, and
   `XmlCreateUploadCleanupTest` checks refused PUT upload deletion and unchanged persisted XML.

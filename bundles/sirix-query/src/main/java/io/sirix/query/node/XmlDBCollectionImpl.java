@@ -345,7 +345,9 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
     final XmlResourceSession resource = database.beginResourceSession(resourceName);
     final XmlNodeTrx wtx;
     try {
-      wtx = bulkImport ? resourceOptions.beginImportTrx(resource) : resource.beginNodeTrx();
+      wtx = bulkImport
+          ? resourceOptions.beginImportTrx(resource)
+          : resource.beginNodeTrx();
     } catch (final Exception e) {
       resource.close();
       throw e;
