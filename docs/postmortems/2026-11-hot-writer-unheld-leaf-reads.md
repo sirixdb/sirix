@@ -409,15 +409,17 @@ schedule, not the bound.
   structural splice is malformed (first: I5-leaf-constancy — child[…] stored partial … is not a
   subset of dense PEXT … of subtree key …)` on a trie whose bytes were sound; on the derived-index
   maintainer thread the same error marked that resource's maintenance poisoned. Seen on
-  `macos-latest / query` and `windows-latest / query` while [#1454](https://github.com/sirixdb/sirix/pull/1454)
-  was in CI, and reproducible on Linux with released frames zero-filled.
+  `macos-latest / query` and `windows-latest / query` while
+  [#1454](https://github.com/sirixdb/sirix/pull/1454) was in CI, and reproducible on Linux with
+  released frames zero-filled.
 - Trigger: `BitemporalStorageEpochEvictionTest.unboundedLoadMatchesColdPublicationsUnderEviction`
-  (its cache budget holds one HOT leaf) with `FrameSlotAllocator.setPoisonOnReleaseForTesting(true)`.
+  (its cache budget holds one HOT leaf) with
+  `FrameSlotAllocator.setPoisonOnReleaseForTesting(true)`.
 - Root cause: the same unguarded resolver. `HOTMalformedSubtreeDetector` checks `isClosed()` once
-  when it resolves a leaf and then reads `getFirstKey`, `getKey` and the entry count from that leaf's
-  slot memory, so a frame released and reused between the resolution and the read was judged as the
-  leaf's keys. It is the caller that must hold the leaf: the detector resolves through a
-  caller-supplied `PageResolver`, and the writer's is `traversalPageResolver`.
+  when it resolves a leaf and then reads `getFirstKey`, `getKey` and the entry count from that
+  leaf's slot memory, so a frame released and reused between the resolution and the read was
+  judged as the leaf's keys. It is the caller that must hold the leaf: the detector resolves
+  through a caller-supplied `PageResolver`, and the writer's is `traversalPageResolver`.
 - Why it no longer reproduces: `enterMutation` holds every cache-backed leaf this writer resolves
   through `resolveHOTPageForTraversal(ref)` until the mutation exits, and the validator and its
   bounded size preflight resolve through exactly that resolver, inside the mutation that published
@@ -435,10 +437,17 @@ schedule, not the bound.
   retired at the publication boundary, the last point before validation, and evicted again at every
   engine call, with released frames zero-filled. All three pass on `main` and all three fail with
   `mutationGuards()` forced to `null`: `MutationTraversalRefusal … status=UNRESOLVABLE_REFERENCE`
-  with a suppressed `whole-node endpoint proof status=0 beta=-1 first=0 last=0`, `IllegalStateException:
-  HOT published structural path is malformed at page 8`, and a consolidation that never publishes.
+  with a suppressed `whole-node endpoint proof status=0 beta=-1 first=0 last=0`,
+  `IllegalStateException: HOT published structural path is malformed at page 8`, and a consolidation
+  that never publishes.
   Run with `./gradlew :sirix-core:test --tests
   'io.sirix.index.hot.HOTStructuralValidatorLeafRetentionTest'`.
+- Also re-verified for [#1459](https://github.com/sirixdb/sirix/issues/1459), the writer half, which
+  this fix landed without a closing reference: its own guards still bind. All 45 tests of
+  `HOTIncrementalInsertLeafRetentionTest` and `HOTIndexWriterLeafRetentionTest` pass on `main`, and
+  8 of them fail with `mutationGuards()` forced to `null` — the crossing merge accepted, the ordered
+  merge mishandled, the two-leaf migration and all three consolidation cases, and the reclaimability
+  check. Nothing needed to be added for it.
 - Lesson: an issue can name its fix in a pull request that never merged while a different merged one
   already removed the cause; re-prove the defect on the current default branch before changing code,
   and score such a run by its log, not by its exit code. See [Lessons](../LESSONS.md).
