@@ -147,8 +147,8 @@ final class FormatRepairBoundaryTest {
           }
           return result;
         })) {
-          final SirixIOException refusal = assertThrows(SirixIOException.class,
-              () -> ResourceFormatCompatibility.verify(config));
+          final SirixIOException refusal =
+              assertThrows(SirixIOException.class, () -> ResourceFormatCompatibility.verify(config));
           assertTrue(messageChain(refusal).contains("Incomplete file header"), messageChain(refusal));
         }
         assertTrue(!pending.get(), "the header read must exercise the stalled descriptor");

@@ -1545,10 +1545,10 @@ with an identical 64-byte \textbf{superblock} (\code{io/sirix/io/Superblock.java
 validated fail-fast at open: the 8 ASCII magic bytes \code{SIRIXDB!}, layout version~0, a
 role byte (\code{DATA}/\allowbreak\code{REVISIONS}), an endianness-check word (\code{0x01020304}),
 geometry (beacon-slot size, primary-beacon offset, content-start), and an XXH3-64 CRC at
-byte~56 covering the \emph{leading 56 bytes} (it cannot checksum itself). \code{SuperblockValidator}
-memoises validated paths per-JVM and fails in a fixed order (too-short, all-zero, bad magic,
-wrong version, endianness mismatch, role mismatch, CRC mismatch), with the all-zero case carrying
-a distinct ``interrupted first commit / lost header'' message routed to recovery (\S\ref{sec:recovery}).
+byte~56 covering the \emph{leading 56 bytes} (it cannot checksum itself). The open-time format
+checks and recovery exceptions are owned by FMT-401 in \pp{spec/FMT-disk-format.md}.
+\code{SuperblockValidator} caches validation for subsequent channel creation;
+\code{ResourceFormatCompatibility} performs discovery at storage initialization.
 
 \dcap{The two-file on-disk layout}
 \begin{diagram}
@@ -1851,10 +1851,9 @@ redundancy} (selection follows the crash-window and store-feature contracts in
 \textbf{checksummed records and page bodies} (a torn record or page is caught before it is
 trusted); and \textbf{beacon repair} after truncation. The \textbf{interrupted-first-commit}
 gap (a crash before a resource's header/beacons exist, leaving a non-empty file with a
-zero header) is healed \emph{conservatively} by \code{InterruptedFirstCommitRecovery}: it
-re-initialises the resource empty only when the safety proof in
-\href{../bundles/sirix-core/src/main/java/io/sirix/io/InterruptedFirstCommitRecovery.java}{\code{InterruptedFirstCommitRecovery}}
-establishes that data and root metadata are disposable. If the proof fails, it rethrows the original failure.
+zero header) is handled by \code{InterruptedFirstCommitRecovery}. Empty-bootstrap eligibility and
+the format gate required before re-initialization are owned by FMT-401 in
+\pp{spec/FMT-disk-format.md}.
 
 \dcap{Dual-beacon recovery: which uber page wins after a crash}
 \begin{diagramS}
