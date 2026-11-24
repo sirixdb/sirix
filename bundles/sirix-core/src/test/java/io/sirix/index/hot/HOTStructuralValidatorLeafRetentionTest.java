@@ -45,15 +45,15 @@ import org.junit.jupiter.api.parallel.Isolated;
  * makes, including each of those resolutions, the same eviction runs again; after an unguarded leaf
  * handoff it runs <em>after</em> the engine returned the leaf, which is the race itself.
  * {@link FrameSlotAllocator#setPoisonOnReleaseForTesting} zero-fills a released frame, so a read of
- * one is not right by luck: every leaf of this shape holds keys that differ only in their last byte,
- * and a zeroed leaf reads them all as the bare common prefix, which no invariant accepts.
+ * one is not right by luck: every leaf of this shape holds keys that differ only in their last
+ * byte, and a zeroed leaf reads them all as the bare common prefix, which no invariant accepts.
  * </p>
  *
  * <p>
  * {@link HOTIndexWriterLeafRetentionTest} covers the writer's own sibling reads. This test is about
  * the validation that follows them: it resolves through the same mutation-wide retention
- * ({@code AbstractHOTIndexWriter.enterMutation}), and with that retention removed the detector reads
- * a frame it does not hold.
+ * ({@code AbstractHOTIndexWriter.enterMutation}), and with that retention removed the detector
+ * reads a frame it does not hold.
  * </p>
  */
 @Isolated
@@ -96,8 +96,8 @@ final class HOTStructuralValidatorLeafRetentionTest {
     final AtomicInteger publications = new AtomicInteger();
     final AtomicInteger heldAtPublication = new AtomicInteger();
     final AtomicInteger residentAtPublication = new AtomicInteger();
-    try (Fixture fixture = new Fixture(temporaryDirectory.resolve("validator-eviction"), VersioningType.FULL,
-        engine -> {
+    try (
+        Fixture fixture = new Fixture(temporaryDirectory.resolve("validator-eviction"), VersioningType.FULL, engine -> {
           adversary[0] = new HOTLeafEvictionAdversary(engine);
           return adversary[0].engine();
         })) {
@@ -135,8 +135,8 @@ final class HOTStructuralValidatorLeafRetentionTest {
       assertTrue(residentAtPublication.get() > 0,
           "the validator's leaves must be the page cache's, or this test cannot observe the rule");
       assertTrue(heldAtPublication.get() > 0,
-          "the mutation must hold the cache-backed leaves its validation reads: resident="
-              + residentAtPublication.get() + ", held=" + heldAtPublication.get());
+          "the mutation must hold the cache-backed leaves its validation reads: resident=" + residentAtPublication.get()
+              + ", held=" + heldAtPublication.get());
 
       assertArrayEquals(HOTConstructedShapeIntegrationTest.payload(3),
           ProjectionIndexHOTStorage.readBlob(fixture.engine, 0, slot(0xC0, 1)),
@@ -154,8 +154,8 @@ final class HOTStructuralValidatorLeafRetentionTest {
     final HOTLeafEvictionAdversary[] adversary = new HOTLeafEvictionAdversary[1];
     final AtomicInteger publications = new AtomicInteger();
     final AtomicInteger heldAtPublication = new AtomicInteger();
-    try (Fixture fixture = new Fixture(temporaryDirectory.resolve("validator-consolidation"), VersioningType.FULL,
-        engine -> {
+    try (Fixture fixture =
+        new Fixture(temporaryDirectory.resolve("validator-consolidation"), VersioningType.FULL, engine -> {
           adversary[0] = new HOTLeafEvictionAdversary(engine);
           return adversary[0].engine();
         })) {
@@ -215,11 +215,10 @@ final class HOTStructuralValidatorLeafRetentionTest {
     // the published scope is the root block, and validating it walks both subtrees below it.
     final HOTLeafEvictionAdversary[] adversary = new HOTLeafEvictionAdversary[1];
     final AtomicInteger publications = new AtomicInteger();
-    try (Fixture fixture =
-        new Fixture(temporaryDirectory.resolve("validator-subtree"), VersioningType.FULL, engine -> {
-          adversary[0] = new HOTLeafEvictionAdversary(engine);
-          return adversary[0].engine();
-        })) {
+    try (Fixture fixture = new Fixture(temporaryDirectory.resolve("validator-subtree"), VersioningType.FULL, engine -> {
+      adversary[0] = new HOTLeafEvictionAdversary(engine);
+      return adversary[0].engine();
+    })) {
       deepScopeShape(fixture);
       fixture.commitBaselineAndReopen();
 
