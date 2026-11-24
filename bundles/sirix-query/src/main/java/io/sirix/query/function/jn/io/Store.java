@@ -25,7 +25,7 @@ import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.ImportInput;
 import io.sirix.query.function.jn.JNFun;
-import io.sirix.query.function.ExistingResourceTarget;
+import io.sirix.query.function.FreeResourceName;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -105,7 +105,6 @@ public final class Store extends AbstractFunction {
       final String collectionName = FunUtil.getString(args, 0, "collectionName", "collection", null, true);
       final String resourceName = FunUtil.getString(args, 1, "resourceName", "resource", null, false);
       final Sequence resources = args[2];
-      final boolean createIfNotExists = args.length < 4 || args[3].booleanValue();
       final Object options;
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
 
@@ -140,7 +139,7 @@ public final class Store extends AbstractFunction {
           }
         }
       }
-      write(ctx, collection, collectionName, resourceName, nodes, createIfNotExists, options);
+      write(collection, collectionName, resourceName, nodes, options);
 
       return null;
     } catch (final Exception e) {
@@ -155,16 +154,15 @@ public final class Store extends AbstractFunction {
   }
 
   /**
-   * Write into the existing database: one item goes to {@code resourceName}, which is added, or
-   * replaced alone or refused per {@code createNew}; several items are added under new names.
+   * Write into the existing database: one item goes to {@code resourceName}, which is added when the
+   * name is free and refused when it is taken; several items are added under new automatic names.
    */
-  static void write(final QueryContext ctx, final JsonDBCollection collection, final String collectionName,
-      final String resourceName, final Sequence nodes, final boolean createNew, final Object options) {
+  static void write(final JsonDBCollection collection, final String collectionName, final String resourceName,
+      final Sequence nodes, final Object options) {
     if (nodes instanceof Str) {
       final var database = collection.getDatabase();
       try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
-        ExistingResourceTarget.prepare(ctx, JNFun.ERR_RESOURCE_EXISTS, collectionName, database, collection::remove,
-            resourceName, createNew);
+        FreeResourceName.require(JNFun.ERR_RESOURCE_EXISTS, collectionName, database, resourceName);
         add(collection, resourceName, nodes, options);
       }
     } else {

@@ -46,7 +46,6 @@ import io.vertx.ext.web.handler.HttpException
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -408,10 +407,10 @@ class QueryMutationAuthorizationTest {
      * the resource sessions they registered, which would close the session the assertions read.
      */
     /**
-     * CREATE alone must never change a resource that already exists. With create-new true the store
-     * would replace it, which needs MODIFY and DELETE (403); with create-new false an existing name is
-     * refused as a client error before anything is written (400, #1384). Either way the resource and
-     * its writer state are untouched.
+     * CREATE alone must never change a resource that already exists. A name that is taken is refused
+     * as a client error before anything is written (400, `SIRIXDBF0006`), whatever $create-new says:
+     * the query functions never replace a resource in place (#1384). The resource and its writer
+     * state are untouched.
      */
     @ParameterizedTest
     @CsvSource("store,true", "store,false", "load,true", "load,false")
@@ -425,7 +424,7 @@ class QueryMutationAuthorizationTest {
         withRoles("auth-view", "create") { fixture ->
             fixture.store.lookup("auth")!!.database.beginResourceSession("records1").use { session ->
                 val before = witness(session)
-                assertRefused(query, if (createNew) 403 else 400) { run(fixture, query, keycloak) }
+                assertRefused(query, 400) { run(fixture, query, keycloak) }
                 assertTrue(session.nodeTrx.isEmpty, "A refused store/load must leave no write transaction open")
                 assertWitnessUnchanged(before, witness(session), query)
             }
@@ -454,23 +453,23 @@ class QueryMutationAuthorizationTest {
     }
 
     /**
-     * Replacing an existing resource discards its history, so it needs CREATE, MODIFY and DELETE;
-     * any one missing is refused before anything changes.
+     * A name that is taken is refused however many roles the caller holds: the query functions never
+     * replace a resource in place, so no role combination turns the refusal into a write (#1384).
      */
     @ParameterizedTest
     @CsvSource(
-        "store,create", "store,create|modify", "store,create|delete",
-        "load,create", "load,create|modify", "load,create|delete"
+        "store,create", "store,create|modify", "store,create|delete", "store,create|modify|delete",
+        "load,create", "load,create|modify", "load,create|delete", "load,create|modify|delete"
     )
-    fun replacingAResourceNeedsCreateModifyAndDelete(function: String, roles: String) {
+    fun anExistingNameIsRefusedWhateverRolesAreHeld(function: String, roles: String) {
         createDatabase()
         val before = databaseWitness()
         val query = replacementQuery(function, "existing")
         withRoles("auth-view", *roles.split('|').toTypedArray()) { fixture ->
-            assertRefused(query) { run(fixture, query, Mockito.mock(OAuth2Auth::class.java)) }
+            assertRefused(query, 400) { run(fixture, query, Mockito.mock(OAuth2Auth::class.java)) }
         }
         val after = databaseWitness()
-        assertEquals(before.first, after.first, "A refused replacement changed the database resources")
+        assertEquals(before.first, after.first, "A refused store/load changed the database resources")
         assertWitnessUnchanged(before.second, after.second, query)
     }
 
@@ -541,15 +540,15 @@ class QueryMutationAuthorizationTest {
     }
 
     /**
-     * With CREATE, MODIFY and DELETE an existing name is replaced alone, with a new history; other
-     * names are added beside it. The database itself is never dropped (#1384).
+     * Holding MODIFY and DELETE besides CREATE adds resources beside the existing ones and still
+     * never replaces or drops anything: the extra roles buy no in-place replacement (#1384).
      */
     @ParameterizedTest
     @CsvSource(
-        "store,named", "store,existing", "store,generated", "store,multiple",
-        "load,named", "load,existing", "load,generated", "load,multiple"
+        "store,named", "store,generated", "store,multiple",
+        "load,named", "load,generated", "load,multiple"
     )
-    fun createModifyAndDeleteRolesReplaceOnlyTheNamedResource(function: String, target: String) {
+    fun createModifyAndDeleteRolesOnlyAddResources(function: String, target: String) {
         createDatabase()
         withRoles("auth-view", "create", "modify", "delete") { fixture ->
             run(fixture, replacementQuery(function, target), Mockito.mock(OAuth2Auth::class.java))
@@ -558,19 +557,15 @@ class QueryMutationAuthorizationTest {
         Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
             val expected = when (target) {
                 "named" -> setOf("records", "fresh")
-                "existing" -> setOf("records")
                 "generated" -> setOf("records", "resource")
                 "multiple" -> setOf("records", "resource1", "resource2")
                 else -> error(target)
             }
             assertEquals(expected, database.listResources().map { it.fileName.toString() }.toSet())
-            if (target == "existing") {
-                database.beginResourceSession("records").use { session ->
-                    assertEquals(1, session.mostRecentRevisionNumber, "A replaced resource starts a new history")
-                    session.beginNodeReadOnlyTrx().use { reader ->
-                        assertNotEquals(Instant.parse("2024-01-15T00:00:00Z"), reader.revisionTimestamp,
-                            "The head must be the replacement, not the fixture's original commit")
-                    }
+            database.beginResourceSession("records").use { session ->
+                session.beginNodeReadOnlyTrx().use { reader ->
+                    assertEquals(Instant.parse("2024-01-15T00:00:00Z"), reader.revisionTimestamp,
+                        "The existing resource must keep its original commit")
                 }
             }
         }

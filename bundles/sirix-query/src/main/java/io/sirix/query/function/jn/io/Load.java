@@ -28,7 +28,7 @@ import io.sirix.query.function.ImportInput;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.jn.JNFun;
-import io.sirix.query.function.ExistingResourceTarget;
+import io.sirix.query.function.FreeResourceName;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 
@@ -107,7 +107,6 @@ public final class Load extends AbstractFunction {
       final String collectionName = FunUtil.getString(args, 0, "collectionName", "collection", null, true);
       final String resourceName = FunUtil.getString(args, 1, "resourceName", "resource", null, false);
       final Sequence resources = args[2];
-      final boolean createIfNotExists = args.length < 4 || args[3].booleanValue();
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       final Object options;
 
@@ -154,8 +153,7 @@ public final class Load extends AbstractFunction {
             new JsonReader(new InputStreamReader(URIHandler.getInputStream(input.stringValue())))) {
           final var database = collection.getDatabase();
           try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
-            ExistingResourceTarget.prepare(ctx, JNFun.ERR_RESOURCE_EXISTS, collectionName, database, collection::remove,
-                resourceName, createIfNotExists);
+            FreeResourceName.require(JNFun.ERR_RESOURCE_EXISTS, collectionName, database, resourceName);
             collection.add(resourceName, reader, options);
           }
         }

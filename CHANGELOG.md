@@ -206,24 +206,6 @@ A pull request does not write its entry here: it adds one fragment file under
 
 ### Fixed
 
-- **REST PUT needs MODIFY and DELETE to replace an existing resource** — `PUT /:database/:resource`
-  replaced an existing resource, discarding its history, with only the CREATE role.
-  Replacing now also needs MODIFY and DELETE, checked before anything is
-  removed, the same rule as the query functions (REST-210). Creating a new resource still needs only
-  CREATE ([write-up](docs/postmortems/rest-put-replace-authorization.md), #1477).
-- **Automatic resource names are always new** — adding unnamed items to a collection (`jn:store`,
-  `jn:load`, `xn:store`, `xn:load` and the collection API) could pick a `resourceN` name that
-  already existed and write into that resource. Each item now claims the next free name by creating
-  it, so it never reaches an existing resource, also against a concurrent caller; CREATE suffices
-  ([write-up](docs/postmortems/automatic-resource-names.md), #1478).
-- **Storing into an existing database no longer drops it** (breaking) — `jn:store`, `jn:load`,
-  `xn:store` and `xn:load` used to delete and recreate the whole database whenever `$create-new`
-  was true (the default), destroying every other resource. Now a new resource name is added beside
-  the others. An existing name is replaced alone when `$create-new` is true (needs CREATE, MODIFY
-  and DELETE) and refused with `SIRIXDBF0006` when it is false. **Migration:** to replace a whole
-  database, call `jn:drop-database`/`xn:drop-database` first. To write into an existing resource,
-  use `jn:import`/`xn:import` instead of store/load with `$create-new` false
-  ([write-up](docs/postmortems/store-into-existing-database.md), #1384).
 - **`xn:store` authorizes CREATE at the query function**, as `xn:load` and `jn:store` do. The REST
   API already refused it through its store decorators; embedders relying on the query-function
   check were not covered ([write-up](docs/postmortems/xml-store-create-authorization.md), #1473).
@@ -232,8 +214,8 @@ A pull request does not write its entry here: it adds one fragment file under
   and exits with -1 if any query failed. LF and CRLF scripts yield the same query text on every
   platform; other separator characters remain query content. Before, it could not run any query
   ([write-up](docs/postmortems/shell-query-script-mode.md), #1470).
-- **`xn:store` stores a single node under the given resource name** in new and existing databases,
-  including singleton sequences, as `xn:load` and `jn:store` do; before, creation and
+- **`xn:store` stores a single node under the given resource name** on creation, recreation and
+  append, including singleton sequences, as `xn:load` and `jn:store` do; before, creation and
   singleton sequences stored the document under an automatic name
   ([write-up](docs/postmortems/xml-store-resource-name.md), #1471).
 - **The shell returns to its prompt after any query failure, and failed updates no longer leak** —

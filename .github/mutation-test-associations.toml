@@ -98,7 +98,7 @@ class = "io.sirix.query.function.xml.io.Load"
 tests = ["io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest", "io.sirix.query.node.XmlDBCollectionAutomaticNamesTest", "io.sirix.query.LoadSourceAcquisitionTest"]
 
 [[association]]
-class = "io.sirix.query.function.ExistingResourceTarget"
+class = "io.sirix.query.function.FreeResourceName"
 tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest", "io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest"]
 
 [[association]]

@@ -23,7 +23,7 @@ import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.brackit.query.util.io.URIHandler;
 import io.sirix.query.function.DateTimeToInstant;
-import io.sirix.query.function.ExistingResourceTarget;
+import io.sirix.query.function.FreeResourceName;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBStore;
@@ -111,7 +111,6 @@ public final class Load extends AbstractFunction {
       if (resources == null) {
         throw new QueryException(new QNm("No sequence of resources specified!"));
       }
-      final boolean createNew = args.length < 4 || args[3].booleanValue();
       final String commitMessage = args.length >= 5
           ? FunUtil.getString(args, 4, "commitMessage", null, null, false)
           : null;
@@ -143,8 +142,7 @@ public final class Load extends AbstractFunction {
         if (singleton && resName != null) {
           final var database = coll.getDatabase();
           try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resName)) {
-            ExistingResourceTarget.prepare(ctx, XMLFun.ERR_RESOURCE_EXISTS, collName, database, coll::remove, resName,
-                createNew);
+            FreeResourceName.require(XMLFun.ERR_RESOURCE_EXISTS, collName, database, resName);
             add(coll, resName, parsers, commitMessage, commitTimestamp);
           }
         } else {

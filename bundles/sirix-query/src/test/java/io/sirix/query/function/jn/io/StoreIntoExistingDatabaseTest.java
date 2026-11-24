@@ -5,18 +5,11 @@ import com.google.gson.JsonPrimitive;
 import io.sirix.access.MutationGate;
 import io.brackit.query.QueryException;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.query.MutationAuthorizer;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
-import io.sirix.query.SirixQueryContext.CommitStrategy;
-import io.sirix.query.compiler.optimizer.PlanCache;
-import io.sirix.query.compiler.optimizer.stats.Histogram;
-import io.sirix.query.compiler.optimizer.stats.HistogramCollector;
-import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.function.jn.JNFun;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
-import io.sirix.query.node.XmlDBStore;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -27,25 +20,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.withSettings;
 
 /**
- * {@code jn:store} and {@code jn:load} into an existing database (#1384): a new resource name adds
- * the resource; an existing name is replaced alone when {@code $create-new} is true and refused
- * when it is false. No call drops the database, and every other resource keeps its content,
- * revisions and indexes.
+ * {@code jn:store} and {@code jn:load} into an existing database (#1384): a free resource name adds
+ * the resource; a name that is taken is refused with {@code SIRIXDBF0006} and nothing is written,
+ * whatever {@code $create-new} says. No call drops the database or replaces a resource in place, and
+ * every other resource keeps its content, revisions and indexes.
  */
 final class StoreIntoExistingDatabaseTest {
   private static final String OTHER = "jn:doc('db','other')";
@@ -72,15 +56,19 @@ final class StoreIntoExistingDatabaseTest {
           : content.resolve("new.json").toUri().toString();
       store.create("inputs", "values", "[" + new JsonPrimitive(source) + "]");
       final String input = "(for $v in jn:doc('inputs','values')[] return $v)";
-      final QueryException refused = assertThrows(QueryException.class,
-          () -> run(chain, context, "jn:" + function + "('db','first'," + input + ",false())"));
-      assertEquals(JNFun.ERR_RESOURCE_EXISTS, refused.getCode());
-      assertEquals(2, revisions(store, "first"));
-      assertEquals(List.of("first", "other"), resources(store));
-      run(chain, context, "jn:" + function + "('db','first'," + input + ")");
-      assertEquals("{\"v\":\"new\"}", run(chain, context, "jn:doc('db','first')"));
-      assertEquals(1, revisions(store, "first"));
-      assertEquals(List.of("first", "other"), resources(store));
+      // The singleton is one item that is not represented as one string, so it must still reach the
+      // NAMED target: a taken name is refused instead of the item landing on an automatic name.
+      for (final String flag : new String[] {"", ",true()", ",false()"}) {
+        final QueryException refused = assertThrows(QueryException.class,
+            () -> run(chain, context, "jn:" + function + "('db','first'," + input + flag + ")"), flag);
+        assertEquals(JNFun.ERR_RESOURCE_EXISTS, refused.getCode(), flag);
+        assertEquals(2, revisions(store, "first"), flag);
+        assertEquals(List.of("first", "other"), resources(store), flag);
+      }
+      run(chain, context, "jn:" + function + "('db','added'," + input + ")");
+      assertEquals("{\"v\":\"new\"}", run(chain, context, "jn:doc('db','added')"));
+      assertEquals(1, revisions(store, "added"));
+      assertEquals(List.of("added", "first", "other"), resources(store));
       run(chain, context, "jn:" + function + "('created','chosen'," + input + ")");
       assertEquals("{\"v\":\"new\"}", run(chain, context, "jn:doc('created','chosen')"));
     });
@@ -100,36 +88,25 @@ final class StoreIntoExistingDatabaseTest {
     }
   }
 
+  /**
+   * A name that is already taken is refused with {@code SIRIXDBF0006} and nothing is written, for
+   * every spelling of {@code $create-new}: these functions never replace a resource in place.
+   */
   @ParameterizedTest
   @ValueSource(strings = {"store", "load"})
-  void anExistingNameIsReplacedAloneWithANewHistoryWhenCreateNewIsTrue(final String function) {
-    for (final String flag : new String[] {"", ",true()"}) {
+  void anExistingNameIsRefusedUnchangedWhateverCreateNewSays(final String function) {
+    for (final String flag : new String[] {"", ",true()", ",false()"}) {
       withDatabase(function + flag, (chain, context, store) -> {
-        // The query context already holds a session on the resource it replaces.
-        assertEquals("{\"v\":\"first-2\"}", run(chain, context, "jn:doc('db','first')"));
         final Witness before = witness(chain, context, store);
-        run(chain, context, call(function, "'first'", "new", flag));
-        assertEquals(List.of("first", "other"), resources(store));
-        assertEquals("{\"v\":\"new\"}", run(chain, context, "jn:doc('db','first')"));
-        assertEquals(1, revisions(store, "first"), "a replaced resource starts a new history");
+        final QueryException refused = assertThrows(QueryException.class,
+            () -> run(chain, context, call(function, "'first'", "new", flag)), function + flag);
+        assertEquals(JNFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
+        assertEquals(List.of("first", "other"), resources(store), function + flag);
+        assertEquals("{\"v\":\"first-2\"}", run(chain, context, "jn:doc('db','first')"), function + flag);
+        assertEquals(2, revisions(store, "first"), function + flag);
         assertEquals(before, witness(chain, context, store), function + flag);
       });
     }
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"store", "load"})
-  void anExistingNameIsRefusedUnchangedWhenCreateNewIsFalse(final String function) {
-    withDatabase(function, (chain, context, store) -> {
-      final Witness before = witness(chain, context, store);
-      final QueryException refused =
-          assertThrows(QueryException.class, () -> run(chain, context, call(function, "'first'", "new", ",false()")));
-      assertEquals(JNFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
-      assertEquals(List.of("first", "other"), resources(store));
-      assertEquals("{\"v\":\"first-2\"}", run(chain, context, "jn:doc('db','first')"));
-      assertEquals(2, revisions(store, "first"));
-      assertEquals(before, witness(chain, context, store));
-    });
   }
 
   @ParameterizedTest
@@ -156,48 +133,6 @@ final class StoreIntoExistingDatabaseTest {
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
       run(chain, context, call(function, "'first'", "new", ",false()").replace("'db'", "'created'"));
       assertEquals("{\"v\":\"new\"}", run(chain, context, "jn:doc('created','first')"));
-    }
-  }
-
-  /**
-   * Replacing discards the resource's history, so it needs write and delete permission besides the
-   * create permission; a refusal leaves the resource as it was.
-   */
-  @ParameterizedTest
-  @CsvSource({"store,write", "store,delete", "load,write", "load,delete"})
-  void replacingNeedsWriteAndDeletePermission(final String function, final String refusedPermission) {
-    withDatabase(function + refusedPermission, (chain, context, store) -> {
-      final XmlDBStore refusing = authorizer();
-      final SecurityException refusal = new SecurityException(refusedPermission + " refused");
-      if ("write".equals(refusedPermission)) {
-        doThrow(refusal).when((MutationAuthorizer) refusing).authorizeWrite(any(), any());
-      } else {
-        doThrow(refusal).when((MutationAuthorizer) refusing).authorizeDelete(any());
-      }
-      final QueryException refused = assertThrows(QueryException.class,
-          () -> runAuthorized(store, refusing, call(function, "'first'", "new", "")));
-      assertSame(refusal, refused.getCause(), refused.getMessage());
-      assertEquals("{\"v\":\"first-2\"}", run(chain, context, "jn:doc('db','first')"));
-      assertEquals(2, revisions(store, "first"));
-
-      final XmlDBStore granting = authorizer();
-      runAuthorized(store, granting, call(function, "'first'", "new", ""));
-      verify((MutationAuthorizer) granting).authorizeWrite("db", "first");
-      verify((MutationAuthorizer) granting).authorizeDelete("db");
-      assertEquals(1, revisions(store, "first"));
-    });
-  }
-
-  /** A context store that authorizes mutations, as the REST stores are; the JSON store is real. */
-  private static XmlDBStore authorizer() {
-    return mock(XmlDBStore.class, withSettings().extraInterfaces(MutationAuthorizer.class));
-  }
-
-  private static void runAuthorized(final BasicJsonDBStore store, final XmlDBStore authorizer, final String query) {
-    try (final SirixCompileChain chain = SirixCompileChain.createWithNodeAndJsonStore(authorizer, store);
-        final SirixQueryContext context = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(authorizer,
-            store, CommitStrategy.AUTO)) {
-      new Query(chain, query).execute(context);
     }
   }
 
@@ -236,39 +171,6 @@ final class StoreIntoExistingDatabaseTest {
       caller.join();
       assertEquals(List.of("added", "racer"), resources(store));
       assertEquals("{\"v\":\"racer\"}", run(chain, context, "jn:doc('db','racer')"));
-    }
-  }
-
-  /**
-   * A replacement starts a new history, so statistics of the replaced resource are dropped and cached
-   * plans are invalidated (its indexes are gone); another resource's statistics are kept.
-   */
-  @ParameterizedTest
-  @ValueSource(strings = {"store", "load"})
-  void replacingDropsTheReplacedResourcesStatisticsAndInvalidatesPlans(final String function) throws IOException {
-    Files.writeString(content.resolve("numbers.json"), "{\"n\":[7,8]}");
-    final StatisticsCatalog catalog = StatisticsCatalog.getInstance();
-    try (
-        final BasicJsonDBStore store =
-            BasicJsonDBStore.newBuilder().location(directory.resolve(function)).buildPathSummary(true).build();
-        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
-        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
-      run(chain, context, "jn:store('stats','first','{\"n\":[1,2]}')");
-      run(chain, context, "jn:store('stats','other','{\"n\":[5,6]}',false())");
-      final HistogramCollector collector = new HistogramCollector(store);
-      assertTrue(collector.collectAndRegister("stats", "first", "n"));
-      assertTrue(collector.collectAndRegister("stats", "other", "n"));
-      final Histogram kept = catalog.get("stats", "other", "n");
-      final long version = PlanCache.indexSchemaVersion();
-      final String input = "store".equals(function)
-          ? "'{\"n\":[7,8]}'"
-          : "'" + content.resolve("numbers.json").toUri() + "'";
-      run(chain, context, "jn:" + function + "('stats','first'," + input + ")");
-      assertNull(catalog.get("stats", "first", "n"), "statistics of the replaced history must be dropped");
-      assertSame(kept, catalog.get("stats", "other", "n"));
-      assertTrue(PlanCache.indexSchemaVersion() > version, "plans using the replaced resource's indexes are stale");
-    } finally {
-      catalog.invalidateDatabase("stats");
     }
   }
 

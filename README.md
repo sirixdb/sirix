@@ -254,16 +254,18 @@ xn:store('names', (), <root>
 `xn:store($coll, $res, $nodes, $create-new)` and the sibling `jn:store`, `jn:load` and
 `xn:load` functions create a database only when it is missing; they never drop an existing
 database. A single input uses `$res`, including singleton sorted
-or lazy sequences. A new resource name is added beside existing resources. If the name already
-exists, `$create-new = true()` (the default) replaces only that resource, discarding its history
-and starting a new one; `false()` raises `SIRIXDBF0006` without writing. Every other resource
-keeps its content, revisions and indexes. Use `jn:import`/`xn:import` below to update a resource
-while preserving its history; see the [migration notes](CHANGELOG.md) for whole-database replacement.
+or lazy sequences. A free resource name is added beside existing resources. A name that is already
+taken raises `SIRIXDBF0006` and writes nothing, whatever `$create-new` says: these functions never
+replace a resource in place. Every other resource keeps its content, revisions and indexes. Use
+`jn:import`/`xn:import` below to update a resource while preserving its history, drop the resource
+first to put unrelated content under its name, and see the [migration notes](CHANGELOG.md) for
+whole-database replacement.
 
 Several inputs use new automatic `resourceN` names regardless of `$res` or `$create-new`.
 Automatic naming skips names already in use, including names claimed by concurrent callers.
-With `$res = ()`, `xn:store` uses `resource1` for a single node in a new database and
-`resource` in an existing database; `xn:load` uses automatic names in either case.
+With `$res = ()`, `xn:store` uses `resource1` for a single node in a new database and `resource`
+in an existing database, so storing a second unnamed single node into the same database is refused
+until that resource is dropped; `xn:load` uses automatic names in either case.
 
 For embedded Java/CLI queries, `xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
 `xn:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds

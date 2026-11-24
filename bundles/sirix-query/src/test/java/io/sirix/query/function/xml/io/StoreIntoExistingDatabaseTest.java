@@ -26,9 +26,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * {@code xn:store} and {@code xn:load} into an existing database (#1384), with the same rule as
- * {@code jn:store} and {@code jn:load}: a new resource name adds the resource; an existing name is
- * replaced alone when {@code $create-new} is true and refused when it is false. No call drops the
- * database, and every other resource keeps its content, revisions and indexes.
+ * {@code jn:store} and {@code jn:load}: a free resource name adds the resource; a name that is taken
+ * is refused with {@code SIRIXDBF0006} and nothing is written, whatever {@code $create-new} says. No
+ * call drops the database or replaces a resource in place, and every other resource keeps its
+ * content, revisions and indexes.
  */
 final class StoreIntoExistingDatabaseTest {
   private static final String OTHER = "xn:doc('db','other')";
@@ -58,36 +59,25 @@ final class StoreIntoExistingDatabaseTest {
     }
   }
 
+  /**
+   * A name that is already taken is refused with {@code SIRIXDBF0006} and nothing is written, for
+   * every spelling of {@code $create-new}: these functions never replace a resource in place.
+   */
   @ParameterizedTest
   @ValueSource(strings = {"store", "load"})
-  void anExistingNameIsReplacedAloneWithANewHistoryWhenCreateNewIsTrue(final String function) {
-    for (final String flag : new String[] {"", ",true()"}) {
+  void anExistingNameIsRefusedUnchangedWhateverCreateNewSays(final String function) {
+    for (final String flag : new String[] {"", ",true()", ",false()"}) {
       withDatabase(function + flag, (chain, context, store) -> {
-        // The query context already holds a session on the resource it replaces.
-        assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"));
         final Witness before = witness(chain, context, store);
-        run(chain, context, call(function, "first", flag));
-        assertEquals(List.of("first", "other"), resources(store));
-        assertEquals("<v>new</v>", run(chain, context, "xn:doc('db','first')"));
-        assertEquals(1, revisions(store, "first"), "a replaced resource starts a new history");
+        final QueryException refused = assertThrows(QueryException.class,
+            () -> run(chain, context, call(function, "first", flag)), function + flag);
+        assertEquals(XMLFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
+        assertEquals(List.of("first", "other"), resources(store), function + flag);
+        assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"), function + flag);
+        assertEquals(2, revisions(store, "first"), function + flag);
         assertEquals(before, witness(chain, context, store), function + flag);
       });
     }
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"store", "load"})
-  void anExistingNameIsRefusedUnchangedWhenCreateNewIsFalse(final String function) {
-    withDatabase(function, (chain, context, store) -> {
-      final Witness before = witness(chain, context, store);
-      final QueryException refused =
-          assertThrows(QueryException.class, () -> run(chain, context, call(function, "first", ",false()")));
-      assertEquals(XMLFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
-      assertEquals(List.of("first", "other"), resources(store));
-      assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"));
-      assertEquals(2, revisions(store, "first"));
-      assertEquals(before, witness(chain, context, store));
-    });
   }
 
   @ParameterizedTest
@@ -127,12 +117,14 @@ final class StoreIntoExistingDatabaseTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"", "/*"})
-  void replacementCanReadItsOwnStoredInput(final String axis) {
+  void aSelfReferentialInputIsRefusedUnchanged(final String axis) {
     withDatabase("self" + axis.length(), (chain, context, store) -> {
-      run(chain, context, "xn:store('db','first',xn:doc('db','first')" + axis + ")");
-      assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"));
-      assertEquals(1, revisions(store, "first"));
-      assertEquals(List.of("first", "other"), resources(store));
+      final QueryException refused = assertThrows(QueryException.class,
+          () -> run(chain, context, "xn:store('db','first',xn:doc('db','first')" + axis + ")"), axis);
+      assertEquals(XMLFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
+      assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"), axis);
+      assertEquals(2, revisions(store, "first"), axis);
+      assertEquals(List.of("first", "other"), resources(store), axis);
     });
   }
 

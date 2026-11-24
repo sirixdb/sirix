@@ -1,7 +1,9 @@
 package io.sirix.query.function.xml.io;
 
 import io.brackit.query.Query;
+import io.brackit.query.QueryException;
 import io.sirix.query.SirixCompileChain;
+import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
 import java.io.PrintWriter;
@@ -13,6 +15,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * {@code xn:store($coll, $res, $nodes, $create-new)} stores a single node as resource {@code $res}
@@ -62,7 +65,10 @@ final class StoreResourceNameTest {
       assertEquals(List.of("resource1"), resources(store, "unnamed"));
       run(chain, context, "xn:store('unnamed',()," + one + ",false())");
       assertEquals(List.of("resource", "resource1"), resources(store, "unnamed"));
-      run(chain, context, "xn:store('unnamed',()," + one + ")");
+      // "resource" is now taken, and a taken name is refused whatever $create-new says (#1384).
+      final QueryException refused =
+          assertThrows(QueryException.class, () -> run(chain, context, "xn:store('unnamed',()," + one + ")"));
+      assertEquals(XMLFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
       assertEquals(List.of("resource", "resource1"), resources(store, "unnamed"));
       run(chain, context, "xn:store('unnamed-missing',()," + one + ",false())");
       assertEquals(List.of("resource1"), resources(store, "unnamed-missing"));

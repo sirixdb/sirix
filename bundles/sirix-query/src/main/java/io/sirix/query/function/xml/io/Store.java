@@ -27,7 +27,7 @@ import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.sirix.access.MutationGate;
 import io.sirix.query.MutationAuthorization;
-import io.sirix.query.function.ExistingResourceTarget;
+import io.sirix.query.function.FreeResourceName;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.xml.XMLFun;
@@ -113,7 +113,6 @@ public final class Store extends AbstractFunction {
       if (nodes == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));
       }
-      final boolean createNew = args.length < 4 || args[3].booleanValue();
 
       final String commitMessage = args.length >= 5
           ? FunUtil.getString(args, 4, "commitMessage", null, null, false)
@@ -161,12 +160,8 @@ public final class Store extends AbstractFunction {
           final var database = coll.getDatabase();
           try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), target)) {
             final NodeSubtreeParser input = parsers.next();
-            final NodeSubtreeParser readable = createNew && database.existsResource(target)
-                ? new StoreParser(ctx.getNodeFactory().build(input))
-                : input;
-            ExistingResourceTarget.prepare(ctx, XMLFun.ERR_RESOURCE_EXISTS, collName, database, coll::remove, target,
-                createNew);
-            coll.add(target, readable, commitMessage, commitTimesstamp).getTrx().close();
+            FreeResourceName.require(XMLFun.ERR_RESOURCE_EXISTS, collName, database, target);
+            coll.add(target, input, commitMessage, commitTimesstamp).getTrx().close();
           }
         } else {
           final List<NodeSubtreeParser> inputs = new ArrayList<>();
