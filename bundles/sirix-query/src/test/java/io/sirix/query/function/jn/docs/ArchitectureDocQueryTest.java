@@ -4,17 +4,14 @@ import io.brackit.query.Query;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.io.IOUtils;
 import io.brackit.query.util.serialize.StringSerializer;
-import io.sirix.JsonTestHelper;
-import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.query.json.BasicJsonDBStore;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 
@@ -29,17 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public final class ArchitectureDocQueryTest {
 
-  private static final Path SIRIX_DB_PATH = PATHS.PATH1.getFile();
-
-  @BeforeEach
-  void setUp() {
-    JsonTestHelper.deleteEverything();
-  }
-
-  @AfterEach
-  void tearDown() {
-    JsonTestHelper.deleteEverything();
-  }
+  @TempDir
+  Path directory;
 
   /**
    * Tests for Problem 1: "What did my data look like last Tuesday at 3pm?" Query: Point-in-time
@@ -52,7 +40,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Query state at specific revision using jn:doc with revision")
     void testQueryAtRevision() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -100,9 +88,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Get structured diff between two revisions")
     void testDiffBetweenRevisions() {
-      try (
-          final var store =
-              BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).storeDeweyIds(true).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).storeDeweyIds(true).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -146,7 +132,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Track node across all revisions with jn:all-times")
     void testAllTimesQuery() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -187,9 +173,7 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Get hash of node with sdb:hash")
     void testHashFunction() {
       // Node hashes are off by default since 1.0, so a test of sdb:hash opts in explicitly.
-      try (
-          final var store =
-              BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).hashType(HashType.ROLLING).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).hashType(HashType.ROLLING).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -218,7 +202,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Detect new records with jn:previous returning empty")
     void testDetectNewRecords() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -264,7 +248,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Get node key with sdb:nodekey")
     void testGetNodeKey() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -283,7 +267,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Select item by node key with sdb:select-item")
     void testSelectItemByNodeKey() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -323,7 +307,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Compare data across revisions")
     void testCrossRevisionComparison() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -370,7 +354,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Get revision number with sdb:revision")
     void testGetRevision() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -390,7 +374,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Get timestamp with sdb:timestamp")
     void testGetTimestamp() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -415,7 +399,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Navigate with jn:previous")
     void testJnPrevious() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -445,7 +429,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Navigate with jn:next")
     void testJnNext() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -475,7 +459,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Find first existing with jn:first-existing")
     void testFirstExisting() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -499,7 +483,7 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Find last existing with jn:last-existing")
     void testLastExisting() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 

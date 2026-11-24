@@ -139,10 +139,10 @@ final class ShellPromptTest {
         assertEquals("[2]", serialize(chain, ctx, "jn:doc(" + arguments + ")"));
         assertEquals("2", serialize(chain, ctx, "sdb:revision(jn:doc(" + arguments + "))"));
       }
-      executeAndObserve(chain, ctx, prompt, "jn:store('a&amp;b','products','[9]')");
+      executeAndObserve(chain, ctx, prompt, "jn:store('a&amp;b','fresh','[9]')");
       assertEquals("sirix> ", prompt.text());
-      assertEquals("[9]", serialize(chain, ctx, "jn:doc('a&amp;b','products')"));
-      assertEquals("1", serialize(chain, ctx, "sdb:revision(jn:doc('a&amp;b','products'))"));
+      assertEquals("[9]", serialize(chain, ctx, "jn:doc('a&amp;b','fresh')"));
+      assertEquals("1", serialize(chain, ctx, "sdb:revision(jn:doc('a&amp;b','fresh'))"));
       executeAndObserve(chain, ctx, prompt, "jn:store('plain','products','[7]')");
       assertEquals("sirix plain/products@1> ", prompt.text());
     }

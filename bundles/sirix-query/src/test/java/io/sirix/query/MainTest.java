@@ -255,8 +255,9 @@ final class MainTest {
       "file,false", "file,true"})
   void multilineFailuresHaveOneReportLineAndKeepDebugDiagnostics(final String mode, final boolean debug)
       throws Exception {
-    final String store = "jn:store('report-lines','r','{}')";
-    final String missing = "jn:doc('report-lines',concat('bad/',codepoints-to-string(10),'name'))";
+    final String database = directory.resolve("report-lines").toString().replace('\\', '/').replace("'", "''");
+    final String store = "jn:store('" + database + "','r','{}')";
+    final String missing = "jn:doc('" + database + "',concat('bad/',codepoints-to-string(10),'name'))";
     final String queryError = "error(xs:QName('err:FOER0000'),concat('query',codepoints-to-string(10),'detail'))";
     final String script = String.join("\n\n", store, missing, queryError, "1+1");
     final Path file = directory.resolve("error-reports.xq");

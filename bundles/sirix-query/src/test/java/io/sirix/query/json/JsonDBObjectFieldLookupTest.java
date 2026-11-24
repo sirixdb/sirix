@@ -20,7 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * Pins the semantics of {@code JsonDBObject}'s field lookup after it stopped going through
  * {@code new FilterAxis<>(new ChildAxis(rtx), new JsonNameFilter(rtx, field))}.
  *
- * <p>That axis cost three objects plus a capturing lambda on every field access, and compared
+ * <p>
+ * That axis cost three objects plus a capturing lambda on every field access, and compared
  * {@link io.brackit.query.atomic.QNm} objects — materializing a name and doing string equality for
  * each child visited. A scan binds a FRESH object per record, so the memoizing map those
  * allocations filled was discarded immediately; allocation profiling of a 290k-record filter scan
@@ -28,11 +29,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * compares the dictionary's raw UTF-8 name bytes against a needle encoded once per lookup, so no
  * name is materialized per child visited.
  *
- * <p>Hand-written cursor code has to reproduce three things the axis did for free, and each case
- * below pins one of them:
+ * <p>
+ * Hand-written cursor code has to reproduce three things the axis did for free, and each case below
+ * pins one of them:
  * <ul>
- * <li>a match leaves the cursor ON the matching node, which under record fusion IS the value — so
- * a nested object or array must come back whole rather than collapsed to its first field;</li>
+ * <li>a match leaves the cursor ON the matching node, which under record fusion IS the value — so a
+ * nested object or array must come back whole rather than collapsed to its first field;</li>
  * <li>a miss resets the cursor to the object, mirroring {@code AbstractAxis.resetToStartKey()};
  * without it the NEXT lookup on the same object starts from wherever the failed walk stopped;</li>
  * <li>a name no record in the resource carries must be a miss rather than a false match.</li>
@@ -63,9 +65,10 @@ public final class JsonDBObjectFieldLookupTest {
   }
 
   private static String run(final String query, final String doc) {
+    JsonTestHelper.deleteEverything();
     try (final var store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).build();
-         final var ctx = SirixQueryContext.createWithJsonStore(store);
-         final var chain = SirixCompileChain.createWithJsonStore(store)) {
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + doc.replace("'", "''") + "')").evaluate(ctx);
       final var out = new ByteArrayOutputStream();
       try (final var pw = new PrintWriter(out, false, StandardCharsets.UTF_8)) {
@@ -100,7 +103,7 @@ public final class JsonDBObjectFieldLookupTest {
     assertEquals("\"only\"", field("$d.a", "{\"a\":\"only\"}"), "the sole field must resolve");
     assertEquals("", field("$d.b", "{\"a\":\"only\"}"), "a different name must still miss");
     assertEquals("\"only\"", field("($d.b, $d.a)", "{\"a\":\"only\"}"),
-                 "a miss before the sole field must not hide it");
+        "a miss before the sole field must not hide it");
   }
 
   @Test
@@ -139,29 +142,22 @@ public final class JsonDBObjectFieldLookupTest {
     // one, so a leading miss cached an empty match and reported every existing field missing.
     // This ordering is the reproduction — with the miss LAST or in the middle it passes either
     // way, because a hit caches a non-empty match first.
-    assertEquals("\"Saleslady\"",
-                 field("($d.nosuchfield, $d.title)"),
-                 "a miss looked up FIRST must not hide a field that exists");
+    assertEquals("\"Saleslady\"", field("($d.nosuchfield, $d.title)"),
+        "a miss looked up FIRST must not hide a field that exists");
 
-    assertEquals("\"Saleslady\" 1938",
-                 field("($d.nosuchfield, $d.title, $d.year)"),
-                 "a leading miss must not hide any later field");
+    assertEquals("\"Saleslady\" 1938", field("($d.nosuchfield, $d.title, $d.year)"),
+        "a leading miss must not hide any later field");
 
-    assertEquals("\"Saleslady\"",
-                 field("($d.nope1, $d.nope2, $d.title)"),
-                 "two leading misses must still not hide an existing field");
+    assertEquals("\"Saleslady\"", field("($d.nope1, $d.nope2, $d.title)"),
+        "two leading misses must still not hide an existing field");
 
-    assertEquals("\"Saleslady\" 1938",
-                 field("($d.title, $d.nosuchfield, $d.year)"),
-                 "a hit AFTER a miss on the same object must still resolve");
+    assertEquals("\"Saleslady\" 1938", field("($d.title, $d.nosuchfield, $d.year)"),
+        "a hit AFTER a miss on the same object must still resolve");
 
-    assertEquals("1938 1938",
-                 field("($d.year, $d.mmmissing, $d.year)"),
-                 "hits on either side of a miss must agree");
+    assertEquals("1938 1938", field("($d.year, $d.mmmissing, $d.year)"), "hits on either side of a miss must agree");
 
-    assertEquals("\"Saleslady\" \"Saleslady\"",
-                 field("($d.title, $d.nosuchfield, $d.title)"),
-                 "a hit, a miss, then the same hit again must agree");
+    assertEquals("\"Saleslady\" \"Saleslady\"", field("($d.title, $d.nosuchfield, $d.title)"),
+        "a hit, a miss, then the same hit again must agree");
   }
 
   @Test
@@ -172,7 +168,7 @@ public final class JsonDBObjectFieldLookupTest {
     // the same object can use it.
     assertEquals("", field("$d.zzzNeverStoredAnywhere"));
     assertEquals("\"Saleslady\" 1938", field("($d.title, $d.zzzNeverStoredAnywhere, $d.year)"),
-                 "a miss must leave the cursor usable");
+        "a miss must leave the cursor usable");
   }
 
   @Test
@@ -184,15 +180,15 @@ public final class JsonDBObjectFieldLookupTest {
     //
     // Two distinct defects met here, and this case pins both closed:
     //
-    //  * comparing rtx.getNameKey() against keyForName(field) matched Aa's record for a lookup of
-    //    BB — a silent WRONG VALUE ($d.BB gave 1), with BB's own record unreachable. The walk now
-    //    compares the dictionary's raw name bytes, which are per-name and cannot collide.
+    // * comparing rtx.getNameKey() against keyForName(field) matched Aa's record for a lookup of
+    // BB — a silent WRONG VALUE ($d.BB gave 1), with BB's own record unreachable. The walk now
+    // compares the dictionary's raw name bytes, which are per-name and cannot collide.
     //
-    //  * the path summary collapsed colliding names into a single node, so
-    //    PathSummaryReader.match("BB") was empty and the "this field cannot exist here" short
-    //    circuit reported an EXISTING field as MISSING ($d.BB gave the empty sequence). The short
-    //    circuit is gone from the lookup AND the summary keeps a node per name, so this case
-    //    holds whichever of the two a later change touches.
+    // * the path summary collapsed colliding names into a single node, so
+    // PathSummaryReader.match("BB") was empty and the "this field cannot exist here" short
+    // circuit reported an EXISTING field as MISSING ($d.BB gave the empty sequence). The short
+    // circuit is gone from the lookup AND the summary keeps a node per name, so this case
+    // holds whichever of the two a later change touches.
     final String doc = "{\"Aa\":1,\"BB\":2}";
     assertEquals("1", field("$d.Aa", doc), "the name that won the collision must resolve");
     assertEquals("2", field("$d.BB", doc), "the name that lost the collision must resolve too");
@@ -209,11 +205,11 @@ public final class JsonDBObjectFieldLookupTest {
     // record. That comparison is only conclusive for ASCII, and these are the shapes where a naive
     // version goes wrong:
     //
-    //  * "é" is ONE char but TWO UTF-8 bytes, so a length compare against a two-char field would
-    //    "match" on size; the char is non-ASCII, so the fast path must hand off rather than
-    //    compare byte-to-char.
-    //  * an emoji is a surrogate PAIR -- two chars, four bytes -- so the lengths differ even
-    //    though the name is present, and a length mismatch must not be read as a miss.
+    // * "é" is ONE char but TWO UTF-8 bytes, so a length compare against a two-char field would
+    // "match" on size; the char is non-ASCII, so the fast path must hand off rather than
+    // compare byte-to-char.
+    // * an emoji is a surrogate PAIR -- two chars, four bytes -- so the lengths differ even
+    // though the name is present, and a length mismatch must not be read as a miss.
     // Quoted deref steps throughout, so the case tests the LOOKUP rather than which code points
     // the parser happens to accept as a bare NCName.
     final String doc = "{\"é\":1,\"ab\":2,\"日本語\":3,\"naïve\":4,\"🚀\":5}";
@@ -225,7 +221,7 @@ public final class JsonDBObjectFieldLookupTest {
     assertEquals("5", field("$d.\"🚀\"", doc), "a surrogate pair must resolve");
 
     assertEquals("1 2", field("($d.\"é\", $d.\"ab\")", doc),
-                 "names whose UTF-8 length equals the other's char count must stay distinct");
+        "names whose UTF-8 length equals the other's char count must stay distinct");
     assertEquals("", field("$d.\"ç\"", doc), "an absent non-ASCII name is still a miss");
     assertEquals("", field("$d.\"日本\"", doc), "a prefix of a stored non-ASCII name must not match");
     assertEquals("", field("$d.\"abc\"", doc), "a longer ASCII name must not match a shorter one");
