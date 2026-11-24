@@ -2,6 +2,23 @@
 
 ## 1.0.0 (unreleased)
 
+- Make the PR mutation lane's unit of work its blocking criterion. New
+  [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant
+  generation to the PR's own lines through a repository interceptor on PIT's tool classpath,
+  applied before any sampling, forbids a per-class mutant limit, requires a census of what the
+  restriction removed and a verdict that fails when a censused mutant is on a changed line, and
+  bounds coverage collection to once per module. New
+  [CONV-206](CONV-conventions.md#conv-206--scheduled-full-scope-mutation-report) moves the
+  advisory report on unchanged lines to a scheduled full-scope run that never runs for a pull
+  request and never decides an outcome.
+  [CONV-202](CONV-conventions.md#conv-202--pr-mutation-verdict-with-dispositions) judges entries
+  against the census as well as the report, retires its per-class sampling caveat, requires a
+  module killed by its deadline to report every status it had already recorded, and makes a report
+  with no mutant complete when the census explains it: the run generated mutants and none was on a
+  changed line, which is nothing to judge rather than nothing to measure. Commands, the
+  measured cost this replaces and the scheduled report are in
+  [Verification](../docs/VERIFICATION.md#pr-mutation-testing).
+
 - Amend [REST-210](REST-api.md#rest-210--resource-creation-and-query-import-boundaries) to require CREATE for
   resource creation and additionally MODIFY and DELETE before replacement; refusal returns
   403 and preserves content and revisions. Apply the same rule to `jn:store`, `jn:load`,
@@ -27,6 +44,17 @@
   defers replay to follow-up work.
   [CONF-201](CONF-configuration.md#conf-201--dispatcher-queue-and-close-defaults) owns current
   defaults and configuration, and JAPI-201 points to the hook contract.
+
+- Replace the fixed timed acceptance bar (paired point estimate at most +1%, lower 95% bound at
+  most 0) with [CONV-302](CONV-conventions.md#conv-302--timed-acceptance-verdict): a regression is
+  a paired difference above the 4% floor and above the benchmark's own noise threshold, measured by
+  randomizing the run's pairs; a benchmark too noisy to judge is reported as unstable; a run stops
+  on the precision it reached (10 to 20 pairs, 3%) and never on its result. The allocation rule is
+  unchanged. [CONV-303](CONV-conventions.md#conv-303--results-ledger-and-conditions-record) adds
+  the results ledger, the per-run environment capture and the dated conditions record, and
+  [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier) the nightly trend tier that reports
+  cumulative drift above 2%. The development strategy states the reasons in
+  [The benchmark protocol](../docs/DEVELOPMENT.md#the-benchmark-protocol).
 
 - Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
   [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).

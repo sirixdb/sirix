@@ -49,17 +49,26 @@ jobs:
             **/build
           key: build-${{ github.run_id }}
 
+      - name: Cache mutation task history
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .gradle
+            **/.gradle
+          key: mutation-task-history-${{ github.run_id }}
+
   TestCore:
     name: Test sirix-core (${{ matrix.lane }})
     needs: Build
     runs-on: ubuntu-latest
     # Complementary class filters retain the full suite in concurrent jobs; baseline timings
     # and coverage verification are documented in docs/CI_CORE_HEADROOM.md.
-    # Keep both gating even when one fails; Deploy's TestCore dependency requires both.
+    # Keep all lanes gating even when one fails; Deploy's TestCore dependency requires all of them.
     strategy:
       fail-fast: false
       matrix:
-        lane: [hot-property, remaining]
+        lane: [hot-property, remaining-index, non-index]
     timeout-minutes: 35
     steps:
       - name: Checkout
@@ -97,7 +106,7 @@ jobs:
           retention-days: 3
 
   TestQuery:
-    name: Test sirix-query, sirix-kotlin-api, sirix-kotlin-cli
+    name: Test query, Kotlin, and PIT tooling
     needs: Build
     runs-on: ubuntu-latest
     # Instrumented tests exceeded 20 minutes before MCP/offline REST reporting could start.
@@ -121,18 +130,28 @@ jobs:
           path: |
             **/build
           key: build-${{ github.run_id }}
-      - name: Test sirix-query, sirix-kotlin-api, and sirix-kotlin-cli
+      - name: Test query, Kotlin, and PIT tooling
         run: >-
           ./gradlew :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test
+          :sirix-pit-changed-lines:test
           ${{ needs.Build.outputs.sonar-enabled == 'true' && '-Pcoverage' || '' }} --parallel --info --stacktrace
       # These also ran in the old Sonar build. Keep their probes, including offline REST's
       # contribution to the query report, without starting the Docker-backed REST suite.
-      - name: Test MCP and report offline REST coverage
+      - name: Test MCP and report offline REST and PIT tooling coverage
         if: needs.Build.outputs.sonar-enabled == 'true'
         run: >-
           ./gradlew :sirix-query:jacocoTestReport :sirix-kotlin-api:jacocoTestReport
           :sirix-kotlin-cli:jacocoTestReport :sirix-mcp:jacocoTestReport :sirix-rest-api:jacocoTestReport
+          :sirix-pit-changed-lines:jacocoTestReport
           -x :sirix-rest-api:test --info --stacktrace
+      - name: Upload PIT tooling coverage
+        if: needs.Build.outputs.sonar-enabled == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-pit-tooling
+          path: tools/pit-changed-lines/build/reports/jacoco/test/jacocoTestReport.xml
+          if-no-files-found: error
+          retention-days: 3
       - name: Upload query, Kotlin, MCP, and offline REST coverage
         if: needs.Build.outputs.sonar-enabled == 'true'
         uses: actions/upload-artifact@v4
@@ -164,13 +183,13 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Test mutation tooling with branch coverage
+      - name: Test repository Python tooling with branch coverage
         env:
           COVERAGE_FILE: ${{ runner.temp }}/python.coverage
         run: |
           python3 -m pip install --disable-pip-version-check --only-binary :all: coverage==7.17.3
           python3 -B -m coverage run --branch --source=.github/scripts --omit='*/tests/*' \
-            -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'
+            -m unittest discover -s .github/scripts/tests -p 'test_*.py'
           python3 -m coverage xml -o "$RUNNER_TEMP/python-coverage.xml"
           python3 -m coverage report --fail-under=85
       - name: Upload Python coverage
@@ -182,8 +201,48 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  ChangelogFragments:
+    name: Changelog fragments
+    # A changelog or lesson entry arrives as its own fragment file, so two pull requests never
+    # append to the same lines of a shared file. The convention: changelog.d/README.md.
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout PR merge revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history so the merge base of the pull request is resolvable.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate fragments and guard the shared files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 .github/scripts/changelog_fragments.py check --base-sha "$BASE_SHA"
+
+  BenchTooling:
+    name: Benchmark protocol tooling
+    # The timed acceptance verdict, the results ledger and the kits' run record (CONV-302 to
+    # CONV-304). Nothing here is timed: the kit scripts run against stub engines.
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Test the timed gate, the ledger and the kits' run record
+        working-directory: bundles/sirix-query/bench/common
+        run: python3 -B -m unittest discover -p 'test_*.py'
+
   MutationTesting:
     name: PIT changed-source mutation testing
+    env:
+      ORG_GRADLE_PROJECT_errorProne: 'true'
     needs: [Build, PythonTooling]
     if: github.event_name == 'pull_request'
     # Advisory rollout policy and blocking switch: docs/VERIFICATION.md#pr-mutation-testing.
@@ -223,6 +282,14 @@ jobs:
           path: |
             **/build
           key: build-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: Restore mutation task history
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .gradle
+            **/.gradle
+          key: mutation-task-history-${{ github.run_id }}
           fail-on-cache-miss: true
       - name: Run bounded PIT analysis
         # Always enforce internally so incomplete runs remain visible as a failed informational
@@ -303,10 +370,16 @@ jobs:
         with:
           name: coverage-python
           path: build/reports/python
+      - name: Download PIT tooling coverage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: coverage-pit-tooling
+          path: tools/pit-changed-lines/build/reports/jacoco/test
       - name: Merge core coverage and verify reports
         run: |
           test -s build/reports/python/python-coverage.xml
-          for lane in hot-property remaining; do
+          test -s tools/pit-changed-lines/build/reports/jacoco/test/jacocoTestReport.xml
+          for lane in hot-property remaining-index non-index; do
             cp -a "build/sonar-coverage/coverage-core-$lane/test-results" bundles/sirix-core/build/
           done
           ./gradlew :sirix-core:jacocoMergedReport --info --stacktrace --max-workers=2 \
@@ -341,41 +414,53 @@ jobs:
     # whole workflow. The two groups are the natural cut — they were the two ~equal halves of that
     # 29 min — and they now run concurrently instead.
     #
-    # Windows sirix-core is cut again because excluding heavy tests makes the Linux cut unbalanced.
-    # Complementary filters partition :sirix-core:test; its isolated prerequisite tasks run in both
-    # jobs. See docs/CI_CORE_HEADROOM.md for the selection contract and measurements.
+    # sirix-core is cut again on every platform because excluding heavy tests makes the Linux cut
+    # unbalanced: core-index and core-non-index are complementary filters on :sirix-core:test, and
+    # their isolated prerequisite tasks run in both jobs. See docs/CI_CORE_HEADROOM.md for the
+    # selection contract and measurements.
+    #
+    # Linux arm64 is a first-class target (Sirix is an embedded engine), so it runs the same lanes
+    # on the hosted ubuntu-24.04-arm runner. Linux x86 keeps the full heavy suites in TestCore.
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
-        lane:
-          - name: core
-            tasks: ':sirix-core:test'
-          - name: core-index
-            tasks: ':sirix-core:test -PcoreTestLane=index'
-          - name: core-non-index
-            tasks: ':sirix-core:test -PcoreTestLane=non-index'
-          - name: query
-            tasks: ':sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test'
-        exclude:
-          - os: macos-latest
-            lane:
-              name: core-index
-              tasks: ':sirix-core:test -PcoreTestLane=index'
-          - os: macos-latest
-            lane:
-              name: core-non-index
-              tasks: ':sirix-core:test -PcoreTestLane=non-index'
-          - os: windows-latest
-            lane:
-              name: core
-              tasks: ':sirix-core:test'
-        # Heap budgets differ per runner: macOS arm64 has 7 GB total, windows-latest 16 GB.
+        # Heap budgets differ per runner: macOS arm64 has 7 GB total, the Windows and Linux arm64
+        # runners 16 GB.
         include:
           - os: macos-latest
+            lane: {name: core-index, tasks: ':sirix-core:test -PcoreTestLane=index'}
+            daemonHeap: 3g
+            testHeap: 3g
+          - os: macos-latest
+            lane: {name: core-non-index, tasks: ':sirix-core:test -PcoreTestLane=non-index'}
+            daemonHeap: 3g
+            testHeap: 3g
+          - os: macos-latest
+            lane: {name: query, tasks: ':sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test'}
             daemonHeap: 3g
             testHeap: 3g
           - os: windows-latest
+            lane: {name: core-index, tasks: ':sirix-core:test -PcoreTestLane=index'}
+            daemonHeap: 4g
+            testHeap: 6g
+          - os: windows-latest
+            lane: {name: core-non-index, tasks: ':sirix-core:test -PcoreTestLane=non-index'}
+            daemonHeap: 4g
+            testHeap: 6g
+          - os: windows-latest
+            lane: {name: query, tasks: ':sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test'}
+            daemonHeap: 4g
+            testHeap: 6g
+          - os: ubuntu-24.04-arm
+            lane: {name: core-index, tasks: ':sirix-core:test -PcoreTestLane=index'}
+            daemonHeap: 4g
+            testHeap: 6g
+          - os: ubuntu-24.04-arm
+            lane: {name: core-non-index, tasks: ':sirix-core:test -PcoreTestLane=non-index'}
+            daemonHeap: 4g
+            testHeap: 6g
+          - os: ubuntu-24.04-arm
+            lane: {name: query, tasks: ':sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test'}
             daemonHeap: 4g
             testHeap: 6g
     timeout-minutes: 60
@@ -525,8 +610,13 @@ jobs:
           # Full history so Spotless can resolve the origin/main ratchet ref.
           fetch-depth: 0
       - name: Install GraalVM
-        uses: graalvm/setup-graalvm@v1
+        # Pinned to the same action commit as native-library-smoke.yml. An
+        # innovation-release `version` is resolved through the action's GDS path, so a
+        # floating tag could change how this pin is read.
+        uses: graalvm/setup-graalvm@60e76998d25690099182b796e99b8804da582d90 # v1.6.10
         with:
+          # Toolchain rationale and support policy: docs/NATIVE_IMAGE.md, "Toolchain".
+          version: '25.5.5.0.3'
           java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}

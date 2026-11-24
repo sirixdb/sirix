@@ -132,31 +132,37 @@ test {
     systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     // Partition the existing test task rather than copying its JVM flags, engine configuration,
     // or diagnostic properties into new tasks. Without this property existing test selection
-    // is unchanged. The same class-file pattern and its complement cover every
-    // current and future test class, including the property test's nested classes.
+    // is unchanged. Complementary class-file filters cover every current and future test class
+    // exactly once within each platform's partition, keeping nested property classes together.
     def coreTestLane = providers.gradleProperty('coreTestLane').orNull
     def hotPropertyClasses = 'io/sirix/index/hot/HOTStructuralPropertyTest*.class'
-    // The Windows lanes run with -PexcludeHeavyTests, which removes most of the HOT property
-    // work, so the Linux cut above is lopsided there. They cut on the io.sirix.index package tree
-    // instead; docs/CI_CORE_HEADROOM.md owns the measurements. Only this task is partitioned;
-    // its isolated prerequisite test tasks still run in every lane.
+    // The macOS, Windows and Linux ARM lanes run with -PexcludeHeavyTests, which removes most of
+    // the HOT property work, so the hot-property cut above is lopsided there. They cut on the
+    // io.sirix.index package tree instead; the Linux x86 "remaining" set is cut the same way, with
+    // the HOT property classes (which live in that tree) taken out of its index side.
+    // docs/CI_CORE_HEADROOM.md owns the measurements. Only this task is partitioned; its isolated
+    // prerequisite test tasks still run in every lane.
     def indexPackageClasses = 'io/sirix/index/**/*.class'
     if (coreTestLane == 'hot-property') {
         include hotPropertyClasses
     } else if (coreTestLane == 'remaining') {
         exclude hotPropertyClasses
+    } else if (coreTestLane == 'remaining-index') {
+        include indexPackageClasses
+        exclude hotPropertyClasses
     } else if (coreTestLane == 'index') {
         include indexPackageClasses
     } else if (coreTestLane == 'non-index') {
+        // Also the Linux non-index shard: the HOT property classes sit in the index tree.
         exclude indexPackageClasses
     } else if (coreTestLane != null) {
-        throw new GradleException(
-            "Unknown coreTestLane '${coreTestLane}'; expected hot-property, remaining, index or non-index")
+        throw new GradleException("Unknown coreTestLane '${coreTestLane}'; expected hot-property, remaining, " +
+            "remaining-index, index or non-index")
     }
 
     useJUnitPlatform {
         // The cross-platform CI lanes exclude soak-style suites that cannot fit the
-        // runner budget there; Linux CI runs everything.
+        // runner budget there; Linux x86 CI runs everything.
         if (project.hasProperty('excludeHeavyTests')) {
             excludeTags 'heavy'
         }
@@ -475,7 +481,7 @@ tasks.named('jacocoTestReport') {
 // methods. This report consumes restored bytecode and has no test/compile dependencies.
 tasks.register('jacocoMergedReport', JacocoReport) {
     group = 'verification'
-    description = 'Merge the two Linux core coverage artifacts without rerunning tests'
+    description = 'Merge the Linux core coverage artifacts without rerunning tests'
     executionData fileTree(rootProject.layout.buildDirectory.dir('sonar-coverage')) {
         include 'coverage-core-*/jacoco/*.exec'
     }
@@ -490,7 +496,7 @@ tasks.register('jacocoMergedReport', JacocoReport) {
         html.required = false
     }
     doFirst {
-        for (final String lane : ['hot-property', 'remaining']) {
+        for (final String lane : ['hot-property', 'remaining-index', 'non-index']) {
             for (final String suite : ['test', 'validTimeDisabledLookupCacheTest',
                                        'dictionaryReadViewAllocationTest', 'storageEpochStoreIdentityTest']) {
                 final File data = rootProject.layout.buildDirectory

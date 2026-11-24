@@ -23,6 +23,21 @@
 #   --declare-envelope  assert <sirix-db-dir> is NOT the campaign 100M database,
 #                     so EXTRA fixes the envelope. Only needed where no campaign
 #                     pointer resolves; refused when one names this database.
+#   --arm-commit NAME=SHA  the commit an --arm image was built from; required for
+#                     every image with a results ledger (SIRIX_BENCH_LEDGER)
+#   --arm-kind NAME=KIND   native (default) or native-pgo
+#   --dataset NAME    stable dataset identity, required with a results ledger;
+#                     see ../common/README.md for the naming rule
+#
+# THE RESULTS LEDGER AND THE TIMED GATE
+# -------------------------------------
+# With SIRIX_BENCH_LEDGER set (see "run record" in ../common/bench-common.sh)
+# every round is recorded, one row per process, query and figure. The ledger
+# knows the arms `baseline` and `candidate`, or one single arm. With
+# SIRIX_BENCH_TIER=gate and those two arms, a round is a pair of the timed
+# acceptance rule (docs/DEVELOPMENT.md, "The benchmark protocol"): the run stops
+# on the precision it reached, between 10 and 20 rounds, --rounds is not
+# accepted, and the script ends with the verdicts and exits 1 on a regression.
 #
 # WHICH JVM ENVELOPE THE ARM IS FROZEN AT
 # ---------------------------------------
@@ -57,35 +72,36 @@
 # is therefore a new process, and the suite figure is try 1.
 set -u
 
-# Acquire before any eviction or benchmark work. Descriptors survive into every arm,
-# including native executables, and keep ownership if the wrapper is terminated.
-RIG="$(cd "$(dirname "${BASH_SOURCE[0]}")/rig" && pwd)"
-if [ -z "${CB_RIG_HOST_LOCK_FD:-}" ]; then
-  exec python3 "$RIG/rig_lock.py" -- bash "$0" "$@"
-fi
-python3 "$RIG/rig_lock.py" --check || exit 2
-
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../common" && pwd)/bench-common.sh"
 
 usage() {
-  sed -n '2,40p' "$0" >&2
+  sed -n '2,53p' "$0" >&2
   exit 2
 }
 
 [ "$#" -ge 1 ] || usage
+RIG_ARGUMENTS=("$@")
 DB="$1"; shift
 
 ROUNDS=4
+ROUNDS_GIVEN=0
 TRIES=3
 QUERIES=""
 OUT=""
+DATASET=""
 DUCKDB_COLD="0.520"
 DUCKDB_HOT="0.351"
 DECLARE_ENVELOPE=0
 ARM_NAMES=()
 ARM_PATHS=()
+ARM_COMMITS=()
+ARM_KINDS=()
 
 while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --arm|--rounds|--arm-commit|--arm-kind|--tries|--queries|--dataset|--out|--duckdb-cold|--duckdb-hot)
+      [ "$#" -ge 2 ] || die "$1 requires a value" ;;
+  esac
   case "$1" in
     --arm)
       spec="${2:-}"
@@ -96,9 +112,12 @@ while [ "$#" -gt 0 ]; do
       ARM_NAMES+=("${spec%%=*}")
       ARM_PATHS+=("${spec#*=}")
       shift 2 ;;
-    --rounds)      ROUNDS="${2:-}"; shift 2 ;;
+    --rounds)      ROUNDS="${2:-}"; ROUNDS_GIVEN=1; shift 2 ;;
+    --arm-commit)  ARM_COMMITS+=("${2:-}"); shift 2 ;;
+    --arm-kind)    ARM_KINDS+=("${2:-}"); shift 2 ;;
     --tries)       TRIES="${2:-}"; shift 2 ;;
     --queries)     QUERIES="${2:-}"; shift 2 ;;
+    --dataset)     DATASET="${2:-}"; shift 2 ;;
     --out)         OUT="${2:-}"; shift 2 ;;
     --duckdb-cold) DUCKDB_COLD="${2:-}"; shift 2 ;;
     --duckdb-hot)  DUCKDB_HOT="${2:-}"; shift 2 ;;
@@ -109,6 +128,21 @@ while [ "$#" -gt 0 ]; do
 done
 
 need_dir "${DB}" "the loaded ClickBench database"
+if bench_ledger_enabled; then
+  [ -n "${DATASET}" ] || die "a results ledger needs --dataset NAME"
+fi
+case "${DATASET}" in
+  *[!a-zA-Z0-9._-]*) die "--dataset must be a name containing letters, digits, dots, underscores or hyphens, never a path" ;;
+esac
+
+# Acquire before any eviction or benchmark work. Descriptors survive into every arm,
+# including native executables, and keep ownership if the wrapper is terminated.
+RIG="$(cd "$(dirname "${BASH_SOURCE[0]}")/rig" && pwd)"
+if [ -z "${CB_RIG_HOST_LOCK_FD:-}" ]; then
+  exec python3 "$RIG/rig_lock.py" -- bash "$0" "${RIG_ARGUMENTS[@]}"
+fi
+python3 "$RIG/rig_lock.py" --check || exit 2
+
 need_cmd python3
 case "${ROUNDS}" in ''|*[!0-9]*) die "--rounds must be a positive integer" ;; esac
 case "${TRIES}"  in ''|*[!0-9]*) die "--tries must be a positive integer" ;; esac
@@ -129,6 +163,52 @@ else
     [ -x "${path}" ] || die "arm binary is not executable: ${path}"
   done
 fi
+
+# --- the run record ----------------------------------------------------------
+# lookup <name> <NAME=VALUE>... -- the value given for an arm, or nothing.
+lookup() {
+  local name="$1" entry
+  shift
+  for entry in "$@"; do
+    case "${entry}" in
+      "${name}="*) printf '%s' "${entry#*=}"; return 0 ;;
+    esac
+  done
+  return 0
+}
+
+GATE=0
+LEDGER_ARMS=()
+ARM_SPECS=()
+if bench_ledger_enabled; then
+  if [ "${#ARM_NAMES[@]}" -eq 1 ]; then
+    LEDGER_ARMS=("head")
+  elif [ "${#ARM_NAMES[@]}" -eq 2 ] && [ "${ARM_NAMES[0]}" = baseline ] && [ "${ARM_NAMES[1]}" = candidate ]; then
+    LEDGER_ARMS=("baseline" "candidate")
+  else
+    die "the results ledger records one single arm, or the two arms baseline and candidate in that order; got: ${ARM_NAMES[*]}"
+  fi
+  idx=0
+  while [ "${idx}" -lt "${#ARM_NAMES[@]}" ]; do
+    if [ -n "${ARM_PATHS[$idx]}" ]; then
+      commit="$(lookup "${ARM_NAMES[$idx]}" ${ARM_COMMITS[@]+"${ARM_COMMITS[@]}"})"
+      [ -n "${commit}" ] || die "a results ledger needs the commit of every image: pass --arm-commit ${ARM_NAMES[$idx]}=<40-hex>"
+      kind="$(lookup "${ARM_NAMES[$idx]}" ${ARM_KINDS[@]+"${ARM_KINDS[@]}"})"
+      ARM_SPECS+=("${LEDGER_ARMS[$idx]},commit=${commit},binary=${kind:-native}")
+    else
+      ARM_SPECS+=("${LEDGER_ARMS[$idx]},commit=$(bench_head_commit),binary=jvm,dirty=$(bench_tree_dirty)")
+    fi
+    idx=$((idx + 1))
+  done
+  if [ "$(bench_tier)" = gate ]; then
+    [ "${ROUNDS_GIVEN}" -eq 0 ] || die "a gate run's pair count is set by the stop rule (10 to 20 rounds); do not pass --rounds"
+    GATE=1
+    ROUNDS=20
+  fi
+fi
+# Opened before the runtime is prepared: a machine with no conditions entry is
+# refused here, not after a build.
+bench_run_begin "${OUT}" clickbench-cold "${DB}" ${ARM_SPECS[@]+"${ARM_SPECS[@]}"}
 
 if [ -z "${ARM_PATHS[0]}" ]; then
   PREPARE=(python3 "$RIG/measure.py" prepare --out "${OUT}/runtime" --db "${DB}" --jvm-args="${EXTRA:-}")
@@ -173,11 +253,20 @@ document.setdefault('rig',{}).update(stamp)
 path.write_text(json.dumps(document,indent=2)+'\n')
 PYMETA
   grep -h '^# served' "${logf}" | sed 's/^/      /' || true
+  if bench_ledger_enabled; then
+    local record=(import-clickbench --run "${OUT}" --json "${json}" --log "${logf}"
+                  --arm "${LEDGER_ARMS[$idx]}" --process "${round}" --param "dataset=${DATASET}")
+    if [ "${#LEDGER_ARMS[@]}" -eq 2 ]; then
+      record+=(--pair "${round}" --position "$((idx + 1))")
+    fi
+    bench_run_ledger "${record[@]}" > /dev/null
+  fi
 }
 
 log "database: ${DB} ($(du -sh "${DB}" 2>/dev/null | cut -f1))"
 log "arms: ${ARM_NAMES[*]}    rounds: ${ROUNDS}    tries: ${TRIES}    cool gate: ${COOL_MAX_C} C"
 
+ROUNDS_RUN=0
 for round in $(seq 1 "${ROUNDS}"); do
   idx=0
   while [ "${idx}" -lt "${#ARM_NAMES[@]}" ]; do
@@ -187,9 +276,20 @@ for round in $(seq 1 "${ROUNDS}"); do
     run_arm "${idx}" "${round}"
     idx=$((idx + 1))
   done
+  ROUNDS_RUN="${round}"
+  if [ "${GATE}" -eq 1 ]; then
+    # The stop rule reads pair counts and noise thresholds only, never a difference.
+    decision="$(python3 "${BENCH_LEDGER_PY}" stop --run "${OUT}" | tail -1)" \
+      || die "the stop rule could not be evaluated after round ${round}"
+    case "${decision}" in
+      stop) log "stop rule: precision reached after ${round} round(s)"; break ;;
+      continue) : ;;
+      *) die "the stop rule gave no decision after round ${round}" ;;
+    esac
+  fi
 done
 
-python3 - "${OUT}" "${ROUNDS}" "${DUCKDB_COLD}" "${DUCKDB_HOT}" "${QUERIES}" "${ARM_NAMES[@]}" <<'PYEOF' || exit 1
+python3 - "${OUT}" "${ROUNDS_RUN}" "${DUCKDB_COLD}" "${DUCKDB_HOT}" "${QUERIES}" "${ARM_NAMES[@]}" <<'PYEOF' || exit 1
 import json, statistics, sys
 from pathlib import Path
 
@@ -286,3 +386,12 @@ PYEOF
 
 log "per-round JSON and logs: ${OUT}"
 log "correctness is a separate gate: ./run-differential.sh (fast path vs interpreter vs DuckDB)"
+
+if [ "${GATE}" -eq 1 ]; then
+  # judge appends the run to the ledger before it prints a verdict; 1 = a regression.
+  python3 "${BENCH_LEDGER_PY}" judge --run "${OUT}"
+  status=$?
+  [ "${status}" -le 1 ] || die "the run could not be judged (see the message above)"
+  exit "${status}"
+fi
+bench_run_ledger commit --run "${OUT}"

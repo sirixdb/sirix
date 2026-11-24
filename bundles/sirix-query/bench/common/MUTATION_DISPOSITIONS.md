@@ -1,0 +1,146 @@
+# Mutation dispositions of the benchmark protocol tools
+
+Mutation record for [`timed_gate.py`](timed_gate.py), [`bench_trend.py`](bench_trend.py) and
+[`bench_ledger.py`](bench_ledger.py), kept by the rules of the Java lane
+([CONV-103](../../../../spec/CONV-conventions.md#conv-103--specification-before-implementation),
+[CONV-201](../../../../spec/CONV-conventions.md#conv-201--mutation-disposition-record)): every
+surviving mutant is killed by a behaviour test derived from CONV-302 to CONV-304, removed together
+with code that had no observable effect, or listed below as equivalent with its reason. No test was
+written to kill a mutant for its own sake.
+
+## How the run was made
+
+The whole-module figures below cover the introduction and initial review rounds, which altered
+the allocation delta rule, the stop-point check, the conditions lookup, dataset parameters, commit
+reconciliation and the rejection of a run. They predate the later focused review supplements below
+and do not claim whole-module coverage of those corrections.
+
+Each module was mutated one change at a time, and its own test module was run against every mutant
+(`python3 -B -m unittest -f test_<module>`). A mutant is killed when that run fails. The mutations,
+applied at every site of the module's syntax tree:
+
+| Operator | Change |
+|---|---|
+| comparison | `<` ↔ `<=`, `>` ↔ `>=`, `==` ↔ `!=`, `in` ↔ `not in`, `is` ↔ `is not` |
+| arithmetic | `+` ↔ `-`, `*` ↔ `/`, `//` → `*`, `%` → `*`, `<<` ↔ `>>` |
+| boolean | `and` ↔ `or`, `not x` → `x` |
+| constant | a number *n* → *n* + 1, `True` ↔ `False` |
+| control | an `if` condition → `False`, `raise` → `pass`, `continue` → `pass`, `break` → `pass` |
+
+String constants are not mutated, so the wording of messages is outside this record. The driver was
+a short script over Python's `ast` module and is not part of the repository; any mutation tool with
+these operators reproduces the sites. `test_kit_recording.py` took no part in the runs: it drives
+the kit scripts and reaches the modules only through their command lines.
+
+| Module | Mutants | Killed | Equivalent |
+|---|---:|---:|---:|
+| `timed_gate.py` | 254 | 246 | 8 |
+| `bench_trend.py` | 112 | 108 | 4 |
+| `bench_ledger.py` | 608 | 603 | 5 |
+
+The first runs left 34 survivors in `timed_gate.py`, 22 in `bench_trend.py` and 113 in
+`bench_ledger.py`. They were answered in three ways.
+
+- **Tests of a requirement that had none.** Among them: the fence factor of CONV-304; levels
+  compared as ratios whatever their size; the strict bounds of the drift rule and the inclusive bound
+  of the stop rule, at floating-point inputs that reach them exactly; rejected allocation legs and
+  legs outside the judged set; the counts in the report; the rejection of a whole run; a ledger
+  never created by an empty append; a short write; the options every command requires; the exit
+  status of the scripts.
+- **A defect.** A benchmark data path that cannot be resolved, such as a symbolic-link loop, raised
+  out of the capture instead of being recorded as unavailable. It is fixed and tested.
+- **Code removed.** Conditions and options that changed nothing: a second check of an arm's name, a
+  loop guard that could not be reached, a default that was never used, key sorting and character
+  escaping options of files that are only ever read back as JSON.
+
+The review rounds added code, and a re-measurement after them found seven more survivors. Five were
+answered with tests: the number of rows an append reports, a run committed before it has a
+measurement, and a malformed `--param`. One early return that changed nothing was removed. The
+seventh is equivalent and is listed below.
+
+## `timed_gate.py`: 8 equivalent
+
+| Line | Mutation | Why it cannot be observed |
+|---|---|---|
+| `split = count // 2` | `2` → `3` | The split only decides how the residuals are divided into two groups whose signed sums are then combined. Every division yields the same 2^(n−1) absolute sums. |
+| `high = [total + residuals[-1] ...]` | `+` → `-` | Fixing the last sign to minus instead of plus negates every sum, and only absolute values are used. |
+| `values = [abs(left + right) ...]` | `+` → `-` | The signed sums of the low group are closed under negation, so `left - right` ranges over the same values as `left + right`. |
+| `@functools.lru_cache(maxsize=512)` | `512` → `513` | The size of a cache in front of a pure function. |
+| `for boundary in boundaries[minimum - 1 : -1]:` | `minimum - 1` → `minimum - 2` | The scan for an earlier stop point would start one pair boundary sooner, at a boundary with fewer pairs than the minimum, where no benchmark can have met its stop condition. |
+| `@dataclass(frozen=True)` on `Series`, `StopState`, `Judgement` | `True` → `False`, three sites | Immutability of result objects guards against misuse inside the module. No requirement observes it. |
+
+## `bench_trend.py`: 4 equivalent
+
+| Line | Mutation | Why it cannot be observed |
+|---|---|---|
+| `if nights[0].night < night:` | `<` → `<=` | The branch is reached only when the series has no entry for `night`, so its first night never equals it. |
+| `@dataclass(frozen=True)` on `Night`, `NightState`, `TrendReport` | `True` → `False`, three sites | As above. |
+
+## `bench_ledger.py`: 5 equivalent
+
+| Line | Mutation | Why it cannot be observed |
+|---|---|---|
+| `subprocess.run(..., timeout=20, ...)` | `20` → `21` | The patience with a probe command; no probe in a test runs that long. |
+| `os.open(path, ..., 0o644)` | `0o644` → `0o645` | One permission bit of a newly created ledger file; no requirement states its mode. |
+| `if existing.read(1) != b"\n":` | `1` → `2` | The read starts at the last byte of the file, so asking for two bytes returns the same one. |
+| `json.dumps(document, indent=2)` in `_write_json` | `2` → `3` | The indentation of `run.json` and `environment.json`, which are read back as JSON. |
+| `json.dumps(fingerprint_fields(environment), indent=2)` | `2` → `3` | The indentation of the fields `bench_ledger.py fingerprint` prints. |
+
+## Runtime option capture review supplement (R10)
+
+The runtime-capture correction was checked separately from the historical module totals above.
+All 90 tests in `test_bench_ledger` passed. `RuntimeVersionTest` then detected eight in-memory
+mutations of the runtime filter: bypassing it (the pre-fix output), omitting each of the three
+environment-variable names, omitting the `NOTE:` form, retaining only banners, removing whitespace
+trimming, and returning empty text instead of unavailable. There were no survivors. The tests
+derive their oracle from CONV-303's privacy and truthful-runtime requirements, using executable
+launchers and persisted output rather than implementation text. Source files remained unchanged
+during mutation execution. This supplement does not claim a new whole-module mutation count.
+
+## Multiline capture, nightly date and CLI review supplement (R11–R13)
+
+All 140 tests in `test_bench_ledger`, `test_bench_trend` and `test_kit_recording` passed before
+the relevant behaviour tests detected 12 focused mutations:
+
+- Runtime capture: restore the previous line filter; restore the previous probe environment;
+  keep announcement continuations; keep a diagnostic without a version; inherit each of the three
+  option variables separately (seven mutations).
+- Nightly reporting: restore the previous selection from usable series; select the oldest run;
+  ignore an explicit date (three mutations).
+- CLI consumption: omit the shared count guard for `--arm-commit` or `--arm-kind` (two mutations).
+
+Functions were substituted in memory and kit scripts were changed only in temporary test copies
+with stub engines and a stub rig lock. Repository sources were not modified by the driver. There
+were no survivors. The tests' oracles are CONV-303, CONV-304 and the CLI value contract; they assert
+runtime evidence, report dates and error statuses, and rejection before any engine runs. The CLI
+mutations reproduced a three-second timeout. Counts and counterfactual observations are recorded
+in the [postmortem](../../../../docs/postmortems/benchmark-evidence-boundaries.md); historical
+whole-module totals above remain unchanged.
+
+## Empty run recording review supplement (R14)
+
+All 21 tests in `test_kit_recording` passed. Both kits' first-process-failure regressions then
+detected two mutations of the shared exit hook: restoring the previous measurements-file guard,
+and inverting the opened-run guard. Each mutation caused both tests to fail because the latest
+nightly run row was absent. There were no survivors. Tests derive their oracle from CONV-303's
+run persistence and CONV-304's latest-night contract, checking ledger rows and the trend CLI's
+date and status after a stub engine fails on its first invocation. Existing refusal cases and
+the added unregistered ClickBench case confirm that an unopened run appends nothing.
+
+Mutations ran in temporary copies with stub engines and a stub rig lock; repository sources and
+the shared rig lock were untouched. This is a focused supplement, not a whole-module recount.
+Details are in the [postmortem](../../../../docs/postmortems/benchmark-empty-run-recording.md).
+
+## Nightly calendar review supplement (R15)
+
+All 126 tests in `test_bench_ledger` and `test_bench_trend` passed. The four date regressions then
+detected four in-memory mutations of the date predicate: restore the previous shape-only regex,
+omit the canonical spelling comparison, accept failed calendar parses, and remove the string
+type check. There were no survivors. The counterfactual regex produced 31 failed cases, confirming
+that the regression tests observe the previous defect. Tests use Gregorian calendar examples and
+CONV-303's canonical date contract as their oracle; they execute row validation, begin, append,
+ledger reading and the trend CLI, without using implementation text as evidence.
+
+Repository sources were unchanged during mutation execution. This is a focused supplement rather
+than a new whole-module count. Details are in the
+[postmortem](../../../../docs/postmortems/benchmark-night-calendar-validation.md).

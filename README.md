@@ -147,8 +147,8 @@ by timestamp; each page read combines at most N fragments. The full strategy wal
 
 ## Quick Start
 
-> **Platform support:** Linux, macOS, and Windows are CI-tested on every pull request.
-> Linux additionally gets native binaries and the Docker images; known limitations are
+> **Platform support:** Linux (x86-64 and arm64), macOS, and Windows are CI-tested on every pull request.
+> Linux x86-64 additionally gets native binaries and the Docker images; known limitations are
 > listed in [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md).
 
 ### Using Docker and the REST API
@@ -194,10 +194,10 @@ SirixDB provides two CLI tools, both available as instant-startup native binarie
 | `sirix-cli` | sirix-kotlin-cli | Full-featured CLI for database operations |
 | `sirix-shell` | sirix-query | Interactive JSONiq/XQuery shell |
 
-Build native binaries with GraalVM:
+Build native binaries with the [GraalVM toolchain documented here](docs/NATIVE_IMAGE.md#toolchain):
 
 ```bash
-# Build both CLIs as native binaries (requires GraalVM with native-image)
+# Build both CLIs as native binaries
 ./gradlew :sirix-kotlin-cli:nativeCompile  # produces: sirix-cli
 ./gradlew :sirix-query:nativeCompile -Pnative.mainClass=io.sirix.query.Main -Pnative.imageName=sirix-shell
 
@@ -707,7 +707,7 @@ cd sirix
 --add-opens=java.base/java.util=ALL-UNNAMED
 ```
 
-**Build native binaries** (requires GraalVM):
+**Build native binaries**:
 
 For the CLI build commands, see [Using the CLI (Native Binaries)](#using-the-cli-native-binaries).
 For benchmark image builds and their options, see

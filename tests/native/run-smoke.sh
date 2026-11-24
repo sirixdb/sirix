@@ -155,10 +155,13 @@ PY
       "$root/tests/native/smoke.c" -L "$stage" "-Wl,-rpath,\$ORIGIN" -lsirix_smoke -o "$stage/smoke-no-shutdown"
     run=$(mktemp -d "$stage/no-shutdown-XXXXXX")
     status=0
-    env -i PATH=/nonexistent /usr/bin/timeout --signal=TERM --kill-after=5 60 \
+    # The deliberately hung runtime cannot be relied on to handle SIGTERM.
+    env -i PATH=/nonexistent /usr/bin/timeout --signal=KILL 60 \
       "$stage/smoke-no-shutdown" "$run/db" >"$run/stdout.log" 2>"$run/stderr.log" || status=$?
-    if [[ "$status" != 124 ]] || ! grep -qx 'core_answer=42' "$run/stdout.log" ||
-        ! grep -q 'laggard.*sirix-snapshot-append-' "$run/stderr.log"; then
+    if [[ "$status" != 137 ]] || ! grep -qx 'core_answer=42' "$run/stdout.log" ||
+        ! grep -qx 'teardown_begin' "$run/stdout.log" ||
+        ! grep -qx 'Teardown is taking too long' "$run/stderr.log" ||
+        ! grep -q '^  0x[[:xdigit:]]* STATUS_.*"sirix-snapshot-append-' "$run/stderr.log"; then
       echo "Missing shutdown hook did not reproduce snapshot-worker non-return: $run (status=$status)" >&2
       exit 1
     fi
