@@ -78,6 +78,15 @@ final class PosixVirtualMemory implements VirtualMemory {
 
   @Override
   public MemorySegment reserve(final long bytes) {
+    final MemorySegment segment = tryReserve(bytes);
+    if (segment == null) {
+      throw new OutOfMemoryError("mmap failed for " + bytes + " bytes");
+    }
+    return segment;
+  }
+
+  @Override
+  public @Nullable MemorySegment tryReserve(final long bytes) {
     if (MMAP == null) {
       throw new IllegalStateException("FrameSlotAllocator requires a POSIX libc (mmap); "
           + "on Windows the Windows virtual-memory backend is selected automatically");
@@ -87,7 +96,7 @@ final class PosixVirtualMemory implements VirtualMemory {
           MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0L);
       // mmap signals failure with MAP_FAILED (-1), not NULL.
       if (addr.address() == 0 || addr.address() == -1L) {
-        throw new OutOfMemoryError("mmap failed for " + bytes + " bytes");
+        return null;
       }
       return addr.reinterpret(bytes);
     } catch (final OutOfMemoryError oom) {
@@ -100,6 +109,11 @@ final class PosixVirtualMemory implements VirtualMemory {
   @Override
   public boolean commitFresh(final MemorySegment slot) {
     return false;
+  }
+
+  @Override
+  public boolean tryCommitFresh(final MemorySegment slot) {
+    return true;
   }
 
   @Override
@@ -118,24 +132,25 @@ final class PosixVirtualMemory implements VirtualMemory {
   }
 
   @Override
-  public boolean populate(final MemorySegment segment) {
+  public int tryPopulate(final MemorySegment segment) {
     if (MADVISE == null || !OS.isLinux() || populateUnsupported) {
-      return false;
+      return POPULATE_UNAVAILABLE;
     }
     final int rc;
     try {
       rc = (int) MADVISE.invokeExact(segment, segment.byteSize(), MADV_POPULATE_WRITE);
+    } catch (final OutOfMemoryError failure) {
+      throw failure;
     } catch (final Throwable t) {
       LOGGER.debug("MADV_POPULATE_WRITE failed: {}", t.getMessage());
-      return false;
+      return POPULATE_UNAVAILABLE;
     }
     if (rc == 0) {
-      return true;
+      return POPULATED;
     }
     final int errno = errno();
     if (errno == ENOMEM) {
-      throw new OutOfMemoryError("madvise(MADV_POPULATE_WRITE) could not back " + segment.byteSize()
-          + " bytes of slab memory with physical pages (ENOMEM)");
+      return POPULATE_REFUSED;
     }
     if (errno == EINVAL) {
       markPopulateUnsupported();
@@ -144,7 +159,7 @@ final class PosixVirtualMemory implements VirtualMemory {
       LOGGER.debug("MADV_POPULATE_WRITE rc={} errno={} on address 0x{} ({} bytes)", rc, errno,
           Long.toHexString(segment.address()), segment.byteSize());
     }
-    return false;
+    return POPULATE_UNAVAILABLE;
   }
 
   /** Latches the refusal for the whole process: the kernel lacks the advice, not this instance. */

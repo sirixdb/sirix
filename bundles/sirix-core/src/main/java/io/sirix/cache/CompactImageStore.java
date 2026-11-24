@@ -266,6 +266,12 @@ public final class CompactImageStore {
     return true;
   }
 
+  synchronized void resumeAfterRejectedShutdown() {
+    if (blockCount() == 0) {
+      stopped = false;
+    }
+  }
+
   void setLeasePublicationHookForTesting(final @Nullable Runnable hook) {
     leasePublicationHook = hook;
   }
@@ -479,7 +485,7 @@ public final class CompactImageStore {
       final Block[] current = blocks;
       final int base = carvedBlocks;
       final int required = Math.addExact(base, blocksPerSlab);
-      final MemorySegment slab = mapSlab();
+      final MemorySegment slab = store.allocator.allocatePermanentSlab((long) blocksPerSlab * blockBytes);
       if (slab == null) {
         return null;
       }
@@ -514,17 +520,6 @@ public final class CompactImageStore {
         push(grown[base + i]);
       }
       return grown[base];
-    }
-
-    /** One more slab, or {@code null} when the allocator has no room or is shutting down. */
-    private @Nullable MemorySegment mapSlab() {
-      try {
-        return store.allocator.allocatePermanentSlab((long) blocksPerSlab * blockBytes);
-      } catch (final IllegalStateException shutDown) {
-        // A shutdown between the empty free stack and this request. The caller's fallback keeps the
-        // decode correct; nothing about this request is worth failing a read for.
-        return null;
-      }
     }
 
     synchronized void releaseSlabs(final MemorySegmentAllocator allocator) {

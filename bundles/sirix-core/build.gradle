@@ -336,6 +336,17 @@ def validTimeDisabledLookupCacheTest = tasks.register('validTimeDisabledLookupCa
     }
 }
 
+def compactImageAllocatorLifecycleTest = tasks.register('compactImageAllocatorLifecycleTest', Test) {
+    group = 'verification'
+    description = 'Checks compact-image native refusal and allocator shutdown rollback in a separate JVM.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'io.sirix.cache.CompactImageAllocatorLifecycleTest'
+    }
+}
+
 // Inline Mockito mocks in sibling suites retransform real storage classes and allocate in their
 // interception prologues. Measure production dictionary, inline-slot, lifecycle lock, HOT commit, HOT sibling-read
 // and compact-image storage allocations in a clean JVM.
@@ -455,7 +466,7 @@ tasks.register('confinedWriterArenaLeakCheck', JavaExec) {
 // finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
 gradle.projectsEvaluated {
     def standardTest = tasks.named('test', Test).get()
-    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests + lz4OwnershipTests).each { testTask ->
+    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, compactImageAllocatorLifecycleTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests + lz4OwnershipTests).each { testTask ->
         testTask.configure { isolatedTest ->
             standardTest.copyTo(isolatedTest)
             // copyTo flattens argument providers (including JaCoCo) into jvmArgs. Keep only
@@ -515,6 +526,7 @@ gradle.projectsEvaluated {
 tasks.named('jacocoTestReport') {
     executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(),
             storageEpochStoreIdentityTest.get(), configurationStartupTest.get(), allocatorColdStartupTest.get(), cleanerStartupTest.get()
+    executionData compactImageAllocatorLifecycleTest.get()
     executionData sharedArenaPolicyTests.collect { it.get() }
     executionData lz4OwnershipTests.collect { it.get() }
 }
@@ -569,11 +581,13 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/budget/HotWriterLeafRetentionAllocationBudgetTest*.class'
     exclude 'io/sirix/index/name/NameIndexRecheckAllocationBudgetTest*.class'
     exclude 'io/sirix/budget/CompactImageStorageAllocationBudgetTest*.class'
+    exclude 'io/sirix/cache/CompactImageAllocatorLifecycleTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'
     dependsOn validTimeDisabledLookupCacheTest
     dependsOn dictionaryReadViewAllocationTest
+    dependsOn compactImageAllocatorLifecycleTest
     dependsOn storageEpochStoreIdentityTest
 }
 

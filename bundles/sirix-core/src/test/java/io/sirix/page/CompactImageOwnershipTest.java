@@ -16,17 +16,23 @@ import io.sirix.cache.CompactImageStore;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.BytesIn;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.VersioningType;
+import io.sirix.node.Utils;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.ByteOrder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * Who owns a compact HOT-leaf image's bytes, and what a reader of a recycled one is guaranteed.
@@ -157,6 +163,72 @@ final class CompactImageOwnershipTest {
     } finally {
       compact.close();
     }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"true,32,1,1", "false,32,1,1", "true,-1,1,1", "false,-1,1,1",
+      "true,7,1,1", "false,7,1,1", "true,0,7,1", "false,0,7,1",
+      "true,0,1,4", "false,0,1,4", "true,2147483647,1,1", "false,2147483647,1,1"})
+  void packedExtentRejectsSlackFromAnEarlierImage(final boolean segmentInput, final int offset,
+      final int suffixLength, final int valueLength) throws IOException {
+    final CompactImageStore store = CompactImageStore.getInstance();
+    final HOTLeafPage first = decode(rawCompactWire(38, 32, 1, 1), segmentInput);
+    final long address = first.slots().address();
+    try {
+      assertArrayEquals(new byte[] {42}, first.copyStoredValue(first.findEntry(new byte[] {7})));
+      assertArrayEquals(new byte[] {7}, first.getKey(0));
+      assertEquals(6, first.getSlotSize(0));
+      assertEquals(1L, first.getValueSlice(0).byteSize());
+    } finally {
+      first.close();
+    }
+    final int leases = store.leasedBlockCount();
+    assertThrows(IllegalStateException.class,
+        () -> decode(rawCompactWire(8, offset, suffixLength, valueLength), segmentInput));
+    assertEquals(leases, store.leasedBlockCount(), "a rejected image gives its block back");
+    final HOTLeafPage recovered = decode(rawCompactWire(8, 0, 1, 1), segmentInput);
+    try {
+      assertEquals(address, recovered.slots().address());
+      assertArrayEquals(new byte[] {42}, recovered.getValue(0));
+    } finally {
+      recovered.close();
+    }
+  }
+
+  private static byte[] rawCompactWire(final int used, final int declaredOffset,
+      final int suffixLength, final int valueLength) {
+    final byte[] payload = new byte[used];
+    final MemorySegment bytes = MemorySegment.ofArray(payload);
+    final int storedOffset = declaredOffset == 32 && used == 38 ? 32 : 0;
+    bytes.set(ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN), storedOffset,
+        (short) suffixLength);
+    bytes.set(ValueLayout.JAVA_BYTE, storedOffset + 2, (byte) 7);
+    if (suffixLength == 1) {
+      bytes.set(ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN), storedOffset + 3,
+          (short) valueLength);
+      bytes.set(ValueLayout.JAVA_BYTE, storedOffset + 5, (byte) 42);
+    }
+    try (MemorySegmentBytesOut out = new MemorySegmentBytesOut(128)) {
+      out.writeByte(PageKind.HOT_LEAF_PAGE.getID());
+      PageKind.writeVersionAndFlags(out, (byte) 0);
+      Utils.putVarLong(out, 1);
+      out.writeInt(7);
+      out.writeByte(IndexType.PROJECTION.getID());
+      out.writeShort((short) 0);
+      out.writeInt(0x80000001);
+      out.writeInt(used);
+      out.writeInt(declaredOffset);
+      out.write(payload);
+      return out.toByteArray();
+    }
+  }
+
+  private static HOTLeafPage decode(final byte[] wire, final boolean segmentInput) throws IOException {
+    final BytesIn<?> input = segmentInput
+        ? new MemorySegmentBytesIn(MemorySegment.ofArray(wire))
+        : new ByteArrayBytesIn(wire);
+    return assertInstanceOf(HOTLeafPage.class,
+        new PagePersister().deserializeHOTLeafFragment(CONFIG, input, SerializationType.DATA));
   }
 
   private static HOTLeafPage decode(final byte[] wire) throws IOException {

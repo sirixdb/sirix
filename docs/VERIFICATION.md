@@ -547,6 +547,12 @@ alone with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`. For only th
 allocation checks, add `--tests 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'`; the
 [HOT specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing) owns their allocation contract.
 
+The normal core task also runs `CompactImageAllocatorLifecycleTest` in a clean JVM through
+`:sirix-core:compactImageAllocatorLifecycleTest`. It checks native refusal, heap-failure propagation,
+GC-owned decode fallback at the commitment ceiling, and restored pooled decoding after allocator
+shutdown rejects live slabs or foreign-owned oversized allocations. A separate JVM keeps unrelated
+global owners from masking the rejection being tested.
+
 The normal core task also runs `StorageEpochStoreIdentityTest`,
 `StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM
 with deterministic codec selection (`sirix.codecBakeoff.probeInterval=1`). Run them alone with

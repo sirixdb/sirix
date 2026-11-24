@@ -13,6 +13,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -196,6 +197,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // All syscall-shaped work (reserve / commit-fresh / discard / release) lives behind the
   // per-platform VirtualMemory backend; everything below is portable Java.
   private static final VirtualMemory VM = VirtualMemory.forCurrentPlatform();
+
+  private volatile VirtualMemory slabMemory = VM;
 
   /**
    * Fixed, eagerly materialized chunks for per-slot optimistic versions.
@@ -621,6 +624,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     recycledSlabBytes.addAndGet(-bytes);
   }
 
+  void setSlabMemoryForTesting(final VirtualMemory memory) {
+    slabMemory = Objects.requireNonNull(memory);
+  }
+
   void setSlabPublicationHookForTesting(final @Nullable Runnable hook) {
     slabPublicationHook = hook;
   }
@@ -667,10 +674,19 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     if (bytes <= 0) {
       throw new IllegalArgumentException("slab size must be positive: " + bytes);
     }
-    ensureInitialized();
+    if (permanent) {
+      if (!tryEnsureInitialized()) {
+        return null;
+      }
+    } else {
+      ensureInitialized();
+    }
     slabOperations.incrementAndGet();
     try {
       if (terminated.get()) {
+        if (permanent) {
+          return null;
+        }
         throw new IllegalStateException("FrameSlotAllocator has been shut down");
       }
       final long mapped = bytes > Long.MAX_VALUE - SLAB_PAGE_BYTES
@@ -735,25 +751,38 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     if (!(permanent ? reserveSlabCommittedBytes(mapped) : reserveCommittedBytes(mapped))) {
       return null;
     }
+    final VirtualMemory memory = slabMemory;
     final MemorySegment segment;
     try {
-      segment = VM.reserve(mapped);
+      segment = permanent ? memory.tryReserve(mapped) : memory.reserve(mapped);
+      if (segment == null) {
+        refundCommittedBytes(mapped);
+        return null;
+      }
     } catch (final RuntimeException | Error failure) {
       refundCommittedBytes(mapped);
       throw failure;
     }
     try {
-      VM.commitFresh(segment);
-      if (!prepareSlabPages(segment, mapped)) {
+      if (permanent) {
+        if (!memory.tryCommitFresh(segment)) {
+          memory.release(segment);
+          refundCommittedBytes(mapped);
+          return null;
+        }
+      } else {
+        memory.commitFresh(segment);
+      }
+      if (!prepareSlabPages(memory, segment, mapped)) {
         // The kernel cannot back the pages: reported like a budget refusal, never thrown.
-        VM.release(segment);
+        memory.release(segment);
         refundCommittedBytes(mapped);
         return null;
       }
       HftBoundaryTelemetry.nativeAllocation();
       publishSlab(segment, mapped);
     } catch (final RuntimeException | Error failure) {
-      VM.release(segment);
+      memory.release(segment);
       refundCommittedBytes(mapped);
       throw failure;
     }
@@ -766,19 +795,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *
    * @return {@code false} when the kernel cannot back the slab's pages; the caller releases the slab
    */
-  private boolean prepareSlabPages(final MemorySegment segment, final long mapped) {
+  private boolean prepareSlabPages(final VirtualMemory memory, final MemorySegment segment, final long mapped) {
     if (!populateSlabs) {
       return true;
     }
-    try {
-      if (VM.populate(segment)) {
-        populatedSlabBytes.addAndGet(mapped);
-      }
-      return true;
-    } catch (final OutOfMemoryError refused) {
-      LOGGER.debug("slab of {} bytes refused while populating its pages: {}", mapped, refused.getMessage());
-      return false;
+    final int result = memory.tryPopulate(segment);
+    if (result == VirtualMemory.POPULATED) {
+      populatedSlabBytes.addAndGet(mapped);
     }
+    return result != VirtualMemory.POPULATE_REFUSED;
   }
 
   // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
@@ -1406,13 +1431,19 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // tests construct pages directly. Initialize lazily for them, without allowing a concurrent
   // caller to observe classes before all per-class metadata is published.
   private void ensureInitialized() {
-    if (terminated.get()) {
+    if (!tryEnsureInitialized()) {
       throw new IllegalStateException("FrameSlotAllocator has been shut down");
+    }
+  }
+
+  private boolean tryEnsureInitialized() {
+    if (terminated.get()) {
+      return false;
     }
     if (classes == null) {
       synchronized (this) {
         if (terminated.get()) {
-          throw new IllegalStateException("FrameSlotAllocator has been shut down");
+          return false;
         }
         if (classes == null) {
           LOGGER.warn("FrameSlotAllocator not initialized — auto-initializing with default 16 GiB budget");
@@ -1420,6 +1451,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         }
       }
     }
+    return true;
   }
 
   /**
@@ -2040,6 +2072,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       closeOversizedAllocations();
     } catch (final RuntimeException | Error failure) {
       terminated.set(false);
+      if (this == INSTANCE) {
+        CompactImageStore.getInstance().resumeAfterRejectedShutdown();
+      }
       throw failure;
     }
 

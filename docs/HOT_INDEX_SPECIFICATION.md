@@ -793,6 +793,18 @@ Body fields below follow the shared envelope and any extension block.
 - `PageKind.deserializeHOTLeaf` rejects entry counts above 512 and packed byte counts outside
   `[0, 65536]`. Ordinary decoding reserves the full writable offset directory; compact raw decoding
   follows the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
+- Before publication, every compact image MUST reject any slot whose offset, suffix-length field,
+  suffix, value-length field or value extends outside `[0, usedSlotMemorySize)`. Storage rounded
+  up to a pool class MUST NOT make earlier images' slack bytes readable through any slot consumer.
+  Compact images remain immutable; ordinary writable and zero-copy leaves retain their existing
+  capacity and promotion contract. `CompactImageOwnershipTest` exercises both input representations.
+- Kernel reservation, first-commit and page-population refusal of a permanent slab MUST return `null` after refunding
+  its budget and releasing any reservation. Java heap and publication failures MUST propagate.
+  Shutdown refusal MUST also return `null` at permanent-slab admission, without treating unrelated
+  `IllegalStateException` failures as refusals.
+  Rejected allocator shutdown MUST restore compact lease admission, including rejection by live
+  slabs or foreign-owned oversized allocations. `CompactImageAllocatorLifecycleTest` exercises
+  these transitions and the real budget-ceiling fallback.
 - **Compact image storage contract**: a warmed block lease and return MUST allocate zero Java
   bytes. Shutdown MUST stop lease admission before checking both in-flight acquisitions and live
   leases; it MUST refuse cleanup while either exists and MUST refuse new leases after successful
@@ -803,7 +815,7 @@ Body fields below follow the shared envelope and any extension block.
   references over n carved blocks; reported block and byte counts MUST exclude spare directory
   capacity. Regression witnesses: `CompactImageStoreTest`, `FrameAllocationAdmissionTest`,
   `FrameSlotAllocatorTest.slabCommitmentCannotStarveTheOversizedHeadroom`, and
-  `CompactImageStorageAllocationBudgetTest`. 
+  `CompactImageStorageAllocationBudgetTest`.
 - **Zero-copy ordinary decoding**: if the input is a `MemorySegmentBytesIn` with a
   `DecompressionResult`, `slotMemory` becomes a slice of the decompressed buffer and ownership of
   that buffer transfers to the page;

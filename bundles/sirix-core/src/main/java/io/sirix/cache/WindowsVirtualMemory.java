@@ -4,6 +4,7 @@
 package io.sirix.cache;
 
 import io.sirix.utils.OS;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,6 +76,15 @@ final class WindowsVirtualMemory implements VirtualMemory {
 
   @Override
   public MemorySegment reserve(final long bytes) {
+    final MemorySegment segment = tryReserve(bytes);
+    if (segment == null) {
+      throw new OutOfMemoryError("VirtualAlloc(MEM_RESERVE) failed for " + bytes + " bytes");
+    }
+    return segment;
+  }
+
+  @Override
+  public @Nullable MemorySegment tryReserve(final long bytes) {
     if (VIRTUAL_ALLOC == null) {
       throw new IllegalStateException("WindowsVirtualMemory requires Windows (kernel32 VirtualAlloc)");
     }
@@ -82,7 +92,7 @@ final class WindowsVirtualMemory implements VirtualMemory {
       final MemorySegment addr =
           (MemorySegment) VIRTUAL_ALLOC.invokeExact(MemorySegment.NULL, bytes, MEM_RESERVE, PAGE_READWRITE);
       if (addr.address() == 0) {
-        throw new OutOfMemoryError("VirtualAlloc(MEM_RESERVE) failed for " + bytes + " bytes");
+        return null;
       }
       return addr.reinterpret(bytes);
     } catch (final OutOfMemoryError oom) {
@@ -94,14 +104,19 @@ final class WindowsVirtualMemory implements VirtualMemory {
 
   @Override
   public boolean commitFresh(final MemorySegment slot) {
+    if (!tryCommitFresh(slot)) {
+      throw new OutOfMemoryError("VirtualAlloc(MEM_COMMIT) failed for slot of " + slot.byteSize()
+          + " bytes — physical memory (commit charge) exhausted");
+    }
+    return true;
+  }
+
+  @Override
+  public boolean tryCommitFresh(final MemorySegment slot) {
     try {
       final MemorySegment addr =
           (MemorySegment) VIRTUAL_ALLOC.invokeExact(slot, slot.byteSize(), MEM_COMMIT, PAGE_READWRITE);
-      if (addr.address() == 0) {
-        throw new OutOfMemoryError("VirtualAlloc(MEM_COMMIT) failed for slot of " + slot.byteSize()
-            + " bytes — physical memory (commit charge) exhausted");
-      }
-      return true;
+      return addr.address() != 0;
     } catch (final OutOfMemoryError oom) {
       throw oom;
     } catch (final Throwable t) {

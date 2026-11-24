@@ -116,3 +116,47 @@ reads of the first. That ordering is now an asserted invariant rather than an in
 
 Contract class: restore. These fixes restore safe ownership and the existing commitment limits;
 performance measurement and mutation gates remain owned by the outer pipeline.
+
+## Review: packed extents, native refusal and rejected shutdown
+
+- Symptom: a malformed compact image could address a prior image's bytes in a rounded block;
+  native slab reservation or commitment exhaustion could fail a read instead of falling back;
+  rejected allocator shutdown could leave the compact pool permanently stopped.
+- Trigger: decode a 38-byte image with a six-byte entry at offset 32, close it, then decode an
+  eight-byte image declaring the same offset; refuse native reservation, first commitment or page
+  population; reject shutdown after returning idle pool slabs because another slab or a
+  foreign-owned oversized allocation remains live.
+- Root cause: physical capacity had served as an implicit validity bound, a throwing native
+  allocation interface conflated kernel refusal with heap failure, and the allocator's rollback
+  restored only its own admission flag rather than the compact store's admission too.
+- Fix: compact construction checks each offset, suffix and value once against the declared packed
+  extent before publication. The immutable image then gives every search/key/value/slot consumer
+  the same validated directory without per-access checks or a per-image segment slice. The
+  ordinary recycled-frame exposure is pre-existing and remains outside this fix: writable leaves
+  retain their capacity and promotion behavior. Permanent slab allocation uses native refusal
+  results, refunds the charge and releases a reservation before returning null, while heap and
+  publication failures propagate. Population distinguishes unsupported advice from native refusal.
+  Permanent-slab admission also reports shutdown as null, replacing the store's broad
+  `IllegalStateException` catch so an allocator publication failure cannot be mistaken for refusal.
+  The allocator's shared rejected-shutdown rollback reopens compact admission once cleanup has
+  emptied its directory; a cleanup failure cannot reopen a directory that may contain unmapped blocks.
+- Why tests missed it: valid round-trip images never addressed recycled slack, budget refusals
+  never exercised native refusals, and store-only cleanup tests never rejected allocator shutdown
+  after idle slabs had already been returned.
+- Regression tests: `CompactImageOwnershipTest.packedExtentRejectsSlackFromAnEarlierImage`
+  checks the reported reuse sequence plus offset, suffix and value corruption on both segment and
+  byte-array inputs. `CompactImageAllocatorLifecycleTest` drives native refusals and heap failures,
+  checks budget refunds and reservation releases, reads through the GC-owned fallback at the real
+  commitment ceiling, and reads through pooled storage after both rejected-shutdown cases.
+  It also checks that shutdown refuses pool growth while an unrelated allocator publication
+  `IllegalStateException` propagates unchanged through the pool.
+  The lifecycle suite runs through `:sirix-core:compactImageAllocatorLifecycleTest` in a clean JVM:
+  database suites can leave unrelated global owners, masking the intended shutdown rejection.
+  `CompactImageStorageAllocationBudgetTest` retains its zero-byte lease bound unchanged. No
+  failing-before run was made: this review phase permits a single final focused verification after
+  all fixes. Mutation and performance gates remain with the outer executor.
+- Lesson: validate immutable logical extents at their construction boundary, distinguish native
+  refusal from heap failure at the native interface, and roll back admission for every participant
+  in a rejected shutdown. These restore the existing safety and cost contracts without changing
+  persisted bytes, revision behavior, public results or writable-leaf routing; the vision verdicts
+  above remain applicable.

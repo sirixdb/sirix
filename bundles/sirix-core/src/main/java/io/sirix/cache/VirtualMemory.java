@@ -4,6 +4,7 @@
 package io.sirix.cache;
 
 import io.sirix.utils.OS;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 
@@ -32,8 +33,14 @@ import java.lang.foreign.MemorySegment;
  */
 public interface VirtualMemory {
 
+  int POPULATE_REFUSED = -1;
+  int POPULATE_UNAVAILABLE = 0;
+  int POPULATED = 1;
+
   /** Reserve {@code bytes} of stable virtual address space without committing physical memory. */
   MemorySegment reserve(long bytes);
+
+  @Nullable MemorySegment tryReserve(long bytes);
 
   /**
    * Make a freshly handed-out slot writable.
@@ -41,6 +48,8 @@ public interface VirtualMemory {
    * @return {@code true} when this call performed a native commit operation
    */
   boolean commitFresh(MemorySegment slot);
+
+  boolean tryCommitFresh(MemorySegment slot);
 
   /** Discard contents so the next read observes zeros; the address stays valid and committed. */
   void discardToZeros(MemorySegment segment);
@@ -62,7 +71,15 @@ public interface VirtualMemory {
    * @throws OutOfMemoryError when the kernel reports it cannot back the pages ({@code ENOMEM})
    */
   default boolean populate(final MemorySegment segment) {
-    return false;
+    final int result = tryPopulate(segment);
+    if (result == POPULATE_REFUSED) {
+      throw new OutOfMemoryError("Could not back " + segment.byteSize() + " bytes with physical pages");
+    }
+    return result == POPULATED;
+  }
+
+  default int tryPopulate(final MemorySegment segment) {
+    return POPULATE_UNAVAILABLE;
   }
 
   /** The backend for the OS this JVM runs on. */
