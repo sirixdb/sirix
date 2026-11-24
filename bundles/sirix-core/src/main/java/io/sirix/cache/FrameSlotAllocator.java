@@ -2086,6 +2086,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       throw new IllegalStateException("FrameSlotAllocator shutdown raced " + pendingSlabOperations
           + " slab operation(s); retry after admission completes");
     }
+    // The compact-image blocks are slabs of this allocator held by one process-wide store. Idle
+    // ones are read by nobody, so give them back before the live-slab check below; a leased block
+    // belongs to a cached page and the store refuses, which that check then reports.
+    if (this == INSTANCE) {
+      CompactImageStore.getInstance().releaseIdleSlabs();
+    }
     // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
     // lease; unmapping it here would be a use-after-free.
     drainRecycledSlabs(Long.MAX_VALUE, true);

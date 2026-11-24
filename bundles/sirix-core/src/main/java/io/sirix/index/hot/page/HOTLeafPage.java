@@ -4695,8 +4695,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Whether this leaf is an immutable compact read image: exactly its packed slot bytes on GC-owned
-   * native memory, no allocator frame, no routing index, never mutated in place (writers copy it).
+   * Whether this leaf is an immutable compact read image: its packed slot bytes in a native block
+   * this page owns ({@code CompactImageStore}, or GC-owned native memory when the pool refused),
+   * no allocator frame, no routing index, never mutated in place (writers copy it).
    * The fragment cache keeps such images in the half allocator pressure cannot reclaim, with the
    * heap-resident ones: every decoded HOT leaf image is native now, so that the segment accessors
    * shared by all pages only ever see native receivers (see

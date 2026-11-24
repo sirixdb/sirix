@@ -337,11 +337,11 @@ def validTimeDisabledLookupCacheTest = tasks.register('validTimeDisabledLookupCa
 }
 
 // Inline Mockito mocks in sibling suites retransform real storage classes and allocate in their
-// interception prologues. Measure production dictionary, inline-slot, lifecycle lock, HOT commit and HOT sibling-read
-// allocations in a clean JVM.
+// interception prologues. Measure production dictionary, inline-slot, lifecycle lock, HOT commit, HOT sibling-read
+// and compact-image storage allocations in a clean JVM.
 def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocationTest', Test) {
     group = 'verification'
-    description = 'Checks dictionary read-view, inline-slot, lifecycle lock, HOT commit and HOT sibling-read allocation bounds in a separate JVM.'
+    description = 'Checks dictionary read-view, inline-slot, lifecycle lock, HOT commit, HOT sibling-read and compact-image storage allocation bounds in a separate JVM.'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform()
@@ -352,6 +352,7 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
         includeTestsMatching 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'
         includeTestsMatching 'io.sirix.budget.HotWriterLeafRetentionAllocationBudgetTest'
         includeTestsMatching 'io.sirix.index.name.NameIndexRecheckAllocationBudgetTest'
+        includeTestsMatching 'io.sirix.budget.CompactImageStorageAllocationBudgetTest'
     }
 }
 
@@ -567,6 +568,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/index/hot/HOTCommitAllocationBudgetTest*.class'
     exclude 'io/sirix/budget/HotWriterLeafRetentionAllocationBudgetTest*.class'
     exclude 'io/sirix/index/name/NameIndexRecheckAllocationBudgetTest*.class'
+    exclude 'io/sirix/budget/CompactImageStorageAllocationBudgetTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'

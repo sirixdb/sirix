@@ -59,9 +59,15 @@ The newest image supplies the side-page reference even when an older fragment su
 Every raw image is guarded through its use, and raw images have a separate cache from complete
 leaves. A requested-slot result never becomes a complete-leaf swizzle.
 
-`FileChannelReader` decodes these raw images into independently GC-owned packed native bytes and an
+`FileChannelReader` decodes these raw images into a reusable native block the page owns and an
 exact-size offset directory, without allocating a writable native frame or building routing
-metadata. Scalar misses in one fragment-chain walk share one freshly captured committed file
+metadata. The block comes from `CompactImageStore`, whose slabs are charged to the one process
+allocator budget; the decoded page returns it from its own teardown, which runs once and only with
+no live guard, so a lease costs no Java allocation and eviction cannot recycle an image another
+reader still holds. A block is the image rounded up to the pool's class granularity — under an
+eighth of slack — and that rounded size is the image's cache charge, so the compact half's budget
+bounds the bytes it really holds. When the allocator admits no slab, a decode falls back to
+GC-owned native memory and the read is unaffected. Scalar misses in one fragment-chain walk share one freshly captured committed file
 extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
 straight into its private result. Compact images are immutable; copies restore full writable capacity.
 A decoder-only image is never published as a canonical complete leaf: the complete-leaf cache only
