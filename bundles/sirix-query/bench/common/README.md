@@ -152,7 +152,9 @@ python3 bundles/sirix-query/bench/common/bench_trend.py report --night 2026-12-2
 ```
 
 A nightly run is a single-arm run with `SIRIX_BENCH_TIER=nightly` and `SIRIX_BENCH_NIGHT` set, with
-at least 20 fresh processes per benchmark. The report compares each series' level tonight (the
+at least 20 fresh processes per benchmark. The night must be a real calendar date written exactly
+as `YYYY-MM-DD`; invalid dates are refused before opening a run and on ledger append or read.
+The report compares each series' level tonight (the
 median of its processes) with the median of the 7 oldest of the 14 nights before, and with the
 series' own night-to-night noise. A change above 2% and above that noise is `unconfirmed` on its
 first night and `drift` when the next night repeats it. The report exits 1 when a series is in

@@ -86,7 +86,6 @@ _HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}) — ([a-z0-9]+(?:-[a-z0-9]+)*) \
 _RUN_ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 _HEX40 = re.compile(r"^[0-9a-f]{40}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
-_NIGHT = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SERVED = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*)=(-?\d+)\b")
 _JAVA_OPTION_VARIABLES = ("JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS")
 _OPTION_ANNOUNCEMENT = re.compile(r"(?:NOTE:\s*)?Picked up (?:" + "|".join(_JAVA_OPTION_VARIABLES) + r"):")
@@ -486,6 +485,13 @@ def _is_text(value: Any) -> bool:
     return isinstance(value, str) and value != ""
 
 
+def _is_night(value: Any) -> bool:
+    try:
+        return isinstance(value, str) and datetime.date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
+
+
 def _is_params(value: Any) -> bool:
     return isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items())
 
@@ -586,9 +592,9 @@ def _validate_run(row: Mapping[str, Any]) -> None:
     nightly = row["tier"] == "nightly"
     _check(("night" in row) == nightly, row, "'night' belongs to a nightly run and to no other")
     _check(
-        not nightly or (isinstance(row["night"], str) and bool(_NIGHT.match(row["night"]))),
+        not nightly or _is_night(row["night"]),
         row,
-        "'night' must be YYYY-MM-DD",
+        "'night' must be YYYY-MM-DD and a real calendar date",
     )
     _check(_is_text(row.get("kit")), row, "'kit' must name the kit")
     _validate_arms(row)

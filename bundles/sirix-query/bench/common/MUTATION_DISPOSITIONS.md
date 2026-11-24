@@ -130,3 +130,17 @@ the added unregistered ClickBench case confirm that an unopened run appends noth
 Mutations ran in temporary copies with stub engines and a stub rig lock; repository sources and
 the shared rig lock were untouched. This is a focused supplement, not a whole-module recount.
 Details are in the [postmortem](../../../../docs/postmortems/benchmark-empty-run-recording.md).
+
+## Nightly calendar review supplement (R15)
+
+All 126 tests in `test_bench_ledger` and `test_bench_trend` passed. The four date regressions then
+detected four in-memory mutations of the date predicate: restore the previous shape-only regex,
+omit the canonical spelling comparison, accept failed calendar parses, and remove the string
+type check. There were no survivors. The counterfactual regex produced 31 failed cases, confirming
+that the regression tests observe the previous defect. Tests use Gregorian calendar examples and
+CONV-303's canonical date contract as their oracle; they execute row validation, begin, append,
+ledger reading and the trend CLI, without using implementation text as evidence.
+
+Repository sources were unchanged during mutation execution. This is a focused supplement rather
+than a new whole-module count. Details are in the
+[postmortem](../../../../docs/postmortems/benchmark-night-calendar-validation.md).

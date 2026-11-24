@@ -368,6 +368,22 @@ class SeriesTest(TrendTestCase):
 
 class ReportTest(TrendTestCase):
 
+    def test_a_ledger_with_an_impossible_night_is_refused(self) -> None:
+        self.builder.night(0, {"q1": 1.0})
+        invalid_run = self.builder.night(1, {"q1": 1.0})
+        self.builder.night(2, {"q1": 1.0})
+        for row in self.builder.rows:
+            if row["kind"] == "run" and row["run"] == invalid_run:
+                row["night"] = "2026-13-01"
+        ledger = self.base / "invalid-night.jsonl"
+        ledger.write_text("".join(json.dumps(row) + "\n" for row in self.builder.rows), encoding="utf-8")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = bench_trend.main(["report", "--ledger", str(ledger)])
+        self.assertEqual(2, status)
+        self.assertEqual("", out.getvalue())
+        self.assertIn("'night'", err.getvalue())
+
     def test_an_incomplete_latest_run_cannot_select_an_earlier_night(self) -> None:
         for processes, accepted in ((19, True), (20, False), (0, True)):
             with self.subTest(processes=processes, accepted=accepted):

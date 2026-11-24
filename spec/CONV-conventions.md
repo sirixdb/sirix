@@ -342,7 +342,7 @@ start as `YYYYMMDDTHHMMSSZ`, a hyphen and 8 lowercase hexadecimal digits.
 |---|---|---|---|
 | `run`, one per run, written first | `started_at` | string | UTC start, RFC 3339 |
 | | `tier` | string | `gate`, `control` or `nightly` |
-| | `night` | string | `nightly` only: the night's UTC date, `YYYY-MM-DD` |
+| | `night` | string | `nightly` only: the night's real UTC calendar date, exactly `YYYY-MM-DD`; impossible dates and alternate spellings MUST be refused on creation, append and read |
 | | `kit` | string | the kit that ran, such as `clickbench-cold`, `jsonbench` or `jmh` |
 | | `plan` | object | a paired run: `floor`, `stop_precision`, `quantile`, `min_pairs`, `max_pairs` and `benchmarks`, the names of the judged benchmarks, or null for every benchmark the run measures; a single-arm run: `min_processes` and `benchmarks` |
 | | `arms` | object | per arm (`baseline` and `candidate`, or `head`): `commit` (40 hexadecimal digits), `dirty` (boolean), `binary` (`jvm`, `native` or `native-pgo`), `runtime` (the runtime's version line) |

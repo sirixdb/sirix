@@ -27,6 +27,28 @@ COMMIT_A = "a" * 40
 COMMIT_B = "b" * 40
 NOW = datetime.datetime(2026, 11, 23, 18, 30, 5, tzinfo=datetime.timezone.utc)
 QUIET = [0.004, -0.003, 0.001, -0.002, 0.0, 0.003, -0.004, 0.002, -0.001, 0.0]
+INVALID_NIGHTS = (
+    "2026-13-01",
+    "2026-00-01",
+    "2026-01-00",
+    "2026-04-31",
+    "2026-02-29",
+    "1900-02-29",
+    "2100-02-29",
+    "0000-01-01",
+    "10000-01-01",
+    "20261123",
+    "2026-W48-1",
+    "2026-1-01",
+    "2026-01-1",
+    "2026-11-23\n",
+    " 2026-11-23",
+    "２０２６-１１-２３",
+    "",
+    20261123,
+    True,
+    [],
+)
 
 CPUINFO = "".join(
     f"processor\t: {index}\nvendor_id\t: TestVendor\nmodel name\t: Test CPU {9000 if index < 4 else 9001}\n"
@@ -511,6 +533,34 @@ class ConditionsRecordTest(unittest.TestCase):
 
 class RowSchemaTest(unittest.TestCase):
 
+    def test_nightly_dates_are_real_canonical_calendar_dates(self) -> None:
+        for night in ("0001-01-01", "9999-12-31", "2000-02-29", "2024-02-29", "2026-11-23"):
+            with self.subTest(valid=night):
+                bench_ledger.validate_row(run_row(self.environment, tier="nightly", night=night))
+        for night in INVALID_NIGHTS:
+            with self.subTest(invalid=night):
+                with self.assertRaisesRegex(LedgerError, "'night'"):
+                    bench_ledger.validate_row(run_row(self.environment, tier="nightly", night=night))
+
+    def test_invalid_nightly_dates_cannot_be_appended_or_read(self) -> None:
+        base = Path(self.directory.name)
+        ledger = base / "ledger.jsonl"
+        bench_ledger.append_rows(ledger, [run_row(self.environment, tier="nightly", night="2026-11-23")])
+        before = ledger.read_bytes()
+        for index, night in enumerate(INVALID_NIGHTS):
+            with self.subTest(night=night):
+                invalid = run_row(self.environment, tier="nightly", night=night, run="20261123T183005Z-deadbeef")
+                fresh = base / f"fresh-{index}.jsonl"
+                for path in (fresh, ledger):
+                    with self.assertRaisesRegex(LedgerError, "'night'"):
+                        bench_ledger.append_rows(path, [invalid])
+                self.assertFalse(fresh.exists())
+                self.assertEqual(before, ledger.read_bytes())
+                raw = base / f"invalid-{index}.jsonl"
+                raw.write_text(json.dumps(invalid) + "\n", encoding="utf-8")
+                with self.assertRaisesRegex(LedgerError, "'night'"):
+                    bench_ledger.read_ledger(raw)
+
     def test_allocation_verdict_requires_an_integer_delta_and_consistent_pass(self) -> None:
         for delta, passes in ((1, False), (0, True), (-1, True)):
             bench_ledger.validate_row(
@@ -903,6 +953,16 @@ class RunDirectoryTest(unittest.TestCase):
                 ledger=self.ledger,
                 conditions=self.conditions,
             )
+
+    def test_an_invalid_night_is_refused_before_opening_a_run(self) -> None:
+        for index, night in enumerate(INVALID_NIGHTS):
+            with self.subTest(night=night):
+                name = f"invalid-night-{index}"
+                with self.assertRaisesRegex(LedgerError, "'night'"):
+                    self.open_run(name, tier="nightly", night=night)
+                self.assertFalse((self.base / name / "run.json").exists())
+                self.assertFalse((self.base / name / "measurements.jsonl").exists())
+                self.assertFalse(self.ledger.exists())
 
     def test_without_a_named_ledger_no_run_is_opened(self) -> None:
         out = self.base / "run"
