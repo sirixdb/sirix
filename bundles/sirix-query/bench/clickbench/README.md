@@ -766,7 +766,7 @@ Every run writes the machine's state to `environment.json` in its output directo
 figure, and with `SIRIX_BENCH_TIER=gate` and the arms `baseline` and `candidate` it is a timed
 acceptance gate: the rounds are pairs, the run stops on the precision it reached (10 to 20 rounds),
 and it ends with a verdict per judged benchmark. [`../common/README.md`](../common/README.md) has
-the variables, the verdicts and the command.
+the variables, the required dataset name, the verdicts and the command.
 
 A cold round does not pre-read the store. Before the first query, the runner's untimed open step
 only builds the projection's catalog handle (directory walk and Bloom blocks), just as every engine
@@ -888,5 +888,3 @@ against a locally generated stand-in with the **identical 105-column schema**, i
   differ byte for byte, because DuckDB's parallel scan picks a different winner among rows tied at
   the cut-off. The tool reports **0 MISMATCH** — ~18 MATCH and ~25 TIE-AMBIGUOUS, the split moving
   from run to run exactly as the ties do.
-
-With a ledger, pass `--dataset NAME` to `cold-rounds.sh` before measuring. Use a stable name such as `hits-100m` (letters, digits, dots, underscores and hyphens), never a path. Every query and suite figure records it as `params.dataset`.

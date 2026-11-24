@@ -6,7 +6,7 @@ ideas; it is not TPC-BiH, TPC-H, or an audited TPC result.
 
 This kit establishes correctness before measurement. It does not contain a score, ranked
 rounds, a native image, PGO, or a claim that either engine is faster. A later campaign must use
-the repository's ten-round campaign rig and may find that XTDB wins.
+the repository's [measurement protocol](#measurement-protocol-boundary) and may find that XTDB wins.
 
 ## Logical model
 
@@ -242,12 +242,12 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
 
 This exactness runner is intentionally not the timed head-to-head. Before later scoring, freeze the
 event hash, query hashes, engine revision/version, index manifest and capacity tier; then use the
-three-try/ten-round paired rig, one heavy process at a time. Each timed try must use a new process,
+three-try paired rig, one heavy process at a time. Each timed try must use a new process,
 include compile/prepare plus full canonicalization in its query timer, preserve raw and canonical
 answers, verify cache eviction where claimed, and byte-match the oracle. Do not infer a performance
 winner from the load facts or one untimed correctness execution in `evidence/`. A comparison of two
 Sirix builds on this benchmark is judged by the timed acceptance rule and recorded in the results
-ledger; [`../common/README.md`](../common/README.md) describes both.
+ledger; [`../common/README.md`](../common/README.md) describes the run-length rule and recording.
 
 ## Recorded evidence
 

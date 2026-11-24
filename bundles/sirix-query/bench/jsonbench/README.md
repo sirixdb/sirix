@@ -219,7 +219,7 @@ it also appends one row per isolated process to the results ledger — the first
 `cold_seconds`, the later ones as `hot_seconds`, each with its route counters — and it then needs a
 fresh output directory and, for `--bin`, the commit the image was built from (`--commit`). Timings
 of a run whose differential fails are recorded as rejected. [`../common/README.md`](../common/README.md)
-has the details.
+has the dataset identity and recording details.
 
 **Load time ends after durable synchronization.** Both loaders close their database writers and run
 `sync(1)` inside the measured ingestion window, failing the load if the barrier fails. The ClickHouse
@@ -446,5 +446,3 @@ hand-written body against the same binding, `--allow-missing-projection` for an 
 non-benchmark generic diagnostic, and
 `-Pjsonbench.jvmArgs="-Dsirix.query.autoVectorize=false"` to force the generic pipeline for a
 correctness A/B.
-
-Every cold and hot measurement records the kit argument as `params.tier`, so dataset tiers form separate series.

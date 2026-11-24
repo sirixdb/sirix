@@ -21,8 +21,7 @@
   that ordinary path. It also corrected the ZERO fixture oracle: the raw median delta rounds to
   +25 bytes although the displayed arm figures differ by 24. No pre-fix execution or new mutation
   totals are claimed here.
-- Lesson: [boundary contracts](../lessons.d/benchmark-ledger-boundaries.md), collected into
-  [LESSONS.md](../LESSONS.md).
+- Lesson: boundary contracts, collected into [LESSONS.md](../LESSONS.md).
 
 | Finding | Broken invariant and correction | Independent oracle and rejected wrong behavior |
 |---|---|---|

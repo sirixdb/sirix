@@ -140,7 +140,7 @@ run_gradle() {
 # ---------------------------------------------------------------------------
 # run record: environment capture and results ledger
 #
-# spec/CONV-conventions.md, CONV-303. Every kit run captures the machine's state
+# spec/CONV-conventions.md, CONV-303. A kit using bench_run_begin captures the machine's state
 # into <out>/environment.json before its first timed process. With
 # SIRIX_BENCH_LEDGER=<file> the run is also written to that results ledger, and
 # it refuses to start when docs/bench/CONDITIONS.md has no entry for the

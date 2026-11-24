@@ -26,6 +26,8 @@
 #   --arm-commit NAME=SHA  the commit an --arm image was built from; required for
 #                     every image with a results ledger (SIRIX_BENCH_LEDGER)
 #   --arm-kind NAME=KIND   native (default) or native-pgo
+#   --dataset NAME    stable dataset identity, required with a results ledger;
+#                     see ../common/README.md for the naming rule
 #
 # THE RESULTS LEDGER AND THE TIMED GATE
 # -------------------------------------

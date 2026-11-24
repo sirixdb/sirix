@@ -20,9 +20,12 @@ All three tools are standard-library Python 3 and none of them times anything.
 
 ## Recording a run
 
-Every kit run writes `environment.json` into its output directory before its first timed process:
+The ClickBench cold-round runner and JSONBench runner write `environment.json` into their output
+directory before their first timed process:
 kernel, firmware, CPU, frequency policy, power limits, temperatures, runtimes and the filesystem of
 the benchmark data. A probe that cannot be read is recorded as unavailable with its reason.
+JMH and bitemporal drivers use the run-directory commands below; they do not record automatically.
+Commands on this page run from the repository root.
 
 To make a run a protocol result, name a results ledger:
 
@@ -33,10 +36,10 @@ export SIRIX_BENCH_LEDGER="$HOME/.local/state/sirix-bench/ledger.jsonl"   # any 
 The run then also
 
 1. computes the fingerprint of the machine and looks it up in
-   [`docs/bench/CONDITIONS.md`](../../../../docs/bench/CONDITIONS.md). The latest entry containing the fingerprint applies, including a new baseline for an unchanged
-   fingerprint. If no entry holds it, the run
-   refuses to start and names the fields that changed since the previous run. Add a dated entry
-   first; `python3 bench_ledger.py fingerprint` prints what to put in it.
+   [`docs/bench/CONDITIONS.md`](../../../../docs/bench/CONDITIONS.md). If none matches, add an entry
+   under [CONV-303](../../../../spec/CONV-conventions.md#conv-303--results-ledger-and-conditions-record)
+   before measuring; `python3 bundles/sirix-query/bench/common/bench_ledger.py fingerprint` prints
+   the fingerprint and its fields.
 2. appends one row per fresh process and figure to the ledger, with the commit and kind of binary of
    each arm. The ledger is JSON Lines and is only ever appended to. It stays on the measuring
    machine; a pull request cites the rows it relies on.
@@ -92,13 +95,14 @@ The candidate's median minus the baseline's is rounded to whole bytes, ties to t
 must be at most zero. Reports show both rounded arm figures and the rounded delta. If a series has
 allocation legs, both arms must retain an accepted leg or judgment is refused.
 
-With the ClickBench kit, a gate is one command:
+With the ClickBench kit, set `OLD` and `NEW` to the full commit SHAs used to build the two
+images, then run the gate:
 
 ```bash
 SIRIX_BENCH_TIER=gate SIRIX_BENCH_JUDGE="suite" \
-  ../clickbench/cold-rounds.sh /path/to/db --dataset hits-100m \
-    --arm baseline=/path/to/old-image --arm-commit baseline=<sha> \
-    --arm candidate=/path/to/new-image --arm-commit candidate=<sha>
+  bundles/sirix-query/bench/clickbench/cold-rounds.sh /path/to/db --dataset hits-100m \
+    --arm baseline=/path/to/old-image --arm-commit "baseline=$OLD" \
+    --arm candidate=/path/to/new-image --arm-commit "candidate=$NEW"
 ```
 
 It runs rounds until the stop rule ends them, records everything, prints the verdicts and exits 1 on
@@ -108,10 +112,11 @@ Any other driver uses the run directory directly:
 
 ```bash
 L="python3 bundles/sirix-query/bench/common/bench_ledger.py"
+mkdir -p "$RUN"             # a fresh output directory; OLD and NEW are full commit SHAs
 $L begin --out "$RUN" --tier gate --kit jmh \
    --arm "baseline,commit=$OLD,binary=jvm,java=$JAVA" --arm "candidate,commit=$NEW,binary=jvm,java=$JAVA"
 for PAIR in $(seq 1 20); do
-  # one JMH invocation per arm here (forks = 1, a time mode, no profiler), alternating which arm goes first
+  # one JMH invocation per arm here (forks = 1, a time mode, no profiler), baseline then candidate
   $L import-jmh --run "$RUN" --json "$PAIR-baseline.json"  --arm baseline  --pair "$PAIR" --position 1 --process "$PAIR"
   $L import-jmh --run "$RUN" --json "$PAIR-candidate.json" --arm candidate --pair "$PAIR" --position 2 --process "$PAIR"
   [ "$($L stop --run "$RUN" | tail -1)" = stop ] && break
@@ -123,8 +128,10 @@ $L judge --run "$RUN"        # appends to the ledger, then prints the verdicts; 
 ```
 
 A pair rejected for outside load is still recorded: add `--rejected "<reason>"` to both imports. It
-does not count towards the pair numbers above, and it cannot be accepted later. A run is judged
-once: after `judge`, the run directory takes no more measurements.
+does not count towards the accepted-pair minimum or cap, and it cannot be accepted later. Give every
+attempt a new pair number, including replacements for rejected pairs; extend the driver's loop to
+collect the required accepted pairs. A run is judged once: after `judge`, the run directory takes no
+more measurements.
 
 `timed_gate.py judge ROWS.jsonl` and `timed_gate.py stop ROWS.jsonl` apply the same analysis to a
 file of measurement rows without a ledger, for looking at data that is not a protocol result.
