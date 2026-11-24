@@ -281,16 +281,24 @@ public final class JsonRecordSerializer implements Callable<Void> {
     }
 
     /**
-     * Specify the start node key.
+     * Specify the continuation cursor, independently of the subtree root.
      *
-     * @param nodeKey node key to start serialization from (the root of the subtree to serialize)
-     * @return this XMLSerializerBuilder reference
+     * @param nodeKey last loaded node, whose right siblings form the next page; zero selects the
+     *        initial page
+     * @return this builder
      */
     public Builder startNodeKey(final long nodeKey) {
       this.nodeKey = nodeKey;
       return this;
     }
 
+    /**
+     * Select the initial-page subtree root. Callers must validate that a continuation cursor belongs to
+     * this subtree before serialization; a cursor at a non-document root yields an empty page.
+     *
+     * @param rootNodeKey nonnegative subtree root key; defaults to the document root (zero)
+     * @return this builder
+     */
     public Builder rootNodeKey(final long rootNodeKey) {
       checkArgument(rootNodeKey >= 0, "rootNodeKey must be nonnegative");
       this.rootNodeKey = rootNodeKey;
@@ -421,7 +429,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
   /**
    * Serialize records. Two modes of operation:
    * <ul>
-   * <li>Initial Load Mode (startNodeKey == 0): Serialize from document root with parent wrapper</li>
+   * <li>Initial Load Mode (startNodeKey == 0): Serialize from rootNodeKey with parent wrapper</li>
    * <li>Pagination Mode (startNodeKey > 0): Serialize right siblings of startNodeKey as array</li>
    * </ul>
    *
@@ -499,7 +507,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
             // PAGINATION MODE: Serialize right siblings of startNodeKey as array
             serializeSiblingsAfter(rtx, currentRevision);
           } else {
-            // INITIAL LOAD MODE: Serialize from document root with parent wrapper
+            // INITIAL LOAD MODE: Preserve the selected subtree's wrapper and field identity.
             serializeWithParentWrapper(rtx, currentRevision);
           }
 
@@ -613,8 +621,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
   }
 
   /**
-   * Initial load mode: Serialize from document root with parent wrapper. Output format:
-   * {"metadata":{...}, "value":[{child1}, {child2}, ...]}
+   * Initial load mode: serialize the selected subtree with its parent wrapper. Metadata output uses
+   * {"key"?, "metadata":{...}, "value":[{child1}, {child2}, ...]}; plain output retains named fields.
    * 
    * @param rtx the read-only transaction
    * @throws IOException if serialization fails

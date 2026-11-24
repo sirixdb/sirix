@@ -177,8 +177,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                             rtx.moveToFirstChild()
                         } else {
                             // An unchecked moveTo would bind the context item to the document
-                            // root: the JSON path throws AssertionError (HTTP 500) and the XML
-                            // path silently evaluates the query against the WRONG context.
+                            // root, silently evaluating the query against the wrong context.
                             rtx.moveToOrNotFound(nodeId)
                         }
 
