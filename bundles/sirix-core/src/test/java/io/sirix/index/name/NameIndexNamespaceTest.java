@@ -57,8 +57,8 @@ final class NameIndexNamespaceTest {
       Databases.createXmlDatabase(new DatabaseConfiguration(path));
       try {
         try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(path)) {
-          database.createResource(ResourceConfiguration.newBuilder("data").storageType(StorageType.FILE_CHANNEL)
-              .build());
+          database.createResource(
+              ResourceConfiguration.newBuilder("data").storageType(StorageType.FILE_CHANNEL).build());
           try (final XmlResourceSession session = database.beginResourceSession("data");
               final XmlNodeTrx trx = session.beginNodeTrx()) {
             if (mode == BuildMode.INCREMENTAL) {
@@ -91,7 +91,9 @@ final class NameIndexNamespaceTest {
         Databases.clearGlobalCaches();
         try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(path);
             final XmlResourceSession session = database.beginResourceSession("data")) {
-          final int firstRevision = mode == BuildMode.COMMITTED ? 2 : 1;
+          final int firstRevision = mode == BuildMode.COMMITTED
+              ? 2
+              : 1;
           for (int index = 0; index < history.size(); index++) {
             try (final var reader = session.beginNodeReadOnlyTrx(firstRevision + index)) {
               assertPostings(session.getRtxIndexController(reader.getRevisionNumber()), reader.getStorageEngineReader(),

@@ -53,10 +53,10 @@ final class NameIndexRecheckAllocationBudgetTest {
         final NodeReferences candidates = postings(1, 2);
         final NodeReferences actual = switch (mode) {
           case 0 -> NameIndexRecheck.exactPostings(reader, candidates, REQUESTED, true);
-          case 1 -> NameIndexRecheck.filteredPostings(reader, candidates,
-              NameIndexRecheck.filter(Set.of(REQUESTED), Set.of()));
-          default -> NameIndexRecheck.filteredPostings(reader, candidates,
-              NameIndexRecheck.filter(Set.of(), Set.of(REQUESTED)));
+          case 1 ->
+            NameIndexRecheck.filteredPostings(reader, candidates, NameIndexRecheck.filter(Set.of(REQUESTED), Set.of()));
+          default ->
+            NameIndexRecheck.filteredPostings(reader, candidates, NameIndexRecheck.filter(Set.of(), Set.of(REQUESTED)));
         };
         if (mode < 2) {
           assertEquals(candidates, actual);
@@ -93,8 +93,8 @@ final class NameIndexRecheckAllocationBudgetTest {
     assertEquals(postings(4, 6), NameIndexRecheck.exactPostings(reader, candidates, new QNm(LOCAL), true));
     assertEquals(18, reader.reads);
 
-    final NameIndexRecheck.NamePredicate included = NameIndexRecheck.filter(
-        Set.of(new QNm("urn:a", "different-prefix", LOCAL), new QNm(LOCAL)), Set.of());
+    final NameIndexRecheck.NamePredicate included =
+        NameIndexRecheck.filter(Set.of(new QNm("urn:a", "different-prefix", LOCAL), new QNm(LOCAL)), Set.of());
     final NodeReferences selected = NameIndexRecheck.filteredPostings(reader, candidates, included);
     assertEquals(postings(1, 2).addNodeKey(4).addNodeKey(5), selected);
     assertEquals(27, reader.reads);
@@ -122,8 +122,8 @@ final class NameIndexRecheckAllocationBudgetTest {
     reader.put(0, "urn:b", LOCAL);
     final NodeReferences candidates = postings(0, CANDIDATES);
     final NameIndexRecheck.NamePredicate included = NameIndexRecheck.filter(Set.of(REQUESTED), Set.of());
-    final NameIndexRecheck.NamePredicate excluded = NameIndexRecheck.filter(Set.of(),
-        Set.of(new QNm("urn:b", "ignored", LOCAL)));
+    final NameIndexRecheck.NamePredicate excluded =
+        NameIndexRecheck.filter(Set.of(), Set.of(new QNm("urn:b", "ignored", LOCAL)));
     final long thread = Thread.currentThread().threadId();
     long allocated = 0;
     for (int pass = 0; pass < 256; pass++) {
@@ -169,7 +169,9 @@ final class NameIndexRecheckAllocationBudgetTest {
     private ElementNode put(final int key, final String uri, final String localName) {
       final ElementNode record = new ElementNode(key, LongHashFunction.xx3());
       record.setLocalNameKey(key * 2);
-      record.setURIKey("".equals(uri) ? -1 : key * 2 + 1);
+      record.setURIKey("".equals(uri)
+          ? -1
+          : key * 2 + 1);
       record.setName(new QNm("stale-cached-name"));
       records[key] = record;
       dictionary[key * 2] = localName;

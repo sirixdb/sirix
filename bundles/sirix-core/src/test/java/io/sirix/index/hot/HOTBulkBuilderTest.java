@@ -67,13 +67,17 @@ final class HOTBulkBuilderTest {
     final byte[] value = new byte[HOTLeafPage.DEFAULT_SIZE / 2];
     for (int index = 0; index < 4; index++) {
       final byte[] key = new byte[301];
-      key[10] = (index & 2) == 0 ? 0 : (byte) 0x80;
-      key[300] = (index & 1) == 0 ? 0 : (byte) 0x80;
+      key[10] = (index & 2) == 0
+          ? 0
+          : (byte) 0x80;
+      key[300] = (index & 1) == 0
+          ? 0
+          : (byte) 0x80;
       entries.add(new HOTBulkBuilder.Entry(key, value));
     }
     final AtomicLong pageKeys = new AtomicLong();
-    final HOTBulkBuilder.BuildResult result = HOTBulkBuilder.build(entries, 1, IndexType.NAME,
-        pageKeys::getAndIncrement);
+    final HOTBulkBuilder.BuildResult result =
+        HOTBulkBuilder.build(entries, 1, IndexType.NAME, pageKeys::getAndIncrement);
     try {
       assertEquals(4, result.leafCount());
       assertEquals(3, result.indirectCount(), "two inner branch pages and their root");

@@ -51,8 +51,7 @@ final class NameKeySerializerRoutableBoundTest {
     final byte[] stored = serialize(name);
     assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length));
     assertEquals(BOUND, stored.length);
-    assertArrayEquals("a".repeat(BOUND - 1).getBytes(StandardCharsets.UTF_8),
-        Arrays.copyOf(stored, stored.length - 1));
+    assertArrayEquals("a".repeat(BOUND - 1).getBytes(StandardCharsets.UTF_8), Arrays.copyOf(stored, stored.length - 1));
     assertEquals((byte) 0xFF, stored[stored.length - 1]);
     // The stored key is still a readable key — of the shortened name, not of the one asked for.
     assertEquals(new QNm("a".repeat(BOUND - 1)), SERIALIZER.deserialize(stored, 0, stored.length));
@@ -162,11 +161,9 @@ final class NameKeySerializerRoutableBoundTest {
 
   @Test
   void completeLongComponentsKeepTheirReferenceEncoding() {
-    for (final QNm name : new QNm[] {new QNm("a".repeat(2000)), new QNm("é".repeat(2000)),
-        new QNm("中".repeat(1000)), new QNm("😀".repeat(1000)),
-        new QNm("u".repeat(2000), "p", "a"), new QNm("é".repeat(1000), "p", "field"),
-        new QNm("u".repeat(1000), "p", "a".repeat(1000)),
-        new QNm("u\u0000".repeat(1000), "p", "field")}) {
+    for (final QNm name : new QNm[] {new QNm("a".repeat(2000)), new QNm("é".repeat(2000)), new QNm("中".repeat(1000)),
+        new QNm("😀".repeat(1000)), new QNm("u".repeat(2000), "p", "a"), new QNm("é".repeat(1000), "p", "field"),
+        new QNm("u".repeat(1000), "p", "a".repeat(1000)), new QNm("u\u0000".repeat(1000), "p", "field")}) {
       final ByteArrayOutputStream expected = new ByteArrayOutputStream();
       if (!name.getNamespaceURI().isEmpty()) {
         expected.write(0xFF);

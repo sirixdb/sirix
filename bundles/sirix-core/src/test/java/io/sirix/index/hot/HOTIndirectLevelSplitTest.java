@@ -131,7 +131,9 @@ final class HOTIndirectLevelSplitTest {
         new int[] {0, 1, 2, 3}, children, 1, 1, IndexType.NAME, pageKeys::getAndIncrement);
   }
 
-  /** Key {@code index} of the fixture: bit two selects {@link #EARLY_BYTE}, bit one {@code lateByte}. */
+  /**
+   * Key {@code index} of the fixture: bit two selects {@link #EARLY_BYTE}, bit one {@code lateByte}.
+   */
   private static byte[] key(final int lateByte, final int index) {
     final byte[] key = new byte[lateByte + 1];
     Arrays.fill(key, (byte) 'x');

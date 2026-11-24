@@ -61,8 +61,10 @@ final class HOTSharedMutationRouteTest {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
-        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"" + first.getLocalName() + "\":1,\""
-            + second.getLocalName() + "\":2,\"field\":3}"), JsonNodeTrx.Commit.NO);
+        trx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader(
+                "{\"" + first.getLocalName() + "\":1,\"" + second.getLocalName() + "\":2,\"field\":3}"),
+            JsonNodeTrx.Commit.NO);
         trx.moveToDocumentRoot();
         assertTrue(trx.moveToFirstChild());
         assertTrue(trx.moveToFirstChild());

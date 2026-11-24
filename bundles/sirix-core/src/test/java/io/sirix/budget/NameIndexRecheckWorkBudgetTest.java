@@ -43,8 +43,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * Only a name past {@link NameKeySerializer#MAX_NAME_KEY_BYTES} is stored under a prefix of itself,
- * so only such a name owes the exact re-check of FMT-305 — one record read per candidate posting.
- * A bound without the long-name control below would also pass if the re-check never ran at all, so
+ * so only such a name owes the exact re-check of FMT-305 — one record read per candidate posting. A
+ * bound without the long-name control below would also pass if the re-check never ran at all, so
  * the long name establishes the nonzero floor the zero is measured against.
  */
 @Isolated
@@ -79,16 +79,14 @@ final class NameIndexRecheckWorkBudgetTest {
     final Path path = directory.resolve("name-recheck-budget");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .build());
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
         final QNm belowBound = new QNm(LONG_HEAD.substring(1));
         final QNm atBound = new QNm(LONG_HEAD);
         final String json = "[{\"" + SHORT.getLocalName() + "\":0,\"" + LONG_FIRST.getLocalName() + "\":1,\""
-            + LONG_SECOND.getLocalName() + "\":2,\"" + belowBound.getLocalName() + "\":3,\""
-            + atBound.getLocalName() + "\":4}]";
+            + LONG_SECOND.getLocalName() + "\":2,\"" + belowBound.getLocalName() + "\":3,\"" + atBound.getLocalName()
+            + "\":4}]";
         trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
         trx.moveToDocumentRoot();
         final var controller = session.getWtxIndexController(trx.getRevisionNumber());
@@ -111,8 +109,9 @@ final class NameIndexRecheckWorkBudgetTest {
                        "a name inside the routable key bound answers from its whole stored key and "
                            + "must not read a record to re-check it");
 
-        final WorkCapture.Captured<List<Set<Long>>> boundaryLookups = CAPTURE.call(() -> List.of(
-            postings(controller, reader, definition, belowBound), postings(controller, reader, definition, atBound)));
+        final WorkCapture.Captured<List<Set<Long>>> boundaryLookups =
+            CAPTURE.call(() -> List.of(postings(controller, reader, definition, belowBound),
+                postings(controller, reader, definition, atBound)));
         assertEquals(1, boundaryLookups.result().get(0).size());
         assertEquals(1, boundaryLookups.result().get(1).size());
         assertEquals(Set.of(), intersection(boundaryLookups.result().get(0), boundaryLookups.result().get(1)));
@@ -124,12 +123,13 @@ final class NameIndexRecheckWorkBudgetTest {
         assertEquals(2, filteredLookups.result().get(0).size());
         assertEquals(3, filteredLookups.result().get(1).size());
         assertEquals(Set.of(), intersection(filteredLookups.result().get(0), filteredLookups.result().get(1)));
-        filteredLookups.work().assertExactly(RECHECK_READS, 4,
-            "only the two long-name candidates are re-checked on each filtered walk");
+        filteredLookups.work()
+                       .assertExactly(RECHECK_READS, 4,
+                           "only the two long-name candidates are re-checked on each filtered walk");
 
-        final WorkCapture.Captured<List<Set<Long>>> longLookups = CAPTURE.call(() -> List.of(
-            postings(controller, reader, definition, LONG_FIRST), postings(controller, reader, definition,
-                LONG_SECOND)));
+        final WorkCapture.Captured<List<Set<Long>>> longLookups =
+            CAPTURE.call(() -> List.of(postings(controller, reader, definition, LONG_FIRST),
+                postings(controller, reader, definition, LONG_SECOND)));
         assertEquals(1, longLookups.result().get(0).size(), "the first long name's own posting");
         assertEquals(1, longLookups.result().get(1).size(), "the second long name's own posting");
         assertEquals(Set.of(), intersection(longLookups.result().get(0), longLookups.result().get(1)),
@@ -141,23 +141,25 @@ final class NameIndexRecheckWorkBudgetTest {
                            + "candidates rather than the whole index");
         final HOTIndexWriter<QNm> writer = HOTIndexWriter.create(trx.getStorageEngineWriter(),
             NameKeySerializer.INSTANCE, IndexType.NAME, definition.getID());
-        final WorkCapture.Captured<List<NodeReferences>> ordinaryWriterReads = CAPTURE.call(() -> List.of(
-            writer.get(SHORT, SearchMode.EQUAL), writer.get(belowBound, SearchMode.EQUAL),
-            writer.get(atBound, SearchMode.EQUAL)));
+        final WorkCapture.Captured<List<NodeReferences>> ordinaryWriterReads =
+            CAPTURE.call(() -> List.of(writer.get(SHORT, SearchMode.EQUAL), writer.get(belowBound, SearchMode.EQUAL),
+                writer.get(atBound, SearchMode.EQUAL)));
         for (final NodeReferences references : ordinaryWriterReads.result()) {
           assertEquals(1, references.cardinality());
         }
-        ordinaryWriterReads.work().assertZero(RECHECK_READS,
-            "writer point reads of complete names owe no dictionary re-check");
-        final WorkCapture.Captured<List<NodeReferences>> longWriterReads = CAPTURE.call(() -> List.of(
-            writer.get(LONG_FIRST, SearchMode.EQUAL), writer.get(LONG_SECOND, SearchMode.EQUAL)));
+        ordinaryWriterReads.work()
+                           .assertZero(RECHECK_READS,
+                               "writer point reads of complete names owe no dictionary re-check");
+        final WorkCapture.Captured<List<NodeReferences>> longWriterReads = CAPTURE.call(
+            () -> List.of(writer.get(LONG_FIRST, SearchMode.EQUAL), writer.get(LONG_SECOND, SearchMode.EQUAL)));
         for (int index = 0; index < 2; index++) {
           final NodeReferences references = longWriterReads.result().get(index);
           assertEquals(1, references.cardinality());
           assertTrue(references.contains(longLookups.result().get(index).iterator().next()));
         }
-        longWriterReads.work().assertExactly(RECHECK_READS, 4,
-            "writer point reads re-check each of the two shared-key candidates exactly once per name");
+        longWriterReads.work()
+                       .assertExactly(RECHECK_READS, 4,
+                           "writer point reads re-check each of the two shared-key candidates exactly once per name");
         trx.commit();
       }
     } finally {
@@ -165,13 +167,13 @@ final class NameIndexRecheckWorkBudgetTest {
     }
   }
 
-  private static Set<Long> postings(final IndexController<?, ?> controller,
-      final StorageEngineReader reader, final IndexDef definition, final QNm name) {
+  private static Set<Long> postings(final IndexController<?, ?> controller, final StorageEngineReader reader,
+      final IndexDef definition, final QNm name) {
     return postings(controller, reader, definition, new NameFilter(Set.of(name), Set.of()));
   }
 
-  private static Set<Long> postings(final IndexController<?, ?> controller,
-      final StorageEngineReader reader, final IndexDef definition, final NameFilter filter) {
+  private static Set<Long> postings(final IndexController<?, ?> controller, final StorageEngineReader reader,
+      final IndexDef definition, final NameFilter filter) {
     final Set<Long> keys = new TreeSet<>();
     final Iterator<NodeReferences> hits = controller.openNameIndex(reader, definition, filter);
     while (hits.hasNext()) {

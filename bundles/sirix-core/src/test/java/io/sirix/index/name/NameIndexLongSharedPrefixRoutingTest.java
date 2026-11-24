@@ -55,8 +55,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * beyond the range a routing node can name (issue 1391).
  *
  * <p>
- * HOT names a discriminative key byte either in a one-byte {@code MULTI_MASK} extraction position or
- * in a two-byte {@code SINGLE_MASK} base position. CAS and VALIDTIME keep their keys inside the
+ * HOT names a discriminative key byte either in a one-byte {@code MULTI_MASK} extraction position
+ * or in a two-byte {@code SINGLE_MASK} base position. CAS and VALIDTIME keep their keys inside the
  * first width; NAME keys are serialized names of unbounded length. The family below differs at byte
  * 250 and again at bytes 314 to 316, so a node that routes on both regions spans more than one
  * eight-byte window and has to name byte 314 — which does not fit a byte.
@@ -68,7 +68,9 @@ final class NameIndexLongSharedPrefixRoutingTest {
   /** Common head; the family's first discriminative byte sits right after it. */
   private static final String HEAD = "x".repeat(250);
 
-  /** Filler between the two discriminative regions: forces a span wider than one eight-byte window. */
+  /**
+   * Filler between the two discriminative regions: forces a span wider than one eight-byte window.
+   */
   private static final String GAP = "y".repeat(63);
 
   /** Two heads times this many tails exceeds a leaf page, so the build must route through a node. */
@@ -95,9 +97,7 @@ final class NameIndexLongSharedPrefixRoutingTest {
     final Path path = directory.resolve("json-far-apart-disc-bytes");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .build());
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
         trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(document(names)), JsonNodeTrx.Commit.NO);
@@ -135,9 +135,9 @@ final class NameIndexLongSharedPrefixRoutingTest {
   }
 
   /**
-   * The same geometry reached one name at a time: the index exists before the document, so every
-   * node arrives through the writer's branch-insert route rather than the bulk build. Twice as many
-   * tails, because the far-apart bit only reaches a routing node once a leaf has had to split.
+   * The same geometry reached one name at a time: the index exists before the document, so every node
+   * arrives through the writer's branch-insert route rather than the bulk build. Twice as many tails,
+   * because the far-apart bit only reaches a routing node once a leaf has had to split.
    */
   @Test
   void anIncrementallyMaintainedAllNamesIndexStaysExactForDiscriminativeBytesBeyondByte255() {
@@ -151,9 +151,7 @@ final class NameIndexLongSharedPrefixRoutingTest {
     final Path path = directory.resolve("json-incremental-far-apart-disc-bytes");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .build());
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
         session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(Set.of(definition), trx);
@@ -203,9 +201,7 @@ final class NameIndexLongSharedPrefixRoutingTest {
     final Path path = directory.resolve("json-routable-bound");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .build());
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
         trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(document(names)), JsonNodeTrx.Commit.NO);
@@ -253,9 +249,7 @@ final class NameIndexLongSharedPrefixRoutingTest {
     final Path path = directory.resolve("json-overflow-height-" + targetFanout);
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .build());
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
         trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + overflowObject(names) + "]"),
@@ -284,8 +278,8 @@ final class NameIndexLongSharedPrefixRoutingTest {
         }
         final HOTIndirectPage preparedRoot = assertInstanceOf(HOTIndirectPage.class, reader.loadHOTPage(rootRef));
         assertEquals(32, preparedRoot.getNumChildren(), "fixture: the root stays full");
-        final HOTIndirectPage targetParent = assertInstanceOf(HOTIndirectPage.class,
-            reader.loadHOTPage(preparedRoot.getChildReference(0)));
+        final HOTIndirectPage targetParent =
+            assertInstanceOf(HOTIndirectPage.class, reader.loadHOTPage(preparedRoot.getChildReference(0)));
         assertEquals(targetFanout, targetParent.getNumChildren(), "fixture: overflow parent capacity");
 
         final List<QNm> extension = new ArrayList<>();
@@ -304,15 +298,16 @@ final class NameIndexLongSharedPrefixRoutingTest {
         assertIndexEqualsScan(session.getWtxIndexController(trx.getRevisionNumber()), reader, definition, names,
             scan(trx), "after leaf overflow");
         trx.commit();
-        assertExactHeight(trx.getStorageEngineReader(), HOTInvariantValidator.resolveRootRef(
-            trx.getStorageEngineReader(), IndexType.NAME, definition.getID()));
+        assertExactHeight(trx.getStorageEngineReader(),
+            HOTInvariantValidator.resolveRootRef(trx.getStorageEngineReader(), IndexType.NAME, definition.getID()));
       }
       Databases.clearGlobalCaches();
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         final StorageEngineReader reader = rtx.getStorageEngineReader();
-        assertEquals(3, assertExactHeight(reader,
-            HOTInvariantValidator.resolveRootRef(reader, IndexType.NAME, definition.getID())), "after cold reopen");
+        assertEquals(3,
+            assertExactHeight(reader, HOTInvariantValidator.resolveRootRef(reader, IndexType.NAME, definition.getID())),
+            "after cold reopen");
         assertStructurallyValid(reader, definition, "after overflow and commit");
         assertIndexEqualsScan(session.getRtxIndexController(rtx.getRevisionNumber()), reader, definition, names,
             scan(rtx), "after overflow and commit");
@@ -325,12 +320,18 @@ final class NameIndexLongSharedPrefixRoutingTest {
   private static QNm overflowName(final int prefix, final int branch, final int fanout, final int tail) {
     final StringBuilder name = new StringBuilder(303);
     for (int bit = 4; bit >= 0; bit--) {
-      name.append((prefix & (1 << bit)) == 0 ? 'a' : 'b');
+      name.append((prefix & (1 << bit)) == 0
+          ? 'a'
+          : 'b');
     }
     name.append("x".repeat(95));
-    final int branchBits = fanout == 2 ? 1 : 5;
+    final int branchBits = fanout == 2
+        ? 1
+        : 5;
     for (int bit = branchBits - 1; bit >= 0; bit--) {
-      name.append((branch & (1 << bit)) == 0 ? 'a' : 'b');
+      name.append((branch & (1 << bit)) == 0
+          ? 'a'
+          : 'b');
     }
     name.append("y".repeat(200 - branchBits));
     name.append((char) ('0' + tail / 100));
@@ -421,8 +422,8 @@ final class NameIndexLongSharedPrefixRoutingTest {
     }
     assertEquals(all, collect(controller.openNameIndex(reader, definition, new NameFilter(Set.of(), Set.of()))),
         "full NAME index read must equal the scan " + stage);
-    final HOTIndexReader<QNm> direct = HOTIndexReader.create(reader, NameKeySerializer.INSTANCE, IndexType.NAME,
-        definition.getID());
+    final HOTIndexReader<QNm> direct =
+        HOTIndexReader.create(reader, NameKeySerializer.INSTANCE, IndexType.NAME, definition.getID());
     for (final QNm name : names) {
       final NodeReferences directPostings = direct.get(name, SearchMode.EQUAL);
       assertTrue(directPostings != null);
@@ -450,18 +451,19 @@ final class NameIndexLongSharedPrefixRoutingTest {
       assertEquals(excluded,
           collect(controller.openNameIndex(reader, definition, new NameFilter(Set.of(), Set.of(name)))),
           "excluded name " + stage);
-      assertEquals(Set.of(), collect(controller.openNameIndex(reader, definition,
-          new NameFilter(Set.of(name, missing), Set.of(name)))), "include then exclude " + stage);
+      assertEquals(Set.of(),
+          collect(controller.openNameIndex(reader, definition, new NameFilter(Set.of(name, missing), Set.of(name)))),
+          "include then exclude " + stage);
     }
   }
 
   private static void assertCandidateCursorsKeepResidualsExact(final StorageEngineReader storage,
       final IndexDef definition, final QNm first, final QNm second, final Map<QNm, Set<Long>> scanned) {
-    final HOTIndexReader<QNm> reader = HOTIndexReader.create(storage, NameKeySerializer.INSTANCE, IndexType.NAME,
-        definition.getID());
-    final List<Iterator<Map.Entry<QNm, NodeReferences>>> inclusive = List.of(reader.iterator(),
-        reader.range(first, second), reader.range(first, second, true, true), reader.iteratorFrom(first, true),
-        reader.iteratorTo(second, true));
+    final HOTIndexReader<QNm> reader =
+        HOTIndexReader.create(storage, NameKeySerializer.INSTANCE, IndexType.NAME, definition.getID());
+    final List<Iterator<Map.Entry<QNm, NodeReferences>>> inclusive =
+        List.of(reader.iterator(), reader.range(first, second), reader.range(first, second, true, true),
+            reader.iteratorFrom(first, true), reader.iteratorTo(second, true));
     for (final Iterator<Map.Entry<QNm, NodeReferences>> cursor : inclusive) {
       int markedBuckets = 0;
       while (cursor.hasNext()) {
@@ -479,9 +481,9 @@ final class NameIndexLongSharedPrefixRoutingTest {
       }
       assertEquals(1, markedBuckets, "each candidate cursor includes the shared serialized bucket once");
     }
-    final List<Iterator<Map.Entry<QNm, NodeReferences>>> exclusive = List.of(reader.iteratorFrom(first, false),
-        reader.iteratorTo(second, false), reader.range(first, second, false, true),
-        reader.range(first, second, true, false));
+    final List<Iterator<Map.Entry<QNm, NodeReferences>>> exclusive =
+        List.of(reader.iteratorFrom(first, false), reader.iteratorTo(second, false),
+            reader.range(first, second, false, true), reader.range(first, second, true, false));
     for (final Iterator<Map.Entry<QNm, NodeReferences>> cursor : exclusive) {
       while (cursor.hasNext()) {
         final RawKeyBytes raw = (RawKeyBytes) cursor.next();
