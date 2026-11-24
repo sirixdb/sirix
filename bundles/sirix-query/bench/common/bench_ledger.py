@@ -261,6 +261,15 @@ def _filesystem(root: Path, data: Path | None) -> str | dict[str, str]:
     return best[1] if best else unavailable("/proc/self/mountinfo: no mount holds the benchmark data path")
 
 
+def _runtime_version(text: str) -> str | dict[str, str]:
+    version = "\n".join(
+        line
+        for line in text.splitlines()
+        if not re.match(r"(?:NOTE:\s*)?Picked up (?:JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|JDK_JAVA_OPTIONS):", line.lstrip())
+    ).strip()
+    return version if version else unavailable("runtime version: no version output")
+
+
 def capture_environment(
     *,
     data: Path | None = None,
@@ -280,6 +289,7 @@ def capture_environment(
     versions: dict[str, Any] = dict(runtimes or {})
     for arm, java in (javas or {}).items():
         versions[arm] = _command(runner, [java, "-version"], stderr=True)
+    versions = {arm: _runtime_version(text) if isinstance(text, str) else text for arm, text in versions.items()}
     turbo = {
         "intel_pstate_no_turbo": _read(root, "/sys/devices/system/cpu/intel_pstate/no_turbo"),
         "cpufreq_boost": _read(root, "/sys/devices/system/cpu/cpufreq/boost"),

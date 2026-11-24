@@ -1925,6 +1925,73 @@ class CaptureDetailTest(unittest.TestCase):
         )
 
 
+class RuntimeVersionTest(unittest.TestCase):
+    """CONV-303: runtime evidence retains versions but never echoed environment options."""
+
+    def test_option_banners_are_excluded_from_captures_and_run_rows(self) -> None:
+        version = 'openjdk version "25.0.5" 2026-10-20 LTS'
+        detail = "OpenJDK Runtime Environment Temurin-25.0.5+8"
+        private_path = "/home/alice/tmp"
+        banners = [
+            f"{prefix}Picked up {variable}: -Djava.io.tmpdir={private_path}"
+            for variable in ("JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS")
+            for prefix in ("", "NOTE: ")
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = make_root(base)
+            conditions = base / "CONDITIONS.md"
+            conditions.write_text(
+                condition_entry("2026-11-23", "test", "new baseline", bench_ledger.fingerprint(fake_environment(base))),
+                encoding="utf-8",
+            )
+            outputs = [(f"{banner}\n\n{version}\n{detail}", f"{version}\n{detail}") for banner in banners]
+            outputs.append(("\n".join(banners), None))
+            for source in ("java", "runtime"):
+                for index, (output, expected) in enumerate(outputs):
+                    with self.subTest(source=source, output=output):
+                        launcher = base / "java"
+                        launcher.write_text(f"#!/bin/sh\ncat >&2 <<'VERSION'\n{output}\nVERSION\n", encoding="utf-8")
+                        launcher.chmod(0o755)
+                        options = (
+                            {"javas": {"head": str(launcher)}} if source == "java" else {"runtimes": {"head": output}}
+                        )
+                        capture = bench_ledger.capture_environment(root=root, **options)
+                        out = base / f"{source}-{index}"
+                        out.mkdir()
+                        value = str(launcher) if source == "java" else output
+                        run = bench_ledger.begin(
+                            out,
+                            tier="control",
+                            kit="jmh",
+                            arm_specs=[f"head,commit={COMMIT_B},binary=jvm,{source}={value}"],
+                            ledger=base / "ledger.jsonl",
+                            conditions=conditions,
+                            root=root,
+                            now=NOW,
+                        )
+                        persisted_capture = json.loads((out / "environment.json").read_text(encoding="utf-8"))
+                        persisted_run = json.loads((out / "run.json").read_text(encoding="utf-8"))
+                        self.assertEqual(run, persisted_run)
+                        self.assertEqual(persisted_capture, persisted_run["environment"])
+                        for environment in (capture, persisted_capture, persisted_run["environment"]):
+                            self.assertNotIn(private_path, json.dumps(environment))
+                            runtime = environment["runtimes"]["head"]
+                            if expected is None:
+                                self.assertIsInstance(runtime, dict)
+                                self.assertTrue(runtime["unavailable"])
+                                self.assertNotIn("Picked up", runtime["unavailable"])
+                            else:
+                                self.assertEqual(expected, runtime)
+                        self.assertNotIn(private_path, json.dumps(persisted_run))
+                        arm_runtime = persisted_run["arms"]["head"]["runtime"]
+                        if expected is None:
+                            self.assertTrue(arm_runtime.startswith("unavailable: "))
+                            self.assertNotIn("Picked up", arm_runtime)
+                        else:
+                            self.assertEqual(version, arm_runtime)
+
+
 class ConditionsDetailTest(unittest.TestCase):
 
     def test_text_and_tables_outside_the_entries_are_not_entries(self) -> None:

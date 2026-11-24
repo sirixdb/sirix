@@ -84,3 +84,14 @@ seventh is equivalent and is listed below.
 | `if existing.read(1) != b"\n":` | `1` → `2` | The read starts at the last byte of the file, so asking for two bytes returns the same one. |
 | `json.dumps(document, indent=2)` in `_write_json` | `2` → `3` | The indentation of `run.json` and `environment.json`, which are read back as JSON. |
 | `json.dumps(fingerprint_fields(environment), indent=2)` | `2` → `3` | The indentation of the fields `bench_ledger.py fingerprint` prints. |
+
+## Runtime option capture review supplement (R10)
+
+The runtime-capture correction was checked separately from the historical module totals above.
+All 90 tests in `test_bench_ledger` passed. `RuntimeVersionTest` then detected eight in-memory
+mutations of the runtime filter: bypassing it (the pre-fix output), omitting each of the three
+environment-variable names, omitting the `NOTE:` form, retaining only banners, removing whitespace
+trimming, and returning empty text instead of unavailable. There were no survivors. The tests
+derive their oracle from CONV-303's privacy and truthful-runtime requirements, using executable
+launchers and persisted output rather than implementation text. Source files remained unchanged
+during mutation execution. This supplement does not claim a new whole-module mutation count.

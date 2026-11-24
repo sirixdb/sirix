@@ -378,6 +378,10 @@ The data filesystem MUST be unavailable when the data path cannot be fully resol
 a missing target or a symbolic-link loop in any component; valid links use the target's mount.
 The capture MUST NOT hold a host name, a user name, a serial number or a path below a home directory,
 because conditions are published.
+Runtime version text MUST exclude JVM environment-option announcements for `JAVA_TOOL_OPTIONS`,
+`_JAVA_OPTIONS` and `JDK_JAVA_OPTIONS`, including announcements prefixed by `NOTE:`. This applies
+both to probed output and supplied runtime text, in the capture and the arm's version line. If only
+announcements remain, the runtime MUST be unavailable with a reason that does not repeat the options.
 
 **Fingerprint.** The fingerprint is the SHA-256, in lowercase hexadecimal, of the canonical JSON
 (UTF-8, keys sorted, no insignificant whitespace) of an object holding exactly: kernel release,
