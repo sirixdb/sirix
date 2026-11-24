@@ -240,7 +240,10 @@ def jmh_result(
 
 
 # The JVM settings CONV-302 requires of an allocation leg.
-DETERMINISTIC_LEG = ["-Xmx3g", "-XX:+UnlockExperimentalVMOptions", "-XX:+UseEpsilonGC", "-XX:-DoEscapeAnalysis"]
+DETERMINISTIC_LEG = [
+    "-Xmx3g", "-XX:+UnlockExperimentalVMOptions", "-XX:+UseEpsilonGC",
+    "-XX:-DoEscapeAnalysis", "-XX:-UseJVMCICompiler",
+]
 
 
 def allocation_leg(
@@ -1369,16 +1372,21 @@ class ImporterTest(unittest.TestCase):
                 self.assertAlmostEqual(1020.25, row["value"], places=9)
 
     def test_the_last_occurrence_of_a_jvm_flag_decides(self) -> None:
-        enabled_again = DETERMINISTIC_LEG + ["-XX:+DoEscapeAnalysis"]
-        with self.assertRaisesRegex(LedgerError, "escape analysis disabled"):
-            bench_ledger.jmh_rows(
-                [allocation_leg("m", 1.0, jvm_args=enabled_again)],
-                arm="baseline",
-                pair=None,
-                position=None,
-                process=1,
-                allocation_leg=True,
-            )
+        # CONV-302: disabling either compiler optimization must remain effective.
+        for flag, message in (("DoEscapeAnalysis", "escape analysis disabled"),
+                              ("UseJVMCICompiler", "Graal JIT disabled")):
+            with self.subTest(flag=flag):
+                enabled_again = DETERMINISTIC_LEG + [f"-XX:+{flag}"]
+                with self.assertRaisesRegex(LedgerError, message):
+                    bench_ledger.jmh_rows(
+                        [allocation_leg("m", 1.0, jvm_args=enabled_again)],
+                        arm="baseline", pair=None, position=None, process=1, allocation_leg=True,
+                    )
+                (row,) = bench_ledger.jmh_rows(
+                    [allocation_leg("m", 1.0, jvm_args=enabled_again + [f"-XX:-{flag}"])],
+                    arm="baseline", pair=None, position=None, process=1, allocation_leg=True,
+                )
+                self.assertEqual(1.0, row["value"])
 
     def test_jmh_results_that_break_the_protocol_are_refused(self) -> None:
         cases = {
@@ -1392,7 +1400,11 @@ class ImporterTest(unittest.TestCase):
                 {"allocation_leg": True},
             ),
             "an allocation leg needs a collector that never collects": (
-                [allocation_leg("m", 1.0, jvm_args=["-XX:-DoEscapeAnalysis"])],
+                [allocation_leg("m", 1.0, jvm_args=["-XX:-DoEscapeAnalysis", "-XX:-UseJVMCICompiler"])],
+                {"allocation_leg": True},
+            ),
+            "an allocation leg needs the Graal JIT disabled": (
+                [allocation_leg("m", 1.0, jvm_args=["-XX:-DoEscapeAnalysis", "-XX:+UseEpsilonGC"])],
                 {"allocation_leg": True},
             ),
             "an allocation leg needs single-shot mode with a batch size": (

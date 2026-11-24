@@ -1206,6 +1206,10 @@ def _allocation_per_operation(result: Mapping[str, Any], profiled: Mapping[str, 
     args = [str(arg) for arg in result.get("jvmArgs") or []]
     if _jvm_flag(args, "DoEscapeAnalysis") is not False:
         raise LedgerError(f"{source} {name}: an allocation leg needs escape analysis disabled (-XX:-DoEscapeAnalysis)")
+    if _jvm_flag(args, "UseJVMCICompiler") is not False:
+        raise LedgerError(
+            f"{source} {name}: an allocation leg needs the Graal JIT disabled (-XX:-UseJVMCICompiler)"
+        )
     if _jvm_flag(args, "UseEpsilonGC") is not True:
         raise LedgerError(
             f"{source} {name}: an allocation leg needs a collector that never collects (-XX:+UseEpsilonGC)"

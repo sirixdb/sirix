@@ -9,7 +9,8 @@
   nobody holds at the publication boundary and evicts again at every engine call, with released frames
   poisoned. No requirement text changes.
 
-- CONV-302: an allocation leg counts allocation as written: escape analysis off, a non-collecting
+- CONV-302: an allocation leg counts allocation as written: escape analysis off, the Graal JIT
+  disabled (`-XX:-UseJVMCICompiler`, forcing HotSpot C2 on every JDK), a non-collecting
   collector and a fixed batch per iteration, so two processes of the same code measure the same figure.
 - Make the PR mutation lane's unit of work its blocking criterion. New
   [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant

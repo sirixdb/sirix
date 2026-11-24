@@ -154,3 +154,34 @@ ran against each mutant in a temporary copy: 42 mutants, 34 of them on changed l
 no survivors and no equivalents. The tests take their oracle from CONV-302's leg settings and from
 JMH's single-shot result shape (bytes per batch); no test was written to kill a mutant. This is a
 focused supplement, not a whole-module recount.
+
+After requiring `-XX:-UseJVMCICompiler`, the same operators were reapplied to all sites of
+`_jvm_flag`, `_allocation_per_operation` and `_jmh_row`, including the new Graal JIT clause.
+`python3 -B -m unittest -f test_bench_ledger.ImporterTest` ran against each temporary mutant:
+46 mutants, all killed, no survivors or equivalents. The refusal and last-effective-flag
+regressions derive from CONV-302; this rerun measures only those three functions.
+
+### Compiler follow-up root cause and verification
+
+- Fix / issue: CONV-302's maintainer-approved HotSpot C2 requirement.
+- Symptom / trigger: fresh JMH 1.37 processes on Oracle GraalVM 25.0.3 running
+  `Arena.ofAuto().allocate(64, 8)` with `-f 1 -bm ss -bs 100000 -wi 3 -i 3 -prof gc`
+  and the original documented flags measured 207.97144 versus 207.60112 B/op.
+- Root cause: Graal ignores `-XX:-DoEscapeAnalysis` and retains partial escape analysis;
+  the importer did not require a compiler that honors the allocation-as-written settings.
+- Why tests missed it: reports exercised escape analysis, GC and batching without missing
+  or overridden compiler selection.
+- Regression: `ImporterTest.test_jmh_results_that_break_the_protocol_are_refused` and
+  `ImporterTest.test_the_last_occurrence_of_a_jvm_flag_decides` failed before the fix
+  (exit 1, two missing refusals). From this directory,
+  `python3 -B -m unittest test_bench_ledger test_timed_gate` passed afterward
+  (exit 0, 162 tests). The real CLI rejected both original JMH reports (exit 2 each)
+  and accepted both unmodified C2 reports (exit 0 each).
+- Remaining limitation: with `-XX:-UseJVMCICompiler`, the fresh processes measured
+  212.04757333333333 versus 212.04768 B/op, a difference of 32 bytes across three
+  measured batches. Both JMH processes exited 0; the exact-equality assertion exited 1,
+  including after CLI import. The rounded delta is zero, but required equality remains
+  unmet. No warmup restriction, tolerance or engine repair was added; further protocol
+  changes require a maintainer decision.
+- Lesson: constrain the compiler that interprets optimization flags and verify fresh-process
+  measurement equality separately; importer enforcement alone cannot establish determinism.
