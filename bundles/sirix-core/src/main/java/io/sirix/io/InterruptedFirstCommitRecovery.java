@@ -266,7 +266,7 @@ public final class InterruptedFirstCommitRecovery {
     try (final FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
       while (header.hasRemaining()) {
         if (channel.read(header, header.position()) <= 0) {
-          break;
+          throw new IOException("Incomplete file header: " + file);
         }
       }
     }

@@ -49,6 +49,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 
 final class FormatRepairBoundaryTest {
   @TempDir
@@ -84,6 +85,76 @@ final class FormatRepairBoundaryTest {
           () -> ResourceFormatCompatibility.requireRootEnvelope(stalled, rootOffset, pipeline));
     }
     assertEquals(before, snapshot(resource));
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void failedDerivedOpenReleasesOwnershipAndRepeatsRefusal(final StorageType backend) throws IOException {
+    final Path database = createStore("failed-open-" + backend, backend, true);
+    final Path derived = resourcePath(database, "source" + DerivedIndexMaintainer.SUFFIX);
+    Files.move(resourcePath(database, "fixture"), derived);
+    final Path settings = derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath());
+    final String original = Files.readString(settings);
+    final String patched = original.replace("\"binaryEncoding\":\"V0\"", "\"binaryEncoding\":\"V7\"");
+    assertTrue(!original.equals(patched));
+    Files.writeString(settings, patched);
+    final Path resources = database.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Map<String, String> before = snapshot(resources);
+    try (final var opened = Databases.openJsonDatabase(database)) {
+      for (int attempt = 0; attempt < 2; attempt++) {
+        final RuntimeException refusal = assertThrows(RuntimeException.class, () -> {
+          try (final var ignored = opened.beginResourceSession("source")) {
+          }
+        });
+        assertTrue(messageChain(refusal).contains("unsupported format version"), messageChain(refusal));
+        assertTrue(messageChain(refusal).contains("V7"), messageChain(refusal));
+        assertEquals(before, snapshot(resources));
+      }
+      opened.removeResource("source");
+      assertTrue(!opened.existsResource("source"));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void identityDiscoveryRefusesReadsWithoutProgress(final StorageType backend) throws IOException {
+    for (final String role : new String[] {"data", "revisions"}) {
+      for (final boolean foreign : new boolean[] {false, true}) {
+        final Path database = createStore("stalled-header-" + backend + "-" + role + "-" + foreign, backend, false);
+        final Path resource = resourcePath(database, "fixture");
+        final Path stalledFile = file(resource, role);
+        final ResourceConfiguration config = ResourceConfiguration.deserialize(resource);
+        ResourceFormatCompatibility.verify(config);
+        if (foreign) {
+          patchHeader(stalledFile, "version");
+        }
+        final Map<String, String> before = snapshot(resource);
+        final AtomicBoolean pending = new AtomicBoolean(true);
+        try (final var channels = mockStatic(FileChannel.class, invocation -> {
+          final Object result = invocation.callRealMethod();
+          if (invocation.getRawArguments().length == 2 && stalledFile.equals(invocation.getArgument(0))
+              && result instanceof FileChannel channel && pending.get()) {
+            final FileChannel stalled = mock(FileChannel.class, delegatesTo(channel));
+            doAnswer(call -> {
+              final ByteBuffer target = call.getArgument(0);
+              final long position = call.getArgument(1);
+              if (position == 0 && pending.getAndSet(false)) {
+                return 0;
+              }
+              return channel.read(target, position);
+            }).when(stalled).read(any(ByteBuffer.class), anyLong());
+            return stalled;
+          }
+          return result;
+        })) {
+          final SirixIOException refusal = assertThrows(SirixIOException.class,
+              () -> ResourceFormatCompatibility.verify(config));
+          assertTrue(messageChain(refusal).contains("Incomplete file header"), messageChain(refusal));
+        }
+        assertTrue(!pending.get(), "the header read must exercise the stalled descriptor");
+        assertEquals(before, snapshot(resource));
+      }
+    }
   }
 
   @ParameterizedTest

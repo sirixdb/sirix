@@ -182,7 +182,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   record OpenedSession<S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>(S session,
-      @Nullable JsonResourceSession derivedSource) {
+      @Nullable JsonResourceSession derivedSource, boolean newlyAcquired) {
   }
 
   @Override
@@ -207,7 +207,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
 
     if (resourceStore.hasOpenResourceSession(resourcePath)) {
-      return new OpenedSession<>(resourceStore.getOpenResourceSession(resourcePath), null);
+      final T session = resourceStore.getOpenResourceSession(resourcePath);
+      return new OpenedSession<>(session, prepareDerivedIndexes(session, canonicalName), false);
     }
 
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourcePath);
@@ -232,21 +233,37 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     if (features.readOnlyCompat() == 0) {
       ProjectionSortedRunSpill.removeOrphanedRuns(resourceConfig);
     }
-    JsonResourceSession derivedSource = null;
+    return new OpenedSession<>(session, prepareDerivedIndexes(session, canonicalName), true);
+  }
+
+  private @Nullable JsonResourceSession prepareDerivedIndexes(final T session, final String canonicalName) {
+    final ResourceConfiguration resourceConfig = session.getResourceConfig();
+    final StoreFeatures features = ((AbstractResourceSession<?, ?>) session).getStoreFeatures();
     if (features.readOnlyCompat() == 0 && DerivedIndexMaintainer.enabled(resourceConfig)
         && resourceConfig.getValidTimeConfig() != null && session instanceof JsonResourceSession json
         && !DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
       final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) session;
       shared.initializeDerivedIndexesWith(() -> enableDerivedIndexes(json, DerivedActivation.DECLARED));
-      derivedSource = json;
+      return json;
     }
-    return new OpenedSession<>(session, derivedSource);
+    return null;
   }
 
   void finishResourceOpen(final OpenedSession<?> opened) {
     final @Nullable JsonResourceSession source = opened.derivedSource();
     if (source != null) {
-      enableDerivedIndexes(source, DerivedActivation.OPPORTUNISTIC);
+      try {
+        enableDerivedIndexes(source, DerivedActivation.OPPORTUNISTIC);
+      } catch (final RuntimeException | Error failure) {
+        if (opened.newlyAcquired()) {
+          try {
+            opened.session().close();
+          } catch (final RuntimeException | Error cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
+          }
+        }
+        throw failure;
+      }
     }
   }
 
@@ -436,9 +453,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // The hidden database-owned session keeps storage warm, but is not a user of the resource.
     // The user session registration below is atomic with respect to removeResource's guard.
     resourceSessions.removeObject(shared.getResourcePath(), shared);
+    final boolean newlyAcquired = !userStore.hasOpenResourceSession(shared.getResourcePath());
     return new OpenedSession<>(
         userStore.beginResourceSession(shared.getResourceConfig(), bufferManager, shared.getResourcePath()),
-        opened.derivedSource());
+        opened.derivedSource(), newlyAcquired);
   }
 
   @Override
