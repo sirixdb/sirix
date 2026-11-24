@@ -279,15 +279,16 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * {@link DerivedActivation#DECLARED} propagates every failure. {@link
    * DerivedActivation#OPPORTUNISTIC} absorbs only the named exceptions that mean "this derived
    * store is unusable" — a broken or forward-incompatible store ({@link SirixException}, {@link
-   * SirixRuntimeException}, {@link UnsupportedStoreFeatureException}) or a snapshot whose frontier
-   * has no durable mapping ({@link IllegalStateException}) — and lets anything else through, so a
+   * SirixRuntimeException}, {@link UnsupportedStoreFeatureException}), a snapshot whose frontier
+   * has no durable mapping ({@link IllegalStateException}), or a derived subtree that cannot be
+   * walked or removed ({@link UncheckedIOException}) — and lets anything else through, so a
    * programming error never hides behind the fallback either.
    */
   private void enableDerivedIndexes(final JsonResourceSession source, final DerivedActivation activation) {
     try {
       installDerivedIndexes(source, activation);
     } catch (final SirixException | SirixRuntimeException | UnsupportedStoreFeatureException
-        | IllegalStateException unavailable) {
+        | IllegalStateException | UncheckedIOException unavailable) {
       if (activation == DerivedActivation.DECLARED) {
         throw unavailable;
       }
