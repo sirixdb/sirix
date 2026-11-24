@@ -10,9 +10,10 @@ written to kill a mutant for its own sake.
 
 ## How the run was made
 
-The figures are for the code as it stands after the review rounds of the change that introduced
-the tools, which altered the allocation delta rule, the stop-point check, the conditions lookup,
-dataset parameters, commit reconciliation and the rejection of a run.
+The whole-module figures below cover the introduction and initial review rounds, which altered
+the allocation delta rule, the stop-point check, the conditions lookup, dataset parameters, commit
+reconciliation and the rejection of a run. They predate the later focused review supplements below
+and do not claim whole-module coverage of those corrections.
 
 Each module was mutated one change at a time, and its own test module was run against every mutant
 (`python3 -B -m unittest -f test_<module>`). A mutant is killed when that run fails. The mutations,

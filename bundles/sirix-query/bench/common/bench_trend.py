@@ -16,7 +16,8 @@ A night that exceeds is `unconfirmed`; when the previous recorded night exceeded
 
     bench_trend.py report [--ledger FILE] [--night YYYY-MM-DD]
 
-Exit status: 0 no confirmed drift, 1 at least one series in `drift`, 2 invalid input.
+Exit status: 0 no confirmed drift, 1 at least one series in `drift`,
+2 invalid input or no usable series for the requested night.
 Standard library only.
 """
 
