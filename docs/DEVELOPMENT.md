@@ -20,11 +20,13 @@ It explains the *why*. The authoritative detail lives in the documents it points
 | Document | What it owns |
 |---|---|
 | [spec/README.md](../spec/README.md) | The requirement chapters: format, transactions, versioning, configuration, APIs. |
-| [spec/CONV-conventions.md](../spec/CONV-conventions.md) | Requirement conventions, IDs, evidence rules, mutation policy (CONV-201 to CONV-206) and the official work budgets. |
+| [spec/CONV-conventions.md](../spec/CONV-conventions.md) | Requirement conventions, IDs, evidence rules, mutation policy (CONV-201 to CONV-206), the official work budgets and the timed acceptance rules (CONV-302 to CONV-304). |
 | [docs/VERIFICATION.md](VERIFICATION.md) | Every verification layer, the bug class it catches, how to run it, and the PR mutation lane. |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Build, branch and pull-request mechanics. |
 | [AGENTS.md](../AGENTS.md) | The HFT and low-latency hot-path rules every change must respect. |
 | [budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md) | Work-budget rules and how to add one. |
+| [bench tools README](../bundles/sirix-query/bench/common/README.md) | How to record a timed run, judge a change and read the nightly trend. |
+| [docs/bench/CONDITIONS.md](bench/CONDITIONS.md) | The dated record of the measurement environment. |
 | [docs/postmortems/TEMPLATE.md](postmortems/TEMPLATE.md), [docs/LESSONS.md](LESSONS.md) | Bug write-ups and the lessons taken from them. |
 | [changelog.d/README.md](../changelog.d/README.md) | How a pull request adds a changelog or lesson entry, and how a release collects them. |
 | [docs/BENCHMARK_CAMPAIGNS.md](BENCHMARK_CAMPAIGNS.md) | The performance campaign record, its numbers and its measurement discipline. |
@@ -199,23 +201,76 @@ claim. ClickHouse's ClickBench and DuckDB's published comparisons set that expec
 class of system; [BENCHMARK_CAMPAIGNS.md](BENCHMARK_CAMPAIGNS.md) is our record, including the
 levers that were measured and rejected.
 
+Timing is asked only for what timing can resolve. A fixed bar of +1% failed identical code in about
+four of five ten-pair runs of a twelve-benchmark gate, because several of those benchmarks move by
+more than 1% between two runs of the same build; the same bar judged a benchmark whose paired
+difference moves by 1% and one where it moves by 8% with equal confidence. That control run, one
+build measured against itself, is kept as a
+[test fixture](../bundles/sirix-query/bench/common/testdata/aa-control-2026-11-23.tsv) of the rule
+that replaced the bar. Three tiers therefore share the work:
+
+- **Exact layers own the small effects**: work budgets and allocation checks today, a counter diff
+  between the two arms and instruction counts as they are built. They take no time measurement, so
+  they see one more page read or one more allocated byte on any machine.
+- **The per-change gate** judges a change before it merges and stops slowdowns above 4%.
+- **The nightly trend tier** compares each night's build with the nights before it and reports
+  cumulative drift of about 2% that no single change shows
+  ([CONV-304](../spec/CONV-conventions.md#conv-304--nightly-trend-tier)).
+
+The per-change gate runs under these rules:
+
 - **One timed campaign at a time, on a quiet machine.** Two campaigns on one box measure each other.
 - **Alternating fresh-process pairs**: old, new, old, new, each arm in its own process. Block
   measurement on a thermally throttling machine once faked a 1.7× regression, and within one process
   JIT and page-cache state carry from the first arm into the second.
-- **The plan is written down before the run**: what is compared, how many pairs, and the decision
-  rule. A bar chosen after seeing the numbers is not a bar, and extending a run until its interval
-  excludes zero invalidates the interval.
-- **The bar for accepting a change on a timed path**: the paired point estimate at most +1%, the
-  lower 95% bound at most 0, the median allocation delta at most 0 rounded to whole bytes, and cold
-  paths included in the comparison — a change that is free when warm and expensive on a fresh
-  process has not been measured until the cold arm is in the pairs.
+- **The plan is written down before the run**: what is compared, the decision rule, and the
+  minimum number of pairs when it is raised above the default below. A bar chosen after seeing the
+  numbers is not a bar.
+- **A regression needs two things at once**: the paired difference is above the 4% floor, and it is
+  above the benchmark's own noise threshold. The floor is policy — the smallest slowdown this gate
+  is asked to stop. The threshold is measurement — how far this benchmark's paired difference moves
+  when nothing changed, taken from the pairs of the same run. Cold paths are included in the
+  comparison: a change that is free when warm and expensive on a fresh process has not been
+  measured until the cold arm is in the pairs.
+- **The threshold is a randomization of the run's own pairs.** Each pair gives the log ratio of
+  candidate to baseline. After their mean is removed, the two arm labels are swapped within the
+  pairs in every possible way, and the threshold is the 0.99 quantile of the absolute mean
+  difference those relabelings produce
+  ([CONV-302](../spec/CONV-conventions.md#conv-302--timed-acceptance-verdict) has the exact
+  definition). Removing the mean first makes the threshold a statement about spread alone: it is
+  the same number whether the candidate is 10% slower, 10% faster or identical.
+- **A run stops on precision, never on its result.** It collects at least 10 accepted pairs, stops
+  as soon as every judged benchmark's threshold is at most 3%, and never exceeds 20. The stop reads
+  only thresholds, and a threshold cannot see the sign or the size of the difference, so stopping
+  early or late cannot favour an outcome. Extending a run until its difference clears a bar, or
+  adding pairs once a verdict exists, stays forbidden: that is a stop on the result.
+- **A benchmark too noisy to judge is reported as unstable, not judged.** When no regression is
+  shown and the threshold is still above the floor at the stop, the run could not have seen a
+  slowdown the size of the floor, and it says so instead of passing. Unstable is a defect of the
+  benchmark, never a property of the change. It obliges fixture work — more work per invocation, a
+  pinned source of spread, a cause found for a benchmark that lands on two plateaus — tracked in an
+  issue the pull request names. It is never answered with a wider floor, a higher pair limit, or a
+  benchmark left out of the report. The gate fails on a regression; an unstable benchmark does not
+  fail it and is not evidence for the change either.
+- **Allocation is judged exactly, apart from time.** The median allocation delta is at most 0,
+  rounded to whole bytes
+  ([CONV-302](../spec/CONV-conventions.md#conv-302--timed-acceptance-verdict) has the exact rule).
+  Each arm's figure comes from its own fresh process with the allocation profiler attached and no
+  time taken from it, so the profiler never sits inside a timed process.
 - **A disturbed run is rejected on evidence of outside load, never on its result.** Load from
   another process or a competing job justifies discarding a run and retrying it; a number that
   merely looks wrong does not, and neither does throttling that the measured workload caused
   itself. Re-running until the answer is agreeable is how a campaign fools itself.
 - **A failed gate is rerun whole**, never only its failing benchmarks, and never with more pairs
-  added after a failing result. Both shortcuts turn a fixed-sample decision into a search for a pass.
+  added after a verdict. Both shortcuts turn a decision fixed in advance into a search for a pass.
+- **Every run is written to the results ledger**, whatever its outcome: one row per fresh process,
+  with the commit, the kind of binary and a capture of the machine's state taken before the first
+  timed process. A change to the measurement environment — machine, firmware, kernel, runtime,
+  frequency policy, benchmark set — gets a dated entry in
+  [bench/CONDITIONS.md](bench/CONDITIONS.md), and results are compared across runs only within one
+  condition ([CONV-303](../spec/CONV-conventions.md#conv-303--results-ledger-and-conditions-record)).
+  A run that leaves no record cannot be compared with the next one, and a machine that changed
+  without a record turns a firmware or governor update into a regression nobody can explain.
 
 Machine-specific details — core assignment, load limits, lock paths — belong to the harness
 configuration, not to the protocol. The campaign document's

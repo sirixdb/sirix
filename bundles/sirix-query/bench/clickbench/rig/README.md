@@ -1,6 +1,10 @@
 # ClickBench measurement rig
 
-Use a fixed paired comparison to measure a change. Each arm keeps the exact C6A score:
+This rig uses a fixed paired comparison of C6A scores. For per-change acceptance, use the
+[shared benchmark tools](../../common/README.md#judging-a-change); this rig's `compare` command
+does not enforce that stop rule or append to the results ledger.
+
+Each arm keeps the exact C6A score:
 43 queries, three tries, hot = min(try 2, try 3), and the geometric mean of
 `(0.01 + hot) / (0.01 + board best)`. The board snapshot and scoring arithmetic remain
 in `rank.py` and `board/data.generated.js`. Positive reported benefit means the candidate
