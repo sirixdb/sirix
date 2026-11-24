@@ -44,10 +44,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * leaving the resource silently without the index it was asked to create.
  *
  * <p>
- * The failure is injected through the production authorization seam
- * {@link ResourceAccessScope}: a policy that may create {@code records} but not the hidden
- * {@code records$derived} — the shape a REST role without CREATE on the derived namespace has.
- * That makes the failure deterministic, with no timing involved.
+ * The failure is injected through the production authorization seam {@link ResourceAccessScope}: a
+ * policy that may create {@code records} but not the hidden {@code records$derived} — the shape a
+ * REST role without CREATE on the derived namespace has. That makes the failure deterministic, with
+ * no timing involved.
  */
 final class DeclaredTemporalAggregateFailureTest {
 
@@ -162,8 +162,8 @@ final class DeclaredTemporalAggregateFailureTest {
   }
 
   /**
-   * The same declaration, unguarded, installs the derived resource — so the injected denial, not
-   * the declaration itself, is what the test above detects.
+   * The same declaration, unguarded, installs the derived resource — so the injected denial, not the
+   * declaration itself, is what the test above detects.
    */
   @Test
   void theSameDeclarationSucceedsWithoutTheDenial() {
@@ -202,8 +202,8 @@ final class DeclaredTemporalAggregateFailureTest {
         [{"g":1,"n":10,"lo":"2024-01-01T00:00:00Z","hi":"2024-12-01T00:00:00Z"}]
         """), JsonNodeTrx.Commit.NO);
     final IndexDef projection = IndexDefs.createProjectionIdxDef(Path.parse("/[]", PathParser.Type.JSON),
-        List.of(field("g"), field("n"), field("lo"), field("hi")),
-        List.of(Type.LON, Type.LON, Type.STR, Type.STR), 0, IndexDef.DbType.JSON);
+        List.of(field("g"), field("n"), field("lo"), field("hi")), List.of(Type.LON, Type.LON, Type.STR, Type.STR), 0,
+        IndexDef.DbType.JSON);
     session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(projection), writer);
     return projection;
   }
