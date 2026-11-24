@@ -712,8 +712,6 @@ def append_rows(path: Path, rows: Sequence[Mapping[str, Any]]) -> int:
             else:
                 seen[identity] = row
                 pending.append(row)
-        if not pending:
-            return 0
         data = _lines(pending).encode("utf-8")
         written = os.write(descriptor, data)
         if written != len(data):
@@ -1079,7 +1077,11 @@ def clickbench_rows(
     what was left out.
     """
     results = _result_rows(document, source)
-    series = {"params": dict(params or {}), "unit": "s", **_base_row(arm, pair, position, process, reject_reason, counters)}
+    series = {
+        "params": dict(params or {}),
+        "unit": "s",
+        **_base_row(arm, pair, position, process, reject_reason, counters),
+    }
     rows, skipped = [], []
     totals = {"cold_seconds": 0.0, "hot_seconds": 0.0}
     complete = {"cold_seconds": True, "hot_seconds": True}

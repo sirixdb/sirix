@@ -1152,6 +1152,11 @@ class RunDirectoryTest(unittest.TestCase):
         with self.assertRaisesRegex(LedgerError, "holds no opened run"):
             bench_ledger.reject_run(self.base, "no run here")
 
+    def test_a_run_without_a_measurement_records_that_it_was_opened(self) -> None:
+        out = self.open_run()
+        self.assertEqual({"appended": 1, "measurements": 0, "verdicts": 0}, bench_ledger.commit(out, self.ledger))
+        self.assertEqual(["run"], [row["kind"] for row in bench_ledger.read_ledger(self.ledger)])
+
     def test_the_minimum_of_a_plan_may_be_the_pair_limit(self) -> None:
         run = json.loads((self.open_run(min_pairs=20) / "run.json").read_text(encoding="utf-8"))
         self.assertEqual((20, 20), (run["plan"]["min_pairs"], run["plan"]["max_pairs"]))
@@ -1465,8 +1470,15 @@ class CommandLineTest(CommandLineCase):
         out = self.base / "run"
         out.mkdir()
         status, _, err = self.cli(
-            "begin", "--out", str(out), "--tier", "control", "--kit", "kits",
-            "--arm", f"head,commit={COMMIT_B},binary=native",
+            "begin",
+            "--out",
+            str(out),
+            "--tier",
+            "control",
+            "--kit",
+            "kits",
+            "--arm",
+            f"head,commit={COMMIT_B},binary=native",
         )
         self.assertEqual(0, status, err)
         document = self.base / "timing.json"
@@ -1474,15 +1486,38 @@ class CommandLineTest(CommandLineCase):
         for tier in ("1m", "100m"):
             for attempt in (1, 2):
                 status, _, err = self.cli(
-                    "import-jsonbench", "--run", str(out), "--json", str(document),
-                    "--query", "1", "--attempt", str(attempt), "--process", str(attempt),
-                    "--param", f"tier={tier}", "--param", "content=events",
+                    "import-jsonbench",
+                    "--run",
+                    str(out),
+                    "--json",
+                    str(document),
+                    "--query",
+                    "1",
+                    "--attempt",
+                    str(attempt),
+                    "--process",
+                    str(attempt),
+                    "--param",
+                    f"tier={tier}",
+                    "--param",
+                    "content=events",
                 )
                 self.assertEqual(0, status, err)
         document.write_text(json.dumps({"result": [[0.1, 0.01]]}))
         status, _, err = self.cli(
-            "import-clickbench", "--run", str(out), "--json", str(document),
-            "--arm", "head", "--process", "1", "--param", "dataset=hits-100m", "--param", "content=hits",
+            "import-clickbench",
+            "--run",
+            str(out),
+            "--json",
+            str(document),
+            "--arm",
+            "head",
+            "--process",
+            "1",
+            "--param",
+            "dataset=hits-100m",
+            "--param",
+            "content=hits",
         )
         self.assertEqual(0, status, err)
         rows = bench_ledger.load_measurements(out)
@@ -1972,9 +2007,10 @@ class LedgerFileDetailTest(unittest.TestCase):
     def test_appending_nothing_creates_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             ledger = Path(directory) / "deep" / "er" / "ledger.jsonl"
-            bench_ledger.append_rows(ledger, [])
+            self.assertEqual(0, bench_ledger.append_rows(ledger, []))
             self.assertFalse(ledger.parent.exists())
-            bench_ledger.append_rows(ledger, [measurement_row()])
+            self.assertEqual(1, bench_ledger.append_rows(ledger, [measurement_row()]))
+            self.assertEqual(0, bench_ledger.append_rows(ledger, [measurement_row()]), "the ledger already holds it")
             self.assertEqual(
                 1, len(bench_ledger.read_ledger(ledger)), "missing directories are created on the first row"
             )
@@ -2154,6 +2190,17 @@ class CommandLineDetailTest(CommandLineCase):
         self.assertEqual((0, "rejected 1 measurement(s): wrong answers\n"), (status, text))
         self.assertEqual(0, self.cli("commit", "--run", str(out))[0])
         self.assertEqual(["wrong answers"], [row["reject_reason"] for row in bench_ledger.read_ledger(self.ledger)[1:]])
+
+    def test_a_parameter_is_a_name_and_a_value(self) -> None:
+        common = ["record", "--run", "DIR", "--process", "1", "--arm", "head", "--benchmark", "b", "--metric", "m"]
+        common += ["--unit", "s", "--value", "1", "--param"]
+        for malformed in ("tier", "=1m"):
+            with self.subTest(param=malformed):
+                err = io.StringIO()
+                with self.assertRaises(SystemExit) as usage, contextlib.redirect_stderr(err):
+                    bench_ledger.main([*common, malformed])
+                self.assertEqual(2, usage.exception.code)
+                self.assertIn("--param expects NAME=VALUE", err.getvalue())
 
     def test_errors_name_what_was_wrong(self) -> None:
         out = self.base / "plain"

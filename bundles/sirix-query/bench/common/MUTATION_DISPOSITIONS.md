@@ -10,9 +10,9 @@ written to kill a mutant for its own sake.
 
 ## How the run was made
 
-These figures predate the review round that changed the allocation delta rule, the stop-point check, the conditions lookup, dataset parameters and commit reconciliation, and are to be re-measured.
-
-The figures also predate the follow-up review fixes for rejected allocation legs, failed hot tries and durable rejection/conflict checks.
+The figures are for the code as it stands after the review rounds of the change that introduced
+the tools, which altered the allocation delta rule, the stop-point check, the conditions lookup,
+dataset parameters, commit reconciliation and the rejection of a run.
 
 Each module was mutated one change at a time, and its own test module was run against every mutant
 (`python3 -B -m unittest -f test_<module>`). A mutant is killed when that run fails. The mutations,
@@ -33,9 +33,9 @@ the kit scripts and reaches the modules only through their command lines.
 
 | Module | Mutants | Killed | Equivalent |
 |---|---:|---:|---:|
-| `timed_gate.py` | 247 | 240 | 7 |
+| `timed_gate.py` | 254 | 246 | 8 |
 | `bench_trend.py` | 112 | 108 | 4 |
-| `bench_ledger.py` | 581 | 576 | 5 |
+| `bench_ledger.py` | 608 | 603 | 5 |
 
 The first runs left 34 survivors in `timed_gate.py`, 22 in `bench_trend.py` and 113 in
 `bench_ledger.py`. They were answered in three ways.
@@ -52,7 +52,12 @@ The first runs left 34 survivors in `timed_gate.py`, 22 in `bench_trend.py` and 
   loop guard that could not be reached, a default that was never used, key sorting and character
   escaping options of files that are only ever read back as JSON.
 
-## `timed_gate.py`: 7 equivalent
+The review rounds added code, and a re-measurement after them found seven more survivors. Five were
+answered with tests: the number of rows an append reports, a run committed before it has a
+measurement, and a malformed `--param`. One early return that changed nothing was removed. The
+seventh is equivalent and is listed below.
+
+## `timed_gate.py`: 8 equivalent
 
 | Line | Mutation | Why it cannot be observed |
 |---|---|---|
@@ -60,6 +65,7 @@ The first runs left 34 survivors in `timed_gate.py`, 22 in `bench_trend.py` and 
 | `high = [total + residuals[-1] ...]` | `+` → `-` | Fixing the last sign to minus instead of plus negates every sum, and only absolute values are used. |
 | `values = [abs(left + right) ...]` | `+` → `-` | The signed sums of the low group are closed under negation, so `left - right` ranges over the same values as `left + right`. |
 | `@functools.lru_cache(maxsize=512)` | `512` → `513` | The size of a cache in front of a pure function. |
+| `for boundary in boundaries[minimum - 1 : -1]:` | `minimum - 1` → `minimum - 2` | The scan for an earlier stop point would start one pair boundary sooner, at a boundary with fewer pairs than the minimum, where no benchmark can have met its stop condition. |
 | `@dataclass(frozen=True)` on `Series`, `StopState`, `Judgement` | `True` → `False`, three sites | Immutability of result objects guards against misuse inside the module. No requirement observes it. |
 
 ## `bench_trend.py`: 4 equivalent

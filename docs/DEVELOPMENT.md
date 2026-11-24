@@ -252,8 +252,9 @@ The per-change gate runs under these rules:
   issue the pull request names. It is never answered with a wider floor, a higher pair limit, or a
   benchmark left out of the report. The gate fails on a regression; an unstable benchmark does not
   fail it and is not evidence for the change either.
-- **Allocation is judged apart from time**, under the
-  [allocation rule in CONV-302](../spec/CONV-conventions.md#conv-302--timed-acceptance-verdict).
+- **Allocation is judged exactly, apart from time.** The median allocation delta is at most 0,
+  rounded to whole bytes
+  ([CONV-302](../spec/CONV-conventions.md#conv-302--timed-acceptance-verdict) has the exact rule).
   Each arm's figure comes from its own fresh process with the allocation profiler attached and no
   time taken from it, so the profiler never sits inside a timed process.
 - **A disturbed run is rejected on evidence of outside load, never on its result.** Load from
