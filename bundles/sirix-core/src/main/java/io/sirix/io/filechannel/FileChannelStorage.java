@@ -249,11 +249,7 @@ public final class FileChannelStorage implements IOStorage {
   private final long resourceUuidMsb;
   private final long resourceUuidLsb;
 
-  /**
-   * Superblock checks are open-time, not per-reader — and a NEW storage instance is created per
-   * request-scoped open, so the once-per-JVM-per-path registry (not a per-instance flag) is what
-   * actually avoids the two extra file opens + header reads per request.
-   */
+  /** Channel-validation cache; see {@code SuperblockValidator} for scope and invalidation. */
   private void validateSuperblocksOnce() {
     io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA, resourceUuidMsb,
         resourceUuidLsb);
