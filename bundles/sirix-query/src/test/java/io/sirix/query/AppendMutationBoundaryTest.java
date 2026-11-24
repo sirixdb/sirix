@@ -152,9 +152,8 @@ final class AppendMutationBoundaryTest {
       store.create("database", "keep", "{}");
       final String uri = "http://127.0.0.1:" + server.getAddress().getPort() + "/input?";
       new Query(chain, "jn:load('database',(),('" + uri + "first','" + uri + "second'),false())").execute(context);
-      assertFalse(ordered.get(),
-          "every source must be acquired before any resource is written, so no earlier input is "
-              + "committed while a later source is still being opened");
+      assertFalse(ordered.get(), "every source must be acquired before any resource is written, so no earlier input is "
+          + "committed while a later source is still being opened");
       assertEquals(3, store.lookup("database").getDatabase().listResources().size());
     } finally {
       server.stop(0);

@@ -31,10 +31,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * {@code xn:store} and {@code xn:load} into an existing database (#1384), with the same rule as
- * {@code jn:store} and {@code jn:load}: a free resource name adds the resource; a name that is taken
- * is refused with {@code SIRIXDBF0006} and nothing is written, whatever {@code $create-new} says. No
- * call drops the database or replaces a resource in place, and every other resource keeps its
- * content, revisions and indexes.
+ * {@code jn:store} and {@code jn:load}: a free resource name adds the resource; a name that is
+ * taken is refused with {@code SIRIXDBF0006} and nothing is written, whatever {@code $create-new}
+ * says. No call drops the database or replaces a resource in place, and every other resource keeps
+ * its content, revisions and indexes.
  */
 final class StoreIntoExistingDatabaseTest {
   private static final String OTHER = "xn:doc('db','other')";
@@ -186,13 +186,18 @@ final class StoreIntoExistingDatabaseTest {
   void importsHonorTheConfiguredCommitBound(final String function) throws IOException {
     final String input = "<root>" + "<item/>".repeat(128) + "</root>";
     final Path source = Files.writeString(directory.resolve("bounded.xml"), input);
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
-        .location(directory.resolve("bounded-" + function)).storageType(StorageType.FILE_CHANNEL)
-        .numberOfNodesBeforeAutoCommit(16).build();
+    try (
+        final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
+                                                     .location(directory.resolve("bounded-" + function))
+                                                     .storageType(StorageType.FILE_CHANNEL)
+                                                     .numberOfNodesBeforeAutoCommit(16)
+                                                     .build();
         final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
         final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store)) {
       store.create("db", "kept", new DocumentParser("<kept/>"));
-      final String argument = "store".equals(function) ? input : "'" + source.toUri() + "'";
+      final String argument = "store".equals(function)
+          ? input
+          : "'" + source.toUri() + "'";
       if ("load".equals(function)) {
         final Str uri = new Str(source.toUri().toString());
         new Load(true).execute(null, context, new Sequence[] {new Str("db"), new Str("named"), uri});

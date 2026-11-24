@@ -37,8 +37,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 /**
  * {@code jn:store} and {@code jn:load} into an existing database (#1384): a free resource name adds
  * the resource; a name that is taken is refused with {@code SIRIXDBF0006} and nothing is written,
- * whatever {@code $create-new} says. No call drops the database or replaces a resource in place, and
- * every other resource keeps its content, revisions and indexes.
+ * whatever {@code $create-new} says. No call drops the database or replaces a resource in place,
+ * and every other resource keeps its content, revisions and indexes.
  */
 final class StoreIntoExistingDatabaseTest {
   private static final String OTHER = "jn:doc('db','other')";
@@ -188,13 +188,19 @@ final class StoreIntoExistingDatabaseTest {
   void importsHonorTheConfiguredCommitBoundAndReleaseDiscardedReaders(final String function) throws IOException {
     final String input = "[" + "0,".repeat(127) + "0]";
     final Path source = Files.writeString(content.resolve("bounded.json"), input);
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-        .location(directory.resolve("bounded-" + function)).storageType(StorageType.FILE_CHANNEL)
-        .numberOfNodesBeforeAutoCommit(16).useAsyncFlushForImports(false).build();
+    try (
+        final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                       .location(directory.resolve("bounded-" + function))
+                                                       .storageType(StorageType.FILE_CHANNEL)
+                                                       .numberOfNodesBeforeAutoCommit(16)
+                                                       .useAsyncFlushForImports(false)
+                                                       .build();
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
       store.create("db", "kept", "{}");
-      final String argument = "store".equals(function) ? input : source.toUri().toString();
+      final String argument = "store".equals(function)
+          ? input
+          : source.toUri().toString();
       if ("load".equals(function)) {
         final Str uri = new Str(argument);
         new Load(true).execute(null, context, new Sequence[] {new Str("db"), new Str("named"), uri});
@@ -230,8 +236,7 @@ final class StoreIntoExistingDatabaseTest {
     withDatabase("empty-" + input.length(), (chain, context, store) -> {
       run(chain, context, "jn:store('db','source','[\"\"]')");
       final Witness before = witness(chain, context, store);
-      run(chain, context, "jn:store('db','empty',(" + input
-          + "),true(),{\"useConventionalValidTime\":true()})");
+      run(chain, context, "jn:store('db','empty',(" + input + "),true(),{\"useConventionalValidTime\":true()})");
       final JsonResourceSession session = store.lookup("db").getDatabase().beginResourceSession("empty");
       assertEquals(0, session.activeTrxCount());
       assertEquals(1, session.getMostRecentRevisionNumber());
@@ -241,8 +246,8 @@ final class StoreIntoExistingDatabaseTest {
         assertFalse(reader.moveToFirstChild());
       }
       for (final String flag : List.of("", ",true()", ",false()")) {
-        final QueryException refusal = assertThrows(QueryException.class,
-            () -> run(chain, context, "jn:store('db','first',''" + flag + ")"));
+        final QueryException refusal =
+            assertThrows(QueryException.class, () -> run(chain, context, "jn:store('db','first',''" + flag + ")"));
         assertEquals(JNFun.ERR_RESOURCE_EXISTS, refusal.getCode());
       }
       assertEquals(before, witness(chain, context, store));
