@@ -49,11 +49,7 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * A name is bounded by {@link #MAX_NAME_KEY_BYTES} (FMT-305): HOT routing can only address the
  * discriminative bytes of a key inside {@link HOTKeySerializer#ROUTABLE_KEY_BYTES}, and names have
- * no length of their own. A longer name is stored under the longest prefix of its components that
- * fits, so its postings are candidates that the reader re-checks against each node's actual name.
- * Truncation happens at a character boundary, so the stored key stays a well-formed key of a
- * shortened name and the order of two keys still follows the order of their names. A name inside the
- * bound is stored and read exactly as before and pays nothing for this.
+ * no length of their own. A name inside the bound is stored and read exactly as before.
  */
 public final class NameKeySerializer implements HOTKeySerializer<QNm> {
   private static final byte NAMESPACE_SENTINEL = (byte) 0xFF;
@@ -61,8 +57,7 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
   /** Bytes the namespace framing costs: the sentinel plus the two-byte terminator. */
   private static final int NAMESPACE_FRAMING_BYTES = 3;
 
-  /** Longest UTF-8 encoding of one Java character pair, and so of one truncation step. */
-  private static final int MAX_UTF8_CHAR_BYTES = 4;
+  private static final byte TRUNCATION_MARKER = (byte) 0xFF;
 
   /**
    * The longest stored NAME key (FMT-305): the routable bound less the four-byte chunk index and the
@@ -82,12 +77,12 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     checkFromIndexSize(offset, 0, dest.length);
     final String localName = checkedLocalName(key);
     final String uri = key.getNamespaceURI();
+    final boolean truncated = isTruncated(key);
     int pos = offset;
-    int budget = MAX_NAME_KEY_BYTES;
+    int budget = MAX_NAME_KEY_BYTES - (truncated ? 1 : 0);
     if (!uri.isEmpty()) {
-      // One character's worth of the budget is kept back so the local name cannot come out empty,
-      // which is not a key this serializer can read back — and one character can be four bytes.
-      final int uriChars = charsWithinBudget(uri, budget - NAMESPACE_FRAMING_BYTES - MAX_UTF8_CHAR_BYTES, true);
+      final int uriChars = charsWithinBudget(uri,
+          budget - NAMESPACE_FRAMING_BYTES - utf8Width(localName.codePointAt(0)), true);
       dest[pos++] = NAMESPACE_SENTINEL;
       final int start = pos;
       final int uriLength = writeUtf8(uri, uriChars, dest, start);
@@ -114,6 +109,9 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
       budget -= NAMESPACE_FRAMING_BYTES + uriLength + zeros;
     }
     pos += writeUtf8(localName, charsWithinBudget(localName, budget, false), dest, pos);
+    if (truncated) {
+      dest[pos++] = TRUNCATION_MARKER;
+    }
     return pos - offset;
   }
 
@@ -127,10 +125,12 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     requireNonNull(key, "Key cannot be null");
     final String localName = checkedLocalName(key);
     final String uri = key.getNamespaceURI();
-    int budget = MAX_NAME_KEY_BYTES;
-    int length = 0;
+    final boolean truncated = isTruncated(key);
+    int budget = MAX_NAME_KEY_BYTES - (truncated ? 1 : 0);
+    int length = truncated ? 1 : 0;
     if (!uri.isEmpty()) {
-      final int uriChars = charsWithinBudget(uri, budget - NAMESPACE_FRAMING_BYTES - MAX_UTF8_CHAR_BYTES, true);
+      final int uriChars = charsWithinBudget(uri,
+          budget - NAMESPACE_FRAMING_BYTES - utf8Width(localName.codePointAt(0)), true);
       final int uriBytes = escapedUtf8Length(uri, uriChars);
       length += NAMESPACE_FRAMING_BYTES + uriBytes;
       budget -= NAMESPACE_FRAMING_BYTES + uriBytes;
@@ -159,20 +159,10 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     return full > MAX_NAME_KEY_BYTES;
   }
 
-  /**
-   * Whether {@code key}'s stored key may be the shared prefix of several names, and so whether a
-   * read that answers for a name has to re-check its candidates (FMT-305). Decided in constant time
-   * for any name short enough that the question cannot arise.
-   *
-   * @param key the name whose stored key is in question
-   * @return {@code true} iff its stored key could stand for more than one name
-   */
-  public static boolean mayBeTruncated(final QNm key) {
-    requireNonNull(key, "Key cannot be null");
-    final String localName = checkedLocalName(key);
-    final String uri = key.getNamespaceURI();
-    return !certainlyWithin(localName, uri, MAX_NAME_KEY_BYTES - MAX_UTF8_CHAR_BYTES)
-        && mayBeTruncated(serializedLength(key));
+  public static boolean isTruncated(final byte[] bytes, final int offset, final int length) {
+    requireNonNull(bytes, "Bytes cannot be null");
+    checkFromIndexSize(offset, length, bytes.length);
+    return length > 0 && bytes[offset + length - 1] == TRUNCATION_MARKER;
   }
 
   /**
@@ -186,24 +176,6 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
         : NAMESPACE_FRAMING_BYTES + 3L * uri.length()) <= limit;
   }
 
-  /**
-   * Whether a stored key of this length may be the truncated prefix of a longer name. Truncation
-   * stops within one character of the bound, so every truncated key is this long; a name that ends
-   * exactly here is not truncated and only pays a re-check that keeps all of its postings.
-   *
-   * @param storedKeyLength length of a stored NAME key, chunk index and delta suffix excluded
-   * @return {@code true} iff the key could be a prefix of a longer name
-   */
-  public static boolean mayBeTruncated(final int storedKeyLength) {
-    return storedKeyLength > MAX_NAME_KEY_BYTES - MAX_UTF8_CHAR_BYTES;
-  }
-
-  /**
-   * The number of leading characters of {@code value} whose encoding fits {@code budget} bytes,
-   * never splitting a surrogate pair. Truncating on a character boundary keeps the stored key a
-   * readable key and keeps key order following name order, because the first byte two keys differ in
-   * is either inside both prefixes or past the end of the shorter one.
-   */
   private static int charsWithinBudget(final String value, final int budget, final boolean escapeZeros) {
     final int length = value.length();
     if (budget >= (escapeZeros
@@ -302,10 +274,14 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     if (length == 0) {
       throw new IllegalArgumentException("Invalid QNm serialization: zero length");
     }
-    if (bytes[offset] != NAMESPACE_SENTINEL) {
-      return new QNm(new String(bytes, offset, length, StandardCharsets.UTF_8));
+    final int contentLength = length - (isTruncated(bytes, offset, length) ? 1 : 0);
+    if (contentLength == 0) {
+      throw new IllegalArgumentException("Invalid QNm serialization: missing name");
     }
-    final int end = offset + length;
+    if (bytes[offset] != NAMESPACE_SENTINEL) {
+      return new QNm(new String(bytes, offset, contentLength, StandardCharsets.UTF_8));
+    }
+    final int end = offset + contentLength;
     final int start = offset + 1;
     int escapes = 0;
     for (int pos = start; pos < end - 1; pos++) {

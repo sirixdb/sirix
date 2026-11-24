@@ -7,6 +7,7 @@ import io.brackit.query.atomic.QNm;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
@@ -79,8 +80,11 @@ final class NameIndexRecheckWorkBudgetTest {
                                                    .build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
+        final QNm belowBound = new QNm(LONG_HEAD.substring(1));
+        final QNm atBound = new QNm(LONG_HEAD);
         final String json = "[{\"" + SHORT.getLocalName() + "\":0,\"" + LONG_FIRST.getLocalName() + "\":1,\""
-            + LONG_SECOND.getLocalName() + "\":2}]";
+            + LONG_SECOND.getLocalName() + "\":2,\"" + belowBound.getLocalName() + "\":3,\""
+            + atBound.getLocalName() + "\":4}]";
         trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
         trx.moveToDocumentRoot();
         final var controller = session.getWtxIndexController(trx.getRevisionNumber());
@@ -101,6 +105,22 @@ final class NameIndexRecheckWorkBudgetTest {
                        "a name inside the routable key bound answers from its whole stored key and "
                            + "must not read a record to re-check it");
 
+        final WorkCapture.Captured<List<Set<Long>>> boundaryLookups = CAPTURE.call(() -> List.of(
+            postings(controller, reader, definition, belowBound), postings(controller, reader, definition, atBound)));
+        assertEquals(1, boundaryLookups.result().get(0).size());
+        assertEquals(1, boundaryLookups.result().get(1).size());
+        assertEquals(Set.of(), intersection(boundaryLookups.result().get(0), boundaryLookups.result().get(1)));
+        boundaryLookups.work().assertZero(RECHECK_READS, "complete boundary names owe no re-check");
+
+        final WorkCapture.Captured<List<Set<Long>>> filteredLookups = CAPTURE.call(() -> List.of(
+            postings(controller, reader, definition, new NameFilter(Set.of(belowBound, atBound), Set.of())),
+            postings(controller, reader, definition, new NameFilter(Set.of(), Set.of(belowBound, atBound)))));
+        assertEquals(2, filteredLookups.result().get(0).size());
+        assertEquals(3, filteredLookups.result().get(1).size());
+        assertEquals(Set.of(), intersection(filteredLookups.result().get(0), filteredLookups.result().get(1)));
+        filteredLookups.work().assertExactly(RECHECK_READS, 4,
+            "only the two long-name candidates are re-checked on each filtered walk");
+
         final WorkCapture.Captured<List<Set<Long>>> longLookups = CAPTURE.call(() -> List.of(
             postings(controller, reader, definition, LONG_FIRST), postings(controller, reader, definition,
                 LONG_SECOND)));
@@ -120,11 +140,15 @@ final class NameIndexRecheckWorkBudgetTest {
     }
   }
 
-  private static Set<Long> postings(final io.sirix.access.trx.node.IndexController<?, ?> controller,
+  private static Set<Long> postings(final IndexController<?, ?> controller,
       final StorageEngineReader reader, final IndexDef definition, final QNm name) {
+    return postings(controller, reader, definition, new NameFilter(Set.of(name), Set.of()));
+  }
+
+  private static Set<Long> postings(final IndexController<?, ?> controller,
+      final StorageEngineReader reader, final IndexDef definition, final NameFilter filter) {
     final Set<Long> keys = new TreeSet<>();
-    final Iterator<NodeReferences> hits =
-        controller.openNameIndex(reader, definition, new NameFilter(Set.of(name), Set.of()));
+    final Iterator<NodeReferences> hits = controller.openNameIndex(reader, definition, filter);
     while (hits.hasNext()) {
       final LongIterator postings = hits.next().getNodeKeys().getLongIterator();
       while (postings.hasNext()) {

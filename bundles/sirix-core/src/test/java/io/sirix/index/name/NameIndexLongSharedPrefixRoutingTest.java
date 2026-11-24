@@ -175,11 +175,12 @@ final class NameIndexLongSharedPrefixRoutingTest {
   void namesAtAndPastTheRoutableBoundStayExact() {
     final int bound = NameKeySerializer.MAX_NAME_KEY_BYTES;
     final QNm atBound = new QNm("a".repeat(bound));
-    final QNm pastBoundFirst = new QNm("b".repeat(bound) + "x");
-    final QNm pastBoundSecond = new QNm("b".repeat(bound) + "y");
-    final QNm pastBoundThird = new QNm("b".repeat(bound) + "y" + "z".repeat(64));
+    final QNm belowBound = new QNm("a".repeat(bound - 1));
+    final QNm pastBoundFirst = new QNm("a".repeat(bound) + "x");
+    final QNm pastBoundSecond = new QNm("a".repeat(bound) + "y");
+    final QNm pastBoundThird = new QNm("a".repeat(bound) + "y" + "z".repeat(64));
     // document() already carries the short name; these are the ones around the bound.
-    final List<QNm> names = List.of(atBound, pastBoundFirst, pastBoundSecond, pastBoundThird);
+    final List<QNm> names = List.of(belowBound, atBound, pastBoundFirst, pastBoundSecond, pastBoundThird);
     assertEquals(bound, NameKeySerializer.serializedLength(atBound), "fixture: this name ends at the bound");
     assertTrue(NameKeySerializer.isTruncated(pastBoundFirst), "fixture: this name is past the bound");
     assertEquals(NameKeySerializer.serializedLength(pastBoundFirst),
@@ -201,6 +202,8 @@ final class NameIndexLongSharedPrefixRoutingTest {
         final var controller = session.getWtxIndexController(trx.getRevisionNumber());
         controller.createIndexes(Set.of(definition), trx);
         assertIndexEqualsScan(controller, trx.getStorageEngineReader(), definition, names, scanned, "at the bound");
+        assertFilteredIndexEqualsScan(controller, trx.getStorageEngineReader(), definition, names, scanned,
+            "at the bound");
         assertStructurallyValid(trx.getStorageEngineReader(), definition, "at the bound");
         trx.commit();
       }
@@ -209,6 +212,8 @@ final class NameIndexLongSharedPrefixRoutingTest {
           final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         assertIndexEqualsScan(session.getRtxIndexController(rtx.getRevisionNumber()), rtx.getStorageEngineReader(),
             definition, names, scan(rtx), "at the bound after cold reopen");
+        assertFilteredIndexEqualsScan(session.getRtxIndexController(rtx.getRevisionNumber()),
+            rtx.getStorageEngineReader(), definition, names, scan(rtx), "at the bound after cold reopen");
         assertStructurallyValid(rtx.getStorageEngineReader(), definition, "at the bound after cold reopen");
       }
     } finally {
@@ -271,6 +276,28 @@ final class NameIndexLongSharedPrefixRoutingTest {
       assertEquals(scanned.get(name),
           collect(controller.openNameIndex(reader, definition, new NameFilter(Set.of(name), Set.of()))),
           "exact NAME postings " + stage + " for a " + name.getLocalName().length() + "-character name");
+    }
+  }
+
+  private static void assertFilteredIndexEqualsScan(final IndexController<?, ?> controller,
+      final StorageEngineReader reader, final IndexDef definition, final List<QNm> names,
+      final Map<QNm, Set<Long>> scanned, final String stage) {
+    final Set<Long> all = new TreeSet<>();
+    for (final Set<Long> keys : scanned.values()) {
+      all.addAll(keys);
+    }
+    for (final QNm name : names) {
+      final QNm missing = new QNm("missing");
+      assertEquals(scanned.get(name),
+          collect(controller.openNameIndex(reader, definition, new NameFilter(Set.of(name, missing), Set.of()))),
+          "multiple includes " + stage);
+      final Set<Long> excluded = new TreeSet<>(all);
+      excluded.removeAll(scanned.get(name));
+      assertEquals(excluded,
+          collect(controller.openNameIndex(reader, definition, new NameFilter(Set.of(), Set.of(name)))),
+          "excluded name " + stage);
+      assertEquals(Set.of(), collect(controller.openNameIndex(reader, definition,
+          new NameFilter(Set.of(name, missing), Set.of(name)))), "include then exclude " + stage);
     }
   }
 

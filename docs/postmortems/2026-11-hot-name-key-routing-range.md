@@ -47,3 +47,36 @@
 - Lesson: see [LESSONS.md](../LESSONS.md) — a field whose width the key length can exceed is a
   bound the format owes a statement, and a layout that cannot name a position must split over levels
   rather than reduce the position (see the [fragment convention](../../changelog.d/README.md)).
+
+## Review follow-up: truncation identity and build accounting
+
+- Symptom: a complete 4088-byte local name and its extension shared postings, while a filtered
+  read needlessly re-checked the complete name. An in-bound 4082-byte URI with local name `a`
+  was shortened, and a supplementary character at the namespace cut could hide truncation from
+  filtered reads. Recursive assembly also reported fewer indirect pages than it allocated.
+- Root cause: a shortened expanded name was indistinguishable from a real complete name; a
+  length heuristic could neither separate those representations nor account for UTF-8 width at
+  the cut. The fixed four-byte local reservation disagreed with the full-name size predicate.
+  Build accounting assumed every assembly produced exactly one indirect page.
+- Correction: only over-bound names reserve a trailing marker that cannot end UTF-8. Exact
+  reads use the original size decision; filtered walks inspect that marker through the existing
+  raw-key entry interface. Namespace reservation uses the first local character's encoded width.
+  Every indirect allocation goes through the build's counting allocator, including nested levels.
+- Regression oracles: FMT-305 requires whole storage and zero re-check reads for complete names,
+  and exact postings for longer names. The JSON fixture now shares the full prefix across
+  boundary-1, boundary, boundary+1 and divergent tails; exact and filtered reads equal the document
+  scan after build and cold reopen. The namespace fixture exercises build, incremental maintenance,
+  rename and historical reopen, including supplementary characters at the cut. Serializer cases
+  cover one- through four-byte local characters and escaped namespace NULs. The work budget
+  counts only long-name candidates during filtered reads and no boundary-name exact re-checks.
+  A four-leaf bulk build requires two inner branch pages and one root, independently of the
+  reported count, and compares both reported counts with an independent walk of the returned tree.
+- Why tests missed it: the original boundary fixtures used different leading characters for
+  complete and truncated names, and the budget had only an ordinary short name beside the long
+  control. Neither exercised a namespace ending near the cut or checked nested allocation totals.
+- Vision check: exact revision-local results and unchanged ordinary-name re-check cost preserve
+  the vision's result and counted-work contracts; the 4096-byte bound and persisted field widths
+  stay unchanged. No new default is introduced.
+- Verification: the review phase runs the focused serializer, boundary-read, namespace, work-budget
+  and bulk-builder tests after all edits; baseline counterfactual and mutation validation remain
+  with the outer executor's dedicated validation phases.

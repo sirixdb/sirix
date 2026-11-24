@@ -18,6 +18,7 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -40,6 +41,69 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class NameIndexNamespaceTest {
   @TempDir
   Path directory;
+
+  @Test
+  void longNamespacesRemainExactAcrossBuildMutationAndColdHistory() {
+    final QNm root = new QNm("root");
+    final String uri = "u".repeat(4082);
+    final String wideUri = "urn:" + "u".repeat(4074) + "😀";
+    final List<QNm> names = List.of(root, new QNm(uri, "p", "a"), new QNm(uri + "x", "p", "a"),
+        new QNm(wideUri + "tail", "p", "a"), new QNm(wideUri + "tall", "p", "a"));
+    final Set<IndexDef> definitions = Set.of(IndexDefs.createNameIdxDef(0, IndexDef.DbType.XML));
+    for (final BuildMode mode : BuildMode.values()) {
+      final Path path = directory.resolve("long-namespaces-" + mode);
+      final Map<QNm, Set<Long>> expected = new HashMap<>();
+      final List<Map<QNm, Set<Long>>> history = new ArrayList<>();
+      Databases.createXmlDatabase(new DatabaseConfiguration(path));
+      try {
+        try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(path)) {
+          database.createResource(ResourceConfiguration.newBuilder("data").storageType(StorageType.FILE_CHANNEL)
+              .build());
+          try (final XmlResourceSession session = database.beginResourceSession("data");
+              final XmlNodeTrx trx = session.beginNodeTrx()) {
+            if (mode == BuildMode.INCREMENTAL) {
+              session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(definitions, trx);
+            }
+            trx.insertElementAsFirstChild(root);
+            final long rootKey = trx.getNodeKey();
+            expected.put(root, Set.of(rootKey));
+            for (final QNm name : names.subList(1, names.size())) {
+              trx.moveTo(rootKey);
+              trx.insertElementAsFirstChild(name);
+              expected.put(name, Set.of(trx.getNodeKey()));
+            }
+            if (mode == BuildMode.COMMITTED) {
+              trx.commit();
+            }
+            if (mode != BuildMode.INCREMENTAL) {
+              session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(definitions, trx);
+            }
+            checkpoint(session, trx, definitions, names, expected, history);
+            trx.moveTo(expected.get(names.get(3)).iterator().next());
+            trx.setName(names.get(4));
+            final Set<Long> renamed = new TreeSet<>(expected.get(names.get(4)));
+            renamed.addAll(expected.get(names.get(3)));
+            expected.put(names.get(4), renamed);
+            expected.put(names.get(3), Set.of());
+            checkpoint(session, trx, definitions, names, expected, history);
+          }
+        }
+        Databases.clearGlobalCaches();
+        try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(path);
+            final XmlResourceSession session = database.beginResourceSession("data")) {
+          final int firstRevision = mode == BuildMode.COMMITTED ? 2 : 1;
+          for (int index = 0; index < history.size(); index++) {
+            try (final var reader = session.beginNodeReadOnlyTrx(firstRevision + index)) {
+              assertPostings(session.getRtxIndexController(reader.getRevisionNumber()), reader.getStorageEngineReader(),
+                  definitions, names, history.get(index));
+            }
+          }
+        }
+      } finally {
+        Databases.removeDatabase(path);
+      }
+    }
+  }
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
@@ -250,6 +314,9 @@ final class NameIndexNamespaceTest {
     final List<NameFilter> filters = new ArrayList<>();
     for (final QNm probe : probes) {
       filters.add(new NameFilter(Set.of(probe), Set.of()));
+      filters.add(new NameFilter(Set.of(probe, new QNm("missing")), Set.of()));
+      filters.add(new NameFilter(Set.of(), Set.of(probe)));
+      filters.add(new NameFilter(Set.of(probe, new QNm("missing")), Set.of(probe)));
     }
     filters.add(new NameFilter(Set.of(probes.get(1), probes.get(2)), Set.of()));
     filters.add(new NameFilter(Set.of(), Set.of(probes.get(1))));

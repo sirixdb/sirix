@@ -265,8 +265,8 @@ owner keys (`hot/AbstractHOTIndexWriter.java:5643`, `:6738`; `hot/HOTIncremental
 
 #### 2.3.2 NAME (`hot/NameKeySerializer.java`)
 
-Namespace-free name (including every JSON field): the local name as raw UTF-8, no terminator
-or overhead. The prefix is never stored; [NAME matching semantics](../README.md#indexes)
+Complete namespace-free name (including every JSON field): the local name as raw UTF-8, no
+terminator or overhead. The prefix is never stored; [NAME matching semantics](../README.md#indexes)
 apply to both lookups and scans.
 
 Namespaced name (with either an empty or non-empty prefix):
@@ -279,11 +279,21 @@ Namespaced name (with either an empty or non-empty prefix):
 | 3+N | M | local name, UTF-8 |
 
 - `0xFF` never occurs in valid UTF-8, so namespace-free keys sort before namespaced keys.
-- Namespaced keys order by URI bytes then local-name bytes; the URI terminator sorts before
+- Complete namespaced keys order by URI bytes then local-name bytes; the URI terminator sorts before
   extensions of the URI. Escaping makes component boundaries unambiguous.
 - Deserialization reconstructs the URI and local name with an empty prefix.
-- An empty local name is rejected. URI and local-name lengths are not truncated. ASCII components
-  write directly into the reusable destination; namespace-free names still discriminate at byte 0.
+- An empty local name is rejected. ASCII components write directly into the reusable destination;
+  namespace-free names still discriminate at byte 0.
+- [FMT-305](../spec/FMT-disk-format.md#fmt-305--hot-routable-key-bound) bounds the stored key to
+  4096 bytes including its four-byte chunk index and four-byte posting-delta suffix allowance.
+  Complete expanded names of at most 4088 encoded bytes keep the encoding above unchanged. Longer
+  names reserve one byte for a trailing `0xFF` truncation marker and store character-aligned URI
+  and local-name prefixes in the remaining budget. A namespace reserves the actual encoded width
+  of the first local character, so that component never becomes empty. The trailing marker cannot
+  end a complete UTF-8 name and is removed before decoding the shortened components. Marked keys
+  are candidate buckets; exact and filtered NAME reads re-check their postings against the node's
+  dictionary name. Complete keys incur no such record reads. Stored-byte order governs the buckets;
+  a shortened bucket does not represent an exact name-order range.
 - This replaces the old prefix/local codec. Existing NAME index data must be rebuilt; there is no
   old-format reader.
 
@@ -416,8 +426,8 @@ into a *dense partial key*:
   of `D`.
 - `mostSignificantBitIndex = initialBytePos*8 + (63 − highestSetBit(mask))`, stored as a `short`
   (`hot/page/HOTIndirectPage.java:201-207`, `:227`). A `short` overflows for bit indices above 32767
-  (key byte 4095); CAS, PATH and VALIDTIME keys are far shorter, NAME keys are not bounded by the
-  serializer.
+  (key byte 4095); FMT-305 bounds stored keys, including NAME keys and their suffixes, to 4096
+  bytes so that every leading position fits.
 - Bytes past the end of the search key read as 0 (`:800-829`).
 
 #### 2.6.2 Sparse partial keys and search

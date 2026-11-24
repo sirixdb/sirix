@@ -4036,14 +4036,6 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong BRANCH_SPINE_ORDER_DELEGATED = new AtomicLong();
 
   /**
-   * Branch inserts delegated to the complete frontier because a node of the route cannot name
-   * {@code beta}'s key byte in any layout it could persist (FMT-305). Every branch-add primitive
-   * keeps the old children in order and inserts exactly one, which a node assembled over levels does
-   * not; the complete frontier re-encodes the block over as many levels as the geometry needs.
-   */
-  public static final AtomicLong BRANCH_UNROUTABLE_BIT_DELEGATED = new AtomicLong();
-
-  /**
    * Whether {@code node} could still name every discriminative key byte after {@code beta} joined
    * its mask: the span is then measured from whichever of its leading bit and {@code beta} comes
    * first to whichever of its last bit and {@code beta} comes last (FMT-305).
@@ -5202,7 +5194,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     // route that would have fitted only costs the frontier, which re-encodes the block over as many
     // levels as the geometry needs.
     if (!routeCanNameBranchBit(navResult, insertDepth, beta)) {
-      BRANCH_UNROUTABLE_BIT_DELEGATED.incrementAndGet();
       return false; // some node of the route cannot name beta's key byte: complete frontier
     }
     // beta colliding with an existing discriminative bit of d* means the approximate descent

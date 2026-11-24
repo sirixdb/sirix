@@ -7,6 +7,7 @@ import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
+import io.sirix.index.hot.AbstractHOTIndexReader.RawKeyBytes;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.NameKeySerializer;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
@@ -71,11 +72,8 @@ public interface NameIndex<B, L extends ChangeListener> {
             next = entry.getValue();
             return true;
           }
-          final QNm name = entry.getKey();
-          // A stored key within one character of the bound may be the shared prefix of several
-          // names, and then the entry's own key cannot decide inclusion for its postings: each node
-          // is asked for its real name instead (FMT-305).
-          if (NameIndexRecheck.needsRecheck(name)) {
+          final RawKeyBytes raw = (RawKeyBytes) entry;
+          if (NameKeySerializer.isTruncated(raw.rawKeyBytes(), 0, raw.rawKeyLength())) {
             final NodeReferences filtered =
                 NameIndexRecheck.filteredPostings(storageEngineReader, entry.getValue(), includes, excludes);
             if (filtered != null) {
@@ -84,6 +82,7 @@ public interface NameIndex<B, L extends ChangeListener> {
             }
             continue;
           }
+          final QNm name = entry.getKey();
           if ((includes.isEmpty() || includes.contains(name)) && !excludes.contains(name)) {
             next = entry.getValue();
             return true;

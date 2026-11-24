@@ -85,11 +85,6 @@ public final class NameIndexRecheck {
         resolved -> (includes.isEmpty() || includes.contains(resolved)) && !excludes.contains(resolved));
   }
 
-  /** Whether this entry's stored key may stand for more than one name, so its postings need a re-check. */
-  public static boolean needsRecheck(final QNm entryName) {
-    return NameKeySerializer.mayBeTruncated(entryName);
-  }
-
   private static @Nullable NodeReferences retain(final StorageEngineReader reader, final NodeReferences candidates,
       final NamePredicate keep) {
     final Roaring64Bitmap surviving = new Roaring64Bitmap();

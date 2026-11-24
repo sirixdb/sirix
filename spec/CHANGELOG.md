@@ -23,9 +23,10 @@
   forbidden because it routes on an unrelated key byte. The leading discriminative bit position
   FMT-302 and the range-scan walk-up read must survive the round trip without overflow or be
   recomputed on decode. Every index kind must state a key bound rather than inherit one by
-  accident; CAS and VALIDTIME already truncate to one, the NAME index has none. The numeric bound
-  and what a NAME key past it does are recorded as open maintainer choices under the chapter's
-  deferred release implementation.
+  accident. The decided bound is 4096 stored bytes including chunk and delta suffixes; NAME
+  keys past it are truncated with an unambiguous marker and read through an exact candidate
+  re-check, without insert failure. Names inside the bound pay no re-check record reads. CAS and
+  VALIDTIME retain their existing smaller bounds. The cross-kind conformance sweep remains planned.
 
 - Make the PR mutation lane's unit of work its blocking criterion. New
   [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant

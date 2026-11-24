@@ -273,6 +273,7 @@ public final class HOTBulkBuilder {
     private final LongSupplier pageKeyAllocator;
     private int leafCount;
     private int indirectCount;
+    private final LongSupplier indirectPageKeyAllocator;
 
     BulkContext(final byte[][] keys, final byte[][] values, final int revision, final IndexType indexType,
         final LongSupplier pageKeyAllocator) {
@@ -281,6 +282,11 @@ public final class HOTBulkBuilder {
       this.revision = revision;
       this.indexType = indexType;
       this.pageKeyAllocator = pageKeyAllocator;
+      indirectPageKeyAllocator = () -> {
+        final long pageKey = pageKeyAllocator.getAsLong();
+        indirectCount++;
+        return pageKey;
+      };
     }
 
     /**
@@ -490,8 +496,8 @@ public final class HOTBulkBuilder {
           }
         }
         final HOTIndirectPage result =
-            assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, indexType, pageKeyAllocator);
-        indirectCount++;
+            assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, indexType,
+                indirectPageKeyAllocator);
         return result;
       } catch (final RuntimeException | Error failure) {
         closeFreshPage(pendingChild, failure);
