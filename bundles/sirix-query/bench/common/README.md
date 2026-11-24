@@ -33,7 +33,8 @@ export SIRIX_BENCH_LEDGER="$HOME/.local/state/sirix-bench/ledger.jsonl"   # any 
 The run then also
 
 1. computes the fingerprint of the machine and looks it up in
-   [`docs/bench/CONDITIONS.md`](../../../../docs/bench/CONDITIONS.md). If no entry holds it, the run
+   [`docs/bench/CONDITIONS.md`](../../../../docs/bench/CONDITIONS.md). The latest entry containing the fingerprint applies, including a new baseline for an unchanged
+   fingerprint. If no entry holds it, the run
    refuses to start and names the fields that changed since the previous run. Add a dated entry
    first; `python3 bench_ledger.py fingerprint` prints what to put in it.
 2. appends one row per fresh process and figure to the ledger, with the commit and kind of binary of
@@ -48,6 +49,11 @@ The run then also
 | `SIRIX_BENCH_JUDGE` | Space-separated benchmark names a gate judges; default: every benchmark the run measures |
 | `SIRIX_BENCH_MIN_PAIRS` | A gate's minimum number of pairs, 10 to 20 (default 10) |
 | `SIRIX_BENCH_CONDITIONS` | A conditions record other than the one in this checkout (for tests) |
+
+Every kit measurement carries its dataset identity in `params`: JSONBench records its `tier`,
+and ClickBench cold rounds require `--dataset NAME` with a ledger. The name is caller-stated,
+contains only letters, digits, dots, underscores and hyphens, and is never a database path. Both
+`import-jsonbench` and `import-clickbench` accept repeatable `--param NAME=VALUE` options.
 
 A kit that stops early — a failed process, an interrupt — still appends the processes it measured.
 A run whose answers turn out wrong is recorded with every measurement rejected
@@ -77,14 +83,15 @@ and a threshold does not change when one arm is slower or faster by a constant f
 cannot favour a result. A gate run that ended before or after that point gets no verdict.
 
 Allocation is judged apart from time and exactly: one fresh process per arm with the allocation
-profiler and no timing; the candidate's bytes per operation, rounded to whole bytes, must not exceed
-the baseline's.
+profiler and no timing. Each arm's figure is the unrounded median of its accepted allocation legs.
+The candidate's median minus the baseline's is rounded to whole bytes, ties to the even byte, and
+must be at most zero. Reports show both rounded arm figures and the rounded delta.
 
 With the ClickBench kit, a gate is one command:
 
 ```bash
 SIRIX_BENCH_TIER=gate SIRIX_BENCH_JUDGE="suite" \
-  ../clickbench/cold-rounds.sh /path/to/db \
+  ../clickbench/cold-rounds.sh /path/to/db --dataset hits-100m \
     --arm baseline=/path/to/old-image --arm-commit baseline=<sha> \
     --arm candidate=/path/to/new-image --arm-commit candidate=<sha>
 ```

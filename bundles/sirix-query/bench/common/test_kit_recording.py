@@ -74,6 +74,15 @@ STUB_JSONBENCH = textwrap.dedent(
     arguments = sys.argv[1:]
     if "--dump" in arguments:
         sys.exit(0)
+    counter = Path(__file__).with_suffix(".calls")
+    call = int(counter.read_text()) + 1 if counter.exists() else 1
+    counter.write_text(str(call))
+    if os.environ.get("STUB_FAIL_CALL") == str(call):
+        sys.exit("stub engine: failing on request")
+    if os.environ.get("STUB_INTERRUPT_CALL") == str(call):
+        import signal
+        os.kill(os.getppid(), signal.SIGTERM)
+        sys.exit("stub engine: interrupted on request")
     query = int(arguments[arguments.index("--queries") + 1])
     if os.environ.get("STUB_FAIL_QUERY") == str(query):
         sys.exit("stub engine: failing on request")
@@ -184,6 +193,7 @@ class JsonBenchKitTest(KitTestCase):
         self.assertEqual(json.loads((self.out / "environment.json").read_text(encoding="utf-8")), run["environment"])
         self.assertNotIn("unavailable", json.dumps(run["environment"]["data_filesystem"]))
         self.assertEqual(20, len(measurements))
+        self.assertEqual([{"tier": "1m"}] * 20, [row["params"] for row in measurements])
         second = [row for row in measurements if row["benchmark"] == "q2"]
         self.assertEqual(
             [("cold_seconds", 1), ("hot_seconds", 2), ("cold_seconds", 3), ("hot_seconds", 4)],
@@ -214,6 +224,21 @@ class JsonBenchKitTest(KitTestCase):
         rows = self.rows()
         self.assertEqual(["run"] + ["measurement"] * 4, [row["kind"] for row in rows])
         self.assertEqual({("q1", True), ("q2", True)}, {(row["benchmark"], row["accepted"]) for row in rows[1:]})
+
+    def test_completed_attempts_survive_failure_or_interrupt_within_a_query(self) -> None:
+        for variable in ("STUB_FAIL_CALL", "STUB_INTERRUPT_CALL"):
+            with self.subTest(variable=variable):
+                completed = self.kit("--commit", COMMIT_B, ledger=True, SKIP_DIFF="1", **{variable: "2"})
+                self.assertNotEqual(0, completed.returncode)
+                rows = self.rows()
+                self.assertEqual(["run", "measurement"], [row["kind"] for row in rows])
+                self.assertEqual(
+                    ("q1", "cold_seconds", 1, {"tier": "1m"}, 0.1),
+                    tuple(rows[1][key] for key in ("benchmark", "metric", "process", "params", "value")),
+                )
+                shutil.rmtree(self.out)
+                self.ledger.unlink()
+                self.engine.with_suffix(".calls").unlink()
 
     def test_without_a_ledger_the_kit_runs_and_captures_its_environment(self) -> None:
         completed = self.kit(ledger=False, SKIP_DIFF="1")
@@ -256,7 +281,7 @@ class ClickBenchColdRoundsTest(KitTestCase):
 
     def kit(self, *arguments: str, ledger: bool = True, **environment: str) -> subprocess.CompletedProcess[str]:
         return self.run_kit(
-            ["bash", str(self.script), str(self.database), "--out", str(self.out), *arguments],
+            ["bash", str(self.script), str(self.database), "--out", str(self.out), "--dataset", "hits-100m", *arguments],
             ledger=ledger,
             **environment,
         )
@@ -295,6 +320,7 @@ class ClickBenchColdRoundsTest(KitTestCase):
         rows = self.rows()
         self.assertEqual(["run"] + ["measurement"] * 120 + ["verdict"] * 4, [row["kind"] for row in rows])
         run = rows[0]
+        self.assertEqual([{"dataset": "hits-100m"}] * 124, [row["params"] for row in rows[1:]])
         self.assertEqual(
             ("gate", "clickbench-cold", ["suite", "q00"], 10, 20),
             (run["tier"], run["kit"], run["plan"]["benchmarks"], run["plan"]["min_pairs"], run["plan"]["max_pairs"]),
@@ -392,6 +418,19 @@ class ClickBenchColdRoundsTest(KitTestCase):
         self.assertIn("pass --arm-commit candidate=<40-hex>", uncommitted.stderr)
         self.assertEqual((0, 0), (self.calls(self.baseline), self.calls(other)))
         self.assertFalse(self.ledger.exists())
+
+    def test_a_ledger_requires_a_dataset_name_before_any_engine_runs(self) -> None:
+        for dataset in (None, "", str(self.database)):
+            with self.subTest(dataset=dataset):
+                args = ["bash", str(self.script), str(self.database), "--out", str(self.out),
+                        "--arm", f"shipped={self.baseline}", "--arm-commit", f"shipped={COMMIT_A}"]
+                if dataset is not None:
+                    args += ["--dataset", dataset]
+                completed = self.run_kit(args, ledger=True)
+                self.assertNotEqual(0, completed.returncode)
+                self.assertIn("--dataset", completed.stderr)
+                self.assertEqual(0, self.calls(self.baseline))
+                self.assertFalse(self.ledger.exists())
 
     def test_without_a_ledger_any_arms_run_as_before(self) -> None:
         other = executable(self.base / "new.py", STUB_CLICKBENCH.format(factor=1.0, deviate=True))

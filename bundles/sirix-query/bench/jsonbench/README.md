@@ -446,3 +446,5 @@ hand-written body against the same binding, `--allow-missing-projection` for an 
 non-benchmark generic diagnostic, and
 `-Pjsonbench.jvmArgs="-Dsirix.query.autoVectorize=false"` to force the generic pipeline for a
 correctness A/B.
+
+Every cold and hot measurement records the kit argument as `params.tier`, so dataset tiers form separate series.

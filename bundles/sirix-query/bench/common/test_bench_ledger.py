@@ -497,8 +497,6 @@ class ConditionsRecordTest(unittest.TestCase):
             "Fingerprint row holds 64-digit lowercase": condition_entry(
                 "2026-11-23", "l", "new baseline", "1" * 64 + " (approx)"
             ),
-            "already belongs to condition 'laptop-1'": good
-            + condition_entry("2026-12-01", "other", "new baseline", "1" * 64),
         }
         for message, text in cases.items():
             with self.subTest(message=message):
@@ -512,6 +510,26 @@ class ConditionsRecordTest(unittest.TestCase):
 
 
 class RowSchemaTest(unittest.TestCase):
+
+    def test_allocation_verdict_requires_an_integer_delta_and_consistent_pass(self) -> None:
+        for delta, passes in ((1, False), (0, True), (-1, True)):
+            bench_ledger.validate_row(
+                verdict_row(
+                    allocation={"baseline_bytes": 995, "candidate_bytes": 995, "delta_bytes": delta, "pass": passes}
+                )
+            )
+        for extra in (
+            {"pass": True},
+            {"delta_bytes": True, "pass": True},
+            {"delta_bytes": 0.5, "pass": True},
+            {"delta_bytes": 1, "pass": True},
+            {"delta_bytes": 0, "pass": False},
+        ):
+            with self.subTest(extra=extra):
+                with self.assertRaises(LedgerError):
+                    bench_ledger.validate_row(
+                        verdict_row(allocation={"baseline_bytes": 995, "candidate_bytes": 995, **extra})
+                    )
 
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
@@ -530,7 +548,7 @@ class RowSchemaTest(unittest.TestCase):
             measurement_row(samples={"count": 3, "min": 24.0, "max": 25.0}, counters={"groupDense": 2}),
             measurement_row(future_field="ignored"),
             verdict_row(),
-            verdict_row(allocation={"baseline_bytes": 168, "candidate_bytes": 168, "pass": True}),
+            verdict_row(allocation={"baseline_bytes": 168, "candidate_bytes": 168, "delta_bytes": 0, "pass": True}),
         ]
         for row in rows:
             bench_ledger.validate_row(row)
@@ -607,7 +625,7 @@ class RowSchemaTest(unittest.TestCase):
             "'verdict' must be regression": verdict_row(verdict="pass"),
             "'allocation' must be null or hold": verdict_row(allocation=...),
             "'allocation' must be null or hold baseline_bytes": verdict_row(
-                allocation={"baseline_bytes": 1.5, "candidate_bytes": 1, "pass": True}
+                allocation={"baseline_bytes": 1.5, "candidate_bytes": 1, "delta_bytes": 0, "pass": True}
             ),
             "unknown kind 'note'": measurement_row(kind="note"),
         }
@@ -967,6 +985,43 @@ class RunDirectoryTest(unittest.TestCase):
             ([row["benchmark"] for row in judgement.verdicts], judgement.outside_plan, judgement.failed),
         )
 
+    def test_new_runs_use_the_latest_condition_for_an_unchanged_fingerprint(self) -> None:
+        old = self.open_run("old")
+        with self.conditions.open("a") as sink:
+            sink.write(condition_entry("2026-12-01", "power-cap", "new baseline", self.fingerprint))
+            sink.write(condition_entry("2026-12-02", "power-cap", "continues", self.fingerprint))
+        new = self.open_run("new")
+        self.assertEqual("laptop-1", bench_ledger.load_run(old)["conditions"])
+        self.assertEqual("power-cap", bench_ledger.load_run(new)["conditions"])
+        self.assertEqual("power-cap", bench_ledger.conditions_id(self.conditions, self.fingerprint))
+
+    def test_commit_retry_reconciles_a_durable_append_without_a_marker(self) -> None:
+        out = self.open_run(tier="control")
+        self.record_pairs(out, QUIET)
+        with mock.patch.object(bench_ledger.os, "replace", side_effect=OSError("marker unavailable")):
+            with self.assertRaisesRegex(OSError, "marker unavailable"):
+                bench_ledger.commit(out, self.ledger)
+        before = self.ledger.read_bytes()
+        self.assertEqual(0, bench_ledger.commit(out, self.ledger)["appended"])
+        self.assertEqual(before, self.ledger.read_bytes())
+        bench_ledger.judge(out, self.ledger)
+        (out / bench_ledger.RECORDED_FILE).unlink()
+        before = self.ledger.read_bytes()
+        self.assertEqual(0, bench_ledger.commit(out, self.ledger)["appended"])
+        self.assertEqual(before, self.ledger.read_bytes())
+        self.assertEqual(
+            ["run"] + ["measurement"] * 20 + ["verdict"],
+            [row["kind"] for row in bench_ledger.read_ledger(self.ledger)],
+        )
+
+    def test_commit_recovers_a_complete_line_prefix_of_an_append(self) -> None:
+        out = self.open_run(tier="control")
+        self.record_pairs(out, QUIET)
+        rows = [bench_ledger.load_run(out)] + bench_ledger.load_measurements(out)
+        bench_ledger.append_rows(self.ledger, rows[:8])
+        self.assertEqual(13, bench_ledger.commit(out, self.ledger)["appended"])
+        self.assertEqual(rows, bench_ledger.read_ledger(self.ledger))
+
     def test_commit_appends_only_what_the_ledger_does_not_hold_yet(self) -> None:
         out = self.open_run("nightly", tier="nightly", night="2026-11-23")
         rows = [
@@ -1325,6 +1380,38 @@ class CommandLineCase(unittest.TestCase):
 
 class CommandLineTest(CommandLineCase):
 
+    def test_kit_import_commands_keep_repeatable_dataset_parameters(self) -> None:
+        self.register_this_machine()
+        out = self.base / "run"
+        out.mkdir()
+        status, _, err = self.cli(
+            "begin", "--out", str(out), "--tier", "control", "--kit", "kits",
+            "--arm", f"head,commit={COMMIT_B},binary=native",
+        )
+        self.assertEqual(0, status, err)
+        document = self.base / "timing.json"
+        document.write_text(json.dumps({"result": [[0.1]]}))
+        for tier in ("1m", "100m"):
+            for attempt in (1, 2):
+                status, _, err = self.cli(
+                    "import-jsonbench", "--run", str(out), "--json", str(document),
+                    "--query", "1", "--attempt", str(attempt), "--process", str(attempt),
+                    "--param", f"tier={tier}", "--param", "content=events",
+                )
+                self.assertEqual(0, status, err)
+        document.write_text(json.dumps({"result": [[0.1, 0.01]]}))
+        status, _, err = self.cli(
+            "import-clickbench", "--run", str(out), "--json", str(document),
+            "--arm", "head", "--process", "1", "--param", "dataset=hits-100m", "--param", "content=hits",
+        )
+        self.assertEqual(0, status, err)
+        rows = bench_ledger.load_measurements(out)
+        self.assertEqual(
+            [{"tier": "1m", "content": "events"}] * 2 + [{"tier": "100m", "content": "events"}] * 2,
+            [row["params"] for row in rows[:4]],
+        )
+        self.assertEqual([{"dataset": "hits-100m", "content": "hits"}] * 4, [row["params"] for row in rows[4:]])
+
     def test_a_gate_run_from_begin_to_report(self) -> None:
         self.register_this_machine()
         out = self.base / "run"
@@ -1395,7 +1482,7 @@ class CommandLineTest(CommandLineCase):
         status, text, err = self.cli("judge", "--run", str(out))
         self.assertEqual((1, ""), (status, err))
         self.assertIn("regression", text)
-        self.assertIn("168 -> 168 B/op pass", text)
+        self.assertIn("168 -> 168 B/op delta +0 pass", text)
         self.assertIn("outcome: FAIL - 1 regression(s), 0 failed allocation check(s)", text)
         self.assertEqual(
             ["run"] + ["measurement"] * 22 + ["verdict"], [row["kind"] for row in bench_ledger.read_ledger(self.ledger)]
@@ -1715,9 +1802,6 @@ class ConditionsDetailTest(unittest.TestCase):
     def test_messages_name_the_line_the_fingerprint_and_the_reason(self) -> None:
         with self.assertRaisesRegex(LedgerError, "^conditions line 3: an entry heading is"):
             bench_ledger.parse_conditions("# Conditions\n\n## 2026-11-23 laptop\n")
-        good = condition_entry("2026-11-23", "laptop-1", "new baseline", "ab" * 32)
-        with self.assertRaisesRegex(LedgerError, "fingerprint abababababab already belongs to condition 'laptop-1'$"):
-            bench_ledger.parse_conditions(good + condition_entry("2026-12-01", "other", "new baseline", "ab" * 32))
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(LedgerError, "conditions record .*missing.md: No such file or directory$"):
                 bench_ledger.conditions_id(Path(directory) / "missing.md", "1" * 64)
@@ -1761,7 +1845,9 @@ class RowDetailTest(unittest.TestCase):
             "'arms' must be an object": dict(run_row(self.environment), arms=["head"]),
             "'arms' must be an object$": dict(run_row(self.environment), arms={}),
             "'allocation' must be null or hold": {k: v for k, v in verdict_row().items() if k != "allocation"},
-            "'allocation' must be null or hold baseline_bytes, candidate_bytes and pass": verdict_row(allocation=True),
+            "'allocation' must be null or hold baseline_bytes, candidate_bytes, delta_bytes and pass": verdict_row(
+                allocation=True
+            ),
             "'reject_reason' must say why": measurement_row(accepted=False, reject_reason=""),
         }
         for message, row in cases.items():

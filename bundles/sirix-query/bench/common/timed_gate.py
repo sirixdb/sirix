@@ -99,8 +99,6 @@ def difference_and_threshold(ratios: Sequence[float]) -> tuple[float, float]:
     return _difference_and_threshold(tuple(ratios))
 
 
-# One judgement asks for the same series' threshold up to three times (stop state, the state one pair
-# earlier, the verdict), and at 20 pairs each answer walks half a million relabelings.
 @functools.lru_cache(maxsize=512)
 def _difference_and_threshold(ratios: tuple[float, ...]) -> tuple[float, float]:
     count = len(ratios)
@@ -137,14 +135,14 @@ def percent(log_ratio: float) -> float:
     return 100.0 * math.expm1(log_ratio)
 
 
-def allocation_bytes(values: Sequence[float]) -> int:
-    """An arm's allocation figure: the median of its legs in whole bytes, ties to the even byte."""
+def allocation_median(values: Sequence[float]) -> float:
+    """An arm's allocation figure: the unrounded median of its accepted legs."""
     if not values:
         raise GateError("an allocation figure needs at least one measurement")
     for value in values:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
             raise GateError(f"an allocation measurement must be finite and not negative, got {value!r}")
-    return round(median(values))
+    return median(values)
 
 
 @dataclass(frozen=True)
@@ -256,7 +254,7 @@ def _accepted_pairs(
 def collect_allocation(
     rows: Iterable[Mapping[str, Any]], benchmarks: Sequence[str] | None = None
 ) -> dict[tuple[str, tuple[tuple[str, str], ...]], dict[str, Any]]:
-    """The allocation check per benchmark and parameter set: whole bytes per arm and whether it passes."""
+    """Per benchmark and parameters: rounded arm figures, rounded median delta and whether it passes."""
     kept, _ = _selected(rows, None)
     wanted = None if benchmarks is None else set(benchmarks)
     legs: dict[tuple[str, tuple[tuple[str, str], ...]], dict[str, list[float]]] = {}
@@ -274,9 +272,15 @@ def collect_allocation(
         for arm in (BASELINE, CANDIDATE):
             if arm not in legs[key]:
                 raise GateError(f"{_describe((key[0], key[1], ALLOCATION_METRIC))}: no {arm} allocation leg")
-        baseline = allocation_bytes(legs[key][BASELINE])
-        candidate = allocation_bytes(legs[key][CANDIDATE])
-        checks[key] = {"baseline_bytes": baseline, "candidate_bytes": candidate, "pass": candidate <= baseline}
+        baseline = allocation_median(legs[key][BASELINE])
+        candidate = allocation_median(legs[key][CANDIDATE])
+        delta = round(candidate - baseline)
+        checks[key] = {
+            "baseline_bytes": round(baseline),
+            "candidate_bytes": round(candidate),
+            "delta_bytes": delta,
+            "pass": delta <= 0,
+        }
     return checks
 
 
@@ -340,12 +344,6 @@ class Judgement:
         return [row for row in self.verdicts if row["verdict"] == UNSTABLE]
 
 
-def _rows_without_last_pair(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    """The run as it stood before its last pair; allocation legs carry no pair and stay."""
-    last = max(row["pair"] for row in rows if isinstance(row.get("pair"), int))
-    return [row for row in rows if row.get("pair") != last]
-
-
 def _require_stop_point(
     rows: Sequence[Mapping[str, Any]], series: Sequence[Series], minimum: int, benchmarks: Sequence[str] | None
 ) -> None:
@@ -358,12 +356,15 @@ def _require_stop_point(
             f"threshold {percent(state.threshold):.2f}%, needs {minimum} pairs within "
             f"{percent(STOP_PRECISION):.0f}% or {MAX_PAIRS} pairs)"
         )
-    earlier, _ = collect_series(_rows_without_last_pair(rows), benchmarks)
-    if len(earlier) == len(series) and all(state.met for state in stop_states(earlier, minimum)):
-        raise GateError(
-            "the run continued past its stop point: every benchmark had met its stop condition "
-            "before the last pair was run"
-        )
+    kept, _ = _selected(rows, benchmarks)
+    boundaries = sorted({row["pair"] for row in kept if row["metric"] != ALLOCATION_METRIC})
+    for boundary in boundaries[minimum - 1 : -1]:
+        earlier, _ = collect_series([row for row in kept if row.get("pair") is None or row["pair"] <= boundary])
+        if len(earlier) == len(series) and all(state.met for state in stop_states(earlier, minimum)):
+            raise GateError(
+                "the run continued past its stop point: every benchmark had met its stop condition "
+                "before the last pair was run"
+            )
 
 
 def judge(
@@ -376,7 +377,7 @@ def judge(
     """Judge every series of a run once, from all its accepted pairs.
 
     With enforce_stop_rule the run must have ended exactly where the stop rule ends it: every series
-    has met its stop condition, and that was not yet so before the run's last pair. A control run
+    has met its stop condition, and that was not yet so at any earlier pair boundary. A control run
     with a pair count fixed by its plan passes False.
     """
     rows = list(rows)
@@ -423,7 +424,10 @@ def _verdict_line(row: Mapping[str, Any]) -> str:
     allocation = (
         "-"
         if check is None
-        else (f"{check['baseline_bytes']} -> {check['candidate_bytes']} B/op {'pass' if check['pass'] else 'FAIL'}")
+        else (
+            f"{check['baseline_bytes']} -> {check['candidate_bytes']} B/op "
+            f"delta {check['delta_bytes']:+d} {'pass' if check['pass'] else 'FAIL'}"
+        )
     )
     return (
         f"{label:<58} {row['pairs']:>5} {percent(row['difference']):>+9.2f}% "

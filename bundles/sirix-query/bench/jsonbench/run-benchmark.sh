@@ -162,7 +162,33 @@ fi
 # The database may not exist before the load; its parent directory is on the same filesystem.
 DATA_ROOT="${DB}"
 [ -d "${DATA_ROOT}" ] || DATA_ROOT="$(dirname "${DB%/}")"
+completed_attempt=0
+imported_attempt=0
+
+record_completed_attempts() {
+  bench_ledger_enabled || return 0
+  local index
+  while [ "${imported_attempt}" -lt "${completed_attempt}" ]; do
+    index=$((imported_attempt + 1))
+    python3 "${BENCH_LEDGER_PY}" import-jsonbench --run "${OUT}" --query "${query}" --attempt "${index}" \
+        --process "$(( (round - 1) * TRIES + index ))" --param "tier=${TIER}" \
+        --json "${parts_dir}/q${query}-try${index}.json" --log "${parts_dir}/q${query}-try${index}.log" \
+        > /dev/null || return 1
+    imported_attempt="${index}"
+  done
+}
+
+jsonbench_at_exit() {
+  record_completed_attempts || warn "completed attempts in ${OUT} could not be imported"
+  bench_run_at_exit
+}
+
 bench_run_begin "${OUT}" jsonbench "${DATA_ROOT}" "${ARM_SPEC}"
+if bench_ledger_enabled; then
+  trap jsonbench_at_exit EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+fi
 
 # --- 1. load, if the database is not there ---------------------------------
 if [ -d "${DB}" ]; then
@@ -219,24 +245,22 @@ for round in $(seq 1 "${ROUNDS}"); do
   : > "${round_log}" || die "cannot write ${round_log}"
   parts=()
   for query in 1 2 3 4 5; do
+    completed_attempt=0
+    imported_attempt=0
     cool_gate
     evict_paths "${DB}"
     for attempt in $(seq 1 "${TRIES}"); do
       part_json="${parts_dir}/q${query}-try${attempt}.json"
       part_log="${parts_dir}/q${query}-try${attempt}.log"
       RUN_TRIES=1 run_suite "${part_json}" "${part_log}" --queries "${query}"
+      completed_attempt="${attempt}"
       parts+=("${part_json}")
       printf '# Q%d try%d\n' "${query}" "${attempt}" >> "${round_log}"
       cat "${part_log}" >> "${round_log}"
     done
     # Recorded once per query, after its last process and before the next query's
     # cool gate and eviction, so nothing runs between two timed processes of one query.
-    for attempt in $(seq 1 "${TRIES}"); do
-      bench_run_ledger import-jsonbench --run "${OUT}" --query "${query}" --attempt "${attempt}" \
-          --process "$(( (round - 1) * TRIES + attempt ))" \
-          --json "${parts_dir}/q${query}-try${attempt}.json" --log "${parts_dir}/q${query}-try${attempt}.log" \
-          > /dev/null
-    done
+    record_completed_attempts || die "completed attempts in ${OUT} could not be imported"
   done
   python3 "${HERE}/merge-query-results.py" --out "${OUT}/round-${round}.json" \
       --queries 5 --tries "${TRIES}" "${parts[@]}" \

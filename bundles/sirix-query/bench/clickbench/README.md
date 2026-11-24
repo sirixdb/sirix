@@ -888,3 +888,5 @@ against a locally generated stand-in with the **identical 105-column schema**, i
   differ byte for byte, because DuckDB's parallel scan picks a different winner among rows tied at
   the cut-off. The tool reports **0 MISMATCH** — ~18 MATCH and ~25 TIE-AMBIGUOUS, the split moving
   from run to run exactly as the ties do.
+
+With a ledger, pass `--dataset NAME` to `cold-rounds.sh` before measuring. Use a stable name such as `hits-100m` (letters, digits, dots, underscores and hyphens), never a path. Every query and suite figure records it as `params.dataset`.

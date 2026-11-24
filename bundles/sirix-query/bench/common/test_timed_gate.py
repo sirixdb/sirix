@@ -354,12 +354,20 @@ class AAControlTest(unittest.TestCase):
         self.assertEqual({"regression"}, {row["verdict"] for row in judgement.verdicts})
         self.assertTrue(judgement.failed)
 
-    def test_the_exact_allocation_rule_flags_the_one_benchmark_whose_legs_differ(self) -> None:
+    def test_the_exact_allocation_delta_rule_flags_both_fixture_defects(self) -> None:
         judgement = timed_gate.judge(load_aa() + load_aa_allocation(), enforce_stop_rule=False)
         checks = {aa_name(row): row["allocation"] for row in judgement.verdicts}
         failing = {name: check for name, check in checks.items() if not check["pass"]}
         self.assertEqual(
-            {"compactMaterialize ZERO alloc": {"baseline_bytes": 995, "candidate_bytes": 1019, "pass": False}}, failing
+            {
+                "compactMaterialize REPEATED alloc": {
+                    "baseline_bytes": 995, "candidate_bytes": 995, "delta_bytes": 1, "pass": False
+                },
+                "compactMaterialize ZERO alloc": {
+                    "baseline_bytes": 995, "candidate_bytes": 1019, "delta_bytes": 25, "pass": False
+                },
+            },
+            failing,
         )
         self.assertEqual(12, len(checks))
         self.assertTrue(
@@ -467,6 +475,12 @@ class JudgeTest(unittest.TestCase):
                 "pairs"
             ],
         )
+
+    def test_an_earlier_stop_is_not_erased_by_later_noise(self) -> None:
+        rows = pair_rows("scan", shifted([0.05] * 10 + [-0.10] * 10))
+        self.assertEqual("regression", timed_gate.judge(rows[:20]).verdicts[0]["verdict"])
+        with self.assertRaisesRegex(GateError, "the run continued past its stop point"):
+            timed_gate.judge(rows)
 
     def test_a_benchmark_that_met_its_condition_keeps_running_with_the_others(self) -> None:
         rows = pair_rows("quiet", shifted(QUIET + QUIET)) + pair_rows("noisy", shifted(NOISY + NOISY))
@@ -621,8 +635,8 @@ class ReportTextTest(unittest.TestCase):
         )
         report = timed_gate.format_report(timed_gate.judge(rows))
         self.assertIn("outcome: FAIL - 0 regression(s), 1 failed allocation check(s)", report)
-        self.assertIn("168 -> 169 B/op FAIL", report)
-        self.assertIn("64 -> 64 B/op pass", report)
+        self.assertIn("168 -> 169 B/op delta +1 FAIL", report)
+        self.assertIn("64 -> 64 B/op delta +0 pass", report)
 
     def test_a_series_is_named_with_its_parameters_everywhere(self) -> None:
         params = {"keyBytes": "8", "content": "ZERO"}
@@ -657,7 +671,7 @@ class OtherRowsTest(unittest.TestCase):
         )
         judgement = timed_gate.judge(rows, benchmarks=["scan"])
         self.assertEqual(
-            [{"baseline_bytes": 168, "candidate_bytes": 168, "pass": True}],
+            [{"baseline_bytes": 168, "candidate_bytes": 168, "delta_bytes": 0, "pass": True}],
             [row["allocation"] for row in judgement.verdicts],
         )
         self.assertFalse(judgement.failed)
@@ -675,21 +689,38 @@ class OtherRowsTest(unittest.TestCase):
         legs = allocation_rows("scan", [168.0], [168.0, 9000.0])
         legs[-1].update(accepted=False, reject_reason="identity check failed")
         check = timed_gate.judge(pair_rows("scan", shifted(QUIET)) + legs).verdicts[0]["allocation"]
-        self.assertEqual({"baseline_bytes": 168, "candidate_bytes": 168, "pass": True}, check)
+        self.assertEqual({"baseline_bytes": 168, "candidate_bytes": 168, "delta_bytes": 0, "pass": True}, check)
 
     def test_an_arm_without_a_leg_has_no_figure(self) -> None:
         with self.assertRaisesRegex(GateError, "an allocation figure needs at least one measurement"):
-            timed_gate.allocation_bytes([])
+            timed_gate.allocation_median([])
 
 
 class AllocationTest(unittest.TestCase):
 
-    def test_figures_are_whole_bytes_with_ties_to_the_even_byte(self) -> None:
-        self.assertEqual(995, timed_gate.allocation_bytes([994.6127919781989]))
-        self.assertEqual(994, timed_gate.allocation_bytes([994.5]))
-        self.assertEqual(996, timed_gate.allocation_bytes([995.5]))
-        self.assertEqual(0, timed_gate.allocation_bytes([0.0004]))
-        self.assertEqual(168, timed_gate.allocation_bytes([167.9, 168.2, 4000.0]), "the median of an arm's legs")
+    def test_arm_figures_are_unrounded_medians(self) -> None:
+        self.assertEqual(994.6127919781989, timed_gate.allocation_median([994.6127919781989]))
+        self.assertEqual(168.2, timed_gate.allocation_median([167.9, 168.2, 4000.0]))
+
+    def test_only_the_median_delta_is_rounded_with_ties_to_even(self) -> None:
+        cases = (
+            ([994.6128], [995.2031], 1),
+            ([100.5], [101.0], 0),
+            ([100.0], [101.5], 2),
+            ([100.0], [102.5], 2),
+            ([100.0], [99.5], 0),
+            ([100.0], [98.5], -2),
+            ([100.0, 101.0, 900.0], [100.0, 101.5, 900.0], 0),
+        )
+        for baseline, candidate, delta in cases:
+            with self.subTest(baseline=baseline, candidate=candidate):
+                judgement = timed_gate.judge(
+                    pair_rows("scan", shifted(QUIET)) + allocation_rows("scan", baseline, candidate)
+                )
+                check = judgement.verdicts[0]["allocation"]
+                self.assertEqual(delta, check["delta_bytes"])
+                self.assertEqual(delta <= 0, check["pass"])
+                self.assertEqual("unchanged", judgement.verdicts[0]["verdict"])
 
     def test_the_candidate_may_not_allocate_one_byte_more(self) -> None:
         timed = pair_rows("scan", shifted(QUIET))

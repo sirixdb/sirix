@@ -388,7 +388,6 @@ def parse_conditions(text: str) -> list[dict[str, Any]]:
     """The entries of a conditions record, in order; a malformed record is refused whole."""
     entries = _condition_entries(text)
     started: set[str] = set()
-    owners: dict[str, str] = {}
     previous_date = ""
     for entry in entries:
         name = f"conditions entry {entry['date']} {entry['id']}"
@@ -408,19 +407,16 @@ def parse_conditions(text: str) -> list[dict[str, Any]]:
             raise LedgerError(f"{name}: continues a condition that no earlier entry started")
         started.add(entry["id"])
         entry["fingerprints"] = _entry_fingerprints(entry, name)
-        for value in entry["fingerprints"]:
-            if owners.setdefault(value, entry["id"]) != entry["id"]:
-                raise LedgerError(f"{name}: fingerprint {value[:12]} already belongs to condition '{owners[value]}'")
     return entries
 
 
 def conditions_id(conditions: Path, value: str) -> str | None:
-    """The id of the conditions entry that holds this fingerprint, or None."""
+    """The id of the latest conditions entry that holds this fingerprint, or None."""
     try:
         text = conditions.read_text(encoding="utf-8")
     except OSError as error:
         raise LedgerError(f"conditions record {conditions}: {error.strerror or type(error).__name__}") from error
-    for entry in parse_conditions(text):
+    for entry in reversed(parse_conditions(text)):
         if value in entry["fingerprints"]:
             return entry["id"]
     return None
@@ -545,7 +541,9 @@ def _is_allocation(allocation: Any) -> bool:
         isinstance(allocation, dict)
         and _is_int(allocation.get("baseline_bytes"))
         and _is_int(allocation.get("candidate_bytes"))
+        and _is_int(allocation.get("delta_bytes"))
         and isinstance(allocation.get("pass"), bool)
+        and allocation["pass"] == (allocation["delta_bytes"] <= 0)
     )
 
 
@@ -628,7 +626,7 @@ def _validate_verdict(row: Mapping[str, Any]) -> None:
     _check(
         "allocation" in row and _is_allocation(row["allocation"]),
         row,
-        "'allocation' must be null or hold baseline_bytes, candidate_bytes and pass",
+        "'allocation' must be null or hold baseline_bytes, candidate_bytes, delta_bytes and pass",
     )
 
 
@@ -676,13 +674,22 @@ def _lines(rows: Iterable[Mapping[str, Any]]) -> str:
     return "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows)
 
 
-def append_rows(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
-    """Append rows to the ledger in one write under an exclusive lock. Existing lines are never touched."""
+def _row_identity(row: Mapping[str, Any]) -> tuple[Any, ...]:
+    identity = (row["run"], row["kind"])
+    if row["kind"] == "run":
+        return identity
+    identity += (row["benchmark"], tuple(sorted(row["params"].items())), row["metric"])
+    if row["kind"] == "measurement":
+        identity += (row["arm"], row["pair"], row["process"])
+    return identity
+
+
+def append_rows(path: Path, rows: Sequence[Mapping[str, Any]]) -> int:
+    """Append missing row identities in one write under an exclusive lock; return the appended count."""
     if not rows:
-        return
+        return 0
     for row in rows:
         validate_row(row)
-    payload = _lines(rows)
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
     try:
@@ -695,11 +702,21 @@ def append_rows(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
                     raise LedgerError(
                         f"{path}: the last line is incomplete; the ledger is not appended to until it is repaired"
                     )
-        data = payload.encode("utf-8")
+        seen = {_row_identity(row) for row in read_ledger(path)}
+        pending = []
+        for row in rows:
+            identity = _row_identity(row)
+            if identity not in seen:
+                seen.add(identity)
+                pending.append(row)
+        if not pending:
+            return 0
+        data = _lines(pending).encode("utf-8")
         written = os.write(descriptor, data)
         if written != len(data):
             raise LedgerError(f"{path}: short write ({written} of {len(data)} bytes)")
         os.fsync(descriptor)
+        return len(pending)
     finally:
         os.close(descriptor)
 
@@ -863,23 +880,13 @@ def record(run_dir: Path, rows: Iterable[Mapping[str, Any]]) -> int:
     if (run_dir / VERDICTS_FILE).exists():
         raise LedgerError(f"{run_dir} has been judged; no measurement may be added after a verdict")
     complete = []
-    seen = {
-        (row["benchmark"], tuple(sorted(row["params"].items())), row["metric"], row["arm"], row["pair"], row["process"])
-        for row in load_measurements(run_dir)
-    }
+    seen = {_row_identity(row) for row in load_measurements(run_dir)}
     for row in rows:
         full = {"schema": SCHEMA, "kind": "measurement", "run": run["run"], **row}
         validate_row(full)
         if full["arm"] not in run["arms"]:
             raise LedgerError(f"measurement of arm {full['arm']!r}, which run {run['run']} does not have")
-        identity = (
-            full["benchmark"],
-            tuple(sorted(full["params"].items())),
-            full["metric"],
-            full["arm"],
-            full["pair"],
-            full["process"],
-        )
+        identity = _row_identity(full)
         if identity in seen:
             raise LedgerError(
                 f"{full['benchmark']} {full['metric']}: arm {full['arm']}, pair {full['pair']}, process "
@@ -928,10 +935,10 @@ def commit(run_dir: Path, ledger: Path | None = None) -> dict[str, int]:
     if done["measurements"] > len(measurements) or done["verdicts"] > len(verdicts):
         raise LedgerError(f"{run_dir}: rows that were recorded in the ledger are gone from the run directory")
     pending = ([] if done["run"] else [run]) + measurements[done["measurements"] :] + verdicts[done["verdicts"] :]
-    append_rows(ledger, pending)
+    appended = append_rows(ledger, pending)
     done = {"ledger": str(ledger), "run": True, "measurements": len(measurements), "verdicts": len(verdicts)}
     _write_json(marker, done)
-    return {"appended": len(pending), "measurements": len(measurements), "verdicts": len(verdicts)}
+    return {"appended": appended, "measurements": len(measurements), "verdicts": len(verdicts)}
 
 
 def stop(run_dir: Path) -> tuple[bool, list[timed_gate.StopState]]:
@@ -1056,6 +1063,7 @@ def clickbench_rows(
     reject_reason: str | None = None,
     counters: Mapping[str, int] | None = None,
     source: str = "result",
+    params: Mapping[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """One process of the ClickBench runner: try 1 is the cold figure, the best later try the hot one.
 
@@ -1064,7 +1072,7 @@ def clickbench_rows(
     what was left out.
     """
     results = _result_rows(document, source)
-    series = {"params": {}, "unit": "s", **_base_row(arm, pair, position, process, reject_reason, counters)}
+    series = {"params": dict(params or {}), "unit": "s", **_base_row(arm, pair, position, process, reject_reason, counters)}
     rows, skipped = [], []
     totals = {"cold_seconds": 0.0, "hot_seconds": 0.0}
     complete = {"cold_seconds": True, "hot_seconds": True}
@@ -1104,6 +1112,7 @@ def jsonbench_rows(
     reject_reason: str | None = None,
     counters: Mapping[str, int] | None = None,
     source: str = "result",
+    params: Mapping[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """One isolated JSONBench process: one query, one timing. Attempt 1 follows the eviction and is the
     cold figure; later attempts are fresh processes over resident pages and are the hot figure."""
@@ -1124,7 +1133,7 @@ def jsonbench_rows(
         {
             **_base_row(arm, None, None, process, reject_reason, counters),
             "benchmark": f"q{query}",
-            "params": {},
+            "params": dict(params or {}),
             "metric": metric,
             "unit": "s",
             "value": value,
@@ -1215,6 +1224,13 @@ def _parse_javas(values: Sequence[str] | None) -> dict[str, str]:
     return javas
 
 
+def _parameter(value: str) -> tuple[str, str]:
+    name, separator, content = value.partition("=")
+    if not name or not separator:
+        raise argparse.ArgumentTypeError("--param expects NAME=VALUE")
+    return name, content
+
+
 def _arguments() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Results ledger and run recording (CONV-303).")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1248,7 +1264,7 @@ def _arguments() -> argparse.ArgumentParser:
     single = commands.add_parser("record")
     measured(single, paired=True)
     single.add_argument("--benchmark", required=True)
-    single.add_argument("--param", action="append", metavar="NAME=VALUE")
+    single.add_argument("--param", action="append", type=_parameter, metavar="NAME=VALUE")
     single.add_argument("--metric", required=True)
     single.add_argument("--unit", required=True)
     single.add_argument("--value", required=True, type=float)
@@ -1260,11 +1276,13 @@ def _arguments() -> argparse.ArgumentParser:
 
     clickbench = commands.add_parser("import-clickbench")
     measured(clickbench, paired=True)
+    clickbench.add_argument("--param", action="append", type=_parameter, metavar="NAME=VALUE")
     clickbench.add_argument("--json", required=True, type=Path)
     clickbench.add_argument("--log", type=Path)
 
     jsonbench = commands.add_parser("import-jsonbench")
     measured(jsonbench, paired=False)
+    jsonbench.add_argument("--param", action="append", type=_parameter, metavar="NAME=VALUE")
     jsonbench.add_argument("--json", required=True, type=Path)
     jsonbench.add_argument("--query", required=True, type=int)
     jsonbench.add_argument("--attempt", required=True, type=int)
@@ -1287,7 +1305,7 @@ def _measured(args: argparse.Namespace) -> int:
             {
                 **_base_row(args.arm, args.pair, args.position, args.process, args.rejected, None),
                 "benchmark": args.benchmark,
-                "params": dict(item.split("=", 1) for item in args.param or []),
+                "params": dict(args.param or []),
                 "metric": args.metric,
                 "unit": args.unit,
                 "value": args.value,
@@ -1314,6 +1332,7 @@ def _measured(args: argparse.Namespace) -> int:
             reject_reason=args.rejected,
             counters=served_counters(args.log),
             source=args.json.name,
+            params=dict(args.param or []),
         )
     else:
         rows, skipped = jsonbench_rows(
@@ -1325,6 +1344,7 @@ def _measured(args: argparse.Namespace) -> int:
             reject_reason=args.rejected,
             counters=served_counters(args.log),
             source=args.json.name,
+            params=dict(args.param or []),
         )
     for item in skipped:
         print(f"bench_ledger.py: not recorded: {item}", file=sys.stderr)

@@ -70,14 +70,6 @@
 # is therefore a new process, and the suite figure is try 1.
 set -u
 
-# Acquire before any eviction or benchmark work. Descriptors survive into every arm,
-# including native executables, and keep ownership if the wrapper is terminated.
-RIG="$(cd "$(dirname "${BASH_SOURCE[0]}")/rig" && pwd)"
-if [ -z "${CB_RIG_HOST_LOCK_FD:-}" ]; then
-  exec python3 "$RIG/rig_lock.py" -- bash "$0" "$@"
-fi
-python3 "$RIG/rig_lock.py" --check || exit 2
-
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../common" && pwd)/bench-common.sh"
 
 usage() {
@@ -86,6 +78,7 @@ usage() {
 }
 
 [ "$#" -ge 1 ] || usage
+RIG_ARGUMENTS=("$@")
 DB="$1"; shift
 
 ROUNDS=4
@@ -93,6 +86,7 @@ ROUNDS_GIVEN=0
 TRIES=3
 QUERIES=""
 OUT=""
+DATASET=""
 DUCKDB_COLD="0.520"
 DUCKDB_HOT="0.351"
 DECLARE_ENVELOPE=0
@@ -117,6 +111,7 @@ while [ "$#" -gt 0 ]; do
     --arm-kind)    ARM_KINDS+=("${2:-}"); shift 2 ;;
     --tries)       TRIES="${2:-}"; shift 2 ;;
     --queries)     QUERIES="${2:-}"; shift 2 ;;
+    --dataset)     DATASET="${2:-}"; [ "$#" -ge 2 ] || die "--dataset requires a value"; shift 2 ;;
     --out)         OUT="${2:-}"; shift 2 ;;
     --duckdb-cold) DUCKDB_COLD="${2:-}"; shift 2 ;;
     --duckdb-hot)  DUCKDB_HOT="${2:-}"; shift 2 ;;
@@ -127,6 +122,21 @@ while [ "$#" -gt 0 ]; do
 done
 
 need_dir "${DB}" "the loaded ClickBench database"
+if bench_ledger_enabled; then
+  [ -n "${DATASET}" ] || die "a results ledger needs --dataset NAME"
+fi
+case "${DATASET}" in
+  *[!a-zA-Z0-9._-]*) die "--dataset must be a name containing letters, digits, dots, underscores or hyphens, never a path" ;;
+esac
+
+# Acquire before any eviction or benchmark work. Descriptors survive into every arm,
+# including native executables, and keep ownership if the wrapper is terminated.
+RIG="$(cd "$(dirname "${BASH_SOURCE[0]}")/rig" && pwd)"
+if [ -z "${CB_RIG_HOST_LOCK_FD:-}" ]; then
+  exec python3 "$RIG/rig_lock.py" -- bash "$0" "${RIG_ARGUMENTS[@]}"
+fi
+python3 "$RIG/rig_lock.py" --check || exit 2
+
 need_cmd python3
 case "${ROUNDS}" in ''|*[!0-9]*) die "--rounds must be a positive integer" ;; esac
 case "${TRIES}"  in ''|*[!0-9]*) die "--tries must be a positive integer" ;; esac
@@ -239,7 +249,7 @@ PYMETA
   grep -h '^# served' "${logf}" | sed 's/^/      /' || true
   if bench_ledger_enabled; then
     local record=(import-clickbench --run "${OUT}" --json "${json}" --log "${logf}"
-                  --arm "${LEDGER_ARMS[$idx]}" --process "${round}")
+                  --arm "${LEDGER_ARMS[$idx]}" --process "${round}" --param "dataset=${DATASET}")
     if [ "${#LEDGER_ARMS[@]}" -eq 2 ]; then
       record+=(--pair "${round}" --position "$((idx + 1))")
     fi

@@ -10,13 +10,13 @@ reasons are in [the benchmark protocol](../DEVELOPMENT.md#the-benchmark-protocol
 How it is used:
 
 - Every run that writes to the results ledger computes a fingerprint of the machine it runs on and
-  looks it up here. The entry that holds the fingerprint gives the run its conditions id. A run
+  looks it up here. The latest entry that holds the fingerprint gives the run its conditions id. A run
   whose fingerprint is in no entry refuses to start and says which fields changed.
 - `python3 bundles/sirix-query/bench/common/bench_ledger.py fingerprint` prints the fingerprint of
   the current machine and the fields it is made of.
 - Entries are appended in date order and are not edited afterwards, except by a dated correction.
-- A **new baseline** entry starts a condition under a new id. Nothing measured before it is compared
-  with anything measured after it.
+- A **new baseline** entry starts a condition under a new id, even if its fingerprint is unchanged.
+  Nothing measured before it is compared with anything measured after it.
 - A **continues** entry keeps the id of the condition it continues. It says what changed, and it
   names the control run in the ledger that shows results stayed comparable.
 

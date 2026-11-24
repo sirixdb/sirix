@@ -301,8 +301,9 @@ run's report. A plan MAY leave a benchmark out before the run, stating why.
 **Allocation.** The allocation rule is unchanged. Allocation per operation MUST be measured for
 each arm in at least one fresh process that contributes no timed measurement, so that no timed
 process carries the allocation profiler. An arm's figure is the median over its allocation
-processes, rounded to the nearest whole byte, ties to the even byte. The check passes when the
-candidate's figure is at most the baseline's. Allocation has no threshold and no `unstable` verdict.
+processes, without rounding. The delta is the candidate's median minus the baseline's median,
+rounded to the nearest whole byte, ties to the even byte. The check passes when that delta is at
+most zero. Allocation has no threshold and no `unstable` verdict.
 
 ### CONV-303 — Results ledger and conditions record
 
@@ -320,7 +321,8 @@ names, before it reports a verdict and whatever the verdict is; a run that was r
 MUST still record the processes it measured. A figure the timer reports as zero is below its
 resolution: it is not a measurement and is not recorded, and the kit names it. The ledger is UTF-8
 JSON Lines, one object per line.
-A writer MUST only append and MUST NOT rewrite or remove a line. A reader MUST ignore a field it
+A writer MUST only append and MUST NOT rewrite or remove a line. Retrying a commit MUST NOT
+duplicate a run, measurement or verdict already in the ledger. A reader MUST ignore a field it
 does not know and MUST reject a row whose `schema` it does not know. Without `SIRIX_BENCH_LEDGER`
 a kit still runs and still captures its environment, and its numbers are not protocol results.
 
@@ -339,7 +341,7 @@ start as `YYYYMMDDTHHMMSSZ`, a hyphen and 8 lowercase hexadecimal digits.
 | | `fingerprint` | string | 64 lowercase hexadecimal digits, defined below |
 | | `environment` | object | the environment capture, defined below |
 | `measurement`, one per fresh process and metric | `benchmark` | string | name, stable within the kit |
-| | `params` | object | string to string, possibly empty |
+| | `params` | object | string to string; includes dataset identity (`tier` for JSONBench, caller-stated `dataset` for ClickBench cold rounds) |
 | | `metric`, `unit` | string | such as `cold_seconds` and `s`, `ns_per_op` and `ns/op`, `alloc_bytes_per_op` and `B/op` |
 | | `arm` | string | `baseline`, `candidate` or `head` |
 | | `pair`, `position` | integer or null | 1-based pair and the arm's place in it, 1 or 2; null in an unpaired tier |
@@ -353,7 +355,7 @@ start as `YYYYMMDDTHHMMSSZ`, a hyphen and 8 lowercase hexadecimal digits.
 | | `pairs` | integer | accepted pairs the verdict used |
 | | `difference`, `threshold` | number | *d* and *T* of CONV-302, as natural-log ratios |
 | | `verdict` | string | `regression`, `improvement`, `unstable` or `unchanged` |
-| | `allocation` | object or null | `baseline_bytes`, `candidate_bytes` (whole bytes) and `pass` (boolean); null when the plan measures no allocation |
+| | `allocation` | object or null | `baseline_bytes`, `candidate_bytes` (whole bytes for display), `delta_bytes` (the rounded median delta) and `pass` (boolean, delta at most zero); null when the plan measures no allocation |
 
 **Environment capture.** Before its first timed process a run MUST write `environment.json` into
 its output directory and embed the same object in its `run` row. The capture MUST hold: the capture
@@ -385,11 +387,12 @@ an entry MUST NOT be edited afterwards except by a dated correction. An entry's 
 of lowercase letters, digits and hyphens, and its body is a table with the rows Machine, CPU,
 Memory, Storage, Firmware, Kernel and OS, Frequency policy, Runtimes, Load control, Benchmark set,
 Changed, Comparable with and Fingerprint. A `new baseline` entry starts a condition under a new
-id. A `continues` entry keeps the id of the condition it continues; its Changed row MUST say what
-changed, and its Comparable with row MUST name the control run in the ledger that shows results
-stayed comparable. A run that writes to the ledger MUST find its fingerprint in an entry and
-record that entry's id as its `conditions`; when no entry holds the fingerprint, the run MUST
-refuse to start its timed processes, naming the fingerprint and the fields that differ from the
+id, even when the fingerprint is unchanged. A `continues` entry MUST refer to an id started by an
+earlier entry and keeps that id; its Changed row MUST say what changed, and its Comparable with row
+MUST name the control run in the ledger that shows results stayed comparable. A run that writes to
+the ledger MUST find the latest entry containing its fingerprint and record that entry's id as its
+`conditions`; when no entry holds the fingerprint, the run MUST refuse to start its timed processes,
+naming the fingerprint and the fields that differ from the
 previous run in the ledger. Rows that carry different conditions ids MUST NOT be compared with
 each other, in a trend window or in a learned threshold.
 
