@@ -7,12 +7,12 @@
   the two paths disagreed.
 - Trigger: a caller with CREATE but without MODIFY or DELETE PUTs a resource name that exists.
 - Root cause: the route authorizes one role per HTTP method, and PUT means both "create" and
-  "replace". `createOrRemoveAndCreateResource` learned which case it was in only after the route's
+  "replace". `createAndWriteResource` learned which case it was in only after the route's
   check, when `createResource` reported the name taken, and then removed the resource without a
   further check. REST-210 specified replace semantics (new history, new incarnation) but not who may
   replace.
 - Fix: REST-210 states that replacing needs CREATE + MODIFY + DELETE, checked before removal, and
-  that the query functions apply the same rule. `AbstractCreateHandler.createOrReplaceResource`
+  that the query functions apply the same rule. `AbstractCreateHandler.createAndWriteResource`
   checks MODIFY and DELETE on the database once `createResource` reports the name taken, before
   `removeResource`. A refused PUT answers 403 and leaves the resource unchanged. Creating a new
   resource still needs only CREATE. The decision is a plain function, so it is tested offline.
@@ -23,4 +23,11 @@
   two-revision resource is unchanged. With all three roles the replacement starts a new history,
   and a missing resource is created with CREATE alone. Before the checks, all four refusal cases
   failed: the resource was replaced.
+- Review follow-up: per-call lifecycle holds left authorization stale between creation and
+  shredding, and XML authorization refusal occurred outside upload cleanup. One resource hold now
+  covers creation, the complete write and failed-write cleanup on one worker thread, including
+  suspension and bulk creation; XML upload cleanup encloses transfer, authorization and writing.
+  `creationAndCleanupHoldAuthorizationThroughSuspension` serializes racing JSON/XML replacements,
+  `aFailedWriteRemovesOnlyItsOwnNewResource` checks cleanup ownership, and
+  `XmlCreateUploadCleanupTest` checks refused PUT upload deletion and unchanged persisted XML.
 - Lesson: see [Lessons](../LESSONS.md).

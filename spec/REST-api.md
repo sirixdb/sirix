@@ -155,6 +155,20 @@ Unhandled request failures MUST terminate with a JSON error response containing 
 
 PUT resource creation MUST follow the schema’s replace behavior: replacing an existing resource creates a new resource history, rather than appending an update to old history. Because the new history restarts revision numbering, replacement MUST generate a new resource incarnation id (FMT-209), so conditional-write tokens issued against the replaced resource fail under REST-204 instead of being satisfied by an unrelated revision of the same number, subject to the 2^-64 reproduction bound of FMT-209. REST import/load content MUST be treated as supplied content and MUST NOT read arbitrary server paths/URLs from query input. Creation and import MUST check target authorization before side effects. Creating a resource that does not exist MUST require CREATE on its database. Replacing an existing resource discards its history, so it MUST additionally require MODIFY and DELETE on the database, checked before the resource is removed; a refused replacement MUST answer 403 and leave the resource's revisions and content unchanged. The query functions `jn:store`, `jn:load`, `xn:store` and `xn:load` MUST apply the same rule.
 
+The authorization/existence decision MUST remain valid through the complete resource write and
+failure cleanup, including concurrent replacements. Temporary upload files MUST be released on
+success and failure, including authorization refusal.
+
+The four query store/load functions MUST create only a missing database and MUST preserve all
+unrelated resources. Exactly one input MUST use the named target regardless of sequence
+representation: an existing name is replaced with a new history when `$create-new` is true
+(the default), and refused with `SIRIXDBF0006` without writes when false. Several inputs MUST
+use new automatic names even when a target name is supplied. Automatic naming MUST retry only
+name collisions and MUST report other creation failures. A load MUST acquire and retain every
+source before target preparation or writing; acquisition failure MUST leave existing content
+and revisions unchanged. XML store inputs MUST remain readable through replacement of their
+backing resource.
+
 ### REST-211 — Conditional-write failure response
 
 - **Level:** MUST

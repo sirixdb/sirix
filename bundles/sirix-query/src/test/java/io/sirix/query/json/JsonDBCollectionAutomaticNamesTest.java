@@ -6,6 +6,9 @@ import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Sequence;
 import io.sirix.access.MutationGate;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.api.Database;
+import io.brackit.query.jdm.DocumentException;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.query.MutationAuthorizer;
@@ -29,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Several JSON items added to an existing collection get automatic names that are always new
@@ -38,6 +42,20 @@ import static org.mockito.Mockito.mock;
 final class JsonDBCollectionAutomaticNamesTest {
   @TempDir
   Path directory;
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void automaticCreationFailureIsReportedWithoutRetrying() {
+    final Database<JsonResourceSession> database = mock(Database.class);
+    when(database.getDatabaseConfig()).thenReturn(new DatabaseConfiguration(directory.resolve("failed")));
+    when(database.listResources()).thenReturn(List.of());
+    when(database.createResource(any())).thenReturn(false).thenThrow(new AssertionError("creation failure retried"));
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory.resolve("store")).build()) {
+      final var collection = new JsonDBCollectionImpl("failed", database, store);
+      assertThrows(DocumentException.class,
+          () -> collection.addAll(List.of(reader("{}")), new ArrayObject(new QNm[0], new Sequence[0])));
+    }
+  }
 
   /**
    * {@code resource2} and {@code resource21} exist, so the former naming - the size, then the same

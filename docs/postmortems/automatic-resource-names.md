@@ -32,4 +32,8 @@
   failed before the fix. The REST tests were translated to the contract: CREATE suffices for
   automatic names, the existing resource is unchanged, and named adds into an existing resource
   still need MODIFY.
+- Review follow-up: `createResource` also returns false after creation/bootstrap failures, not
+  only collisions. Treating every false as a taken name caused unbounded retries. Both collection
+  naming paths now retry only when the candidate exists and otherwise report creation failure.
+  Both automatic-name suites cover the non-collision failure through the collection API.
 - Lesson: see [Lessons](../LESSONS.md).

@@ -2,6 +2,12 @@
 
 ## 1.0.0 (unreleased)
 
+- Amend [REST-210](REST-api.md#rest-210--resource-creation-and-query-import-boundaries) to require CREATE for
+  resource creation and additionally MODIFY and DELETE before replacement; refusal returns
+  403 and preserves content and revisions. Apply the same rule to `jn:store`, `jn:load`,
+  `xn:store` and `xn:load`, with resource-scoped replacement, cardinality-based targets,
+  retained inputs, collision-only naming retries and authorization held through write cleanup.
+
 - Store the commit timestamp as signed epoch microseconds instead of epoch milliseconds.
   VER-201 fixes the unit in the unchanged 64-bit timestamp field, requires truncation toward
   the past and explicit rejection of an out-of-range instant, and requires the public API to

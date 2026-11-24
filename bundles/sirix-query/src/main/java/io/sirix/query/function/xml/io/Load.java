@@ -13,7 +13,6 @@ import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.jdm.Stream;
-import io.brackit.query.jdm.node.TemporalNodeCollection;
 import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.jdm.type.ElementType;
@@ -39,6 +38,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Loads XML documents into a collection/database. See {@link XMLFun} for the registered overloads
@@ -51,8 +52,7 @@ import java.nio.file.Path;
         + "A missing collection is created. In an existing collection a new resource name is added "
         + "and every other resource is kept; an existing name is replaced alone, with a new history, "
         + "when $create-new is true (the default) and refused with SIRIXDBF0006 when it is false. "
-        + "Several inputs go under new automatic names, or with $res all into that one resource "
-        + "after the same check. No call drops a collection: "
+        + "Several inputs go under new automatic names. No call drops a collection: "
         + "use drop-database first to replace one, and import to write into an existing resource.",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Load extends AbstractFunction {
@@ -105,56 +105,47 @@ public final class Load extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
-      @SuppressWarnings("NullAway") // FunUtil supports null defaults for absent optional arguments.
+      @SuppressWarnings("NullAway")
       final @Nullable String resName = FunUtil.getString(args, 1, "resName", null, null, false);
       final Sequence resources = args[2];
-      if (resources == null)
+      if (resources == null) {
         throw new QueryException(new QNm("No sequence of resources specified!"));
+      }
       final boolean createNew = args.length < 4 || args[3].booleanValue();
-
       final String commitMessage = args.length >= 5
-          ? FunUtil.getString(args, 4, "commitMessage", null, null, false)
-          : null;
-
-      final DateTime dateTime = args.length == 6
-          ? (DateTime) args[5]
-          : null;
-      final Instant commitTimesstamp = args.length == 6
-          ? dateTimeToInstant.convert(dateTime)
-          : null;
-
+          ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
+      final Instant commitTimestamp = args.length == 6
+          ? dateTimeToInstant.convert((DateTime) args[5]) : null;
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       MutationAuthorization.requireCreate(ctx, collName, resName);
       final boolean contentOnly = store instanceof ContentOnlyStore;
-      final Sequence inputs = contentOnly
-          ? ImportInput.strings(resources, true)
-          : resources;
-      // An existing database is never replaced (#1384); see xn:store.
-      final Path databasePath = store.databaseDirectory(collName);
-      XmlDBCollection coll = store.lookup(collName);
-      if (coll == null) {
-        try (var gate = databasePath == null
-            ? null
-            : MutationGate.acquireDatabase(databasePath)) {
-          coll = store.lookup(collName);
-          if (coll == null) {
-            return create(store, collName, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
+      final Sequence inputs = contentOnly ? ImportInput.strings(resources, true) : resources;
+      try (final ParserStream parsers = new ParserStream(inputs, contentOnly)) {
+        final boolean singleton = parsers.size() == 1;
+        final Path databasePath = store.databaseDirectory(collName);
+        XmlDBCollection coll = store.lookup(collName);
+        if (coll == null) {
+          try (var gate = databasePath == null ? null : MutationGate.acquireDatabase(databasePath)) {
+            coll = store.lookup(collName);
+            if (coll == null) {
+              return singleton
+                  ? store.create(collName, resName, parsers.next(), commitMessage, commitTimestamp)
+                  : store.create(collName, parsers);
+            }
           }
         }
-      }
-      if (resName != null) {
-        // A named target is checked once, before any input is written: added, or replaced alone or
-        // refused per $create-new. Several inputs are then all written into that resource.
-        final var database = coll.getDatabase();
-        try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resName)) {
-          ExistingResourceTarget.prepare(ctx, XMLFun.ERR_RESOURCE_EXISTS, collName, database, coll::remove, resName,
-              createNew);
-          add(coll, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
+        if (singleton && resName != null) {
+          final var database = coll.getDatabase();
+          try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resName)) {
+            ExistingResourceTarget.prepare(ctx, XMLFun.ERR_RESOURCE_EXISTS, collName, database, coll::remove, resName,
+                createNew);
+            add(coll, resName, parsers, commitMessage, commitTimestamp);
+          }
+        } else {
+          add(coll, null, parsers, commitMessage, commitTimestamp);
         }
-      } else {
-        add(coll, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
+        return coll;
       }
-      return coll;
     } catch (final Exception e) {
       if (e instanceof QueryException refusal && XMLFun.ERR_RESOURCE_EXISTS.equals(refusal.getCode())) {
         throw refusal;
@@ -163,89 +154,86 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  @SuppressWarnings("NullAway") // XmlDBCollection's legacy signature omits nullable commit metadata.
-  private static TemporalNodeCollection<?> add(final XmlDBCollection coll, final @Nullable String resName,
-      final Sequence resources, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp,
-      final boolean contentOnly) {
-    try (final ParserStream parsers = new ParserStream(resources, contentOnly)) {
-      long next = coll.getDocumentCount() + 1;
-      for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-        if (resName != null) {
-          coll.add(resName, parser, commitMessage, commitTimestamp).getTrx().close();
-          continue;
-        }
-        // An automatic name is always a new resource (#1478): skip names that exist, checked under
-        // the name's resource hold so a gated caller cannot take it in between.
-        final Path databaseFile = coll.getDatabase().getDatabaseConfig().getDatabaseFile();
-        boolean written = false;
-        while (!written) {
-          final String candidate = "resource" + next++;
-          try (var gate = MutationGate.acquireResource(databaseFile, candidate)) {
-            if (!coll.getDatabase().existsResource(candidate)) {
-              coll.add(candidate, parser, commitMessage, commitTimestamp).getTrx().close();
-              written = true;
-            }
+  @SuppressWarnings("NullAway")
+  private static void add(final XmlDBCollection coll, final @Nullable String resName,
+      final ParserStream parsers, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
+    long next = coll.getDocumentCount() + 1;
+    for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
+      if (resName != null) {
+        coll.add(resName, parser, commitMessage, commitTimestamp).getTrx().close();
+        continue;
+      }
+      final Path databaseFile = coll.getDatabase().getDatabaseConfig().getDatabaseFile();
+      boolean written = false;
+      while (!written) {
+        final String candidate = "resource" + next++;
+        try (var gate = MutationGate.acquireResource(databaseFile, candidate)) {
+          if (!coll.getDatabase().existsResource(candidate)) {
+            coll.add(candidate, parser, commitMessage, commitTimestamp).getTrx().close();
+            written = true;
           }
         }
       }
     }
-    return coll;
   }
 
-  private static XmlDBCollection create(final XmlDBStore store, final String collName, final @Nullable String resName,
-      final Sequence resources, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp,
-      final boolean contentOnly) {
-    if (resources instanceof Atomic res) {
-      return store.create(collName, resName, parser(res, contentOnly), commitMessage, commitTimestamp);
-    } else {
-      return store.create(collName, new ParserStream(resources, contentOnly));
-    }
-  }
+  private static final class ParserStream implements Stream<NodeSubtreeParser> {
+    private final List<NodeSubtreeParser> parsers = new ArrayList<>();
+    private final List<InputStream> sources = new ArrayList<>();
+    private int next;
 
-  private static NodeSubtreeParser parser(final Atomic resource, final boolean contentOnly) {
-    if (contentOnly) {
-      return new DocumentParser(resource.stringValue());
-    }
-    final String uri = resource.stringValue();
-    return handler -> {
-      try (final InputStream input = URIHandler.getInputStream(uri)) {
-        new DocumentParser(input).parse(handler);
-      } catch (final IOException e) {
-        throw new DocumentException(e);
+    private ParserStream(final Sequence resources, final boolean contentOnly) throws IOException {
+      try (final Iter iterator = resources.iterate()) {
+        for (Item item; (item = iterator.next()) != null;) {
+          if (!(item instanceof Atomic resource)) {
+            throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
+                "Cannot create subtree parser for item of type: %s", item.itemType());
+          }
+          if (contentOnly) {
+            parsers.add(new DocumentParser(resource.stringValue()));
+          } else {
+            final InputStream source = URIHandler.getInputStream(resource.stringValue());
+            sources.add(source);
+            parsers.add(new DocumentParser(source));
+          }
+        }
+      } catch (final IOException | RuntimeException failure) {
+        try {
+          close();
+        } catch (final RuntimeException cleanup) {
+          failure.addSuppressed(cleanup);
+        }
+        throw failure;
       }
-    };
-  }
+    }
 
-  private static class ParserStream implements Stream<NodeSubtreeParser> {
-    private final Iter it;
-    private final boolean contentOnly;
-
-    public ParserStream(final Sequence locs, final boolean contentOnly) {
-      it = locs.iterate();
-      this.contentOnly = contentOnly;
+    private int size() {
+      return parsers.size();
     }
 
     @Override
-    public NodeSubtreeParser next() {
-      try {
-        final Item i = it.next();
-        if (i == null) {
-          return null;
-        }
-        if (i instanceof Atomic resource) {
-          return parser(resource, contentOnly);
-        } else {
-          throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
-              "Cannot create subtree parser for item of type: %s", i.itemType());
-        }
-      } catch (final QueryException e) {
-        throw new DocumentException(e);
-      }
+    public @Nullable NodeSubtreeParser next() {
+      return next < parsers.size() ? parsers.get(next++) : null;
     }
 
     @Override
     public void close() {
-      it.close();
+      IOException failure = null;
+      for (final InputStream source : sources) {
+        try {
+          source.close();
+        } catch (final IOException cleanup) {
+          if (failure == null) {
+            failure = cleanup;
+          } else {
+            failure.addSuppressed(cleanup);
+          }
+        }
+      }
+      sources.clear();
+      if (failure != null) {
+        throw new DocumentException(failure);
+      }
     }
   }
 }

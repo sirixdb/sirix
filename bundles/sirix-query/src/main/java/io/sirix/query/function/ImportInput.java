@@ -51,6 +51,16 @@ public final class ImportInput {
         : new ItemSequence(contents.toArray(new Str[0]));
   }
 
+  public static Sequence snapshotStrings(final Sequence resources) {
+    final List<Str> values = new ArrayList<>();
+    try (final Iter inputs = resources.iterate()) {
+      for (Item item; (item = inputs.next()) != null;) {
+        values.add(new Str(((Str) item).stringValue()));
+      }
+    }
+    return values.size() == 1 ? values.getFirst() : new ItemSequence(values.toArray(new Str[0]));
+  }
+
   public static String json(final Sequence input) {
     final String content;
     if (input instanceof Str string) {

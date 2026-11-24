@@ -328,6 +328,9 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
         if (database.createResource(ResourceConfigurations.create(candidate, resourceOptions))) {
           return writeResource(candidate, reader, resourceOptions);
         }
+        if (!database.existsResource(candidate)) {
+          throw new DocumentException("Could not create resource '%s'", candidate);
+        }
       }
     }
   }

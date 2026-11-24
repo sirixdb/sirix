@@ -73,7 +73,6 @@ class JsonCreate(
             var body: Buffer? = null
             val sirixDBUser = SirixDBUser.create(ctx)
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
-            val dispatcher = ctx.vertx().dispatcher()
 
             database.use {
                 val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
@@ -102,9 +101,7 @@ class JsonCreate(
 
                 val resConfig = resConfigBuilder.build()
 
-                createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher, ctx.get<VertxUser>("user")!!, ctx.pathParam("database"))
-
-                withCleanupOnFailedShred(database, resPathName, dispatcher) {
+                createAndWriteResource(database, resConfig, resPathName, ctx.get<VertxUser>("user")!!, ctx.pathParam("database")) {
                     val manager = database.beginResourceSession(resPathName)
 
                     manager.use {

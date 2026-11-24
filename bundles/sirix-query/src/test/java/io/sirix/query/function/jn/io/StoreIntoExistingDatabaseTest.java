@@ -1,6 +1,7 @@
 package io.sirix.query.function.jn.io;
 
 import io.brackit.query.Query;
+import com.google.gson.JsonPrimitive;
 import io.sirix.access.MutationGate;
 import io.brackit.query.QueryException;
 import io.sirix.api.json.JsonResourceSession;
@@ -60,6 +61,29 @@ final class StoreIntoExistingDatabaseTest {
     Files.writeString(content.resolve("new.json"), "{\"v\":\"new\"}");
     Files.writeString(content.resolve("second.json"), "{\"v\":\"second\"}");
     Files.writeString(content.resolve("third.json"), "{\"v\":\"third\"}");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"store", "load"})
+  void aStoredLazySingletonUsesTheNamedTarget(final String function) {
+    withDatabase("lazy-" + function, (chain, context, store) -> {
+      final String source = "store".equals(function)
+          ? "{\"v\":\"new\"}"
+          : content.resolve("new.json").toUri().toString();
+      store.create("inputs", "values", "[" + new JsonPrimitive(source) + "]");
+      final String input = "(for $v in jn:doc('inputs','values')[] return $v)";
+      final QueryException refused = assertThrows(QueryException.class,
+          () -> run(chain, context, "jn:" + function + "('db','first'," + input + ",false())"));
+      assertEquals(JNFun.ERR_RESOURCE_EXISTS, refused.getCode());
+      assertEquals(2, revisions(store, "first"));
+      assertEquals(List.of("first", "other"), resources(store));
+      run(chain, context, "jn:" + function + "('db','first'," + input + ")");
+      assertEquals("{\"v\":\"new\"}", run(chain, context, "jn:doc('db','first')"));
+      assertEquals(1, revisions(store, "first"));
+      assertEquals(List.of("first", "other"), resources(store));
+      run(chain, context, "jn:" + function + "('created','chosen'," + input + ")");
+      assertEquals("{\"v\":\"new\"}", run(chain, context, "jn:doc('created','chosen')"));
+    });
   }
 
   @ParameterizedTest

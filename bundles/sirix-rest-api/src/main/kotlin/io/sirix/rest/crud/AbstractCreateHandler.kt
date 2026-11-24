@@ -7,10 +7,10 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.coroutines.coAwait
-import io.vertx.kotlin.coroutines.dispatcher
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import io.sirix.access.MutationGate
 import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.ResourceConfiguration
 import io.sirix.access.User
@@ -20,8 +20,6 @@ import io.sirix.api.Database
 import io.sirix.api.ResourceSession
 import io.sirix.rest.Auth
 import io.sirix.rest.AuthRole
-import io.sirix.utils.LogWrapper
-import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -37,21 +35,34 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
          * role the route checked. Replacing discards the resource's history, so it also needs MODIFY
          * and DELETE on [databaseName], both checked before anything is removed (REST-210, #1477).
          */
-        fun createOrReplaceResource(
+        fun <R> createAndWriteResource(
             database: Database<*>,
-            resConfig: ResourceConfiguration?,
+            resConfig: ResourceConfiguration,
             resPathName: String,
             user: VertxUser,
-            databaseName: String
-        ) {
-            if (!database.createResource(resConfig)) {
-                Auth.checkIfAuthorized(user, databaseName, AuthRole.MODIFY)
-                Auth.checkIfAuthorized(user, databaseName, AuthRole.DELETE)
-                database.removeResource(resPathName)
-                database.createResource(resConfig)
+            databaseName: String,
+            block: suspend () -> R
+        ): R {
+            MutationGate.acquireResource(database.databaseConfig.databaseFile, resPathName).use {
+                if (!database.createResource(resConfig)) {
+                    check(database.existsResource(resPathName)) { "Could not create resource '$resPathName'" }
+                    Auth.checkIfAuthorized(user, databaseName, AuthRole.MODIFY)
+                    Auth.checkIfAuthorized(user, databaseName, AuthRole.DELETE)
+                    database.removeResource(resPathName)
+                    check(database.createResource(resConfig)) { "Could not create resource '$resPathName'" }
+                }
+                try {
+                    return runBlocking { block() }
+                } catch (failure: Exception) {
+                    try {
+                        database.removeResource(resPathName)
+                    } catch (cleanup: Exception) {
+                        failure.addSuppressed(cleanup)
+                    }
+                    throw failure
+                }
             }
         }
-        private val logger = LogWrapper(LoggerFactory.getLogger(AbstractCreateHandler::class.java))
     }
 
     override suspend fun handle(ctx: RoutingContext): Route {
@@ -92,31 +103,6 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         }
     }
 
-    /**
-     * Runs [block] (the resource shred + serialization); on failure removes the just-created,
-     * half-built resource — which would otherwise stay listed and could 500 on GET — and rethrows
-     * so the client still sees the original failure. Shared failure-path policy for all create
-     * handlers.
-     */
-    protected suspend fun <R> withCleanupOnFailedShred(
-        database: Database<T>,
-        resPathName: String,
-        dispatcher: CoroutineDispatcher,
-        block: suspend () -> R
-    ): R {
-        try {
-            return block()
-        } catch (e: Exception) {
-            try {
-                withContext(dispatcher) { database.removeResource(resPathName) }
-            } catch (cleanup: Exception) {
-                logger.warn("Failed to clean up resource '$resPathName' after failed shred: ${cleanup.message}")
-            }
-            throw e
-        }
-    }
-
-
     suspend fun prepareDatabasePath(dbFile: Path, context: Context): DatabaseConfiguration? {
 
         return context.executeBlocking {
@@ -128,17 +114,6 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
 
             DatabaseConfiguration(dbFile)
         }.coAwait()
-    }
-
-    suspend fun createOrRemoveAndCreateResource(
-        database: Database<*>,
-        resConfig: ResourceConfiguration?,
-        resPathName: String, dispatcher: CoroutineDispatcher,
-        user: VertxUser, databaseName: String
-    ) {
-        withContext(dispatcher) {
-            createOrReplaceResource(database, resConfig, resPathName, user, databaseName)
-        }
     }
 
     private suspend fun shredder(
@@ -156,7 +131,6 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
     private suspend fun createMultipleResources(databaseName: String, ctx: RoutingContext) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
-        val dispatcher = ctx.vertx().dispatcher()
         val sirixDBUser = SirixDBUser.create(ctx)
 
         createDatabaseIfNotExists(dbFile, context)
@@ -171,16 +145,10 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
                     val fileName = fileUpload.fileName()
                     val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(useDeweyIDs)
                         .hashKind(HashType.valueOf(hashType.uppercase())).build()
-                    createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher, ctx.get<VertxUser>("user")!!, databaseName)
-
-                    val manager = database.beginResourceSession(fileName)
-
-                    manager.use {
-                        insertResourceSubtreeAsFirstChild(
-                            manager,
-                            Path.of(fileUpload.uploadedFileName()),
-                            ctx
-                        )
+                    createAndWriteResource(database, resConfig, fileName, ctx.get<VertxUser>("user")!!, databaseName) {
+                        database.beginResourceSession(fileName).use { manager ->
+                            insertResourceSubtreeAsFirstChild(manager, Path.of(fileUpload.uploadedFileName()), ctx)
+                        }
                     }
                 }
 

@@ -19,12 +19,11 @@ import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.node.stream.ArrayStream;
-import io.brackit.query.sequence.FunctionConversionSequence;
-import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.sirix.access.MutationGate;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.FunUtil;
+import io.sirix.query.function.ImportInput;
 import io.sirix.query.function.jn.JNFun;
 import io.sirix.query.function.ExistingResourceTarget;
 import io.sirix.query.json.JsonDBCollection;
@@ -105,12 +104,12 @@ public final class Store extends AbstractFunction {
 
       final String collectionName = FunUtil.getString(args, 0, "collectionName", "collection", null, true);
       final String resourceName = FunUtil.getString(args, 1, "resourceName", "resource", null, false);
-      final Sequence nodes = args[2];
+      final Sequence resources = args[2];
       final boolean createIfNotExists = args.length < 4 || args[3].booleanValue();
       final Object options;
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
 
-      if (nodes == null) {
+      if (resources == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));
       }
 
@@ -123,6 +122,7 @@ public final class Store extends AbstractFunction {
       // Store/load are ordinary function calls, so require CREATE before touching the store or
       // reading input; the query-level updating-expression check does not cover them.
       MutationAuthorization.requireCreate(ctx, collectionName, resourceName);
+      final Sequence nodes = ImportInput.snapshotStrings(resources);
 
       // An existing database is never replaced (#1384). Only a missing one is created, under the
       // exclusive database hold so a caller racing to create it is seen; writing into an existing
@@ -180,7 +180,7 @@ public final class Store extends AbstractFunction {
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
-    } else if (nodes instanceof FunctionConversionSequence || nodes instanceof ItemSequence) {
+    } else {
       final List<JsonReader> readers = new ArrayList<>();
       try (final Closeable inputs = () -> closeReaders(readers); final Iter iter = nodes.iterate()) {
         for (Item item; (item = iter.next()) != null;) {
@@ -223,7 +223,7 @@ public final class Store extends AbstractFunction {
           throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
         }
       }
-    } else if (nodes instanceof FunctionConversionSequence || nodes instanceof ItemSequence) {
+    } else {
       try (final Iter iter = nodes.iterate()) {
         final List<Str> list = new ArrayList<>();
 

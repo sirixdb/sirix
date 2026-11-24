@@ -160,9 +160,13 @@ public final class Store extends AbstractFunction {
               : resName;
           final var database = coll.getDatabase();
           try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), target)) {
+            final NodeSubtreeParser input = parsers.next();
+            final NodeSubtreeParser readable = createNew && database.existsResource(target)
+                ? new StoreParser(ctx.getNodeFactory().build(input))
+                : input;
             ExistingResourceTarget.prepare(ctx, XMLFun.ERR_RESOURCE_EXISTS, collName, database, coll::remove, target,
                 createNew);
-            coll.add(target, parsers.next(), commitMessage, commitTimesstamp).getTrx().close();
+            coll.add(target, readable, commitMessage, commitTimesstamp).getTrx().close();
           }
         } else {
           final List<NodeSubtreeParser> inputs = new ArrayList<>();

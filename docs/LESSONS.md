@@ -394,3 +394,13 @@ must all collect its first unreported failure before replacing the worker or clo
 Use first-close-only failures to distinguish worker error retention from a later close retry.
 Keep process-exit ordering with the embedding application through explicit shutdown.
 See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-open-worker-failure.md).
+
+## Keep replacement inputs and authority alive until the write ends
+
+Acquire every load source before changing targets, and snapshot an XML input before replacing its
+own backing resource. Select targets by cardinality rather than runtime sequence class. A failed
+creation is retryable only when the candidate exists. Hold the resource across authorization,
+creation, writing and cleanup on one owning thread; upload cleanup must enclose refusal too.
+See the [store/load](postmortems/store-into-existing-database.md),
+[automatic-name](postmortems/automatic-resource-names.md) and
+[PUT authorization](postmortems/rest-put-replace-authorization.md) postmortems.

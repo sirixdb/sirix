@@ -3,6 +3,9 @@ package io.sirix.query.node;
 import io.brackit.query.Query;
 import io.brackit.query.node.parser.DocumentParser;
 import io.sirix.access.MutationGate;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.api.Database;
+import io.brackit.query.jdm.DocumentException;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.query.MutationAuthorizer;
@@ -25,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Several XML documents added to an existing collection get automatic names that are always new
@@ -34,6 +38,17 @@ import static org.mockito.Mockito.mock;
 final class XmlDBCollectionAutomaticNamesTest {
   @TempDir
   Path directory;
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void automaticCreationFailureIsReportedWithoutRetrying() {
+    final Database<XmlResourceSession> database = mock(Database.class);
+    when(database.getDatabaseConfig()).thenReturn(new DatabaseConfiguration(directory.resolve("failed")));
+    when(database.listResources()).thenReturn(List.of());
+    when(database.createResource(any())).thenReturn(false).thenThrow(new AssertionError("creation failure retried"));
+    final var collection = new XmlDBCollectionImpl("failed", database);
+    assertThrows(DocumentException.class, () -> collection.addAll(List.of(new DocumentParser("<added/>"))));
+  }
 
   /** {@code resource1} and {@code resource3} exist, so the former naming (size + 1) hit resource3. */
   @ParameterizedTest

@@ -317,6 +317,9 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
         if (database.createResource(resourceOptions.create(candidate, null))) {
           return writeResource(parser, candidate, null, null);
         }
+        if (!database.existsResource(candidate)) {
+          throw new DocumentException("Could not create resource '%s'", candidate);
+        }
       }
     }
   }

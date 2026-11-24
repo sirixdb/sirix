@@ -19,7 +19,6 @@ import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.module.StaticContext;
-import io.brackit.query.sequence.FunctionConversionSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.brackit.query.util.io.URIHandler;
 import io.sirix.access.MutationGate;
@@ -135,6 +134,8 @@ public final class Load extends AbstractFunction {
         return store.lookup(collectionName);
       }
 
+      final Sequence inputs = ImportInput.snapshotStrings(resources);
+
       // An existing database is never replaced (#1384); see jn:store.
       final Path databaseDirectory = store.databaseDirectory(collectionName);
       collection = store.lookup(collectionName);
@@ -144,19 +145,21 @@ public final class Load extends AbstractFunction {
             : MutationGate.acquireDatabase(databaseDirectory)) {
           collection = store.lookup(collectionName);
           if (collection == null) {
-            return create(store, collectionName, resourceName, resources, options);
+            return create(store, collectionName, resourceName, inputs, options);
           }
         }
       }
-      if (resources instanceof Atomic) {
-        final var database = collection.getDatabase();
-        try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
-          ExistingResourceTarget.prepare(ctx, JNFun.ERR_RESOURCE_EXISTS, collectionName, database, collection::remove,
-              resourceName, createIfNotExists);
-          add(collection, resourceName, resources, options);
+      if (inputs instanceof Atomic input) {
+        try (final JsonReader reader = new JsonReader(new InputStreamReader(URIHandler.getInputStream(input.stringValue())))) {
+          final var database = collection.getDatabase();
+          try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
+            ExistingResourceTarget.prepare(ctx, JNFun.ERR_RESOURCE_EXISTS, collectionName, database, collection::remove,
+                resourceName, createIfNotExists);
+            collection.add(resourceName, reader, options);
+          }
         }
       } else {
-        add(collection, resourceName, resources, options);
+        add(collection, inputs, options);
       }
 
       return collection;
@@ -172,26 +175,14 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static void add(final JsonDBCollection collection, final String resourceName, final Sequence resources,
-      final Object options) {
-    if (resources instanceof Atomic res) {
-      try (final JsonReader reader =
-          new JsonReader(new InputStreamReader(URIHandler.getInputStream(res.stringValue())))) {
-        collection.add(resourceName, reader, options);
-      } catch (final Exception e) {
-        throw new QueryException(e, new QNm(e.getMessage()));
-      }
-    } else if (resources instanceof FunctionConversionSequence seq) {
-      final List<String> uris = new ArrayList<>();
-      try (final Iter iter = seq.iterate()) {
-        for (Item item; (item = iter.next()) != null;) {
-          uris.add(((Str) item).stringValue());
-        }
-        collection.addAllFromUris(uris, options);
-      } catch (final Exception e) {
-        throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
+  private static void add(final JsonDBCollection collection, final Sequence resources, final Object options) {
+    final List<String> uris = new ArrayList<>();
+    try (final Iter iter = resources.iterate()) {
+      for (Item item; (item = iter.next()) != null;) {
+        uris.add(((Str) item).stringValue());
       }
     }
+    collection.addAllFromUris(uris, options);
   }
 
   private JsonDBCollection create(final JsonDBStore store, final String collectionName, final String resourceName,
@@ -203,8 +194,8 @@ public final class Load extends AbstractFunction {
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
-    } else if (resources instanceof FunctionConversionSequence seq) {
-      try (final Iter iter = seq.iterate()) {
+    } else {
+      try (final Iter iter = resources.iterate()) {
         final List<String> uris = new ArrayList<>();
         for (Item item; (item = iter.next()) != null;) {
           uris.add(((Str) item).stringValue());
@@ -213,6 +204,5 @@ public final class Load extends AbstractFunction {
       }
     }
 
-    return null;
   }
 }

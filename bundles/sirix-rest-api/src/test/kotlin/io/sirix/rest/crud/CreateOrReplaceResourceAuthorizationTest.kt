@@ -18,6 +18,18 @@ import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.nio.file.Path
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.Assertions.assertTrue
+import io.sirix.api.xml.XmlNodeReadOnlyTrx
+import io.sirix.api.json.JsonNodeReadOnlyTrx
+import io.sirix.api.xml.XmlResourceSession
+import io.sirix.service.xml.shredder.XmlShredder
 
 /**
  * REST-210 (#1477): PUT creates a missing resource with the CREATE role the route checks, but
@@ -34,7 +46,7 @@ class CreateOrReplaceResourceAuthorizationTest {
     fun replacingWithoutModifyAndDeleteIsRefusedAndKeepsTheResource(roles: String) {
         withDatabase { database ->
             val refused = assertThrows(HttpException::class.java) {
-                AbstractCreateHandler.createOrReplaceResource(database, config("doc"), "doc", userWith(roles), "auth")
+                AbstractCreateHandler.createAndWriteResource(database, config("doc"), "doc", userWith(roles), "auth") {}
             }
             assertEquals(403, refused.statusCode)
             assertEquals(setOf("doc"), resources(database))
@@ -46,7 +58,7 @@ class CreateOrReplaceResourceAuthorizationTest {
     @ValueSource(strings = ["create|modify|delete", "auth-create|auth-modify|auth-delete"])
     fun replacingWithModifyAndDeleteStartsANewHistory(roles: String) {
         withDatabase { database ->
-            AbstractCreateHandler.createOrReplaceResource(database, config("doc"), "doc", userWith(roles), "auth")
+            AbstractCreateHandler.createAndWriteResource(database, config("doc"), "doc", userWith(roles), "auth") {}
             assertEquals(setOf("doc"), resources(database))
             assertEquals(0, revisions(database, "doc"), "the replacement is a new, still empty resource")
         }
@@ -55,9 +67,101 @@ class CreateOrReplaceResourceAuthorizationTest {
     @Test
     fun creatingAMissingResourceNeedsNothingBeyondTheRoutesCreateRole() {
         withDatabase { database ->
-            AbstractCreateHandler.createOrReplaceResource(database, config("fresh"), "fresh", userWith("create"), "auth")
+            AbstractCreateHandler.createAndWriteResource(database, config("fresh"), "fresh", userWith("create"), "auth") {}
             assertEquals(setOf("doc", "fresh"), resources(database))
             assertEquals(2, revisions(database, "doc"))
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [true, false])
+    @Timeout(30)
+    fun creationAndCleanupHoldAuthorizationThroughSuspension(xml: Boolean) {
+        val path = directory.resolve("race")
+        if (xml) Databases.createXmlDatabase(DatabaseConfiguration(path))
+        else Databases.createJsonDatabase(DatabaseConfiguration(path))
+        val database: Database<*> = if (xml) Databases.openXmlDatabase(path) else Databases.openJsonDatabase(path)
+        database.use {
+            val entered = CountDownLatch(1)
+            val release = CompletableDeferred<Unit>()
+            val firstResult = CompletableFuture<Unit>()
+            val secondResult = CompletableFuture<Unit>()
+            val first = Thread {
+                try {
+                    AbstractCreateHandler.createAndWriteResource(database, config("fresh"), "fresh", userWith("create"), "auth") {
+                        entered.countDown()
+                        release.await()
+                        withContext(Dispatchers.Default) { Unit }
+                        writeValue(database, "fresh", "first")
+                    }
+                    firstResult.complete(Unit)
+                } catch (failure: Throwable) {
+                    firstResult.completeExceptionally(failure)
+                }
+            }
+            val second = Thread {
+                try {
+                    AbstractCreateHandler.createAndWriteResource(database, config("fresh"), "fresh", userWith("create|modify|delete"), "auth") {
+                        writeValue(database, "fresh", "second")
+                    }
+                    secondResult.complete(Unit)
+                } catch (failure: Throwable) {
+                    secondResult.completeExceptionally(failure)
+                }
+            }
+            first.start()
+            try {
+                assertTrue(entered.await(10, TimeUnit.SECONDS))
+                second.start()
+                while (second.state != Thread.State.WAITING && second.isAlive) Thread.onSpinWait()
+                assertEquals(false, secondResult.isDone, "replacement must wait for the complete first write")
+            } finally {
+                release.complete(Unit)
+            }
+            firstResult.get(10, TimeUnit.SECONDS)
+            secondResult.get(10, TimeUnit.SECONDS)
+            first.join()
+            second.join()
+            database.beginResourceSession("fresh").use { session ->
+                assertEquals(1, session.mostRecentRevisionNumber)
+                session.beginNodeReadOnlyTrx().use { reader ->
+                    reader.moveToFirstChild()
+                    reader.moveToFirstChild()
+                    if (session is JsonResourceSession) reader.moveToFirstChild()
+                    assertEquals("second", if (session is XmlResourceSession) (reader as XmlNodeReadOnlyTrx).value
+                        else (reader as JsonNodeReadOnlyTrx).value)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun aFailedWriteRemovesOnlyItsOwnNewResource() {
+        withDatabase { database ->
+            assertThrows(IllegalArgumentException::class.java) {
+                AbstractCreateHandler.createAndWriteResource(database, config("fresh"), "fresh", userWith("create"), "auth") {
+                    writeValue(database, "fresh", "partial")
+                    throw IllegalArgumentException("invalid input")
+                }
+            }
+            assertEquals(setOf("doc"), resources(database))
+            assertEquals(2, revisions(database, "doc"))
+        }
+    }
+
+    private fun writeValue(database: Database<*>, name: String, value: String) {
+        database.beginResourceSession(name).use { session ->
+            when (session) {
+                is JsonResourceSession -> session.beginNodeTrx().use { writer ->
+                    JsonShredder.createStringReader("{\"v\":\"$value\"}").use { reader ->
+                        writer.insertSubtreeAsFirstChild(reader)
+                    }
+                }
+                is XmlResourceSession -> session.beginNodeTrx().use { writer ->
+                    val reader = XmlShredder.createStringReader("<v>$value</v>")
+                    try { writer.insertSubtreeAsFirstChild(reader) } finally { reader.close() }
+                }
+            }
         }
     }
 

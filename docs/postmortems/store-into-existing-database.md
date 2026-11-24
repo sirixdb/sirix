@@ -21,7 +21,7 @@
     new one starts, as for REST PUT (REST-210). This needs CREATE, MODIFY and DELETE.
   - An existing name is refused with `SIRIXDBF0006` when `$create-new` is false, and nothing is
     written. Writing into an existing resource is `jn:import`/`xn:import`.
-  - `xn:load` with a name and several inputs checks that target once, before any input is written.
+  - Several inputs always receive new automatic names, including named `xn:load` calls.
   - No store or load call drops a database; replacing one is `jn:drop-database`/`xn:drop-database`
     followed by a store.
   - A replace first closes this handle's session on the resource, so items an earlier query read
@@ -54,5 +54,12 @@
   - The REST `QueryMutationAuthorizationTest` and `ContentImportAuthorizationTest` were translated
     from database replacement to resource add, replace and refuse, keeping their authorization
     intent.
+- Review follow-up root causes: XML parsers opened URIs only while writing and kept live stored
+  subtree readers across replacement; JSON singleton selection depended on the sequence class,
+  and its replacement removed the target before source acquisition. Inputs are now retained before
+  target preparation, XML replacement snapshots its input, and actual cardinality selects targets.
+  `LoadSourceAcquisitionTest` covers XML named/unnamed and existing/missing databases plus JSON
+  replacement acquisition failure; both store/load suites cover lazy singletons, XML self-copy,
+  and named multi-input loads under all flag values.
 - Lesson: see [Lessons](../LESSONS.md). A flag must act at the scope its call names: a function
   given a resource name must not act on the whole database.

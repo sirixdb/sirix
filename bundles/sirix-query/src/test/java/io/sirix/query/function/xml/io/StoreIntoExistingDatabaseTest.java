@@ -107,25 +107,43 @@ final class StoreIntoExistingDatabaseTest {
     });
   }
 
-  /** xn:load names one target for several inputs: it is checked once, like a single input. */
-  @Test
-  void aNamedMultiInputLoadFollowsTheSingleInputRule() throws IOException {
+  @ParameterizedTest
+  @ValueSource(strings = {"", ",true()", ",false()"})
+  void aNamedMultiInputLoadUsesNewAutomaticNames(final String flag) throws IOException {
     Files.writeString(content.resolve("second.xml"), "<w>second</w>");
     final String inputs =
         "('" + content.resolve("new.xml").toUri() + "','" + content.resolve("second.xml").toUri() + "')";
-    withDatabase("named-multi", (chain, context, store) -> {
+    withDatabase("named-multi" + flag, (chain, context, store) -> {
       final Witness before = witness(chain, context, store);
-      final QueryException refused =
-          assertThrows(QueryException.class, () -> run(chain, context, "xn:load('db','first'," + inputs + ",false())"));
-      assertEquals(XMLFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
+      run(chain, context, "xn:load('db','first'," + inputs + flag + ")");
       assertEquals(2, revisions(store, "first"));
       assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"));
-      // Replaced alone, then every input is written into the new resource.
-      run(chain, context, "xn:load('db','first'," + inputs + ")");
-      assertEquals(2, revisions(store, "first"));
-      assertEquals("<w>second</w><v>new</v>", run(chain, context, "xn:doc('db','first')/*"));
-      assertEquals(List.of("first", "other"), resources(store));
+      assertEquals(List.of("first", "other", "resource3", "resource4"), resources(store));
+      assertEquals("<v>new</v>", run(chain, context, "xn:doc('db','resource3')"));
+      assertEquals("<w>second</w>", run(chain, context, "xn:doc('db','resource4')"));
       assertEquals(before, witness(chain, context, store));
+    });
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "/*"})
+  void replacementCanReadItsOwnStoredInput(final String axis) {
+    withDatabase("self" + axis.length(), (chain, context, store) -> {
+      run(chain, context, "xn:store('db','first',xn:doc('db','first')" + axis + ")");
+      assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"));
+      assertEquals(1, revisions(store, "first"));
+      assertEquals(List.of("first", "other"), resources(store));
+    });
+  }
+
+  @Test
+  void aLazySingletonLoadKeepsItsNamedTargetInANewDatabase() {
+    withDatabase("lazy", (chain, context, store) -> {
+      final String uri = content.resolve("new.xml").toUri().toString();
+      run(chain, context, "xn:store('db','uris',<uris><uri>" + uri + "</uri></uris>)");
+      run(chain, context, "xn:load('created','chosen',(for $u in xn:doc('db','uris')/uris/uri return string($u)))");
+      assertEquals("<v>new</v>", run(chain, context, "xn:doc('created','chosen')"));
+      assertEquals(1, store.lookup("created").getDatabase().listResources().size());
     });
   }
 

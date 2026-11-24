@@ -205,12 +205,15 @@ class ContentImportAuthorizationTest {
 
     @Test
     fun repeatedXmlLoadInputsCloseEachWriter() {
-        withStore(false, arrayOf("view", "create", "modify")) { fixture ->
+        withStore(false, arrayOf("view", "create")) { fixture ->
             fixture.run("xn:load('auth','many',('<a/>','<b/>'),false())")
-            assertEquals(2, fixture.revision("many"))
-            assertFalse(fixture.hasWriter("many"))
-            val names = fixture.run("string-join(for ${'$'}child in xn:doc('auth','many')/* return local-name(${'$'}child),',')") as Str
-            assertEquals("b,a", names.stringValue())
+            assertEquals(setOf("doc", "resource2", "resource3"), fixture.resources())
+            for ((resource, expected) in listOf("resource2" to "a", "resource3" to "b")) {
+                assertEquals(1, fixture.revision(resource))
+                assertFalse(fixture.hasWriter(resource))
+                val name = fixture.run("local-name(xn:doc('auth','$resource')/*)") as Str
+                assertEquals(expected, name.stringValue())
+            }
             assertEquals(1, fixture.revision("doc"))
         }
     }

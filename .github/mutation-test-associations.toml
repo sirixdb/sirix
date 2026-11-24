@@ -91,11 +91,11 @@ tests = ["io.sirix.budget.LifecycleWorkBudgetTest"]
 # suites; the JSON collection's URI acquisition is specified by LoadSourceAcquisitionTest.
 [[association]]
 class = "io.sirix.query.function.jn.io.Load"
-tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest"]
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest", "io.sirix.query.LoadSourceAcquisitionTest"]
 
 [[association]]
 class = "io.sirix.query.function.xml.io.Load"
-tests = ["io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest", "io.sirix.query.node.XmlDBCollectionAutomaticNamesTest"]
+tests = ["io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest", "io.sirix.query.node.XmlDBCollectionAutomaticNamesTest", "io.sirix.query.LoadSourceAcquisitionTest"]
 
 [[association]]
 class = "io.sirix.query.function.ExistingResourceTarget"
@@ -113,3 +113,15 @@ tests = ["io.sirix.query.LoadSourceAcquisitionTest"]
 [[association]]
 class = "io.sirix.query.node.XmlDBCollectionImpl"
 tests = ["io.sirix.query.node.XmlDBCollectionAutomaticNamesTest"]
+
+[[association]]
+class = "io.sirix.query.function.ImportInput"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest", "io.sirix.query.LoadSourceAcquisitionTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.AbstractCreateHandler"
+tests = ["io.sirix.rest.crud.CreateOrReplaceResourceAuthorizationTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.xml.XmlCreate"
+tests = ["io.sirix.rest.crud.XmlCreateUploadCleanupTest"]
