@@ -642,6 +642,13 @@ public final class JsonRecordSerializer implements Callable<Void> {
       state = State.IS_ARRAY;
     }
 
+    final boolean namedContainer = rtx.isObjectKey() && state != State.IS_PRIMITIVE;
+    if (namedContainer && !hasMetadata) {
+      out.append('{');
+      emitFieldName(rtx);
+      out.append(':');
+    }
+
     // Emit the parent wrapper manually to avoid the extra '{' that emitNode adds for OBJECT
     // which would conflict with separately serialized children
     if (hasMetadata) {
@@ -725,6 +732,17 @@ public final class JsonRecordSerializer implements Callable<Void> {
       // IS_PRIMITIVE with metadata: close {"metadata":{...},"value":[...]}
       out.append("]}");
     }
+
+    if (namedContainer && !hasMetadata) {
+      out.append('}');
+    }
+  }
+
+  private void emitFieldName(final JsonNodeReadOnlyTrx rtx) throws IOException {
+    if (out instanceof JsonOutputSink sink && sink.tryEmitQuoted(rtx.getNameBytes())) {
+      return;
+    }
+    out.append('"').append(StringValue.escape(rtx.getName().stringValue())).append('"');
   }
 
   /**
@@ -736,7 +754,13 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param rtx the read-only transaction
    */
   private void emitParentMetadata(final JsonNodeReadOnlyTrx rtx) throws IOException {
-    out.append("{\"metadata\":{");
+    out.append('{');
+    if (rootNodeKey > 0 && rtx.isObjectKey()) {
+      out.append("\"key\":");
+      emitFieldName(rtx);
+      out.append(',');
+    }
+    out.append("\"metadata\":{");
 
     // Node key
     if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {

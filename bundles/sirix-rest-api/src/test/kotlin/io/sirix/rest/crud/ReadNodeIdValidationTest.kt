@@ -230,6 +230,68 @@ class ReadNodeIdValidationTest {
         }
     }
 
+    @ParameterizedTest
+    @MethodSource("jsonHashes")
+    fun namedRecordRootsRetainFieldNamesAndETags(hash: HashType) = runBlocking {
+        val config = DatabaseConfiguration(location.resolve("db"))
+        Databases.createJsonDatabase(config)
+        val keys = linkedMapOf<String, Long>()
+        Databases.openJsonDatabase(location.resolve("db")).use { db ->
+            db.createResource(ResourceConfiguration.newBuilder("res").hashKind(hash).build())
+            db.beginResourceSession("res").use { session ->
+                session.beginNodeTrx().use { trx ->
+                    trx.insertSubtreeAsFirstChild(
+                        JsonShredder.createStringReader("""{"arr":[1,2,3],"obj":{"a":1,"b":2,"c":3},"scalar":"first","outside":"second"}"""),
+                        JsonNodeTrx.Commit.NO
+                    )
+                    trx.commit()
+                }
+                session.beginNodeReadOnlyTrx().use { cursor ->
+                    assertTrue(cursor.moveToFirstChild())
+                    assertTrue(cursor.moveToFirstChild())
+                    do {
+                        val name = cursor.name.stringValue()
+                        if (name != "outside") keys[name] = cursor.nodeKey
+                    } while (cursor.moveToRightSibling())
+                }
+            }
+        }
+        val expectedPages = mapOf(
+            "arr" to """{"arr":[1,2]}""",
+            "obj" to """{"obj":{"a":1,"b":2}}""",
+            "scalar" to """{"scalar":"first"}"""
+        )
+        assertEquals(expectedPages.keys, keys.keys)
+        serve { client, port ->
+            for ((name, key) in keys) {
+                val expectedHash = if (hash == HashType.NONE) null else nodeHash(Format.JSON, 1, key).toString()
+                val plain = get(client, port, Format.JSON, "?nodeId=$key&nextTopLevelNodes=2")
+                assertEquals(200, plain.statusCode(), plain.bodyAsString())
+                assertEquals(Json.decodeValue(expectedPages.getValue(name)), Json.decodeValue(plain.bodyAsString()))
+                assertEquals(expectedHash, plain.getHeader(HttpHeaders.ETAG.toString()))
+                for (mode in listOf("nodeKey", "nodeKeyAndChildCount", "all")) {
+                    val response = get(client, port, Format.JSON,
+                        "?nodeId=$key&nextTopLevelNodes=2&withMetaData=$mode")
+                    assertEquals(200, response.statusCode(), response.bodyAsString())
+                    val page = response.bodyAsJsonObject()!!
+                    assertEquals(name, page.getString("key"))
+                    assertEquals(key, page.getJsonObject("metadata")!!.getLong("nodeKey"))
+                    assertEquals(if (name == "scalar") 1 else 2, page.getJsonArray("value")!!.size())
+                    assertEquals(expectedHash, response.getHeader(HttpHeaders.ETAG.toString()))
+                    if (name != "scalar") {
+                        val lastLoaded = childKey(Format.JSON, key)
+                        val continued = get(client, port, Format.JSON,
+                            "?nodeId=$key&nextTopLevelNodes=2&startNodeKey=$lastLoaded&withMetaData=$mode")
+                        assertEquals(200, continued.statusCode(), continued.bodyAsString())
+                        assertEquals(name, continued.bodyAsJsonObject()!!.getString("key"))
+                        assertEquals(2, continued.bodyAsJsonObject()!!.getJsonArray("value")!!.size())
+                        assertEquals(expectedHash, continued.getHeader(HttpHeaders.ETAG.toString()))
+                    }
+                }
+            }
+        }
+    }
+
     private fun childKey(format: Format, parentKey: Long): Long = openDatabase(format).use { db ->
         db.beginResourceSession("res").use { session ->
             session.beginNodeReadOnlyTrx().use { trx ->

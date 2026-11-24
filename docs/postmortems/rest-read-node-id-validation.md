@@ -119,3 +119,31 @@ per request. Requests without `nodeId` are unchanged.
 - Vision check: preserves node identity and historical scope and fails closed rather than
   returning another subtree; introduces no new default. Existing budget and mutation gates
   remain owned by the outer validation phases.
+
+## Review follow-up: named structural pagination roots
+
+- Symptom: selecting the field `arr` from `{"arr":[1,2,3]}` with a two-record limit returned
+  `[1,2]`, dropping its name. Named object roots and their metadata lost their names too.
+- Root cause: fused named structural nodes satisfy the cursor's object/array predicates as well
+  as its field predicate. Moving record serialization to an arbitrary root exposed those nodes
+  to wrapper emission that assumed unnamed containers. Parent metadata made the same assumption.
+- Why tests missed it: subtree tests covered unnamed objects and arrays plus scalar fields, but
+  no field whose value was an object or array.
+- Correction: preserve the named-container wrapper before and after initial-page child emission;
+  emit the selected subtree's named parent as `key` at the shared metadata boundary for both
+  initial and continuation pages. Reuse the sink's quoted-name path and the existing JSON escape
+  function. Whole-resource pagination keeps its existing envelope.
+- Regression tests: `JsonRecordSubtreeScopeTest.namedRecordRootsRetainNamesInPlainAndMetadataOutput`
+  derives explicit page values from REST-203's examples and checks both character and byte
+  output, named object/array/scalar roots, record limits, empty containers, escaped Unicode
+  names, every metadata mode, continuation metadata and revision envelopes.
+  `ReadNodeIdValidationTest.namedRecordRootsRetainFieldNamesAndETags` exercises the HTTP route
+  for those three field types, hashes on/off, all metadata modes and continuation pages.
+  These reject unnamed `[1,2]`, unnamed object bodies, or a missing parent `key`.
+- Verification: the single focused Gradle run passed all 24 serializer and 32 REST node-selection
+  cases, including both new parameterized regressions. No pre-fix test run was made under this
+  phase's verification-order constraint. Mutation and broader budget checks remain with the
+  outer executor.
+- Lesson: a fused node's structural role does not replace its field identity; test named and
+  unnamed roots independently in every wire representation. See [LESSONS.md](../LESSONS.md).
+- Vision check: retains the selected node's identity and historical result, with no new default.
