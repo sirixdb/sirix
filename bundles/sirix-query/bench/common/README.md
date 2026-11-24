@@ -24,6 +24,8 @@ The ClickBench cold-round runner and JSONBench runner write `environment.json` i
 directory before their first timed process:
 kernel, firmware, CPU, frequency policy, power limits, temperatures, runtimes and the filesystem of
 the benchmark data. A probe that cannot be read is recorded as unavailable with its reason.
+Version probes exclude the JVM option environment variables; echoed option announcements from
+wrappers or supplied runtime text, including multiline continuations, are discarded before capture.
 JMH and bitemporal drivers use the run-directory commands below; they do not record automatically.
 Commands on this page run from the repository root.
 
@@ -154,6 +156,10 @@ series' own night-to-night noise. A change above 2% and above that noise is `unc
 first night and `drift` when the next night repeats it. The report exits 1 when a series is in
 `drift`. It is an alarm to investigate, never a verdict on a change. Nothing schedules a nightly run
 yet; the analysis is ready for the machine that will.
+The default date is the latest nightly run's date, including an aborted or rejected run. If that
+night has no series with enough accepted processes, the report names the night and exits 2;
+it never substitutes an earlier night. When other series are usable, missing series with earlier
+history are listed as `not measured`.
 
 ## Tests
 

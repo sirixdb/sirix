@@ -95,3 +95,23 @@ trimming, and returning empty text instead of unavailable. There were no survivo
 derive their oracle from CONV-303's privacy and truthful-runtime requirements, using executable
 launchers and persisted output rather than implementation text. Source files remained unchanged
 during mutation execution. This supplement does not claim a new whole-module mutation count.
+
+## Multiline capture, nightly date and CLI review supplement (R11–R13)
+
+All 140 tests in `test_bench_ledger`, `test_bench_trend` and `test_kit_recording` passed before
+the relevant behaviour tests detected 12 focused mutations:
+
+- Runtime capture: restore the previous line filter; restore the previous probe environment;
+  keep announcement continuations; keep a diagnostic without a version; inherit each of the three
+  option variables separately (seven mutations).
+- Nightly reporting: restore the previous selection from usable series; select the oldest run;
+  ignore an explicit date (three mutations).
+- CLI consumption: omit the shared count guard for `--arm-commit` or `--arm-kind` (two mutations).
+
+Functions were substituted in memory and kit scripts were changed only in temporary test copies
+with stub engines and a stub rig lock. Repository sources were not modified by the driver. There
+were no survivors. The tests' oracles are CONV-303, CONV-304 and the CLI value contract; they assert
+runtime evidence, report dates and error statuses, and rejection before any engine runs. The CLI
+mutations reproduced a three-second timeout. Counts and counterfactual observations are recorded
+in the [postmortem](../../../../docs/postmortems/benchmark-evidence-boundaries.md); historical
+whole-module totals above remain unchanged.

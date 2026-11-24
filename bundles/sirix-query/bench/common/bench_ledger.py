@@ -88,6 +88,9 @@ _HEX40 = re.compile(r"^[0-9a-f]{40}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _NIGHT = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SERVED = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*)=(-?\d+)\b")
+_JAVA_OPTION_VARIABLES = ("JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS")
+_OPTION_ANNOUNCEMENT = re.compile(r"(?:NOTE:\s*)?Picked up (?:" + "|".join(_JAVA_OPTION_VARIABLES) + r"):")
+_RUNTIME_VERSION_LINE = re.compile(r'(?:openjdk|java|jdk|graalvm)(?: version)? ["\d]', re.IGNORECASE)
 
 Runner = Callable[[Sequence[str]], tuple[int, str, str]]
 
@@ -107,8 +110,13 @@ def unavailable(reason: str) -> dict[str, str]:
 
 
 def _system_runner(argv: Sequence[str]) -> tuple[int, str, str]:
+    environment = (
+        {name: value for name, value in os.environ.items() if name not in _JAVA_OPTION_VARIABLES}
+        if len(argv) == 2 and argv[1] == "-version"
+        else None
+    )
     completed = subprocess.run(
-        list(argv), check=False, capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL
+        list(argv), check=False, capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL, env=environment
     )
     return completed.returncode, completed.stdout, completed.stderr
 
@@ -262,11 +270,19 @@ def _filesystem(root: Path, data: Path | None) -> str | dict[str, str]:
 
 
 def _runtime_version(text: str) -> str | dict[str, str]:
-    version = "\n".join(
-        line
-        for line in text.splitlines()
-        if not re.match(r"(?:NOTE:\s*)?Picked up (?:JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|JDK_JAVA_OPTIONS):", line.lstrip())
-    ).strip()
+    output = text.splitlines()
+    lines = []
+    announcement = any(_OPTION_ANNOUNCEMENT.match(line.lstrip()) for line in output)
+    for line in output:
+        if _OPTION_ANNOUNCEMENT.match(line.lstrip()):
+            announcement = True
+            continue
+        if announcement:
+            if not _RUNTIME_VERSION_LINE.match(line.lstrip()):
+                continue
+            announcement = False
+        lines.append(line)
+    version = "\n".join(lines).strip()
     return version if version else unavailable("runtime version: no version output")
 
 

@@ -308,6 +308,35 @@ class ClickBenchColdRoundsTest(KitTestCase):
         counter = stub.with_suffix(".calls")
         return int(counter.read_text()) if counter.exists() else 0
 
+    def test_value_options_refuse_a_missing_argument_without_running_engines(self) -> None:
+        for option in (
+            "--arm",
+            "--rounds",
+            "--arm-commit",
+            "--arm-kind",
+            "--tries",
+            "--queries",
+            "--dataset",
+            "--out",
+            "--duckdb-cold",
+            "--duckdb-hot",
+        ):
+            with self.subTest(option=option):
+                completed = subprocess.run(
+                    ["bash", str(self.script), str(self.database), option],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                    env=self.environment,
+                    stdin=subprocess.DEVNULL,
+                )
+                self.assertNotEqual(0, completed.returncode)
+                self.assertIn(f"{option} requires a value", completed.stderr)
+                self.assertEqual(0, self.calls(self.baseline))
+                self.assertFalse(self.out.exists())
+                self.assertFalse(self.ledger.exists())
+
     def test_a_failed_hot_try_never_reaches_the_ledger_as_a_hot_figure(self) -> None:
         completed = self.kit(
             "--arm",

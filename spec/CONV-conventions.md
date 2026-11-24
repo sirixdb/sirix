@@ -313,7 +313,7 @@ no allocation check. Allocation has no threshold and no `unstable` verdict.
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `capture_environment`, `fingerprint`, `parse_conditions`, `validate_row`, `append_rows`, `begin`, `record`, `commit`; `bench_run_begin` in [bench-common.sh](../bundles/sirix-query/bench/common/bench-common.sh); [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh); [run-benchmark.sh](../bundles/sirix-query/bench/jsonbench/run-benchmark.sh); [CONDITIONS.md](../docs/bench/CONDITIONS.md).
-- **Verified by:** [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `EnvironmentCaptureTest`, `CaptureDetailTest`, `FingerprintTest`, `ConditionsRecordTest`, `ConditionsDetailTest`, `RowSchemaTest`, `RowDetailTest`, `LedgerFileTest`, `LedgerFileDetailTest`, `RunDirectoryTest`, `ImporterTest`, `ImporterDetailTest`, `CommandLineTest`, `CommandLineDetailTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `JsonBenchKitTest`, `ClickBenchColdRoundsTest`.
+- **Verified by:** [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `EnvironmentCaptureTest`, `CaptureDetailTest`, `RuntimeVersionTest`, `FingerprintTest`, `ConditionsRecordTest`, `ConditionsDetailTest`, `RowSchemaTest`, `RowDetailTest`, `LedgerFileTest`, `LedgerFileDetailTest`, `RunDirectoryTest`, `ImporterTest`, `ImporterDetailTest`, `CommandLineTest`, `CommandLineDetailTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `JsonBenchKitTest`, `ClickBenchColdRoundsTest`.
 - **Evidence class:** code+test (local execution, historical mutation results and pending remeasurement recorded in [MUTATION_DISPOSITIONS.md](../bundles/sirix-query/bench/common/MUTATION_DISPOSITIONS.md); the `Benchmark protocol tooling` CI job arrives with the same change and has not reported for this baseline)
 - **Gap/note:** The ClickBench cold rounds and the JSONBench runner record by themselves; the JMH module and the bitemporal kit do not, and their drivers call `bench_ledger.py`. The capture reads Linux sources; on another system each probe is recorded as unavailable. A kit does not know the runtime of an arm it launches through Gradle or of an ahead-of-time image and records it as unavailable unless the driver states it. The evidence a `continues` entry names is judged in review, not by the tool. The ledger is local to the measuring machine and is not committed; a pull request cites the rows it relies on.
 
@@ -382,6 +382,9 @@ Runtime version text MUST exclude JVM environment-option announcements for `JAVA
 `_JAVA_OPTIONS` and `JDK_JAVA_OPTIONS`, including announcements prefixed by `NOTE:`. This applies
 both to probed output and supplied runtime text, in the capture and the arm's version line. If only
 announcements remain, the runtime MUST be unavailable with a reason that does not repeat the options.
+Version probes MUST remove these three variables from their own environment without changing timed
+arm environments. Announcements include newline-separated continuation text, which MUST be discarded
+until a runtime version line resumes the output.
 
 **Fingerprint.** The fingerprint is the SHA-256, in lowercase hexadecimal, of the canonical JSON
 (UTF-8, keys sorted, no insignificant whitespace) of an object holding exactly: kernel release,
@@ -447,6 +450,10 @@ next night repeats it.
 **Report.** For every series whose state is not `steady` the report MUST give the state, *D* and
 *Φ* in percent, the night's commit and, for `drift` and `faster`, the night and commit before the
 first night of the unbroken run of exceeding nights. The tier MUST NOT pass or fail a change.
+The default report date MUST be the latest `night` of a nightly run row, selected before filtering
+usable measurements. If the requested or default night has no recorded series, the report MUST
+name that night and exit with error status 2 rather than select an earlier night. A series with
+earlier recorded nights and none on a night being reported MUST be listed as `not measured`.
 `drift` MUST be answered by an investigation recorded in an issue; `unstable` obliges the fixture
 work CONV-302 requires and MUST NOT be answered by changing *G*, the window or the fence.
 

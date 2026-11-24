@@ -368,6 +368,43 @@ class SeriesTest(TrendTestCase):
 
 class ReportTest(TrendTestCase):
 
+    def test_an_incomplete_latest_run_cannot_select_an_earlier_night(self) -> None:
+        for processes, accepted in ((19, True), (20, False), (0, True)):
+            with self.subTest(processes=processes, accepted=accepted):
+                builder = LedgerBuilder(self.builder.environment)
+                builder.nights(quiet(16))
+                builder.night(16, {"q1": 1.30}, processes=processes, accepted=accepted)
+                builder.night(17, {"q1": 1.0}, tier="control")
+                ledger = self.base / f"ledger-{processes}-{accepted}.jsonl"
+                bench_ledger.append_rows(ledger, builder.rows)
+                for date in ([], ["--night", night_name(16)]):
+                    out, err = io.StringIO(), io.StringIO()
+                    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                        status = bench_trend.main(["report", "--ledger", str(ledger), *date])
+                    self.assertEqual(2, status)
+                    self.assertEqual("", out.getvalue())
+                    self.assertIn(f"no series has a recorded night {night_name(16)}", err.getvalue())
+                trend = bench_trend.report(iter(builder.rows), night_name(15))
+                self.assertEqual(night_name(15), trend.night)
+                self.assertEqual(["steady"], [state.state for state in trend.states.values()])
+
+    def test_an_incomplete_series_is_missing_when_another_series_is_recorded(self) -> None:
+        self.builder.night(0, {"q1": 1.0, "q2": 1.0})
+        self.builder.night(1, {"q1": 1.0, "q2": 1.0}, processes=19)
+        self.builder.night(1, {"q3": 1.0})
+        trend = bench_trend.report(iter(self.builder.rows))
+        self.assertEqual(night_name(1), trend.night)
+        self.assertEqual(["q3"], [key[2] for key in trend.states])
+        self.assertEqual(["q1", "q2"], [key[2] for key in trend.missing])
+        text = bench_trend.format_report(trend)
+        for benchmark in ("q1", "q2"):
+            self.assertIn(f"not measured         jsonbench {benchmark} ", text)
+
+    def test_a_latest_run_without_any_recorded_history_names_its_night(self) -> None:
+        self.builder.night(0, {"q1": 1.0}, processes=19)
+        with self.assertRaisesRegex(TrendError, f"no series has a recorded night {night_name(0)}"):
+            bench_trend.report(iter(self.builder.rows))
+
     def test_the_report_names_state_drift_fence_commits_and_the_night_before_the_change(self) -> None:
         for index in range(18):
             self.builder.night(

@@ -99,6 +99,10 @@ ARM_KINDS=()
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --arm|--rounds|--arm-commit|--arm-kind|--tries|--queries|--dataset|--out|--duckdb-cold|--duckdb-hot)
+      [ "$#" -ge 2 ] || die "$1 requires a value" ;;
+  esac
+  case "$1" in
     --arm)
       spec="${2:-}"
       case "${spec}" in
@@ -113,7 +117,7 @@ while [ "$#" -gt 0 ]; do
     --arm-kind)    ARM_KINDS+=("${2:-}"); shift 2 ;;
     --tries)       TRIES="${2:-}"; shift 2 ;;
     --queries)     QUERIES="${2:-}"; shift 2 ;;
-    --dataset)     DATASET="${2:-}"; [ "$#" -ge 2 ] || die "--dataset requires a value"; shift 2 ;;
+    --dataset)     DATASET="${2:-}"; shift 2 ;;
     --out)         OUT="${2:-}"; shift 2 ;;
     --duckdb-cold) DUCKDB_COLD="${2:-}"; shift 2 ;;
     --duckdb-hot)  DUCKDB_HOT="${2:-}"; shift 2 ;;

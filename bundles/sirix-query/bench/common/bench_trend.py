@@ -191,11 +191,12 @@ class TrendReport:
 
 def report(rows: Iterable[Mapping[str, Any]], night: str | None = None) -> TrendReport:
     """Every series' state on one night; by default the latest night the ledger holds."""
-    series = nightly_series(list(rows))
-    if not series:
+    rows = list(rows)
+    run_nights = [row["night"] for row in rows if row["kind"] == "run" and row["tier"] == "nightly"]
+    if not run_nights:
         raise TrendError("the ledger holds no recorded nightly night")
-    latest = max(nights[-1].night for nights in series.values())
-    night = night or latest
+    night = night or max(run_nights)
+    series = nightly_series(rows)
     states, missing = {}, []
     for key in sorted(series):
         nights = series[key]

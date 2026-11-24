@@ -1928,6 +1928,26 @@ class CaptureDetailTest(unittest.TestCase):
 class RuntimeVersionTest(unittest.TestCase):
     """CONV-303: runtime evidence retains versions but never echoed environment options."""
 
+    def test_version_probes_do_not_inherit_java_option_variables(self) -> None:
+        variables = {
+            name: "-Xmx1g\n-Djava.io.tmpdir=/home/alice/tmp"
+            for name in ("JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS")
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            launcher = Path(directory) / "java"
+            launcher.write_text(
+                "#!/bin/sh\n"
+                'if [ "${JAVA_TOOL_OPTIONS+x}${_JAVA_OPTIONS+x}${JDK_JAVA_OPTIONS+x}" != "" ]; then exit 3; fi\n'
+                'if [ "$PROBE_TEST_KEEP" != "kept" ]; then exit 4; fi\n'
+                "echo 'openjdk 25.0.5' >&2\n",
+                encoding="utf-8",
+            )
+            launcher.chmod(0o755)
+            with mock.patch.dict(os.environ, dict(variables, PROBE_TEST_KEEP="kept")):
+                capture = bench_ledger.capture_environment(javas={"head": str(launcher)})
+                self.assertEqual("openjdk 25.0.5", capture["runtimes"]["head"])
+                self.assertEqual(variables, {name: os.environ[name] for name in variables})
+
     def test_option_banners_are_excluded_from_captures_and_run_rows(self) -> None:
         version = 'openjdk version "25.0.5" 2026-10-20 LTS'
         detail = "OpenJDK Runtime Environment Temurin-25.0.5+8"
@@ -1947,6 +1967,18 @@ class RuntimeVersionTest(unittest.TestCase):
             )
             outputs = [(f"{banner}\n\n{version}\n{detail}", f"{version}\n{detail}") for banner in banners]
             outputs.append(("\n".join(banners), None))
+            outputs.append(("wrapper diagnostic\n" + "\n".join(banners), None))
+            for runtime_version in ('java version "25.0.5"', "openjdk 25.0.5", "GraalVM 25.0.3"):
+                outputs.append((f"{banners[0]}\n-Djava.io.tmpdir={private_path}\n{runtime_version}", runtime_version))
+            for banner in banners:
+                multiline = f"{banner}\n-Djava.io.tmpdir={private_path}\n-Xms512m"
+                outputs.extend(
+                    [
+                        (f"{multiline}\n{version}\n{detail}", f"{version}\n{detail}"),
+                        (f"{version}\n{detail}\n{multiline}", f"{version}\n{detail}"),
+                        (multiline, None),
+                    ]
+                )
             for source in ("java", "runtime"):
                 for index, (output, expected) in enumerate(outputs):
                     with self.subTest(source=source, output=output):
@@ -1989,7 +2021,7 @@ class RuntimeVersionTest(unittest.TestCase):
                             self.assertTrue(arm_runtime.startswith("unavailable: "))
                             self.assertNotIn("Picked up", arm_runtime)
                         else:
-                            self.assertEqual(version, arm_runtime)
+                            self.assertEqual(expected.splitlines()[0], arm_runtime)
 
 
 class ConditionsDetailTest(unittest.TestCase):
