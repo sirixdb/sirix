@@ -50,8 +50,8 @@ import java.util.List;
 @FunctionAnnotation(
     description = "Load the given resources into a collection. "
         + "A missing collection is created. In an existing collection a new resource name is added "
-        + "and every other resource is kept; an existing name is replaced alone, with a new history, "
-        + "when $create-new is true (the default) and refused with SIRIXDBF0006 when it is false. "
+        + "and every other resource is kept; an existing name is refused with SIRIXDBF0006 "
+        + "without writes, whatever $create-new says. "
         + "Several inputs go under new automatic names. No call drops a collection: "
         + "use drop-database first to replace one, and import to write into an existing resource.",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
@@ -164,7 +164,7 @@ public final class Load extends AbstractFunction {
     long next = coll.getDocumentCount() + 1;
     for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
       if (resName != null) {
-        coll.add(resName, parser, commitMessage, commitTimestamp).getTrx().close();
+        coll.importResource(resName, parser, commitMessage, commitTimestamp);
         continue;
       }
       final Path databaseFile = coll.getDatabase().getDatabaseConfig().getDatabaseFile();
@@ -173,7 +173,7 @@ public final class Load extends AbstractFunction {
         final String candidate = "resource" + next++;
         try (var gate = MutationGate.acquireResource(databaseFile, candidate)) {
           if (!coll.getDatabase().existsResource(candidate)) {
-            coll.add(candidate, parser, commitMessage, commitTimestamp).getTrx().close();
+            coll.importResource(candidate, parser, commitMessage, commitTimestamp);
             written = true;
           }
         }

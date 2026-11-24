@@ -262,18 +262,13 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
   }
 
   public XmlDBNode add(final String resourceName, NodeSubtreeParser parser) {
-    try {
-      return createResource(parser, resourceName, null, null);
-    } catch (final SirixException e) {
-      LOG_WRAPPER.error(e.getMessage(), e);
-      return null;
-    }
+    return add(resourceName, parser, null, null);
   }
 
   public XmlDBNode add(final String resourceName, final NodeSubtreeParser parser, final String commitMessage,
       final Instant commitTimestamp) {
     try {
-      return createResource(parser, resourceName, commitMessage, commitTimestamp);
+      return createResource(parser, resourceName, commitMessage, commitTimestamp, false);
     } catch (final SirixException e) {
       LOG_WRAPPER.error(e.getMessage(), e);
       return null;
@@ -281,9 +276,15 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
   }
 
   @Override
+  public void importResource(final String resourceName, final NodeSubtreeParser parser, final String commitMessage,
+      final Instant commitTimestamp) {
+    createResource(requireNonNull(parser), resourceName, commitMessage, commitTimestamp, true).getTrx().close();
+  }
+
+  @Override
   public XmlDBNode add(NodeSubtreeParser parser) throws DocumentException {
     try {
-      return writeUnderFreeName(new int[] {database.listResources().size() + 1}, parser);
+      return writeUnderFreeName(new int[] {database.listResources().size() + 1}, parser, false);
     } catch (final SirixException e) {
       LOG_WRAPPER.error(e.getMessage(), e);
       return null;
@@ -299,7 +300,7 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
     }
     final int[] next = {database.listResources().size() + 1};
     for (final NodeSubtreeParser parser : parsers) {
-      writeUnderFreeName(next, parser).getTrx().close();
+      writeUnderFreeName(next, parser, true).getTrx().close();
     }
   }
 
@@ -309,13 +310,13 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
    * it, which fails for a name that already exists - even one another caller created a moment ago -
    * so an automatic name never writes into an existing resource.
    */
-  private XmlDBNode writeUnderFreeName(final int[] next, final NodeSubtreeParser parser) {
+  private XmlDBNode writeUnderFreeName(final int[] next, final NodeSubtreeParser parser, final boolean bulkImport) {
     while (true) {
       final String candidate = "resource" + next[0]++;
       try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), candidate)) {
         MutationAuthorization.requireStore(getName(), candidate, false);
         if (database.createResource(resourceOptions.create(candidate, null))) {
-          return writeResource(parser, candidate, null, null);
+          return writeResource(parser, candidate, null, null, bulkImport);
         }
         if (!database.existsResource(candidate)) {
           throw new DocumentException("Could not create resource '%s'", candidate);
@@ -332,19 +333,19 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
   }
 
   private XmlDBNode createResource(final NodeSubtreeParser parser, final String resourceName,
-      final String commitMessage, final Instant commitTimestamp) {
+      final String commitMessage, final Instant commitTimestamp, final boolean bulkImport) {
     try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
       prepareResource(resourceName, commitTimestamp);
-      return writeResource(parser, resourceName, commitMessage, commitTimestamp);
+      return writeResource(parser, resourceName, commitMessage, commitTimestamp, bulkImport);
     }
   }
 
   private XmlDBNode writeResource(NodeSubtreeParser parser, final String resourceName, final String commitMessage,
-      final Instant commitTimestamp) {
+      final Instant commitTimestamp, final boolean bulkImport) {
     final XmlResourceSession resource = database.beginResourceSession(resourceName);
     final XmlNodeTrx wtx;
     try {
-      wtx = resource.beginNodeTrx();
+      wtx = bulkImport ? resourceOptions.beginImportTrx(resource) : resource.beginNodeTrx();
     } catch (final Exception e) {
       resource.close();
       throw e;

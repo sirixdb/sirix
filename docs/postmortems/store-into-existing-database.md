@@ -28,7 +28,7 @@
 - Regression tests:
   - `function.jn.io.StoreIntoExistingDatabaseTest` and `function.xml.io.StoreIntoExistingDatabaseTest`
     cover add and refuse for store and load under every `$create-new` spelling, plus several items
-    under new automatic names and `xn:load`'s named multi-input. Each asserts that the other
+    under new automatic names, including named multi-input `xn:load` calls. Each asserts that the other
     resource's content, revision count and path index are unchanged. Verified by reverting each
     production file to its pre-fix version with the tests unchanged: 18 of the 21 JSON cases and 16
     of the 17 XML cases then fail, with storing `added` leaving `[added]`.
@@ -53,9 +53,17 @@
   target. `LoadSourceAcquisitionTest` covers XML named/unnamed and existing/missing databases plus
   the JSON single-source case; both store/load suites cover lazy singletons, XML self-reference and
   named multi-input loads under all flag values.
-- Why the in-place replace path was dropped: each round of review found another way for it to lose
-  data — an unbounded import transaction, result readers left open, and an empty document that
-  removed the target and then failed the write. Removing replacement removed that whole class of
-  defect, which is why the refusal is now unconditional.
+- Review follow-up import ownership: routing through collection additions had also bypassed bounded
+  import transactions, discarded JSON result readers without closing them, and rejected singleton
+  empty JSON strings after claiming a resource. These defects also affected free names and were not
+  removed by refusing replacement. Resource imports now reuse the configured import policy, close
+  discarded transactions, and preserve empty-resource options and indexes. Ordinary collection-add
+  results remain caller-owned. The JSON and XML `StoreIntoExistingDatabaseTest` suites assert
+  checkpoint revisions, complete imported content and zero retained import transactions; the JSON
+  suite additionally checks empty-string input, valid-time indexes and unchanged existing data.
+- Why these tests missed it: earlier checks used small nonempty imports and asserted content and
+  unrelated history, without checking configured checkpoint behavior or result transaction ownership.
+- Why the in-place replace path was dropped: removing a target before writing can destroy history
+  when the write fails, which is why query refusal is unconditional.
 - Lesson: see [Lessons](../LESSONS.md). A flag must act at the scope its call names: a function
   given a resource name must not act on the whole database.

@@ -58,8 +58,8 @@ public final class XMLFun {
   public static final QNm ERR_INVALID_INDEX_TYPE = new QNm(XML_NSURI, XML_PREFIX, "SIRIXDBF002");
 
   /**
-   * {@code xn:store} or {@code xn:load} with {@code $create-new} false named a resource that already
-   * exists in the target database; nothing was written.
+   * {@code xn:store} or {@code xn:load} named a resource that already
+   * exists in the target database; nothing was written, whatever {@code $create-new} says.
    */
   public static final QNm ERR_RESOURCE_EXISTS = new QNm(XML_NSURI, XML_PREFIX, "SIRIXDBF0006");
 

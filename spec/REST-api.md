@@ -161,13 +161,14 @@ success and failure, including authorization refusal.
 
 The four query store/load functions MUST create only a missing database and MUST preserve all
 unrelated resources. Exactly one input MUST use the named target regardless of sequence
-representation: an existing name is replaced with a new history when `$create-new` is true
-(the default), and refused with `SIRIXDBF0006` without writes when false. Several inputs MUST
+representation, applying the unconditional refusal above. Several inputs MUST
 use new automatic names even when a target name is supplied. Automatic naming MUST retry only
 name collisions and MUST report other creation failures. A load MUST acquire and retain every
 source before target preparation or writing; acquisition failure MUST leave existing content
-and revisions unchanged. XML store inputs MUST remain readable through replacement of their
-backing resource.
+and revisions unchanged. Store/load imports into existing databases MUST use the configured
+bounded import transaction policy and release transactions whose results are discarded; documents
+returned by collection additions remain caller-owned. A singleton empty JSON store string MUST
+create an empty resource with its configured indexes under a free name.
 
 ### REST-211 — Conditional-write failure response
 

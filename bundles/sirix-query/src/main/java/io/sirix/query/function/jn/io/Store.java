@@ -51,8 +51,8 @@ import java.util.List;
 @FunctionAnnotation(
     description = "Store the given fragments in a collection. "
         + "A missing collection is created. In an existing collection a new resource name is added "
-        + "and every other resource is kept; an existing name is replaced alone, with a new history, "
-        + "when $create-new is true (the default) and refused with SIRIXDBF0006 when it is false. "
+        + "and every other resource is kept; an existing name is refused with SIRIXDBF0006 "
+        + "without writes, whatever $create-new says. "
         + "Several fragments are added under new automatic names. No call drops a collection: "
         + "use drop-database first to replace one, and import to write into an existing resource.",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
@@ -173,8 +173,9 @@ public final class Store extends AbstractFunction {
   private static void add(final JsonDBCollection collection, final String resourceName, final Sequence nodes,
       final Object options) {
     if (nodes instanceof Str) {
-      try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
-        collection.add(resourceName, reader, options);
+      final String input = ((Str) nodes).stringValue();
+      try (final JsonReader reader = input.isEmpty() ? null : JsonShredder.createStringReader(input)) {
+        collection.importResource(resourceName, reader, options);
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }

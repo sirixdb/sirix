@@ -7,6 +7,8 @@ section: Fixed
   resource name is now added beside the others, and every other resource keeps its content,
   revisions and indexes. A name that is already taken is refused with `SIRIXDBF0006` and nothing is
   written, whatever `$create-new` says: these functions never replace a resource in place.
+  Imports retain configured transaction bounds and close discarded result readers; singleton empty
+  JSON strings retain empty-resource creation and configured indexes.
   Loading several URIs acquires every source before writing any, so a failing later source leaves
   the database unchanged. **Migration:** to replace a whole database, call
   `jn:drop-database`/`xn:drop-database` first; to write into an existing resource, use

@@ -9,6 +9,7 @@ import io.brackit.query.jdm.json.Object;
 import io.brackit.query.module.StaticContext;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.JsonDBCollection;
@@ -121,6 +122,11 @@ final class StoreCausePropagationTest {
     public JsonDBCollection create(final String collName, final String optResName, final JsonReader json,
         final Object options) {
       throw failure;
+    }
+
+    @Override
+    public JsonNodeTrx beginImportTrx(final JsonResourceSession resourceSession) {
+      throw unsupported();
     }
 
     @Override

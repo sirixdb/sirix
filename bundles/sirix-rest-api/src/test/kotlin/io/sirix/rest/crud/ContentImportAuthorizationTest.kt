@@ -221,9 +221,14 @@ class ContentImportAuthorizationTest {
     @ParameterizedTest
     @ValueSource(strings = ["doc", "fresh"])
     fun xmlLoadThenImportCanReuseTheSameContext(resource: String) {
-        // Loading into the existing "doc" replaces it (#1384), which needs DELETE besides MODIFY.
         withStore(false, arrayOf("view", "create", "modify", "delete")) { fixture ->
-            fixture.run("xn:load('auth','$resource','<loaded/>',true())")
+            if (resource == "doc") {
+                assertStatus(400) { fixture.run("xn:load('auth','$resource','<loaded/>',true())") }
+                assertEquals(1, fixture.revision(resource))
+                assertFalse(fixture.hasWriter(resource))
+            } else {
+                fixture.run("xn:load('auth','$resource','<loaded/>',true())")
+            }
             fixture.run(call("xn:import", resource, "<imported/>"))
             assertEquals(2, fixture.revision(resource))
             val name = fixture.run("local-name(xn:doc('auth','$resource')/*)") as Str
@@ -235,14 +240,13 @@ class ContentImportAuthorizationTest {
     @ParameterizedTest
     @ValueSource(strings = ["jn:load", "xn:load"])
     /**
-     * A load into an existing database adds a new name beside the other resources (#1384); replacing
-     * an existing name discards its history and so needs DELETE.
+     * A load into an existing database adds a free name; a taken name is refused without writes.
      */
-    fun replacingAResourceRequiresDeleteAndAddingKeepsTheRest(function: String) {
+    fun loadsRefuseTakenNamesAndAddingKeepsTheRest(function: String) {
         val json = function.startsWith("jn:")
         val content = if (json) "{}" else "<root/>"
         withStore(json, arrayOf("view", "create", "modify")) { fixture ->
-            assertStatus(403) { fixture.run("$function('auth','doc','$content',true())") }
+            assertStatus(400) { fixture.run("$function('auth','doc','$content',true())") }
             assertEquals(setOf("doc"), fixture.resources())
             assertEquals(1, fixture.revision())
             fixture.run("$function('auth','fresh','$content',true())")

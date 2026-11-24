@@ -3,8 +3,8 @@
 - Fix / issue: [#1477](https://github.com/sirixdb/sirix/issues/1477), found while fixing #1384.
 - Symptom: `PUT /:database/:resource` onto an existing resource removed and recreated it,
   discarding its whole history, for any caller holding CREATE.
-  Since #1384, the query functions require CREATE, MODIFY and DELETE for the same replacement, so
-  the two paths disagreed.
+  Query store/load functions now refuse taken names unconditionally with `SIRIXDBF0006`;
+  resource replacement remains a REST PUT operation.
 - Trigger: a caller with CREATE but without MODIFY or DELETE PUTs a resource name that exists.
 - Root cause: the route authorizes one role per HTTP method, and PUT means both "create" and
   "replace". `createAndWriteResource` learned which case it was in only after the route's
@@ -12,7 +12,7 @@
   further check. REST-210 specified replace semantics (new history, new incarnation) but not who may
   replace.
 - Fix: REST-210 states that replacing needs CREATE + MODIFY + DELETE, checked before removal, and
-  that the query functions apply the same rule. `AbstractCreateHandler.createAndWriteResource`
+  query store/load functions instead refuse taken names without writes. `AbstractCreateHandler.createAndWriteResource`
   checks MODIFY and DELETE on the database once `createResource` reports the name taken, before
   `removeResource`. A refused PUT answers 403 and leaves the resource unchanged. Creating a new
   resource still needs only CREATE. The decision is a plain function, so it is tested offline.

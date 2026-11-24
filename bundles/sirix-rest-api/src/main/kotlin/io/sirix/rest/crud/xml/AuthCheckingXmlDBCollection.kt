@@ -42,6 +42,16 @@ class AuthCheckingXmlDBCollection(
         wrapped.remove(documentID)
     }
 
+    override fun importResource(
+        resourceName: String,
+        parser: NodeSubtreeParser,
+        commitMessage: String?,
+        commitTimestamp: Instant?
+    ) {
+        Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
+        MutationAuthorization.where(mutationAuthorizer).run { wrapped.importResource(resourceName, parser, commitMessage, commitTimestamp) }
+    }
+
     override fun addAll(parsers: List<NodeSubtreeParser>) {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
         MutationAuthorization.where(mutationAuthorizer).run { wrapped.addAll(parsers) }

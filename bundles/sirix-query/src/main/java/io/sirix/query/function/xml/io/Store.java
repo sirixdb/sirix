@@ -53,8 +53,8 @@ import org.jspecify.annotations.Nullable;
 @FunctionAnnotation(
     description = "Store the given fragments in a collection. "
         + "A missing collection is created. In an existing collection a new resource name is added "
-        + "and every other resource is kept; an existing name is replaced alone, with a new history, "
-        + "when $create-new is true (the default) and refused with SIRIXDBF0006 when it is false. "
+        + "and every other resource is kept; an existing name is refused with SIRIXDBF0006 "
+        + "without writes, whatever $create-new says. "
         + "Several fragments are added under new automatic names. No call drops a collection: "
         + "use drop-database first to replace one, and import to write into an existing resource.",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
@@ -161,7 +161,7 @@ public final class Store extends AbstractFunction {
           try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), target)) {
             final NodeSubtreeParser input = parsers.next();
             FreeResourceName.require(XMLFun.ERR_RESOURCE_EXISTS, collName, database, target);
-            coll.add(target, input, commitMessage, commitTimesstamp).getTrx().close();
+            coll.importResource(target, input, commitMessage, commitTimesstamp);
           }
         } else {
           final List<NodeSubtreeParser> inputs = new ArrayList<>();

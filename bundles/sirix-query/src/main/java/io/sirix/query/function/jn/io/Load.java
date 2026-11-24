@@ -52,8 +52,8 @@ import java.util.List;
 @FunctionAnnotation(
     description = "Load the given resources into a collection. "
         + "A missing collection is created. In an existing collection a new resource name is added "
-        + "and every other resource is kept; an existing name is replaced alone, with a new history, "
-        + "when $create-new is true (the default) and refused with SIRIXDBF0006 when it is false. "
+        + "and every other resource is kept; an existing name is refused with SIRIXDBF0006 "
+        + "without writes, whatever $create-new says. "
         + "Several resources are added under new automatic names. No call drops a collection: "
         + "use drop-database first to replace one, and import to write into an existing resource.",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
@@ -154,7 +154,7 @@ public final class Load extends AbstractFunction {
           final var database = collection.getDatabase();
           try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
             FreeResourceName.require(JNFun.ERR_RESOURCE_EXISTS, collectionName, database, resourceName);
-            collection.add(resourceName, reader, options);
+            collection.importResource(resourceName, reader, options);
           }
         }
       } else {

@@ -1,11 +1,15 @@
 package io.sirix.query.function.xml.io;
 
 import io.brackit.query.Query;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.QueryException;
 import io.brackit.query.node.parser.DocumentParser;
 import io.sirix.access.MutationGate;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.query.SirixCompileChain;
+import io.sirix.io.StorageType;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.BasicXmlDBStore;
@@ -23,6 +27,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * {@code xn:store} and {@code xn:load} into an existing database (#1384), with the same rule as
@@ -176,7 +181,44 @@ final class StoreIntoExistingDatabaseTest {
     }
   }
 
-  /** Everything the call must leave alone: the other resource's content, history and index. */
+  @ParameterizedTest
+  @ValueSource(strings = {"store", "load"})
+  void importsHonorTheConfiguredCommitBound(final String function) throws IOException {
+    final String input = "<root>" + "<item/>".repeat(128) + "</root>";
+    final Path source = Files.writeString(directory.resolve("bounded.xml"), input);
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder()
+        .location(directory.resolve("bounded-" + function)).storageType(StorageType.FILE_CHANNEL)
+        .numberOfNodesBeforeAutoCommit(16).build();
+        final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
+        final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store)) {
+      store.create("db", "kept", new DocumentParser("<kept/>"));
+      final String argument = "store".equals(function) ? input : "'" + source.toUri() + "'";
+      if ("load".equals(function)) {
+        final Str uri = new Str(source.toUri().toString());
+        new Load(true).execute(null, context, new Sequence[] {new Str("db"), new Str("named"), uri});
+        new Load(true).execute(null, context, new Sequence[] {new Str("db"), null, new ItemSequence(uri, uri)});
+      } else {
+        new Query(chain, "xn:store('db','named'," + argument + ")").evaluate(context);
+        new Query(chain, "xn:store('db',(),(" + argument + "," + argument + "))").evaluate(context);
+      }
+      for (final String resource : resources(store)) {
+        if (resource.equals("kept")) {
+          continue;
+        }
+        final XmlResourceSession session = store.lookup("db").getDatabase().beginResourceSession(resource);
+        assertEquals(0, session.activeTrxCount());
+        assertTrue(session.getMostRecentRevisionNumber() > 1,
+            "imports must checkpoint beyond the configured node bound");
+        assertEquals(input, run(chain, context, "xn:doc('db','" + resource + "')"));
+      }
+      final var added = store.lookup("db").add("ordinary", new DocumentParser(input));
+      try (final var transaction = added.getTrx()) {
+        assertEquals(1, transaction.getResourceSession().activeTrxCount());
+        assertEquals(1, transaction.getResourceSession().getMostRecentRevisionNumber());
+      }
+    }
+  }
+
   private record Witness(String content, int revisions, String index) {
   }
 

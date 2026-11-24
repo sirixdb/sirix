@@ -1,11 +1,18 @@
 package io.sirix.query.function.jn.io;
 
 import io.brackit.query.Query;
+import io.brackit.query.atomic.Str;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.sequence.ItemSequence;
 import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonParser;
 import io.sirix.access.MutationGate;
 import io.brackit.query.QueryException;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.query.SirixCompileChain;
+import io.sirix.index.IndexType;
+import io.sirix.io.StorageType;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.function.jn.JNFun;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -24,6 +31,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * {@code jn:store} and {@code jn:load} into an existing database (#1384): a free resource name adds
@@ -172,6 +181,72 @@ final class StoreIntoExistingDatabaseTest {
       assertEquals(List.of("added", "racer"), resources(store));
       assertEquals("{\"v\":\"racer\"}", run(chain, context, "jn:doc('db','racer')"));
     }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"store", "load"})
+  void importsHonorTheConfiguredCommitBoundAndReleaseDiscardedReaders(final String function) throws IOException {
+    final String input = "[" + "0,".repeat(127) + "0]";
+    final Path source = Files.writeString(content.resolve("bounded.json"), input);
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+        .location(directory.resolve("bounded-" + function)).storageType(StorageType.FILE_CHANNEL)
+        .numberOfNodesBeforeAutoCommit(16).useAsyncFlushForImports(false).build();
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
+      store.create("db", "kept", "{}");
+      final String argument = "store".equals(function) ? input : source.toUri().toString();
+      if ("load".equals(function)) {
+        final Str uri = new Str(argument);
+        new Load(true).execute(null, context, new Sequence[] {new Str("db"), new Str("named"), uri});
+        new Load(true).execute(null, context, new Sequence[] {new Str("db"), null, new ItemSequence(uri, uri)});
+      } else {
+        new Query(chain, "jn:store('db','named','" + argument + "')").evaluate(context);
+        new Query(chain, "jn:store('db',(),('" + argument + "','" + argument + "'))").evaluate(context);
+      }
+      for (final String resource : resources(store)) {
+        if (resource.equals("kept")) {
+          continue;
+        }
+        final JsonResourceSession session = store.lookup("db").getDatabase().beginResourceSession(resource);
+        assertEquals(0, session.activeTrxCount(), "discarded import results must release transactions");
+        assertTrue(session.getMostRecentRevisionNumber() > 1,
+            "synchronous imports must checkpoint beyond the configured node bound");
+        assertEquals(JsonParser.parseString(input),
+            JsonParser.parseString(run(chain, context, "jn:doc('db','" + resource + "')")));
+      }
+      try (final var reader = JsonShredder.createStringReader(input)) {
+        final var added = store.lookup("db").add("ordinary", reader);
+        try (final var transaction = added.getTrx()) {
+          assertEquals(1, transaction.getResourceSession().activeTrxCount());
+          assertEquals(1, transaction.getResourceSession().getMostRecentRevisionNumber());
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"''", "for $v in jn:doc('db','source')[] return $v"})
+  void anEmptyStoreCreatesConfiguredIndexesWithoutTouchingExistingData(final String input) {
+    withDatabase("empty-" + input.length(), (chain, context, store) -> {
+      run(chain, context, "jn:store('db','source','[\"\"]')");
+      final Witness before = witness(chain, context, store);
+      run(chain, context, "jn:store('db','empty',(" + input
+          + "),true(),{\"useConventionalValidTime\":true()})");
+      final JsonResourceSession session = store.lookup("db").getDatabase().beginResourceSession("empty");
+      assertEquals(0, session.activeTrxCount());
+      assertEquals(1, session.getMostRecentRevisionNumber());
+      assertEquals(1, session.getRtxIndexController(1).getIndexes().getNrOfIndexDefsWithType(IndexType.VALIDTIME));
+      assertEquals(2, session.getRtxIndexController(1).getIndexes().getNrOfIndexDefsWithType(IndexType.CAS));
+      try (final var reader = session.beginNodeReadOnlyTrx()) {
+        assertFalse(reader.moveToFirstChild());
+      }
+      for (final String flag : List.of("", ",true()", ",false()")) {
+        final QueryException refusal = assertThrows(QueryException.class,
+            () -> run(chain, context, "jn:store('db','first',''" + flag + ")"));
+        assertEquals(JNFun.ERR_RESOURCE_EXISTS, refusal.getCode());
+      }
+      assertEquals(before, witness(chain, context, store));
+    });
   }
 
   /** Everything the call must leave alone: the other resource's content, history and index. */
