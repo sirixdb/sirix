@@ -22,12 +22,18 @@ import io.sirix.index.hot.AbstractHOTIndexReader.RawKeyBytes;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.HOTInvariantValidator;
 import io.sirix.index.hot.NameKeySerializer;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.io.StorageType;
+import io.sirix.page.PageReference;
+import io.sirix.page.interfaces.Page;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.roaringbitmap.longlong.LongIterator;
 
 import java.nio.file.Path;
@@ -41,6 +47,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -229,6 +236,138 @@ final class NameIndexLongSharedPrefixRoutingTest {
     } finally {
       Databases.removeDatabase(path);
     }
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {2, 32})
+  void leafOverflowKeepsExactHeightsWhenAFoldNeedsMoreRoutingLevels(final int targetFanout) {
+    final List<QNm> names = new ArrayList<>();
+    for (int prefix = 0; prefix < 32; prefix++) {
+      for (int branch = 0; branch < 2; branch++) {
+        for (int tail = 0; tail < 200; tail++) {
+          names.add(overflowName(prefix, branch, 2, tail));
+        }
+      }
+    }
+    final IndexDef definition = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+    final Path path = directory.resolve("json-overflow-height-" + targetFanout);
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + overflowObject(names) + "]"),
+            JsonNodeTrx.Commit.NO);
+        trx.moveToDocumentRoot();
+        session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(Set.of(definition), trx);
+        final StorageEngineReader reader = trx.getStorageEngineReader();
+        final PageReference rootRef = HOTInvariantValidator.resolveRootRef(reader, IndexType.NAME, definition.getID());
+        final HOTIndirectPage root = assertInstanceOf(HOTIndirectPage.class, reader.loadHOTPage(rootRef));
+        assertEquals(32, root.getNumChildren(), "fixture: the root cannot absorb another child");
+        assertEquals(2, assertExactHeight(reader, rootRef));
+        for (int child = 0; child < 32; child++) {
+          final HOTIndirectPage parent =
+              assertInstanceOf(HOTIndirectPage.class, reader.loadHOTPage(root.getChildReference(child)));
+          assertEquals(2, parent.getNumChildren(), "fixture parent fanout");
+        }
+        if (targetFanout == 32) {
+          final List<QNm> nearbyBranches = new ArrayList<>();
+          for (int branch = 0; branch < 30; branch++) {
+            for (int tail = 0; tail < 512; tail++) {
+              nearbyBranches.add(overflowName(0, branch, 32, tail));
+            }
+          }
+          appendOverflowObject(trx, nearbyBranches);
+          names.addAll(nearbyBranches);
+        }
+        final HOTIndirectPage preparedRoot = assertInstanceOf(HOTIndirectPage.class, reader.loadHOTPage(rootRef));
+        assertEquals(32, preparedRoot.getNumChildren(), "fixture: the root stays full");
+        final HOTIndirectPage targetParent = assertInstanceOf(HOTIndirectPage.class,
+            reader.loadHOTPage(preparedRoot.getChildReference(0)));
+        assertEquals(targetFanout, targetParent.getNumChildren(), "fixture: overflow parent capacity");
+
+        final List<QNm> extension = new ArrayList<>();
+        for (int tail = 200; tail < 512; tail++) {
+          extension.add(overflowName(0, 0, 2, tail));
+        }
+        appendOverflowObject(trx, extension);
+        assertEquals(2, assertExactHeight(reader, rootRef), "before the leaf overflows");
+        assertStructurallyValid(reader, definition, "before leaf overflow");
+        final QNm last = overflowName(0, 0, 2, 512);
+        appendOverflowObject(trx, List.of(last));
+        names.addAll(extension);
+        names.add(last);
+        assertEquals(3, assertExactHeight(reader, rootRef), "immediately after leaf overflow");
+        assertStructurallyValid(reader, definition, "immediately after leaf overflow");
+        assertIndexEqualsScan(session.getWtxIndexController(trx.getRevisionNumber()), reader, definition, names,
+            scan(trx), "after leaf overflow");
+        trx.commit();
+        assertExactHeight(trx.getStorageEngineReader(), HOTInvariantValidator.resolveRootRef(
+            trx.getStorageEngineReader(), IndexType.NAME, definition.getID()));
+      }
+      Databases.clearGlobalCaches();
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final StorageEngineReader reader = rtx.getStorageEngineReader();
+        assertEquals(3, assertExactHeight(reader,
+            HOTInvariantValidator.resolveRootRef(reader, IndexType.NAME, definition.getID())), "after cold reopen");
+        assertStructurallyValid(reader, definition, "after overflow and commit");
+        assertIndexEqualsScan(session.getRtxIndexController(rtx.getRevisionNumber()), reader, definition, names,
+            scan(rtx), "after overflow and commit");
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  private static QNm overflowName(final int prefix, final int branch, final int fanout, final int tail) {
+    final StringBuilder name = new StringBuilder(303);
+    for (int bit = 4; bit >= 0; bit--) {
+      name.append((prefix & (1 << bit)) == 0 ? 'a' : 'b');
+    }
+    name.append("x".repeat(95));
+    final int branchBits = fanout == 2 ? 1 : 5;
+    for (int bit = branchBits - 1; bit >= 0; bit--) {
+      name.append((branch & (1 << bit)) == 0 ? 'a' : 'b');
+    }
+    name.append("y".repeat(200 - branchBits));
+    name.append((char) ('0' + tail / 100));
+    name.append((char) ('0' + tail / 10 % 10));
+    name.append((char) ('0' + tail % 10));
+    return new QNm(name.toString());
+  }
+
+  private static String overflowObject(final List<QNm> names) {
+    final StringBuilder json = new StringBuilder("{");
+    for (final QNm name : names) {
+      if (json.length() > 1) {
+        json.append(',');
+      }
+      json.append('"').append(name.getLocalName()).append("\":0");
+    }
+    return json.append('}').toString();
+  }
+
+  private static void appendOverflowObject(final JsonNodeTrx trx, final List<QNm> names) {
+    trx.moveToDocumentRoot();
+    assertTrue(trx.moveToFirstChild());
+    trx.insertSubtreeAsLastChild(JsonShredder.createStringReader(overflowObject(names)), JsonNodeTrx.Commit.NO);
+  }
+
+  private static int assertExactHeight(final StorageEngineReader reader, final PageReference reference) {
+    final Page page = reader.loadHOTPage(reference);
+    if (page instanceof HOTLeafPage) {
+      return 0;
+    }
+    final HOTIndirectPage node = assertInstanceOf(HOTIndirectPage.class, page);
+    int height = 0;
+    for (int child = 0; child < node.getNumChildren(); child++) {
+      height = Math.max(height, assertExactHeight(reader, node.getChildReference(child)) + 1);
+    }
+    assertEquals(height, node.getHeight(), "stored height must equal the independently walked distance to leaves");
+    return height;
   }
 
   /** Every name of the family: shared head, a difference at byte 250 and one at bytes 314 to 316. */

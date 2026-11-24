@@ -5813,6 +5813,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     int depth = currentDepth;
     while (depth > 0) {
       final HOTIndirectPage parent = pathNodes[depth - 1];
+      if (!nodeCanNameBit(parent, beta)) {
+        return false;
+      }
       if (parent.isDiscriminativeBit(beta)) {
         if (!HOTIncrementalInsert.canMergeBiNodeAtExistingDiscBit(parent, beta, childSlots[depth - 1])) {
           return false;

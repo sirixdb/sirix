@@ -522,6 +522,25 @@ A boundary-child collision MUST NOT publish a new local root at or above the con
 child's leading discriminator. Unless a direct leaf can certainly accept the mutation
 without splitting, use the existing outer structural-frontier fallback before publication.
 Commit normalization may remove redundant valid levels; it cannot defer routing invariants.
+An incremental fold that assumes one compound level MUST decline before publication when
+the union of its discriminative bits needs multiple routing levels. This applies at every
+level of a full-parent capacity cascade; the complete structural frontier handles that
+geometry instead. A leaf overflow below a full root MUST preserve exact heights immediately,
+including when the overflow's parent also has no free child slot.
+
+Assembly shape audit (all production `assembleIndirect` calls and their primitive callers):
+
+| Consumer | Shape contract |
+|---|---|
+| `HOTBulkBuilder.BulkContext.buildIndirect`, `assembleGroup`, `assembleOverLevels` | Consume actual child/root heights; recursive assembly may return a nest. The counting allocator counts every level. |
+| `HOTIncrementalInsert.compressHalf`, `mergeBiNodeAtExistingDiscBit`, `addChildAtCombination` | Retain or reduce a valid source mask. A subset of a nameable mask stays nameable, so assembly remains flat. Split primitives derive the BiNode height from the actual halves. |
+| `compressRangeWithEntry`, `addEntryWithInsertInfo` | Branch insertion's `routeCanNameBranchBit` checks the source mask plus the new bit, including the boundary child and ancestors. Compressed halves use subsets of that checked union. |
+| `addEntry`, `foldIntoHalf`, `integrate` | `canIntegrateBiNodeCleanly` checks the mask-plus-bit union at each cascade level before a leaf overflow, branch split or strand discharge publishes. A subset used by a split half is also nameable. Root/intermediate materialization has one bit and cannot need a level split. |
+| `AbstractHOTIndexWriter.tryTwoLeafMigration` | Reuses the existing mask and child order, computes actual child heights, and propagates the replacement height up the spine. |
+| `assembleFrontierBlock`, `joinOrderedParts` | Accept nested output, consume its actual height, and follow routes to original part references rather than assuming direct child slots. |
+| `replaceSingleChildAndReencode`, `propagateStructuralSpliceAfterPublication` | Reuse nameable ancestor masks and compute heights from the actual replacement children; no new discriminative bit is introduced. |
+| `HOTIncrementalInsert.prepareCompatibleChild` / commit folding | Refuse an unnameable union before materialization; do not call multi-level assembly. |
+
 For a compatible compound-child fold, composed sparse partials MUST remain strictly ordered
 and unique; acceptance MUST preserve the original two-stage router for every key, including
 absent keys. Reject a fold whose combined sparse requirements alias or reorder slots.

@@ -173,3 +173,38 @@
   and NAME facade, leaving the supported writer get path outside its long-name fixture.
 - Vision check: both fixes restore exact answers under cold reconstruction and writer-side reads
   without changing stored fields, normal-name re-check cost or the candidate-cache contract.
+
+## Review follow-up: multi-level assembly and exact heights
+
+- Symptom: bulk-building 32 balanced five-character prefixes, with discriminators at byte 100
+  and tails at byte 300, produces a full height-2 root above height-1 parents. Extending one
+  leaf from 200 through 513 entries introduces the distant tail bit. A fold could turn its
+  parent into two levels while the root retained height 2; commit did not repair the metadata.
+- Root cause: the assembler's output changed from one compound node to a possibly nested tree,
+  but integration's preflight checked fold order and capacity without checking the mask union's
+  representability. Its publication arm assumes a flat fold, including inside capacity cascades.
+- Correction: the shared integration preflight refuses an unnameable mask-plus-bit union at every
+  visited level. Existing overflow and branch callers then use the complete structural frontier,
+  which consumes actual output heights and re-encodes ancestors before returning. No deferred
+  height repair or new propagation mechanism is introduced.
+- Caller audit: a search for every production `assembleIndirect` call, followed through the
+  enclosing split/add/integrate primitives to their writer callers, finds only bulk construction,
+  incremental primitives and the writer's migration/frontier/ancestor rebuilds. The complete
+  inventory and each shape argument are recorded in `HOT_INDEX_SPECIFICATION.md` section 2.6.
+  Unchanged or reduced masks cannot introduce nesting; branch new-bit unions already have route
+  preflight; bulk/frontier paths consume nested shapes. Root/intermediate BiNodes have only one
+  bit. Commit folding independently refuses unnameable unions before materialization.
+- Regression oracle: section 2.6 requires every stored height to equal its actual distance from
+  leaves at successful mutation boundaries. The reported 32-prefix/byte-100/byte-300 sequence
+  checks the fixture's full root and spare parent, extends through tail 512, and independently
+  walks every height immediately before and after overflow, after commit and after cold reopen.
+  A second variant fills the parent with 30 nearby 512-entry branches before overflowing the original
+  leaf to cover capacity refusal. Both run the
+  structural validator and compare postings with a document scan. The earlier fixture reached
+  overflow at a root or a tree without a full ancestor and therefore missed the stale height.
+- Vision check: exact live and historical metadata preserves deterministic correct routing and
+  subsequent height-based decisions; the change adds only a bounded mask check to the existing
+  preflight. There is no new default, persisted field or whole-subtree repair.
+- Verification: focused routing, integration, serializer, NAME re-check and allocation checks run
+  after the fix round. Counterfactual and mutation validation remain with the outer executor's
+  dedicated validation phases.
