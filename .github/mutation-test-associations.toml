@@ -42,7 +42,7 @@ tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest"]
 
 [[association]]
 class = "io.sirix.access.LocalDatabase"
-tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest", "io.sirix.access.LocalDatabaseInMemoryLifetimeTest"]
+tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest", "io.sirix.access.LocalDatabaseInMemoryLifetimeTest", "io.sirix.index.aggregate.DeclaredTemporalAggregateFailureTest", "io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest"]
 
 [[association]]
 class = "io.sirix.access.InMemoryResources"

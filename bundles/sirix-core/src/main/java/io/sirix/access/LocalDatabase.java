@@ -24,6 +24,7 @@ import io.sirix.api.TransactionManager;
 import io.sirix.cache.BufferManager;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixRuntimeException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.IOStorage;
@@ -236,7 +237,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         && resourceConfig.getValidTimeConfig() != null && session instanceof JsonResourceSession json
         && !DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
       final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) session;
-      shared.initializeDerivedIndexesWith(() -> enableDerivedIndexes(json, false));
+      shared.initializeDerivedIndexesWith(() -> enableDerivedIndexes(json, DerivedActivation.DECLARED));
       derivedSource = json;
     }
     return new OpenedSession<>(session, derivedSource);
@@ -245,11 +246,47 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   void finishResourceOpen(final OpenedSession<?> opened) {
     final @Nullable JsonResourceSession source = opened.derivedSource();
     if (source != null) {
-      enableDerivedIndexes(source, true);
+      enableDerivedIndexes(source, DerivedActivation.OPPORTUNISTIC);
     }
   }
 
-  private void enableDerivedIndexes(final JsonResourceSession source, final boolean onlyIfDeclared) {
+  /**
+   * Why derived indexes are being installed, which is what a failure to install them means.
+   */
+  private enum DerivedActivation {
+    /**
+     * A caller declared a temporal aggregate, so installing the hidden derived resource IS the caller's
+     * request. A failure is the declaration's failure and must reach the caller: absorbing it would let
+     * {@code createIndexes} report success while the index it was asked to create does not exist, and
+     * the resource would serve the exact fallback for the rest of its session with nothing but a log
+     * line to say so.
+     */
+    DECLARED,
+
+    /**
+     * A resource is being opened and may carry derived indexes from an earlier session. Installing them
+     * is opportunistic: every query retains the exact fallback, so an unusable derived store must not
+     * stop the resource from opening. Only the named failures of {@link #enableDerivedIndexes} are
+     * absorbed here.
+     */
+    OPPORTUNISTIC
+  }
+
+  /**
+   * Installs the hidden derived resource and registers it with the maintainer.
+   *
+   * <p>
+   * {@link DerivedActivation#DECLARED} propagates every failure.
+   * {@link DerivedActivation#OPPORTUNISTIC} absorbs only the named exceptions that mean "this derived
+   * store is unusable" — a broken or forward-incompatible store ({@link SirixException},
+   * {@link SirixRuntimeException}, {@link UnsupportedStoreFeatureException}), a snapshot whose
+   * frontier has no durable mapping ({@link IllegalStateException}), or a derived subtree that cannot
+   * be walked or removed ({@link UncheckedIOException}), or an authorization policy that does not
+   * grant writes to the hidden derived resource ({@link SecurityException}) — and lets anything else
+   * through. Runtime failures outside these named types are not treated as an optional fallback.
+   */
+  private void enableDerivedIndexes(final JsonResourceSession source, final DerivedActivation activation) {
+    final boolean onlyIfDeclared = activation == DerivedActivation.OPPORTUNISTIC;
     try {
       synchronized (this) {
         assertAcceptingResources();
@@ -275,7 +312,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
           shared.setDerivedResource(derivedMaintainer.register(source, derived));
         }
       }
-    } catch (final RuntimeException unavailable) {
+    } catch (final SirixException | SirixRuntimeException | UnsupportedStoreFeatureException | IllegalStateException
+        | UncheckedIOException | SecurityException unavailable) {
+      if (activation == DerivedActivation.DECLARED) {
+        throw unavailable;
+      }
       logger.error("Derived resource unavailable for {}; queries retain exact fallback", source.getResourcePath(),
           unavailable);
     }
