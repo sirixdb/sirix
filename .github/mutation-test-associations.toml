@@ -154,3 +154,42 @@ tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest"]
 [[association]]
 class = "io.sirix.query.function.xml.XMLFun"
 tests = ["io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest"]
+
+# FMT-305: the level split, the NAME key bound and the exact re-check are behaviour-tested from the
+# names and the geometry that reach them, so none of these tests carries the name of the class it
+# exercises.
+[[association]]
+class = "io.sirix.index.hot.HOTBulkBuilder"
+tests = ["io.sirix.index.hot.HOTIndirectLevelSplitTest", "io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
+
+[[association]]
+class = "io.sirix.index.hot.page.HOTIndirectPage"
+tests = ["io.sirix.index.hot.HOTIndirectLevelSplitTest"]
+
+[[association]]
+class = "io.sirix.index.hot.AbstractHOTIndexWriter"
+tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
+
+[[association]]
+class = "io.sirix.index.hot.NameKeySerializer"
+tests = ["io.sirix.index.hot.NameKeySerializerRoutableBoundTest", "io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
+
+[[association]]
+class = "io.sirix.index.hot.HOTKeySerializer"
+tests = ["io.sirix.index.hot.NameKeySerializerRoutableBoundTest"]
+
+[[association]]
+class = "io.sirix.index.hot.HOTIndexReader"
+tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
+
+[[association]]
+class = "io.sirix.index.hot.HOTIndexWriter"
+tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest", "io.sirix.index.hot.HOTSharedMutationRouteTest"]
+
+[[association]]
+class = "io.sirix.index.name.NameIndex"
+tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
+
+[[association]]
+class = "io.sirix.index.name.NameIndexRecheck"
+tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest", "io.sirix.budget.NameIndexRecheckWorkBudgetTest"]

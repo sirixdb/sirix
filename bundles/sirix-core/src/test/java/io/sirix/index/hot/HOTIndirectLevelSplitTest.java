@@ -15,6 +15,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -39,6 +40,9 @@ final class HOTIndirectLevelSplitTest {
 
   /** Inside it, so a wide span is still one {@code MULTI_MASK} node. */
   private static final int NAMEABLE_BYTE = 200;
+
+  /** The first byte past the extraction range, where the wide fixture puts its later bits. */
+  private static final int LATE_BYTE = UNNAMEABLE_BYTE;
 
   @Test
   void aSpanReachingPastTheExtractionRangeIsSplitOverLevels() {
@@ -116,6 +120,142 @@ final class HOTIndirectLevelSplitTest {
   }
 
   /** Four single-entry leaves under one bit at {@link #EARLY_BYTE} and one at {@code lateByte}. */
+  /**
+   * A nest over four discriminative bits in three regions: two the top level can name together, and
+   * two past the extraction range. One group's children agree on the last bit, so that bit branches
+   * nothing inside it and the group's own node must not carry it; the other group's children differ
+   * in both. Every key must still reach its own leaf, which is what a wrong mask, a wrong shift or a
+   * wrong repacking of the group partials breaks.
+   */
+  @Test
+  void eachLevelOfANestCarriesExactlyItsOwnBranchingBits() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final List<HOTLeafPage> leaves = new ArrayList<>();
+    // Column weights over [b80, b81, b2400, b2408] are 8, 4, 2, 1.
+    final int[] partials = {0b0000, 0b0010, 0b0100, 0b0111};
+    try (final HOTIndirectPage root = assembleWide(partials, leaves, pageKeys)) {
+      assertEquals(2, root.getNumChildren(), "the top level branches on the early byte alone");
+      assertArrayEquals(new int[] {EARLY_BYTE * Byte.SIZE, EARLY_BYTE * Byte.SIZE + 1},
+          root.getDiscriminativeBits(), "the top level keeps the bits it can name and no others");
+      assertEquals(2, root.getHeight());
+
+      final HOTIndirectPage agreeing = assertInstanceOf(HOTIndirectPage.class,
+          root.getChildReference(0).getPage(), "first group");
+      assertArrayEquals(new int[] {LATE_BYTE * Byte.SIZE}, agreeing.getDiscriminativeBits(),
+          "a bit the whole group agrees on branches nothing there, so the group must not test it");
+      assertEquals(2, agreeing.getNumChildren());
+      assertEquals(1, agreeing.getHeight());
+
+      final HOTIndirectPage differing = assertInstanceOf(HOTIndirectPage.class,
+          root.getChildReference(1).getPage(), "second group");
+      assertArrayEquals(new int[] {LATE_BYTE * Byte.SIZE, (LATE_BYTE + 1) * Byte.SIZE},
+          differing.getDiscriminativeBits(), "this group branches on both remaining bits");
+      assertEquals(2, differing.getNumChildren());
+      assertEquals(1, differing.getHeight());
+
+      for (int index = 0; index < partials.length; index++) {
+        final byte[] key = wideKey(partials[index]);
+        assertSame(leaves.get(index), descend(root, key),
+            "the key of partial " + Integer.toBinaryString(partials[index]) + " must reach its own leaf");
+      }
+    } finally {
+      close(leaves);
+    }
+  }
+
+  /**
+   * A group of one child needs no node of its own, and the nest's height is measured from the
+   * children it was given. An unresolved reference is a persisted subtree whose height only the
+   * caller knows, so the nest must use the height the caller stated for it rather than treat it as a
+   * leaf.
+   */
+  @Test
+  void aNestMeasuresItsHeightFromTheChildrenItWasGiven() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final List<HOTLeafPage> leaves = new ArrayList<>();
+    final PageReference[] children = new PageReference[3];
+    for (int index = 0; index < 2; index++) {
+      final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.NAME);
+      assertTrue(leaf.put(wideKey(index == 0 ? 0b0000 : 0b0010), VALUE));
+      leaves.add(leaf);
+      children[index] = new PageReference();
+      children[index].setPage(leaf);
+    }
+    // A reference whose page is not resident: the caller's stated height is the only figure there is.
+    children[2] = new PageReference();
+    final int statedHeight = 3;
+    try (final HOTIndirectPage root = HOTBulkBuilder.assembleIndirect(wideBits(), new int[] {0b0000, 0b0010, 0b0100},
+        children, statedHeight, 1, IndexType.NAME, pageKeys::getAndIncrement)) {
+      assertEquals(2, root.getNumChildren(), "the lone child joins the top level directly");
+      assertSame(children[2], root.getChildReference(1), "a group of one child is linked, not wrapped");
+      assertEquals(statedHeight, root.getHeight(),
+          "the unresolved subtree is as tall as the caller said its tallest child was");
+    } finally {
+      close(leaves);
+    }
+  }
+
+  /**
+   * A refused group leaves nothing of the nest behind. The second group's children carry the same
+   * partial, which no canonical encoding produces, so assembly refuses after the first group's node
+   * was already built; the children the caller handed in are not the nest's to release.
+   */
+  @Test
+  void aRefusedGroupReleasesOnlyTheNodesTheNestBuilt() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final List<HOTLeafPage> leaves = new ArrayList<>();
+    final int[] partials = {0b0000, 0b0010, 0b0100, 0b0100};
+    final PageReference[] children = new PageReference[partials.length];
+    for (int index = 0; index < partials.length; index++) {
+      final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.NAME);
+      assertTrue(leaf.put(wideKey(partials[index] | index), VALUE));
+      leaves.add(leaf);
+      children[index] = new PageReference();
+      children[index].setPage(leaf);
+    }
+    try {
+      final IllegalArgumentException refusal = assertThrows(IllegalArgumentException.class,
+          () -> HOTBulkBuilder.assembleIndirect(wideBits(), partials, children, 1, 1, IndexType.NAME,
+              pageKeys::getAndIncrement));
+      assertTrue(refusal.getMessage().contains("identical partials"), refusal.getMessage());
+      for (int index = 0; index < leaves.size(); index++) {
+        assertFalse(leaves.get(index).isClosed(), "the caller's child " + index + " is not the nest's to release");
+      }
+    } finally {
+      close(leaves);
+    }
+  }
+
+  /** The four discriminative bits of the wide fixture, ascending. */
+  private static int[] wideBits() {
+    return new int[] {EARLY_BYTE * Byte.SIZE, EARLY_BYTE * Byte.SIZE + 1, LATE_BYTE * Byte.SIZE,
+        (LATE_BYTE + 1) * Byte.SIZE};
+  }
+
+  private static HOTIndirectPage assembleWide(final int[] partials, final List<HOTLeafPage> leaves,
+      final AtomicLong pageKeys) {
+    final PageReference[] children = new PageReference[partials.length];
+    for (int index = 0; index < partials.length; index++) {
+      final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.NAME);
+      assertTrue(leaf.put(wideKey(partials[index]), VALUE));
+      leaves.add(leaf);
+      children[index] = new PageReference();
+      children[index].setPage(leaf);
+    }
+    return HOTBulkBuilder.assembleIndirect(wideBits(), partials, children, 1, 1, IndexType.NAME,
+        pageKeys::getAndIncrement);
+  }
+
+  /** A key carrying exactly the bits the four-column {@code partial} names. */
+  private static byte[] wideKey(final int partial) {
+    final byte[] key = new byte[LATE_BYTE + 2];
+    Arrays.fill(key, (byte) 'x');
+    key[EARLY_BYTE] = (byte) (((partial & 0b1000) != 0 ? 0x80 : 0) | ((partial & 0b0100) != 0 ? 0x40 : 0));
+    key[LATE_BYTE] = (partial & 0b0010) != 0 ? (byte) 0x80 : 0x00;
+    key[LATE_BYTE + 1] = (partial & 0b0001) != 0 ? (byte) 0x80 : 0x00;
+    return key;
+  }
+
   private static HOTIndirectPage assemble(final int lateByte, final List<HOTLeafPage> leaves,
       final AtomicLong pageKeys) {
     final PageReference[] children = new PageReference[4];

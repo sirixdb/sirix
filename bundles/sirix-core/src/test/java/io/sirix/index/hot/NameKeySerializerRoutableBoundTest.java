@@ -184,6 +184,60 @@ final class NameKeySerializerRoutableBoundTest {
     }
   }
 
+  /**
+   * The stored key of an over-long name is the longest whole-character prefix that fits beside the
+   * truncation marker, for characters of every UTF-8 width. The character count is the oracle: it
+   * follows from the width of the character and the bound alone, so a width judged one class too
+   * narrow or too wide, or a budget compared one byte off, stores a different number of them.
+   */
+  @Test
+  void anOverLongNameStoresTheLongestWholeCharacterPrefixThatFitsForEveryCharacterWidth() {
+    for (final String character : new String[] {"a", "é", "中", "😀"}) {
+      final int width = character.getBytes(StandardCharsets.UTF_8).length;
+      final int fitting = (BOUND - 1) / width;
+      final QNm name = new QNm(character.repeat(fitting + 8));
+      final byte[] stored = serialize(name);
+      assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length),
+          "a name of " + width + "-byte characters past the bound is marked");
+      assertEquals(fitting * width + 1, stored.length,
+          "width " + width + ": " + fitting + " whole characters plus the marker");
+      assertEquals(character.repeat(fitting), new String(stored, 0, stored.length - 1, StandardCharsets.UTF_8),
+          "the stored prefix decodes as whole " + width + "-byte characters");
+
+      final QNm fits = new QNm(character.repeat(BOUND / width));
+      final byte[] whole = serialize(fits);
+      assertFalse(NameKeySerializer.isTruncated(whole, 0, whole.length),
+          "a name of width " + width + " that fits the bound carries no marker");
+      assertEquals(BOUND / width * width, whole.length);
+      assertEquals(fits, SERIALIZER.deserialize(whole, 0, whole.length));
+    }
+  }
+
+  /**
+   * A NUL in the namespace costs two stored bytes, so a namespace cut at the bound keeps one
+   * character fewer for every NUL inside the part that survives. The surviving URI is what the
+   * stored key decodes to, which is the only way to see that the escape was counted on both the
+   * budget and the rewrite.
+   */
+  @Test
+  void anEscapedNulInsideACutNamespaceCostsTwoStoredBytes() {
+    final String head = "u".repeat(BOUND);
+    for (final int nuls : new int[] {1, 2, 3}) {
+      final String uri = "\u0000".repeat(nuls) + head;
+      final QNm name = new QNm(uri, "p", "a");
+      final byte[] stored = serialize(name);
+      assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length), "the namespace is cut");
+      final QNm read = SERIALIZER.deserialize(stored, 0, stored.length);
+      final String survivingUri = read.getNamespaceURI();
+      assertEquals(nuls, survivingUri.chars().filter(c -> c == 0).count(),
+          "every NUL of the surviving prefix is read back exactly once");
+      // Framing, the escaped NULs, the plain characters, one local-name byte and the marker.
+      assertEquals(BOUND, 3 + survivingUri.length() + nuls + 1 + 1,
+          "each NUL spends one stored byte more than the character it is");
+      assertEquals("a", read.getLocalName());
+    }
+  }
+
   private static byte[] serialize(final QNm name) {
     final byte[] buffer = new byte[SERIALIZER.maxSerializedLength(name) + 8];
     final int length = SERIALIZER.serialize(name, buffer, 0);
