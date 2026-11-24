@@ -38,24 +38,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 /**
- * Crash-recovery for an interrupted FIRST commit (layout-F5 gap).
+ * Crash-recovery fixtures for an interrupted first commit and lost empty-bootstrap records.
  *
  * <p>
- * The superblock and the two uber-page beacon slots of {@code sirix.data} are only written at the
- * END of a resource's first commit (by {@code writeUberPageReference}); until then the header
- * region {@code [0, DATA_REGION_START)} is a sparse hole while the buffered page writer may already
- * have flushed &ge; 64 KiB of data pages past {@code DATA_REGION_START}. A process crash in that
- * window leaves a NON-EMPTY {@code sirix.data} whose header is all zeros (or, crashing a little
- * later, a valid superblock with still-zero beacon slots). {@code IOStorage.exists()} is
- * size-based, so the next open takes the "load" path and fails on the superblock/beacon validation
- * — permanently, even though NOTHING was ever committed and a fresh bootstrap is provably safe.
- *
- * <p>
- * The recovery contract under test: on an open failure, the resource is re-initialized empty if and
- * only if the on-disk state PROVES no commit ever completed — all-zero (or valid-but-beaconless)
- * header AND no checksum-valid record in {@code sirix.revisions}. Any nonzero beacon bytes or any
- * checksum-valid revision record means data may exist, and the open must keep failing with the
- * existing actionable error (no destructive re-bootstrap).
+ * Recovery eligibility is owned by {@code InterruptedFirstCommitRecovery}; the format-version
+ * preflight and incomplete-frame decision table are specified by FMT-401 in
+ * {@code spec/FMT-disk-format.md}.
  *
  * <p>
  * Fabrication note: {@code createResource} itself runs the bootstrap commit (revision 0), so a
