@@ -19,8 +19,8 @@
   as if it were an optional open-time step, so `TemporalAggregateIndexes.build` never saw it and
   never marked the transaction rollback-only.
 - Why tests missed it: every existing test drove the declaration on a resource whose derived store
-  could be created, so the absorbing branch was only ever exercised from the open path, where it is
-  correct. No test asserted what a *failing* declaration does, and the log line is not an oracle.
+  could be created, so tests only exercised fallback during optional open-time activation.
+  No test asserted what a *failing* declaration does, and the log line is not an oracle.
 - Regression test: `DeclaredTemporalAggregateFailureTest` —
   `aDeclarationWhoseDerivedResourceCannotBeInstalledFails` fails before the fix with "Expected
   io.sirix.exception.SirixUsageException to be thrown, but nothing was thrown" and passes after;

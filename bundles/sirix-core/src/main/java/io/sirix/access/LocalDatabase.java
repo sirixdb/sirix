@@ -255,19 +255,19 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    */
   private enum DerivedActivation {
     /**
-     * A caller declared a temporal aggregate, so installing the hidden derived resource IS the
-     * caller's request. A failure is the declaration's failure and must reach the caller: absorbing
-     * it would let {@code createIndexes} report success while the index it was asked to create does
-     * not exist, and the resource would serve the exact fallback for the rest of its session with
-     * nothing but a log line to say so.
+     * A caller declared a temporal aggregate, so installing the hidden derived resource IS the caller's
+     * request. A failure is the declaration's failure and must reach the caller: absorbing it would let
+     * {@code createIndexes} report success while the index it was asked to create does not exist, and
+     * the resource would serve the exact fallback for the rest of its session with nothing but a log
+     * line to say so.
      */
     DECLARED,
 
     /**
-     * A resource is being opened and may carry derived indexes from an earlier session. Installing
-     * them is opportunistic: every query retains the exact fallback, so an unusable derived store
-     * must not stop the resource from opening. Only the named failures of
-     * {@link #enableDerivedIndexes} are absorbed here.
+     * A resource is being opened and may carry derived indexes from an earlier session. Installing them
+     * is opportunistic: every query retains the exact fallback, so an unusable derived store must not
+     * stop the resource from opening. Only the named failures of {@link #enableDerivedIndexes} are
+     * absorbed here.
      */
     OPPORTUNISTIC
   }
@@ -276,20 +276,20 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * Installs the hidden derived resource and registers it with the maintainer.
    *
    * <p>
-   * {@link DerivedActivation#DECLARED} propagates every failure. {@link
-   * DerivedActivation#OPPORTUNISTIC} absorbs only the named exceptions that mean "this derived
-   * store is unusable" — a broken or forward-incompatible store ({@link SirixException}, {@link
-   * SirixRuntimeException}, {@link UnsupportedStoreFeatureException}), a snapshot whose frontier
-   * has no durable mapping ({@link IllegalStateException}), or a derived subtree that cannot be
-   * walked or removed ({@link UncheckedIOException}), or an authorization policy that does not
-   * grant writes to the hidden derived resource ({@link SecurityException}) — and lets anything
-   * else through, so a programming error never hides behind the fallback either.
+   * {@link DerivedActivation#DECLARED} propagates every failure.
+   * {@link DerivedActivation#OPPORTUNISTIC} absorbs only the named exceptions that mean "this derived
+   * store is unusable" — a broken or forward-incompatible store ({@link SirixException},
+   * {@link SirixRuntimeException}, {@link UnsupportedStoreFeatureException}), a snapshot whose
+   * frontier has no durable mapping ({@link IllegalStateException}), or a derived subtree that cannot
+   * be walked or removed ({@link UncheckedIOException}), or an authorization policy that does not
+   * grant writes to the hidden derived resource ({@link SecurityException}) — and lets anything else
+   * through. Runtime failures outside these named types are not treated as an optional fallback.
    */
   private void enableDerivedIndexes(final JsonResourceSession source, final DerivedActivation activation) {
     try {
       installDerivedIndexes(source, activation);
-    } catch (final SirixException | SirixRuntimeException | UnsupportedStoreFeatureException
-        | IllegalStateException | UncheckedIOException | SecurityException unavailable) {
+    } catch (final SirixException | SirixRuntimeException | UnsupportedStoreFeatureException | IllegalStateException
+        | UncheckedIOException | SecurityException unavailable) {
       if (activation == DerivedActivation.DECLARED) {
         throw unavailable;
       }

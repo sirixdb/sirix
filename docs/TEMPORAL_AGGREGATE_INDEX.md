@@ -18,6 +18,10 @@ present operands; `count(*)` counts records and is supplied by every declaration
 integers, strings, booleans, or missing values. `TemporalAggregateDeclarations.declare` is the
 equivalent Java API.
 
+When derived indexes are enabled, creating a new declaration installs the hidden derived resource.
+If installation fails, the declaration propagates the failure and marks the transaction rollback-only;
+roll it back before retrying. Query fallback does not make a failed declaration successful.
+
 The catalogue stores the source projection id, root, grouping columns, operand columns and required operations.
 Catalogue reads retain a private copy of the aggregate declaration without decoding its lanes.
 The first aggregate consumer decodes and validates those semantics once; unrelated queries and
@@ -216,10 +220,16 @@ subject to the [store-feature compatibility contract](DISK_FORMAT.md#uberpage-st
 Rebuilding scans committed projections for declarations and replays subsequent covered slabs;
 queries use the exact fallback until a matching derived snapshot is available.
 
-Failures roll back the derived transaction and poison only that resource. Maintained revision, lag,
-poisoned revision and cause are exposed through `DerivedIndexMaintainer.Resource`; the source remains
-usable and queries retain exact fallback behavior. Shutdown stops the worker before closing resource
-sessions and allows up to 30 seconds for an in-flight batch to finish. Lag at shutdown is safe.
+Open-time activation is optional: named storage, snapshot-mapping, filesystem I/O and authorization
+failures leave the source readable with exact query fallback. Other runtime failures propagate.
+The exception boundary is documented in
+[`LocalDatabase.enableDerivedIndexes`](../bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java).
+
+Maintenance failures roll back the derived transaction and poison only that resource. Maintained
+revision, lag, poisoned revision and cause are exposed through `DerivedIndexMaintainer.Resource`;
+the source remains usable and queries retain exact fallback behavior. Shutdown stops the worker
+before closing resource sessions and allows up to 30 seconds for an in-flight batch to finish.
+Lag at shutdown is safe.
 
 Capture and slab persistence run only while the projection has a declared aggregate consumer.
 Dropping the last consumer stops logging; declaring a new one rebuilds sparse row provenance from
@@ -293,6 +303,8 @@ declaration changes, revert and truncate, mapping-cache eviction, encryption, re
 poisoned maintenance and rebuilding missing
 or damaged derived resources. `TemporalAggregateDerivedLagTest` checks query answers against an
 independent `BigInteger` model before, during and after replay under all four versioning types.
+`DeclaredTemporalAggregateFailureTest` checks that denied derived writes fail an explicit declaration
+and leave its transaction uncommittable, while optional activation preserves source reads.
 `DerivedIndexCrashRecoveryTest` injects process death after source publication and before or after
 the derived beacon; its opt-in command is in [VERIFICATION.md](VERIFICATION.md).
 
