@@ -18,6 +18,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.HOTInvariantValidator;
+import io.sirix.index.hot.NameKeySerializer;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -64,6 +65,7 @@ final class NameIndexLongSharedPrefixRoutingTest {
 
   /** The member inserted into the already built index. */
   private static final QNm INSERTED = new QNm(HEAD + "0" + GAP + "999");
+
 
   @TempDir
   Path directory;
@@ -121,18 +123,117 @@ final class NameIndexLongSharedPrefixRoutingTest {
     }
   }
 
+  /**
+   * The same geometry reached one name at a time: the index exists before the document, so every
+   * node arrives through the writer's branch-insert route rather than the bulk build. Twice as many
+   * tails, because the far-apart bit only reaches a routing node once a leaf has had to split.
+   */
+  @Test
+  void anIncrementallyMaintainedAllNamesIndexStaysExactForDiscriminativeBytesBeyondByte255() {
+    final List<QNm> names = new ArrayList<>(family());
+    for (int head = 0; head < 2; head++) {
+      for (int tail = TAILS; tail < 2 * TAILS; tail++) {
+        names.add(name(head, tail));
+      }
+    }
+    final IndexDef definition = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+    final Path path = directory.resolve("json-incremental-far-apart-disc-bytes");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(Set.of(definition), trx);
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(document(names)), JsonNodeTrx.Commit.NO);
+        final Map<QNm, Set<Long>> scanned = scan(trx);
+        assertEquals(names.size() + 1, scanned.size(), "fixture name count");
+        assertIndexEqualsScan(session.getWtxIndexController(trx.getRevisionNumber()), trx.getStorageEngineReader(),
+            definition, names, scanned, "after incremental maintenance");
+        assertStructurallyValid(trx.getStorageEngineReader(), definition, "after incremental maintenance");
+        trx.commit();
+      }
+      Databases.clearGlobalCaches();
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertIndexEqualsScan(session.getRtxIndexController(rtx.getRevisionNumber()), rtx.getStorageEngineReader(),
+            definition, names, scan(rtx), "after incremental maintenance and cold reopen");
+        assertStructurallyValid(rtx.getStorageEngineReader(), definition, "after incremental maintenance and reopen");
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
+  /**
+   * Names at and past the routable key bound. Past it a stored key is the shared prefix of several
+   * names, so an exact read has to re-check its candidates against each node's own name; the index
+   * must still equal the scan on both sides of the bound (FMT-305).
+   */
+  @Test
+  void namesAtAndPastTheRoutableBoundStayExact() {
+    final int bound = NameKeySerializer.MAX_NAME_KEY_BYTES;
+    final QNm atBound = new QNm("a".repeat(bound));
+    final QNm pastBoundFirst = new QNm("b".repeat(bound) + "x");
+    final QNm pastBoundSecond = new QNm("b".repeat(bound) + "y");
+    final QNm pastBoundThird = new QNm("b".repeat(bound) + "y" + "z".repeat(64));
+    // document() already carries the short name; these are the ones around the bound.
+    final List<QNm> names = List.of(atBound, pastBoundFirst, pastBoundSecond, pastBoundThird);
+    assertEquals(bound, NameKeySerializer.serializedLength(atBound), "fixture: this name ends at the bound");
+    assertTrue(NameKeySerializer.isTruncated(pastBoundFirst), "fixture: this name is past the bound");
+    assertEquals(NameKeySerializer.serializedLength(pastBoundFirst),
+        NameKeySerializer.serializedLength(pastBoundSecond), "fixture: the past-bound names share a stored key");
+
+    final IndexDef definition = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+    final Path path = directory.resolve("json-routable-bound");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(document(names)), JsonNodeTrx.Commit.NO);
+        final Map<QNm, Set<Long>> scanned = scan(trx);
+        assertEquals(names.size() + 1, scanned.size(), "fixture name count");
+        trx.moveToDocumentRoot();
+        final var controller = session.getWtxIndexController(trx.getRevisionNumber());
+        controller.createIndexes(Set.of(definition), trx);
+        assertIndexEqualsScan(controller, trx.getStorageEngineReader(), definition, names, scanned, "at the bound");
+        assertStructurallyValid(trx.getStorageEngineReader(), definition, "at the bound");
+        trx.commit();
+      }
+      Databases.clearGlobalCaches();
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertIndexEqualsScan(session.getRtxIndexController(rtx.getRevisionNumber()), rtx.getStorageEngineReader(),
+            definition, names, scan(rtx), "at the bound after cold reopen");
+        assertStructurallyValid(rtx.getStorageEngineReader(), definition, "at the bound after cold reopen");
+      }
+    } finally {
+      Databases.removeDatabase(path);
+    }
+  }
+
   /** Every name of the family: shared head, a difference at byte 250 and one at bytes 314 to 316. */
   private static List<QNm> family() {
     final List<QNm> names = new ArrayList<>(2 * TAILS);
     for (int head = 0; head < 2; head++) {
       for (int tail = 0; tail < TAILS; tail++) {
-        names.add(new QNm(HEAD + (char) ('0' + head) + GAP + (char) ('0' + tail / 100)
-            + (char) ('0' + tail / 10 % 10) + (char) ('0' + tail % 10)));
+        names.add(name(head, tail));
       }
     }
     return names;
   }
 
+  /** One family member: the head, the byte-250 difference, the gap, then the three-digit tail. */
+  private static QNm name(final int head, final int tail) {
+    return new QNm(HEAD + (char) ('0' + head) + GAP + (char) ('0' + tail / 100) + (char) ('0' + tail / 10 % 10)
+        + (char) ('0' + tail % 10));
+  }
+
+  /** The fixture document: one ordinary short name plus every name of {@code names}, once each. */
   private static String document(final List<QNm> names) {
     final StringBuilder json = new StringBuilder(32 + names.size() * 330).append("[{\"a\":0");
     for (final QNm name : names) {

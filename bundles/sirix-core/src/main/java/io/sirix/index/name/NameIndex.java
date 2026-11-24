@@ -42,12 +42,18 @@ public interface NameIndex<B, L extends ChangeListener> {
     if (includes.size() == 1 && excludes.isEmpty()) {
       final QNm name = includes.iterator().next();
       final NodeReferences refs = reader.get(name, SearchMode.EQUAL);
-      if (refs != null) {
-        return Iterators.forArray(refs);
+      if (refs == null) {
+        return Collections.emptyIterator();
       }
-      return Collections.emptyIterator();
+      // A name past the routable bound shares its stored key with every name of the same prefix, so
+      // those postings are candidates (FMT-305). A name inside the bound returns here untouched.
+      final NodeReferences exact = NameIndexRecheck.exactPostings(storageEngineReader, refs, name);
+      return exact == null
+          ? Collections.emptyIterator()
+          : Iterators.forArray(exact);
     }
 
+    final boolean filtering = !includes.isEmpty() || !excludes.isEmpty();
     final Iterator<Map.Entry<QNm, NodeReferences>> entries = reader.iterator();
     return new Iterator<>() {
       private NodeReferences next;
@@ -59,7 +65,25 @@ public interface NameIndex<B, L extends ChangeListener> {
         }
         while (entries.hasNext()) {
           final Map.Entry<QNm, NodeReferences> entry = entries.next();
+          if (!filtering) {
+            // Every posting is included, so no name decides anything — and the entry's key stays
+            // undeserialized, which is one name fewer to build per entry of the whole index.
+            next = entry.getValue();
+            return true;
+          }
           final QNm name = entry.getKey();
+          // A stored key within one character of the bound may be the shared prefix of several
+          // names, and then the entry's own key cannot decide inclusion for its postings: each node
+          // is asked for its real name instead (FMT-305).
+          if (NameIndexRecheck.needsRecheck(name)) {
+            final NodeReferences filtered =
+                NameIndexRecheck.filteredPostings(storageEngineReader, entry.getValue(), includes, excludes);
+            if (filtered != null) {
+              next = filtered;
+              return true;
+            }
+            continue;
+          }
           if ((includes.isEmpty() || includes.contains(name)) && !excludes.contains(name)) {
             next = entry.getValue();
             return true;
