@@ -62,7 +62,7 @@ leaves. A requested-slot result never becomes a complete-leaf swizzle.
 `FileChannelReader` decodes these raw images into a reusable native block the page owns and an
 exact-size offset directory, without allocating a writable native frame or building routing
 metadata. The block comes from `CompactImageStore`, whose slabs are charged to the one process
-allocator budget; the decoded page returns it from its own teardown, which runs once and only with
+allocator budget within its permanent commitment allowance, preserving oversized headroom; the decoded page returns it from its own teardown, which runs once and only with
 no live guard, so a lease costs no Java allocation and eviction cannot recycle an image another
 reader still holds. A block is the image rounded up to the pool's class granularity — under an
 eighth of slack — and that rounded size is the image's cache charge, so the compact half's budget

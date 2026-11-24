@@ -73,3 +73,46 @@ can be recycled needs a reader protocol that detects the recycle. The compact im
 page's optimistic stamp — and `releaseMemory()` publishes `closed` and an odd stamp binding before
 it calls the releaser, so the block cannot reach a second owner while a reader can still certify
 reads of the first. That ordering is now an asserted invariant rather than an incidental one.
+
+## Review: slab admission, ownership and cold population
+
+- Symptom: a warm acquisition could race shutdown's zero-lease check and receive an unmapped
+  segment; retained pool slabs could spend oversized headroom; a heap failure before publication
+  could strand a mapped slab; repeated directory copies made cache population quadratic.
+- Trigger: park an acquisition after its free-list pop, or park shutdown after its empty check;
+  reach the permanent commitment ceiling; fail after constructing an unpublished slab's blocks;
+  retain 32,768 images of the 4 KiB class.
+- Root cause: the pool counted handed-out leases but not admissions, used a reclaimable allocation
+  boundary for permanent storage, left newly mapped storage ownerless during heap allocation, and
+  conflated directory capacity with its logical block count.
+- Why tests missed it: concurrent exclusivity alone does not exercise shutdown, an unlimited arena
+  stub cannot expose allocator headroom, ordinary allocation does not inject publication failure,
+  and repeated reuse of one block never exercises directory growth.
+- Regression tests: `CompactImageStoreTest` drives both shutdown orders with latches, checks cleanup
+  and primary/suppressed failures with empty, expanding and spare-capacity directories, and bounds
+  directory allocations while checking carved counts. `FrameAllocationAdmissionTest` fills the
+  permanent allowance, closes every image and still allocates an oversized buffer; reclaimable
+  slabs retain their separate allowance. The existing permanent-commit witness also exercises the
+  new slab entry point. These tests are derived from the compact image storage contract in
+  `HOT_INDEX_SPECIFICATION.md` §3.2. The focused command and outcome belong to this review phase's
+  verification result; no failing-before run was made because this phase permits one final
+  verification after all fixes.
+- Lesson: lifetime determines commitment admission; shutdown admission must count work before
+  ownership is published; newly mapped resources need rollback until publication; cold population
+  needs a counted growth budget alongside the warmed allocation budget.
+
+### Vision check for the review fixes
+
+| Rule | Verdict | Evidence |
+| --- | --- | --- |
+| The advantages to protect | aligns | Pool fixes leave revision and fragment reconstruction unchanged. |
+| History is the data model | aligns | No persisted bytes or revision operations change. |
+| Speed is part of correctness | aligns | Geometric directory growth; unchanged zero-byte lease budget; no bound widened. |
+| A fast answer is the same answer | aligns | Shutdown refuses admission safely; existing decode fallback remains. |
+| The specification decides behaviour | aligns | Storage invariants and regression witnesses written before implementation. |
+| One format, one route | aligns | Separate permanent/reclaimable admission feeds the same slab mapping and release. |
+| A library first | aligns | No service or deployment dependency added. |
+| Scope | aligns | Changes stay within native compact-image ownership and its allocator. |
+
+Contract class: restore. These fixes restore safe ownership and the existing commitment limits;
+performance measurement and mutation gates remain owned by the outer pipeline.

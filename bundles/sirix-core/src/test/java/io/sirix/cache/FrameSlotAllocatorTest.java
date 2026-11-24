@@ -724,6 +724,7 @@ class FrameSlotAllocatorTest {
     // refuse beyond budget − headroom…
     assertTrue(allocator.reserveSlabCommittedBytes(budget - budget / 8 - headroom));
     assertFalse(allocator.reserveSlabCommittedBytes(1), "slab commitment must stop short of the oversized headroom");
+    assertNull(allocator.allocatePermanentSlab(4096), "compact pool slabs share the permanent commitment ceiling");
     // …while the oversized arm still admits inside the headroom — the retry that could never say
     // yes after a slab peak now can. It stops at the scratch reserve, the last quarter of the
     // headroom: oversized and slab commitment returns when released, but a reader must not have to

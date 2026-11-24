@@ -99,11 +99,12 @@ import java.util.function.BiFunction;
  * allocating thread.</li>
  * </ul>
  *
- * The budget is split by who may commit its last bytes. Page-frame slot commitment is permanent;
- * idle scratch and cache slabs return their commitment at shared admission. One eighth is an
+ * The budget is split by who may commit its last bytes. Page-frame slots and compact-image pool
+ * slabs have permanent commitment; idle scratch and reclaimable cache slabs return their
+ * commitment at shared admission. One eighth is an
  * execution floor, usable only through exclusive aggregation grants. Of the remaining seven
- * eighths, fresh page frames leave {@code oversizedHeadroom}, and cache slabs and oversized
- * allocations leave {@code scratchReserve}. Ordinary scratch may use those seven eighths. Thus
+ * eighths, fresh page frames and permanent slabs leave {@code oversizedHeadroom}, and reclaimable
+ * cache slabs and oversized allocations leave {@code scratchReserve}. Ordinary scratch may use those seven eighths. Thus
  * caches cannot consume the execution floor or the read/serialization progress reserve, even when
  * no scan is active. Idle aggregation regions must transfer their charge out of the execution floor
  * before being retained for reuse.
@@ -654,6 +655,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   @Override
   public @Nullable MemorySegment allocateSlab(final long bytes) {
+    return allocateSlab(bytes, false);
+  }
+
+  @Override
+  public @Nullable MemorySegment allocatePermanentSlab(final long bytes) {
+    return allocateSlab(bytes, true);
+  }
+
+  private @Nullable MemorySegment allocateSlab(final long bytes, final boolean permanent) {
     if (bytes <= 0) {
       throw new IllegalArgumentException("slab size must be positive: " + bytes);
     }
@@ -666,13 +676,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       final long mapped = bytes > Long.MAX_VALUE - SLAB_PAGE_BYTES
           ? Long.MAX_VALUE
           : (bytes + SLAB_PAGE_BYTES - 1) & -SLAB_PAGE_BYTES;
-      if (mapped > contentCommitLimit()) {
+      if (mapped > (permanent ? frameCommitLimit() : contentCommitLimit())) {
         return null;
       }
-      final MemorySegment reused = reuseRecycledSlab(mapped);
+      final MemorySegment reused = permanent ? null : reuseRecycledSlab(mapped);
       return reused != null
           ? reused
-          : mapFreshSlab(mapped);
+          : mapFreshSlab(mapped, permanent);
     } finally {
       slabOperations.decrementAndGet();
     }
@@ -721,8 +731,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
   // failure is rethrown.
   @SuppressWarnings("java:S1181")
-  private @Nullable MemorySegment mapFreshSlab(final long mapped) {
-    if (!reserveCommittedBytes(mapped)) {
+  private @Nullable MemorySegment mapFreshSlab(final long mapped, final boolean permanent) {
+    if (!(permanent ? reserveSlabCommittedBytes(mapped) : reserveCommittedBytes(mapped))) {
       return null;
     }
     final MemorySegment segment;
@@ -2089,8 +2099,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // The compact-image blocks are slabs of this allocator held by one process-wide store. Idle
     // ones are read by nobody, so give them back before the live-slab check below; a leased block
     // belongs to a cached page and the store refuses, which that check then reports.
-    if (this == INSTANCE) {
-      CompactImageStore.getInstance().releaseIdleSlabs();
+    if (this == INSTANCE && !CompactImageStore.getInstance().releaseIdleSlabs()) {
+      throw new IllegalStateException("FrameSlotAllocator shutdown with compact-image leases or acquisitions in flight");
     }
     // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
     // lease; unmapping it here would be a use-after-free.
@@ -2141,7 +2151,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
   }
 
-  private static Throwable retainCleanupFailure(final Throwable primary, final Throwable secondary) {
+  static Throwable retainCleanupFailure(final Throwable primary, final Throwable secondary) {
     if (primary == null) {
       return secondary;
     }

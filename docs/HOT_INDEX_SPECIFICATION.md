@@ -793,6 +793,17 @@ Body fields below follow the shared envelope and any extension block.
 - `PageKind.deserializeHOTLeaf` rejects entry counts above 512 and packed byte counts outside
   `[0, 65536]`. Ordinary decoding reserves the full writable offset directory; compact raw decoding
   follows the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
+- **Compact image storage contract**: a warmed block lease and return MUST allocate zero Java
+  bytes. Shutdown MUST stop lease admission before checking both in-flight acquisitions and live
+  leases; it MUST refuse cleanup while either exists and MUST refuse new leases after successful
+  cleanup. Permanent pool slabs MUST share the frame commitment ceiling, preserving oversized
+  headroom, while reclaimable slabs keep their existing ceiling. Before a newly mapped slab is
+  published, every failure MUST return it to the allocator and preserve the primary exception,
+  retaining a cleanup exception as suppressed when possible. Directory growth MUST copy O(n)
+  references over n carved blocks; reported block and byte counts MUST exclude spare directory
+  capacity. Regression witnesses: `CompactImageStoreTest`, `FrameAllocationAdmissionTest`,
+  `FrameSlotAllocatorTest.slabCommitmentCannotStarveTheOversizedHeadroom`, and
+  `CompactImageStorageAllocationBudgetTest`. 
 - **Zero-copy ordinary decoding**: if the input is a `MemorySegmentBytesIn` with a
   `DecompressionResult`, `slotMemory` becomes a slice of the decompressed buffer and ownership of
   that buffer transfers to the page;

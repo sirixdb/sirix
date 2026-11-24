@@ -59,8 +59,10 @@ import org.jspecify.annotations.Nullable;
  * a decode finds its size class empty, so it is bounded by the live peak of concurrently held
  * compact images — which the fragment cache's own byte budget bounds, now
  * truthfully: a page's cache charge is its block's size, which is what the image really retains.
- * Blocks stay committed once mapped, like frame slots. When the allocator refuses a slab (its budget
- * is spent) {@link #acquire(long)} returns {@code null} and the caller keeps its own fallback.
+ * Blocks stay committed once mapped, like frame slots, within the permanent frame commitment
+ * allowance: the pool can never consume the headroom that keeps large-value buffers allocatable.
+ * When the allocator refuses a slab (its budget is spent) {@link #acquire(long)} returns
+ * {@code null} and the caller keeps its own fallback.
  */
 public final class CompactImageStore {
 
@@ -106,6 +108,16 @@ public final class CompactImageStore {
 
   private final AtomicInteger leasedBlocks = new AtomicInteger();
 
+  private final AtomicInteger acquisitions = new AtomicInteger();
+
+  private volatile boolean stopped;
+
+  private volatile @Nullable Runnable leasePublicationHook;
+
+  private volatile @Nullable Runnable slabReleaseHook;
+
+  private volatile @Nullable Runnable slabPublicationHook;
+
   /** Test-only: refuse every lease, so the caller's fallback path runs. */
   private volatile boolean refuseLeases;
 
@@ -143,10 +155,33 @@ public final class CompactImageStore {
     if (byteSize < 0L) {
       throw new IllegalArgumentException("byteSize=" + byteSize);
     }
-    if (byteSize > MAX_BLOCK_BYTES || refuseLeases) {
+    if (byteSize > MAX_BLOCK_BYTES || refuseLeases || stopped) {
       return null;
     }
-    return classes[classIndexFor((int) byteSize)].take();
+    acquisitions.incrementAndGet();
+    try {
+      if (stopped) {
+        return null;
+      }
+      final SizeClass sizeClass = classes[classIndexFor((int) byteSize)];
+      final Block block = sizeClass.take();
+      if (block == null) {
+        return null;
+      }
+      final Runnable hook = leasePublicationHook;
+      if (hook != null) {
+        hook.run();
+      }
+      if (stopped) {
+        sizeClass.push(block);
+        return null;
+      }
+      block.lease();
+      leasedBlocks.incrementAndGet();
+      return block;
+    } finally {
+      acquisitions.decrementAndGet();
+    }
   }
 
   /**
@@ -210,23 +245,45 @@ public final class CompactImageStore {
   }
 
   /**
-   * Give every slab back to the allocator, for a shutdown that must find no live slab bytes.
+   * Stop lease admission and give every slab back to the allocator for shutdown.
    *
-   * <p>
-   * Refuses while any block is leased: a page still holds it, and the slab's pages would be unmapped
-   * under a reader. Callers run this when no decode can be in flight.
-   * </p>
-   *
-   * @return {@code true} if the store is now empty, {@code false} if blocks are still leased
+   * @return {@code true} if the store is now empty and stopped, {@code false} if a lease or
+   *         acquisition still holds it; a refusal restores admission so shutdown can be retried
    */
   public synchronized boolean releaseIdleSlabs() {
-    if (leasedBlocks.get() != 0) {
+    stopped = true;
+    if (acquisitions.get() != 0 || leasedBlocks.get() != 0) {
+      stopped = false;
       return false;
+    }
+    final Runnable hook = slabReleaseHook;
+    if (hook != null) {
+      hook.run();
     }
     for (final SizeClass sizeClass : classes) {
       sizeClass.releaseSlabs(allocator);
     }
     return true;
+  }
+
+  void setLeasePublicationHookForTesting(final @Nullable Runnable hook) {
+    leasePublicationHook = hook;
+  }
+
+  void setSlabReleaseHookForTesting(final @Nullable Runnable hook) {
+    slabReleaseHook = hook;
+  }
+
+  void setSlabPublicationHookForTesting(final @Nullable Runnable hook) {
+    slabPublicationHook = hook;
+  }
+
+  int directoryGrowthCount() {
+    int total = 0;
+    for (final SizeClass sizeClass : classes) {
+      total += sizeClass.directoryGrowths;
+    }
+    return total;
   }
 
   /** Test-only: make every {@link #acquire(long)} refuse, exercising the caller's fallback. */
@@ -339,6 +396,10 @@ public final class CompactImageStore {
     /** Index to block. Replaced wholesale under the monitor, read without it; never shrinks. */
     private volatile Block[] blocks = new Block[0];
 
+    private volatile int carvedBlocks;
+
+    private volatile int directoryGrowths;
+
     private final List<MemorySegment> slabs = new ArrayList<>();
 
     SizeClass(final CompactImageStore store, final int blockBytes) {
@@ -349,26 +410,18 @@ public final class CompactImageStore {
     }
 
     int blockCount() {
-      return blocks.length;
+      return carvedBlocks;
     }
 
     long slabBytes() {
-      return (long) blocks.length * blockBytes;
+      return (long) carvedBlocks * blockBytes;
     }
 
     /** Pop a free block, growing the class once when none is free. */
     @Nullable
     Block take() {
-      Block block = pop();
-      if (block == null) {
-        block = grow();
-        if (block == null) {
-          return null;
-        }
-      }
-      block.lease();
-      store.leasedBlocks.incrementAndGet();
-      return block;
+      final Block block = pop();
+      return block == null ? grow() : block;
     }
 
     void give(final Block block) {
@@ -423,19 +476,40 @@ public final class CompactImageStore {
       if (raced != null) {
         return raced;
       }
+      final Block[] current = blocks;
+      final int base = carvedBlocks;
+      final int required = Math.addExact(base, blocksPerSlab);
       final MemorySegment slab = mapSlab();
       if (slab == null) {
         return null;
       }
-      final Block[] current = blocks;
-      final int base = current.length;
-      final Block[] grown = Arrays.copyOf(current, base + blocksPerSlab);
-      for (int i = 0; i < blocksPerSlab; i++) {
-        grown[base + i] = new Block(this, slab.asSlice((long) i * blockBytes, blockBytes), base + i);
+      final Block[] grown;
+      try {
+        grown = required > current.length
+            ? Arrays.copyOf(current, (int) Math.max(required, Math.min(Integer.MAX_VALUE, current.length * 2L)))
+            : current;
+        for (int i = 0; i < blocksPerSlab; i++) {
+          grown[base + i] = new Block(this, slab.asSlice((long) i * blockBytes, blockBytes), base + i);
+        }
+        final Runnable hook = store.slabPublicationHook;
+        if (hook != null) {
+          hook.run();
+        }
+        slabs.add(slab);
+      } catch (final RuntimeException | Error failure) {
+        Arrays.fill(current, base, Math.min(required, current.length), null);
+        try {
+          store.allocator.releaseSlab(slab);
+        } catch (final RuntimeException | Error cleanupFailure) {
+          FrameSlotAllocator.retainCleanupFailure(failure, cleanupFailure);
+        }
+        throw failure;
       }
-      slabs.add(slab);
-      // Publish the blocks before any index of them can reach the free stack.
       blocks = grown;
+      carvedBlocks = required;
+      if (grown != current) {
+        directoryGrowths++;
+      }
       for (int i = 1; i < blocksPerSlab; i++) {
         push(grown[base + i]);
       }
@@ -445,7 +519,7 @@ public final class CompactImageStore {
     /** One more slab, or {@code null} when the allocator has no room or is shutting down. */
     private @Nullable MemorySegment mapSlab() {
       try {
-        return store.allocator.allocateSlab((long) blocksPerSlab * blockBytes);
+        return store.allocator.allocatePermanentSlab((long) blocksPerSlab * blockBytes);
       } catch (final IllegalStateException shutDown) {
         // A shutdown between the empty free stack and this request. The caller's fallback keeps the
         // decode correct; nothing about this request is worth failing a read for.
@@ -459,6 +533,7 @@ public final class CompactImageStore {
       }
       slabs.clear();
       blocks = new Block[0];
+      carvedBlocks = 0;
       freeStack.set(EMPTY_TOP);
     }
   }

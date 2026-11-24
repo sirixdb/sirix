@@ -3,6 +3,7 @@
  */
 package io.sirix.cache;
 
+import io.sirix.cache.CompactImageStore.Block;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -10,6 +11,8 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.lang.foreign.MemorySegment;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -85,6 +88,42 @@ final class FrameAllocationAdmissionTest {
       FrameSlotAllocator.setPressureListener(previous);
       allocator.shutdown();
     }
+  }
+
+  @Test
+  void permanentSlabsLeaveOversizedHeadroomAfterTheirOwnersClose() {
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(64 * MIB);
+    final CompactImageStore store = new CompactImageStore(allocator);
+    final MemorySegment frames = allocator.allocatePermanentSlab(51 * MIB + 768 * KIB);
+    assertNotNull(frames);
+    try {
+      final List<Block> images = new ArrayList<>(4);
+      try {
+        for (int i = 0; i < 4; i++) {
+          final Block image = store.acquire(65536);
+          assertNotNull(image);
+          images.add(image);
+        }
+        assertNull(store.acquire(65536), "permanent commitment stops at 52 MiB, preserving the 4 MiB headroom");
+        assertEquals(52 * MIB, allocator.getSlabBytes());
+      } finally {
+        for (final Block image : images) {
+          image.run();
+        }
+      }
+      assertNull(allocator.allocatePermanentSlab(1));
+      final MemorySegment oversized = allocator.allocate(512 * KIB);
+      assertNotNull(oversized);
+      allocator.release(oversized);
+      final MemorySegment reclaimable = allocator.allocateSlab(512 * KIB);
+      assertNotNull(reclaimable, "reclaimable storage retains its existing admission allowance");
+      assertTrue(allocator.releaseSlab(reclaimable));
+    } finally {
+      assertTrue(store.releaseIdleSlabs());
+      assertTrue(allocator.releaseSlab(frames));
+      allocator.shutdown();
+    }
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
   }
 
   @ParameterizedTest

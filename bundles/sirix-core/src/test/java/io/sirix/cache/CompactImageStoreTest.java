@@ -14,12 +14,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.sirix.cache.CompactImageStore.Block;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -179,7 +181,7 @@ final class CompactImageStoreTest {
       assertNotNull(block);
       block.segment().fill((byte) 7);
       block.run();
-      assertEquals((byte) 0x5A, block.segment().get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0L));
+      assertEquals((byte) 0x5A, block.segment().get(ValueLayout.JAVA_BYTE, 0L));
     } finally {
       allocator.closeArena();
     }
@@ -202,6 +204,158 @@ final class CompactImageStoreTest {
       assertEquals(0L, store.pooledBytes());
     } finally {
       allocator.closeArena();
+    }
+  }
+
+  @Test
+  void shutdownCannotUnmapAnAcquisitionBeforeHandout() throws Exception {
+    final SlabRecordingAllocator allocator = new SlabRecordingAllocator();
+    final CompactImageStore store = storeOver(allocator);
+    final ExecutorService worker = Executors.newSingleThreadExecutor();
+    final CountDownLatch popped = new CountDownLatch(1);
+    final CountDownLatch proceed = new CountDownLatch(1);
+    try {
+      final Block warm = store.acquire(4096);
+      assertNotNull(warm);
+      warm.run();
+      store.setLeasePublicationHookForTesting(() -> pause(popped, proceed));
+      final Future<Block> pending = worker.submit(() -> store.acquire(4096));
+      assertTrue(popped.await(10, TimeUnit.SECONDS));
+      assertEquals(0, store.leasedBlockCount());
+      assertFalse(store.releaseIdleSlabs());
+      assertEquals(0, allocator.releasedSlabCount());
+      proceed.countDown();
+      final Block acquired = pending.get(10, TimeUnit.SECONDS);
+      assertSame(warm, acquired);
+      acquired.segment().fill((byte) 7);
+      acquired.run();
+      assertTrue(store.releaseIdleSlabs());
+      assertNull(store.acquire(4096));
+    } finally {
+      proceed.countDown();
+      worker.shutdownNow();
+      assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
+      allocator.closeArena();
+    }
+  }
+
+  @Test
+  void shutdownStopsWarmAndColdAdmissionBeforeUnmapping() throws Exception {
+    final SlabRecordingAllocator allocator = new SlabRecordingAllocator();
+    final CompactImageStore store = storeOver(allocator);
+    final ExecutorService worker = Executors.newSingleThreadExecutor();
+    final CountDownLatch checked = new CountDownLatch(1);
+    final CountDownLatch proceed = new CountDownLatch(1);
+    try {
+      final Block warm = store.acquire(4096);
+      assertNotNull(warm);
+      warm.run();
+      store.setSlabReleaseHookForTesting(() -> pause(checked, proceed));
+      final Future<Boolean> shutdown = worker.submit(store::releaseIdleSlabs);
+      assertTrue(checked.await(10, TimeUnit.SECONDS));
+      assertNull(store.acquire(4096));
+      assertNull(store.acquire(8192));
+      assertEquals(1, allocator.slabCount());
+      assertEquals(0, allocator.releasedSlabCount());
+      proceed.countDown();
+      assertTrue(shutdown.get(10, TimeUnit.SECONDS));
+      assertEquals(1, allocator.releasedSlabCount());
+      assertEquals(0, store.blockCount());
+      assertEquals(0L, store.pooledBytes());
+      assertNull(store.acquire(4096));
+    } finally {
+      proceed.countDown();
+      worker.shutdownNow();
+      assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
+      allocator.closeArena();
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"0,false", "0,true", "4,false", "4,true", "12,false", "12,true"})
+  void unpublishedSlabIsReturnedWithoutReplacingTheFailure(final int heldBlocks,
+      final boolean cleanupFails) {
+    final SlabRecordingAllocator allocator = new SlabRecordingAllocator();
+    try {
+      final CompactImageStore store = storeOver(allocator);
+      final List<Block> held = new ArrayList<>();
+      for (int i = 0; i < heldBlocks; i++) {
+        final Block block = store.acquire(4096);
+        assertNotNull(block);
+        held.add(block);
+      }
+      final OutOfMemoryError failure = new OutOfMemoryError("publication failed");
+      final IllegalStateException cleanupFailure = new IllegalStateException("cleanup failed");
+      allocator.releaseFailure = cleanupFails ? cleanupFailure : null;
+      store.setSlabPublicationHookForTesting(() -> {
+        throw failure;
+      });
+      assertSame(failure, assertThrows(OutOfMemoryError.class, () -> store.acquire(4096)));
+      assertEquals(heldBlocks / 4 + 1, allocator.slabCount());
+      assertEquals(1, allocator.releasedSlabCount());
+      assertEquals(heldBlocks, store.blockCount());
+      assertEquals((long) heldBlocks * 4096, store.pooledBytes());
+      assertEquals(cleanupFails ? 1 : 0, failure.getSuppressed().length);
+      if (cleanupFails) {
+        assertSame(cleanupFailure, failure.getSuppressed()[0]);
+      }
+      allocator.releaseFailure = null;
+      store.setSlabPublicationHookForTesting(null);
+      final Block recovered = store.acquire(4096);
+      assertNotNull(recovered);
+      recovered.segment().fill((byte) 9);
+      recovered.run();
+      for (final Block block : held) {
+        block.segment().fill((byte) 8);
+        block.run();
+      }
+      assertTrue(store.releaseIdleSlabs());
+      assertEquals(allocator.slabCount(), allocator.releasedSlabCount());
+    } finally {
+      allocator.closeArena();
+    }
+  }
+
+  @Test
+  void coldPopulationHasLinearDirectoryCopyCost() {
+    final SlabRecordingAllocator allocator = new SlabRecordingAllocator();
+    try {
+      final CompactImageStore store = storeOver(allocator);
+      final int count = 32768;
+      final List<Block> held = new ArrayList<>(count);
+      for (int i = 0; i < count; i++) {
+        final Block block = store.acquire(4096);
+        assertNotNull(block);
+        held.add(block);
+        if (i == 8) {
+          assertEquals(12, store.blockCount());
+          assertEquals(49152L, store.pooledBytes());
+        }
+      }
+      assertEquals(count, store.blockCount());
+      assertEquals((long) count * 4096, store.pooledBytes());
+      assertTrue(store.directoryGrowthCount() <= 14,
+          "32768 blocks need at most fourteen geometric directory allocations, not 8192");
+      for (final Block block : held) {
+        block.run();
+      }
+      assertTrue(store.releaseIdleSlabs());
+      assertEquals(0, store.blockCount());
+      assertEquals(0L, store.pooledBytes());
+    } finally {
+      allocator.closeArena();
+    }
+  }
+
+  private static void pause(final CountDownLatch arrived, final CountDownLatch proceed) {
+    arrived.countDown();
+    try {
+      if (!proceed.await(10, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("timed out waiting for the test operation");
+      }
+    } catch (final InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException(interrupted);
     }
   }
 
@@ -266,6 +420,8 @@ final class CompactImageStoreTest {
 
     private volatile boolean refuse;
 
+    private @Nullable RuntimeException releaseFailure;
+
     void refuseSlabs(final boolean value) {
       refuse = value;
     }
@@ -283,7 +439,7 @@ final class CompactImageStoreTest {
     }
 
     @Override
-    public synchronized @Nullable MemorySegment allocateSlab(final long bytes) {
+    public synchronized @Nullable MemorySegment allocatePermanentSlab(final long bytes) {
       if (refuse) {
         return null;
       }
@@ -295,6 +451,9 @@ final class CompactImageStoreTest {
     @Override
     public synchronized boolean releaseSlab(final MemorySegment slab) {
       released.add(slab);
+      if (releaseFailure != null) {
+        throw releaseFailure;
+      }
       return true;
     }
 

@@ -85,6 +85,10 @@ public interface MemorySegmentAllocator {
     return null;
   }
 
+  default @Nullable MemorySegment allocatePermanentSlab(final long bytes) {
+    return null;
+  }
+
   /**
    * Release a slab obtained from {@link #allocateSlab(long)}. Idempotent: a stale or repeated release
    * is rejected and returns {@code false}.
