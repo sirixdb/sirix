@@ -132,8 +132,8 @@ test {
     systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     // Partition the existing test task rather than copying its JVM flags, engine configuration,
     // or diagnostic properties into new tasks. Without this property existing test selection
-    // is unchanged. The same class-file pattern and its complement cover every
-    // current and future test class, including the property test's nested classes.
+    // is unchanged. Complementary class-file filters cover every current and future test class
+    // exactly once within each platform's partition, keeping nested property classes together.
     def coreTestLane = providers.gradleProperty('coreTestLane').orNull
     def hotPropertyClasses = 'io/sirix/index/hot/HOTStructuralPropertyTest*.class'
     // The macOS, Windows and Linux ARM lanes run with -PexcludeHeavyTests, which removes most of

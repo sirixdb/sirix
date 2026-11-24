@@ -114,7 +114,7 @@ Error Prone 2.51.0 ([upstream bug](https://github.com/google/error-prone/issues/
 ## SonarCloud analysis
 
 The `Run Sonarqube` job in [`gradle.yml`](../.github/workflows/gradle.yml) runs on pushes to
-`main` and eligible pull requests targeting `main`, after all Linux core lanes and the query/Kotlin
+`main` and eligible pull requests targeting `main`, after all Linux x86 core lanes and the query/Kotlin
 lane succeed. The core lanes upload raw JaCoCo probes and test results; the query/Kotlin lane uploads
 reports and test results. The scanner restores the same run's compiled modules and reports and never
 reruns tests. The checkout matches the producing
