@@ -36,8 +36,9 @@
   re-leased can no longer certify an optimistic reader's stamp (with the pool's poison-on-release
   switch on, so a stale read is certain rather than lucky), and the pool's refusal still answers the
   read. `io.sirix.cache.CompactImageStoreTest` covers the pool: the class table holds every legal
-  image size with under an eighth of slack, a released block is leased again rather than carved, a
-  release of an unleased block is refused, and eight threads never receive the same block twice.
+  image size with bounded slack under `CompactImageStore.blockBytesFor`, a released block is leased
+  again rather than carved, a release of an unleased block is refused, and eight threads never receive
+  the same block twice.
   On the parent commit the new tests fail (no lease exists to count); the two existing exact-size
   assertions in `HOTCompactFragmentReadTest` and `HOTCompactFragmentBatchReadTest` are now bounds on
   the slack instead, because a pooled block is its image rounded up to a class.

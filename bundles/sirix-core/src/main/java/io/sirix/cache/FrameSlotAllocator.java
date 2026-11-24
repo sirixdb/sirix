@@ -101,14 +101,14 @@ import java.util.function.BiFunction;
  * </ul>
  *
  * The budget is split by who may commit its last bytes. Page-frame slots and compact-image pool
- * slabs have permanent commitment; idle scratch and reclaimable cache slabs return their
- * commitment at shared admission. One eighth is an
- * execution floor, usable only through exclusive aggregation grants. Of the remaining seven
- * eighths, fresh page frames and permanent slabs leave {@code oversizedHeadroom}, and reclaimable
- * cache slabs and oversized allocations leave {@code scratchReserve}. Ordinary scratch may use those seven eighths. Thus
- * caches cannot consume the execution floor or the read/serialization progress reserve, even when
- * no scan is active. Idle aggregation regions must transfer their charge out of the execution floor
- * before being retained for reuse.
+ * slabs have permanent commitment; idle scratch and reclaimable cache slabs return their commitment
+ * at shared admission. One eighth is an execution floor, usable only through exclusive aggregation
+ * grants. Of the remaining seven eighths, fresh page frames and permanent slabs leave
+ * {@code oversizedHeadroom}, and reclaimable cache slabs and oversized allocations leave
+ * {@code scratchReserve}. Ordinary scratch may use those seven eighths. Thus caches cannot consume
+ * the execution floor or the read/serialization progress reserve, even when no scan is active. Idle
+ * aggregation regions must transfer their charge out of the execution floor before being retained
+ * for reuse.
  *
  * <h2>Sirix's persistent tree-of-tries, and why it fits this allocator</h2>
  *
@@ -692,10 +692,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       final long mapped = bytes > Long.MAX_VALUE - SLAB_PAGE_BYTES
           ? Long.MAX_VALUE
           : (bytes + SLAB_PAGE_BYTES - 1) & -SLAB_PAGE_BYTES;
-      if (mapped > (permanent ? frameCommitLimit() : contentCommitLimit())) {
+      if (mapped > (permanent
+          ? frameCommitLimit()
+          : contentCommitLimit())) {
         return null;
       }
-      final MemorySegment reused = permanent ? null : reuseRecycledSlab(mapped);
+      final MemorySegment reused = permanent
+          ? null
+          : reuseRecycledSlab(mapped);
       return reused != null
           ? reused
           : mapFreshSlab(mapped, permanent);
@@ -748,13 +752,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // failure is rethrown.
   @SuppressWarnings("java:S1181")
   private @Nullable MemorySegment mapFreshSlab(final long mapped, final boolean permanent) {
-    if (!(permanent ? reserveSlabCommittedBytes(mapped) : reserveCommittedBytes(mapped))) {
+    if (!(permanent
+        ? reserveSlabCommittedBytes(mapped)
+        : reserveCommittedBytes(mapped))) {
       return null;
     }
     final VirtualMemory memory = slabMemory;
     final MemorySegment segment;
     try {
-      segment = permanent ? memory.tryReserve(mapped) : memory.reserve(mapped);
+      segment = permanent
+          ? memory.tryReserve(mapped)
+          : memory.reserve(mapped);
       if (segment == null) {
         refundCommittedBytes(mapped);
         return null;
@@ -2132,10 +2140,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
           + " slab operation(s); retry after admission completes");
     }
     // The compact-image blocks are slabs of this allocator held by one process-wide store. Idle
-    // ones are read by nobody, so give them back before the live-slab check below; a leased block
-    // belongs to a cached page and the store refuses, which that check then reports.
+    // ones are read by nobody, so give them back before the live-slab check below. Refuse shutdown
+    // while the store still has a lease or acquisition, before any pool slab can be unmapped.
     if (this == INSTANCE && !CompactImageStore.getInstance().releaseIdleSlabs()) {
-      throw new IllegalStateException("FrameSlotAllocator shutdown with compact-image leases or acquisitions in flight");
+      throw new IllegalStateException(
+          "FrameSlotAllocator shutdown with compact-image leases or acquisitions in flight");
     }
     // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
     // lease; unmapping it here would be a use-after-free.

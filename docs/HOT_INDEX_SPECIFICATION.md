@@ -806,7 +806,12 @@ Body fields below follow the shared envelope and any extension block.
   slabs or foreign-owned oversized allocations. `CompactImageAllocatorLifecycleTest` exercises
   these transitions and the real budget-ceiling fallback.
 - **Compact image storage contract**: a warmed block lease and return MUST allocate zero Java
-  bytes. Shutdown MUST stop lease admission before checking both in-flight acquisitions and live
+  bytes. Each decoded page owns its block and returns it only after closing and invalidating its
+  optimistic stamp, with no live guard. Pool refusal falls back to GC-owned native storage.
+  Class rounding follows `CompactImageStore.blockBytesFor`; cache charges follow the
+  [projection cache accounting](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
+  Slabs remain committed until shutdown, including when all their blocks have been returned.
+  Shutdown MUST stop lease admission before checking both in-flight acquisitions and live
   leases; it MUST refuse cleanup while either exists and MUST refuse new leases after successful
   cleanup. Permanent pool slabs MUST share the frame commitment ceiling, preserving oversized
   headroom, while reclaimable slabs keep their existing ceiling. Before a newly mapped slab is

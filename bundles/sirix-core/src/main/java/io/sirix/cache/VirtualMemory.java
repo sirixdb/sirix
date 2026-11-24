@@ -40,7 +40,12 @@ public interface VirtualMemory {
   /** Reserve {@code bytes} of stable virtual address space without committing physical memory. */
   MemorySegment reserve(long bytes);
 
-  @Nullable MemorySegment tryReserve(long bytes);
+  /**
+   * Like {@link #reserve(long)}, but returns {@code null} for native reservation refusal. Java heap
+   * and backend failures still propagate.
+   */
+  @Nullable
+  MemorySegment tryReserve(long bytes);
 
   /**
    * Make a freshly handed-out slot writable.
@@ -49,13 +54,18 @@ public interface VirtualMemory {
    */
   boolean commitFresh(MemorySegment slot);
 
+  /**
+   * Make a fresh slot writable, returning {@code false} only for native commitment refusal. Returns
+   * {@code true} when writable, including POSIX's no-op; heap and backend failures propagate.
+   */
   boolean tryCommitFresh(MemorySegment slot);
 
   /** Discard contents so the next read observes zeros; the address stays valid and committed. */
   void discardToZeros(MemorySegment segment);
 
   /**
-   * Release a whole region reserved by {@link #reserve} (shutdown only).
+   * Release a whole region reserved by {@link #reserve} or {@link #tryReserve}, once no reader can
+   * access it, including failed allocation rollback and slab reclamation.
    *
    * @return {@code true} when this call performed a successful native release
    */
@@ -78,6 +88,13 @@ public interface VirtualMemory {
     return result == POPULATED;
   }
 
+  /**
+   * Like {@link #populate(MemorySegment)}, reporting native refusal without throwing.
+   *
+   * @return {@link #POPULATED}, {@link #POPULATE_UNAVAILABLE} for lazy first touch, or
+   *         {@link #POPULATE_REFUSED} when the kernel cannot back the pages; Java heap failures still
+   *         propagate
+   */
   default int tryPopulate(final MemorySegment segment) {
     return POPULATE_UNAVAILABLE;
   }

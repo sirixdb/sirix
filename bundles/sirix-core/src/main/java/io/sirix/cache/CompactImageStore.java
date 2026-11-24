@@ -21,31 +21,31 @@ import org.jspecify.annotations.Nullable;
  * one automatic arena per decoded fragment, on the per-fragment read path. That arena is a Java
  * allocation (a 24-byte {@code ArenaImpl} whenever escape analysis fails to remove it, which is
  * decided per compilation) plus a session and a {@code Cleaner} registration whose cost follows GC
- * timing — about 230 bytes of heap per decode, measured, for memory whose exact lifetime the decoder
- * already knows. The project's low-latency rules forbid a per-element allocation on a read path.
+ * timing — about 230 bytes of heap per decode, measured, for memory whose exact lifetime the
+ * decoder already knows. The project's low-latency rules forbid a per-element allocation on a read
+ * path.
  *
  * <h2>What a lease is</h2>
  *
  * {@link #acquire(long)} hands out a {@link Block}: a native segment of the smallest size class
- * that holds the request — the table steps in eighths of a power of two, so a block wastes under an
- * eighth of itself — carved from a slab charged to the one process budget. The block
- * IS its own releaser ({@link Block#run()}), so the decoder hands it to the page as the frame owner
- * the page already supports and nothing is allocated for the ownership handle either. In steady
- * state an acquire is one compare-and-set pop and a release one push: zero bytes of Java heap per
- * decode.
+ * that holds the request, following {@link #blockBytesFor(int)} — carved from a slab charged to the
+ * one process budget. The block IS its own releaser ({@link Block#run()}), so the decoder hands it
+ * to the page as the frame owner the page already supports and nothing is allocated for the
+ * ownership handle either. In steady state the free-stack pop and push, admission counters and
+ * lease state changes allocate no Java heap.
  *
  * <h2>Lifetime, and why recycling is safe here</h2>
  *
  * <ul>
  * <li><b>One owner.</b> A leased block belongs to exactly one page. The page releases it from
- * {@code HOTLeafPage.releaseMemory()}, which runs once (won by a {@code closed} compare-and-set) and
- * only with no live guard, so eviction can never recycle a block under a guarded reader.</li>
- * <li><b>Optimistic readers.</b> A page publishes {@code closed == true} and makes its stamp binding
- * odd <em>before</em> invoking this releaser, so a reader that snapshotted the page's stamp before
- * the close cannot validate reads taken over bytes a later lease overwrote: validation sees the odd
- * binding or the closed flag and re-resolves. That ordering is the whole safety argument for giving
- * these images a recyclable owner, and it is the argument the frame-slot allocator's version
- * counters make for ordinary page frames.</li>
+ * {@code HOTLeafPage.releaseMemory()}, which runs once (won by a {@code closed} compare-and-set)
+ * and only with no live guard, so eviction can never recycle a block under a guarded reader.</li>
+ * <li><b>Optimistic readers.</b> A page publishes {@code closed == true} and makes its stamp
+ * binding odd <em>before</em> invoking this releaser, so a reader that snapshotted the page's stamp
+ * before the close cannot validate reads taken over bytes a later lease overwrote: validation sees
+ * the odd binding or the closed flag and re-resolves. That ordering is the whole safety argument
+ * for giving these images a recyclable owner, and it is the argument the frame-slot allocator's
+ * version counters make for ordinary page frames.</li>
  * <li><b>Dirty on reuse.</b> Nothing zeroes a recycled block, exactly as for frame slots: the
  * decoder overwrites the first {@code used} bytes and no consumer may read a compact image outside
  * {@code [0, used)}. A compact image is immutable, so a block's slack is never written.</li>
@@ -55,14 +55,13 @@ import org.jspecify.annotations.Nullable;
  *
  * A compact image that is never closed now leaks its block, where the collector used to reclaim it:
  * the same contract as every other HOT leaf, whose allocator frame leaks just as a missing close
- * leaks a file handle, and {@link #leasedBlockCount()} makes it observable. The pool grows only when
- * a decode finds its size class empty, so it is bounded by the live peak of concurrently held
- * compact images — which the fragment cache's own byte budget bounds, now
- * truthfully: a page's cache charge is its block's size, which is what the image really retains.
- * Blocks stay committed once mapped, like frame slots, within the permanent frame commitment
- * allowance: the pool can never consume the headroom that keeps large-value buffers allocatable.
- * When the allocator refuses a slab (its budget is spent) {@link #acquire(long)} returns
- * {@code null} and the caller keeps its own fallback.
+ * leaks a file handle, and {@link #leasedBlockCount()} makes it observable. The pool grows only
+ * when a decode finds its size class empty, retaining each class's peak slab capacity until
+ * shutdown. A page's native cache charge is its block's size; the cache budget bounds retained
+ * images, not the pool's idle slabs. Blocks stay committed once mapped, like frame slots, within
+ * the permanent frame commitment allowance: the pool can never consume the headroom that keeps
+ * large-value buffers allocatable. When the allocator refuses a slab (its budget is spent)
+ * {@link #acquire(long)} returns {@code null} and the caller keeps its own fallback.
  */
 public final class CompactImageStore {
 
@@ -70,10 +69,10 @@ public final class CompactImageStore {
   private static final int CLASSES_PER_OCTAVE = 8;
 
   /**
-   * Block granularity below {@link #SUBDIVIDED_FROM}, and the smallest block. A compact image's
-   * cache charge is its block, so the slack a class rounds up to is footprint: eight classes per
-   * octave hold it under an eighth of the block, and 64 bytes at the bottom, where an eighth would
-   * be a handful of bytes and the page's own heap is orders of magnitude larger anyway.
+   * Block granularity below {@link #SUBDIVIDED_FROM}, and the smallest block. A compact image's cache
+   * charge is its block, so the slack a class rounds up to is footprint: eight classes per octave
+   * hold it under an eighth of the block, and 64 bytes at the bottom, where an eighth would be a
+   * handful of bytes and the page's own heap is orders of magnitude larger anyway.
    */
   static final int MIN_BLOCK_BYTES = 64;
 
@@ -147,8 +146,8 @@ public final class CompactImageStore {
    *
    * @param byteSize the image size the caller is about to write
    * @return the leased block, or {@code null} when this store cannot serve the request — it exceeds
-   *         {@link #MAX_BLOCK_BYTES}, the allocator is not initialised, or its budget has no room
-   *         for another slab. The caller then falls back to its own allocation.
+   *         {@link #MAX_BLOCK_BYTES}, admission is stopped, or the allocator refuses another slab.
+   *         The caller then falls back to its own allocation.
    * @throws IllegalArgumentException if {@code byteSize} is negative
    */
   public @Nullable Block acquire(final long byteSize) {
@@ -327,16 +326,16 @@ public final class CompactImageStore {
 
     /**
      * Next free block of the same class, or -1 at the bottom of the stack. Written before the push
-     * compare-and-set and read after the pop's, both on {@link SizeClass#freeStack}, which orders
-     * the two.
+     * compare-and-set and read after the pop's, both on {@link SizeClass#freeStack}, which orders the
+     * two.
      */
     private int nextFree = -1;
 
     /**
      * {@link #LEASED} while a page owns this block. An {@link AtomicInteger} rather than a
-     * {@code VarHandle} on a field of this class: its compare-and-set reaches {@code Unsafe}
-     * directly, where an interpreted {@code VarHandle} access boxes its arguments — which would put
-     * an allocation on the lease path for as long as it takes the JIT to compile it.
+     * {@code VarHandle} on a field of this class: its compare-and-set reaches {@code Unsafe} directly,
+     * where an interpreted {@code VarHandle} access boxes its arguments — which would put an allocation
+     * on the lease path for as long as it takes the JIT to compile it.
      */
     private final AtomicInteger state = new AtomicInteger(FREE);
 
@@ -375,13 +374,13 @@ public final class CompactImageStore {
   }
 
   /**
-   * One power-of-two block size: its slabs, its blocks, and a lock-free stack of the free ones.
+   * One fixed block size: its slabs, its blocks, and a lock-free stack of the free ones.
    *
    * <p>
-   * The stack is a Treiber stack over block indices with a counter in the high half of the head
-   * word, so a pop cannot be fooled by a block that was taken and given back between its read of the
-   * head and its compare-and-set. Growth is the only path that takes the monitor, and only when a
-   * decode found the stack empty.
+   * The stack is a Treiber stack over block indices with a counter in the high half of the head word,
+   * so a pop cannot be fooled by a block that was taken and given back between its read of the head
+   * and its compare-and-set. Growth is the only path that takes the monitor, and only when a decode
+   * found the stack empty.
    * </p>
    */
   static final class SizeClass {
@@ -427,7 +426,9 @@ public final class CompactImageStore {
     @Nullable
     Block take() {
       final Block block = pop();
-      return block == null ? grow() : block;
+      return block == null
+          ? grow()
+          : block;
     }
 
     void give(final Block block) {

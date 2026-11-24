@@ -85,15 +85,23 @@ public interface MemorySegmentAllocator {
     return null;
   }
 
+  /**
+   * Allocate a slab with the ownership and release protocol of {@link #allocateSlab(long)}, but admit
+   * it within the permanent frame-commitment allowance, preserving oversized headroom.
+   *
+   * @param bytes the positive requested size, rounded up to whole pages
+   * @return the slab, or {@code null} on budget, native reservation/commitment/population or shutdown
+   *         refusal; heap and publication failures propagate
+   */
   default @Nullable MemorySegment allocatePermanentSlab(final long bytes) {
     return null;
   }
 
   /**
-   * Release a slab obtained from {@link #allocateSlab(long)}. Idempotent: a stale or repeated release
-   * is rejected and returns {@code false}.
+   * Release a slab obtained from {@link #allocateSlab(long)} or {@link #allocatePermanentSlab(long)}.
+   * Idempotent: a stale or repeated release is rejected and returns {@code false}.
    *
-   * @param slab the exact segment returned by {@link #allocateSlab(long)}
+   * @param slab the exact segment returned by either slab allocation method
    * @return whether this call returned the slab to the allocator and removed its live-slab charge;
    *         recycled backing may remain committed for reuse
    */
