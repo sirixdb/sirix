@@ -144,3 +144,13 @@ ledger reading and the trend CLI, without using implementation text as evidence.
 Repository sources were unchanged during mutation execution. This is a focused supplement rather
 than a new whole-module count. Details are in the
 [postmortem](../../../../docs/postmortems/benchmark-night-calendar-validation.md).
+
+## Deterministic allocation leg supplement
+
+CONV-302's allocation-leg requirement added `_jvm_flag` and `_allocation_per_operation` to
+`bench_ledger.py` and made `_jmh_row` divide an allocation leg's figure by its batch. The operators
+above were applied one at a time to every site of those three functions, and `test_bench_ledger`
+ran against each mutant in a temporary copy: 42 mutants, 34 of them on changed lines, all killed,
+no survivors and no equivalents. The tests take their oracle from CONV-302's leg settings and from
+JMH's single-shot result shape (bytes per batch); no test was written to kill a mutant. This is a
+focused supplement, not a whole-module recount.

@@ -239,6 +239,25 @@ def jmh_result(
     return result
 
 
+# The JVM settings CONV-302 requires of an allocation leg.
+DETERMINISTIC_LEG = ["-Xmx3g", "-XX:+UnlockExperimentalVMOptions", "-XX:+UseEpsilonGC", "-XX:-DoEscapeAnalysis"]
+
+
+def allocation_leg(
+    method: str,
+    bytes_per_op: float,
+    *,
+    batch: int = 100_000,
+    jvm_args: list[str] | None = None,
+    mode: str = "ss",
+) -> dict[str, Any]:
+    """A JMH single-shot result as an allocation leg writes it: the GC profiler reports bytes per batch."""
+    result = jmh_result(method, 1.0e9, mode=mode, alloc=bytes_per_op * batch)
+    result["measurementBatchSize"] = batch
+    result["jvmArgs"] = list(DETERMINISTIC_LEG if jvm_args is None else jvm_args)
+    return result
+
+
 class EnvironmentCaptureTest(unittest.TestCase):
 
     def test_capture_holds_every_required_reading(self) -> None:
@@ -1309,7 +1328,7 @@ class ImporterTest(unittest.TestCase):
 
     def test_an_allocation_leg_contributes_no_timed_measurement(self) -> None:
         rows = bench_ledger.jmh_rows(
-            [jmh_result("warmLookup", 24.5, alloc=167.99)],
+            [allocation_leg("warmLookup", 167.99)],
             arm="baseline",
             pair=None,
             position=None,
@@ -1336,10 +1355,50 @@ class ImporterTest(unittest.TestCase):
             rows,
         )
 
+    def test_an_allocation_legs_figure_is_bytes_per_operation_of_its_batch(self) -> None:
+        for batch in (1, 1_000, 100_000):
+            with self.subTest(batch=batch):
+                (row,) = bench_ledger.jmh_rows(
+                    [allocation_leg("compactMaterialize", 1020.25, batch=batch)],
+                    arm="candidate",
+                    pair=None,
+                    position=None,
+                    process=1,
+                    allocation_leg=True,
+                )
+                self.assertAlmostEqual(1020.25, row["value"], places=9)
+
+    def test_the_last_occurrence_of_a_jvm_flag_decides(self) -> None:
+        enabled_again = DETERMINISTIC_LEG + ["-XX:+DoEscapeAnalysis"]
+        with self.assertRaisesRegex(LedgerError, "escape analysis disabled"):
+            bench_ledger.jmh_rows(
+                [allocation_leg("m", 1.0, jvm_args=enabled_again)],
+                arm="baseline",
+                pair=None,
+                position=None,
+                process=1,
+                allocation_leg=True,
+            )
+
     def test_jmh_results_that_break_the_protocol_are_refused(self) -> None:
         cases = {
             "a timed process must not carry the allocation profiler": ([jmh_result("m", 1.0, alloc=8.0)], {}),
-            "an allocation leg needs the GC profiler": ([jmh_result("m", 1.0)], {"allocation_leg": True}),
+            "an allocation leg needs the GC profiler": (
+                [{**allocation_leg("m", 1.0), "secondaryMetrics": {}}],
+                {"allocation_leg": True},
+            ),
+            "an allocation leg needs escape analysis disabled": (
+                [allocation_leg("m", 1.0, jvm_args=["-XX:+UseEpsilonGC"])],
+                {"allocation_leg": True},
+            ),
+            "an allocation leg needs a collector that never collects": (
+                [allocation_leg("m", 1.0, jvm_args=["-XX:-DoEscapeAnalysis"])],
+                {"allocation_leg": True},
+            ),
+            "an allocation leg needs single-shot mode with a batch size": (
+                [allocation_leg("m", 1.0, mode="avgt")],
+                {"allocation_leg": True},
+            ),
             "mode 'thrpt' is not a time per operation": ([jmh_result("m", 1.0, mode="thrpt", unit="ops/s")], {}),
             "needs forks = 1, got 3": ([jmh_result("m", 1.0, forks=3)], {}),
             "not a JMH JSON result list": ({"result": []}, {}),
@@ -1636,7 +1695,7 @@ class CommandLineTest(CommandLineCase):
                 self.assertEqual((0, "recorded 1 measurement(s)\n", ""), (status, text, err))
         for arm, alloc in (("baseline", 168.0), ("candidate", 168.2)):
             document = self.base / f"alloc-{arm}.json"
-            document.write_text(json.dumps([jmh_result("warmLookup", 30.0, alloc=alloc)]), encoding="utf-8")
+            document.write_text(json.dumps([allocation_leg("warmLookup", alloc)]), encoding="utf-8")
             self.assertEqual(
                 0,
                 self.cli(

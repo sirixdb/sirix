@@ -307,6 +307,15 @@ most zero. If allocation legs were measured for a judged series, each arm MUST r
 accepted allocation leg; otherwise judgment MUST be refused. A series with no allocation legs has
 no allocation check. Allocation has no threshold and no `unstable` verdict.
 
+An allocation leg MUST count the allocation as the code writes it, the same in every process:
+escape analysis disabled (`-XX:-DoEscapeAnalysis`), a collector that never collects
+(`-XX:+UseEpsilonGC`), and a fixed number of operations per measured iteration (JMH single-shot
+mode with a batch size). Its figure per operation is the iteration's allocation divided by the
+batch size. The figure is therefore an upper bound of what a production process allocates, not the
+share that escape analysis happens to remove in one process: whether C2 scalar-replaces an object is
+decided per compilation, and a collecting run adds allocation that follows GC timing. A leg measured
+otherwise MUST be refused.
+
 ### CONV-303 — Results ledger and conditions record
 
 - **Level:** MUST
@@ -527,6 +536,6 @@ and a weekly/RC crash lane are required follow-up work, not completed by Markdow
 | CONV-205 | [ChangedLineInterceptorTest.java](../tools/pit-changed-lines/src/test/java/io/sirix/pit/ChangedLineInterceptorTest.java); [test_pr_mutation_dispositions.py](../.github/scripts/tests/test_pr_mutation_dispositions.py) `CensusVerdictTest`; [test_pr_mutation.py](../.github/scripts/tests/test_pr_mutation.py) command construction. | partial |
 | CONV-206 | [test_pr_mutation.py](../.github/scripts/tests/test_pr_mutation.py) `FullScopeTest`; workflow review acceptance. | partial |
 | CONV-301 | LifecycleWorkBudgetTest and LifecycleLockAllocationBudgetTest locally verify the lifecycle refinement. **Planned:** Budget inventory reconciliation against executable work-counter assertions; execute the six mapped suites and the Work budgets block for affected product changes. | proposed |
-| CONV-302 | [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py): pinned thresholds, scale invariance, the 2026-11-23 A/A control, shifted arms, the stop rule, allocation and the error cases; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`. | partial |
+| CONV-302 | [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py): pinned thresholds, scale invariance, the 2026-11-23 A/A control, shifted arms, the stop rule, allocation and the error cases; [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py): allocation legs refused unless measured with escape analysis off, a non-collecting collector and a fixed batch, and their figure per operation; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`. | partial |
 | CONV-303 | [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py): capture, fingerprint, conditions record, row schema, append-only file, run directory, importers; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py). | partial |
 | CONV-304 | [test_bench_trend.py](../bundles/sirix-query/bench/common/test_bench_trend.py): steady, step, slow drift, unconfirmed outlier, speedup, unstable series, short history, conditions boundary, report. | partial |
