@@ -57,6 +57,16 @@ public final class HOTMalformedSubtreeDetector {
   /**
    * Resolves a {@link PageReference} to its in-memory {@link Page}. Returning {@code null} marks the
    * reference as unresolvable; the detector then skips that branch rather than failing.
+   *
+   * <p>
+   * The detector reads a leaf's keys out of that leaf's slot memory, so a resolver must hand out
+   * only a leaf whose memory stays the leaf's for as long as the walk lasts: a page the transaction
+   * log owns, or one the caller holds a guard on. A leaf handed out unheld from the page cache is
+   * released by eviction as soon as nobody holds it, its frame is handed out again, and the walk
+   * then judges another page's bytes and reports a sound trie as malformed (issue #1458). The
+   * writer's resolver is {@code AbstractHOTIndexWriter.resolveHOTPageForTraversal(PageReference)},
+   * which holds every cache-backed leaf it resolves until the mutation ends.
+   * </p>
    */
   @FunctionalInterface
   public interface PageResolver {
