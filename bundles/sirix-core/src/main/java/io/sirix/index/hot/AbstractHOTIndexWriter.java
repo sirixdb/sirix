@@ -4036,9 +4036,9 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong BRANCH_SPINE_ORDER_DELEGATED = new AtomicLong();
 
   /**
-   * Whether {@code node} could still name every discriminative key byte after {@code beta} joined
-   * its mask: the span is then measured from whichever of its leading bit and {@code beta} comes
-   * first to whichever of its last bit and {@code beta} comes last (FMT-305).
+   * Whether {@code node} could still name every discriminative key byte after {@code beta} joined its
+   * mask: the span is then measured from whichever of its leading bit and {@code beta} comes first to
+   * whichever of its last bit and {@code beta} comes last (FMT-305).
    */
   private static boolean nodeCanNameBit(final HOTIndirectPage node, final int beta) {
     if (node.isDiscriminativeBit(beta)) {
@@ -4051,8 +4051,8 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Whether every node a branch insert of {@code beta} could extend — the route from the root down
-   * to the node just below {@code d*} — could still name its discriminative key bytes afterwards.
+   * Whether every node a branch insert of {@code beta} could extend — the route from the root down to
+   * the node just below {@code d*} — could still name its discriminative key bytes afterwards.
    */
   private static boolean routeCanNameBranchBit(final LeafNavigationResult navResult, final int insertDepth,
       final int beta) {
@@ -5793,6 +5793,10 @@ public abstract class AbstractHOTIndexWriter<K> {
    * the complete frontier.
    *
    * <p>
+   * Every mask-plus-bit union must fit one routing level: integration assumes a flat fold and cannot
+   * propagate a height increase caused by multi-level assembly to a full ancestor.
+   *
+   * <p>
    * <b>Crash-safety.</b> The walk is conservative: it never returns {@code true} when integrate would
    * throw. It checks {@link HOTIncrementalInsert#canMergeBiNodeAtExistingDiscBit} at every level
    * whose mask contains the running β, and {@link HOTIncrementalInsert#freshBitLandsBesideSlot} where
@@ -5805,7 +5809,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @param childSlots the child slot taken at each spine node
    * @param currentDepth the depth at which the initial BiNode integrates
    * @param biNodeBeta the initial BiNode's discriminative bit
-   * @return {@code true} when the cascade passes the fold-order and existing-child trie checks
+   * @return {@code true} when the cascade passes the single-level layout, fold-order and
+   *         existing-child trie checks
    */
   private boolean canIntegrateBiNodeCleanly(HOTIndirectPage[] pathNodes, int[] childSlots, int currentDepth,
       int biNodeBeta) {

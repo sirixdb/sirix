@@ -495,9 +495,8 @@ public final class HOTBulkBuilder {
             maxChildHeight = h;
           }
         }
-        final HOTIndirectPage result =
-            assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, indexType,
-                indirectPageKeyAllocator);
+        final HOTIndirectPage result = assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision,
+            indexType, indirectPageKeyAllocator);
         return result;
       } catch (final RuntimeException | Error failure) {
         closeFreshPage(pendingChild, failure);
@@ -569,8 +568,8 @@ public final class HOTBulkBuilder {
    * <p>
    * A bit set no layout can name — a span of eight bytes or more whose last byte is past
    * {@link HOTIndirectPage#MAX_EXTRACTION_BYTE_POSITION} — is spread over levels by
-   * {@link #assembleOverLevels} instead (FMT-305). Reducing an extraction position to its byte
-   * would route the node on an unrelated key byte, which is a wrong answer and not a slower one.
+   * {@link #assembleOverLevels} instead (FMT-305). Reducing an extraction position to its byte would
+   * route the node on an unrelated key byte, which is a wrong answer and not a slower one.
    *
    * @param discBits discriminative bits as sorted ascending absolute (MSB-first) positions;
    *        {@code discBits[0]} is the assembled node's MSB
@@ -580,8 +579,8 @@ public final class HOTBulkBuilder {
    *        ({@code 1 + max child height})
    * @param revision the revision stamped onto the created page
    * @param pageKeyAllocator supplier of a fresh persistent page key
-   * @return a freshly allocated compound node; the root of a small nest of them when one node
-   *         cannot name every discriminative byte
+   * @return a freshly allocated compound node; the root of a small nest of them when one node cannot
+   *         name every discriminative byte
    */
   static HOTIndirectPage assembleIndirect(final int[] discBits, final int[] partials, final PageReference[] children,
       final int height, final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
@@ -593,10 +592,10 @@ public final class HOTBulkBuilder {
   }
 
   /**
-   * The routable case of {@link #assembleIndirect}: one node whose layout names every
-   * discriminative byte. Refuses a set that no layout can name rather than reduce a position to its
-   * field's width (FMT-305); {@link #assembleIndirect} keeps that refusal unreachable by spreading
-   * such a set over levels first.
+   * The routable case of {@link #assembleIndirect}: one node whose layout names every discriminative
+   * byte. Refuses a set that no layout can name rather than reduce a position to its field's width
+   * (FMT-305); {@link #assembleIndirect} keeps that refusal unreachable by spreading such a set over
+   * levels first.
    */
   private static HOTIndirectPage assembleRoutableIndirect(final int[] discBits, final int[] partials,
       final PageReference[] children, final int height, final int revision, final LongSupplier pageKeyAllocator) {
@@ -604,8 +603,8 @@ public final class HOTBulkBuilder {
     final int firstByte = discBits[0] >>> 3;
     final int lastByte = discBits[discBits.length - 1] >>> 3;
     if (!HOTIndirectPage.canNameDiscriminativeBytes(firstByte, lastByte)) {
-      throw new IllegalArgumentException("HOT indirect node cannot name discriminative key byte " + lastByte
-          + " from base byte " + firstByte);
+      throw new IllegalArgumentException(
+          "HOT indirect node cannot name discriminative key byte " + lastByte + " from base byte " + firstByte);
     }
     final long pageKey = pageKeyAllocator.getAsLong();
 
@@ -668,8 +667,8 @@ public final class HOTBulkBuilder {
    * of distinct discriminative positions is unchanged, so the height bound still holds.
    *
    * <p>
-   * This is the cold path of a rare key geometry — names that share a long head and differ again
-   * far past it — so it favours clarity over the allocation discipline of the routable case.
+   * This is the cold path of a rare key geometry — names that share a long head and differ again far
+   * past it — so it favours clarity over the allocation discipline of the routable case.
    *
    * @param discBits discriminative bits as sorted ascending absolute positions
    * @param partials per-child sparse-path partials over {@code discBits}, ascending
@@ -709,9 +708,9 @@ public final class HOTBulkBuilder {
     }
     groupStart[groups] = children.length;
     if (groups < 2) {
-      throw new IllegalArgumentException("HOT indirect node cannot name discriminative key byte "
-          + (discBits[columns - 1] >>> 3) + " from base byte " + firstByte
-          + ", and its leading " + prefix + " of " + columns + " bits branch no child");
+      throw new IllegalArgumentException(
+          "HOT indirect node cannot name discriminative key byte " + (discBits[columns - 1] >>> 3) + " from base byte "
+              + firstByte + ", and its leading " + prefix + " of " + columns + " bits branch no child");
     }
 
     final PageReference[] topChildren = new PageReference[groups];
@@ -750,8 +749,8 @@ public final class HOTBulkBuilder {
 
   /**
    * Build the subtree of one run of children that {@link #assembleOverLevels} could not tell apart,
-   * over the bits of {@code discBits} from {@code prefix} on that actually vary inside the run. A
-   * bit the whole run agrees on branches nothing there and is left out, which keeps the node's mask
+   * over the bits of {@code discBits} from {@code prefix} on that actually vary inside the run. A bit
+   * the whole run agrees on branches nothing there and is left out, which keeps the node's mask
    * exactly its own branching bits.
    */
   private static HOTIndirectPage assembleGroup(final int[] discBits, final int[] partials,

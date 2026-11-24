@@ -404,7 +404,8 @@ Byte order equals key order within each serializer, except:
 | CAS integers outside `long` | saturate to `Long.MIN_VALUE`/`MAX_VALUE` (`:688-718`) | `narrowsNumeric` |
 | CAS floats | narrowed through `float` (`:296-304`) | `narrowsNumeric` returns true when `(double)(float)d != d` |
 | CAS keys of different type ids | the type id is not part of `CASValue.compareTo` (`idx/redblacktree/keyvalue/CASValue.java:81-90`) | range scans only use a byte range when `isByteOrderPreserving(type)` (`idx/cas/CASIndex.java:654-675`) |
-| NAME Unicode strings containing supplementary code points | UTF-8 byte order can differ from the UTF-16 order used by `QNm.cmp` | NAME lookups use EQUAL or filtered full scans, never ordered bounds |
+| Bounded NAME keys | stored buckets need not preserve original-name order or identity | the NAME candidate-bucket contract in §2.3.2 |
+| NAME Unicode strings containing supplementary code points | UTF-8 byte order can differ from the UTF-16 order used by `QNm.cmp` | the NAME facade uses EQUAL or filtered full scans; direct cursors follow §2.3.2 |
 | VALIDTIME store byte | raw byte vs. `Byte.compare` agree only for 0..127; all discriminators in `ValidTimeKey` are in that range | none needed |
 
 CAS keys are designed "INJECTIVE first and order-preserving second" (`hot/CASKeySerializer.java:150-151`).
@@ -2238,10 +2239,9 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
 4. **Remaining excess height on skewed descending inserts**: see §2.6 for the normalization
    contract, regression bounds and remaining frontier-shape follow-up under issue #1452.
 5. **I5 coverage for oversized mutation scopes** (§5.3 item 2).
-6. **`short` MSB index** for keys longer than 4 095 bytes (NAME keys are not bounded) (§2.6.1).
-7. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
+6. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
    misdirected write below the newest leaf image is detected only structurally, if at all.
-8. **Height optimality** under multi-entry leaves is not established; the paper states the structure is
+7. **Height optimality** under multi-entry leaves is not established; the paper states the structure is
    not minimum-height (§5.3 item 3).
 
 ---

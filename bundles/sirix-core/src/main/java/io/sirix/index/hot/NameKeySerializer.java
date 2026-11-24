@@ -79,23 +79,37 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     final String localName = checkedLocalName(key);
     final String uri = key.getNamespaceURI();
     final boolean localAscii = AsciiKeyBytes.isAsciiPrefix(localName, localName.length());
-    final byte[] localBytes = localAscii ? null : localName.getBytes(StandardCharsets.UTF_8);
-    final int localLength = localBytes == null ? localName.length() : localBytes.length;
+    final byte[] localBytes = localAscii
+        ? null
+        : localName.getBytes(StandardCharsets.UTF_8);
+    final int localLength = localBytes == null
+        ? localName.length()
+        : localBytes.length;
     final boolean uriAscii = AsciiKeyBytes.isAsciiPrefix(uri, uri.length());
-    final byte[] uriBytes = uriAscii ? null : uri.getBytes(StandardCharsets.UTF_8);
-    final int uriLength = uriBytes == null ? uri.length() : uriBytes.length;
+    final byte[] uriBytes = uriAscii
+        ? null
+        : uri.getBytes(StandardCharsets.UTF_8);
+    final int uriLength = uriBytes == null
+        ? uri.length()
+        : uriBytes.length;
     int uriZeros = 0;
     for (int index = uri.indexOf(0); index >= 0; index = uri.indexOf(0, index + 1)) {
       uriZeros++;
     }
-    final boolean truncated = (long) localLength + (uri.isEmpty() ? 0L
+    final boolean truncated = (long) localLength + (uri.isEmpty()
+        ? 0L
         : (long) NAMESPACE_FRAMING_BYTES + uriLength + uriZeros) > MAX_NAME_KEY_BYTES;
     int pos = offset;
-    int budget = MAX_NAME_KEY_BYTES - (truncated ? 1 : 0);
+    int budget = MAX_NAME_KEY_BYTES - (truncated
+        ? 1
+        : 0);
     if (!uri.isEmpty()) {
-      final int firstLocalWidth = localBytes == null ? 1 : utf8Width(localBytes[0] & 0xFF);
+      final int firstLocalWidth = localBytes == null
+          ? 1
+          : utf8Width(localBytes[0] & 0xFF);
       final int uriBudget = budget - NAMESPACE_FRAMING_BYTES - firstLocalWidth;
-      final int uriPrefix = (long) uriLength + uriZeros <= uriBudget ? uriLength
+      final int uriPrefix = (long) uriLength + uriZeros <= uriBudget
+          ? uriLength
           : prefixWithinBudget(uri, uriBytes, uriLength, uriBudget, true);
       dest[pos++] = NAMESPACE_SENTINEL;
       final int start = pos;
@@ -125,7 +139,8 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
       dest[pos++] = 0;
       budget -= NAMESPACE_FRAMING_BYTES + uriPrefix + uriZeros;
     }
-    final int localPrefix = localLength <= budget ? localLength
+    final int localPrefix = localLength <= budget
+        ? localLength
         : prefixWithinBudget(localName, localBytes, localLength, budget, false);
     writeEncodedPrefix(localName, localBytes, localPrefix, dest, pos);
     pos += localPrefix;
@@ -141,14 +156,18 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     return length > 0 && bytes[offset + length - 1] == TRUNCATION_MARKER;
   }
 
-  private static int prefixWithinBudget(final String value, final byte @Nullable [] encoded,
-      final int length, final int budget, final boolean escapeZeros) {
+  private static int prefixWithinBudget(final String value, final byte @Nullable [] encoded, final int length,
+      final int budget, final boolean escapeZeros) {
     int bytes = 0;
     int prefix = 0;
     while (prefix < length) {
-      final int leadingByte = encoded == null ? value.charAt(prefix) : encoded[prefix] & 0xFF;
+      final int leadingByte = encoded == null
+          ? value.charAt(prefix)
+          : encoded[prefix] & 0xFF;
       final int width = utf8Width(leadingByte);
-      final int storedWidth = width + (escapeZeros && leadingByte == 0 ? 1 : 0);
+      final int storedWidth = width + (escapeZeros && leadingByte == 0
+          ? 1
+          : 0);
       if (bytes + storedWidth > budget) {
         break;
       }
@@ -165,7 +184,9 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     if (leadingByte < 0xE0) {
       return 2;
     }
-    return leadingByte < 0xF0 ? 3 : 4;
+    return leadingByte < 0xF0
+        ? 3
+        : 4;
   }
 
   private static String checkedLocalName(final QNm key) {
@@ -176,8 +197,8 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     return localName;
   }
 
-  private static void writeEncodedPrefix(final String value, final byte @Nullable [] encoded,
-      final int length, final byte[] dest, final int offset) {
+  private static void writeEncodedPrefix(final String value, final byte @Nullable [] encoded, final int length,
+      final byte[] dest, final int offset) {
     if (encoded == null) {
       AsciiKeyBytes.writeAsciiPrefix(value, length, dest, offset);
     } else {
@@ -208,7 +229,9 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     if (length == 0) {
       throw new IllegalArgumentException("Invalid QNm serialization: zero length");
     }
-    final int contentLength = length - (isTruncated(bytes, offset, length) ? 1 : 0);
+    final int contentLength = length - (isTruncated(bytes, offset, length)
+        ? 1
+        : 0);
     if (contentLength == 0) {
       throw new IllegalArgumentException("Invalid QNm serialization: missing name");
     }

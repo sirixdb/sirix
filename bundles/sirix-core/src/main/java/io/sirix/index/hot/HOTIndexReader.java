@@ -116,7 +116,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
    * @param key the logical index key
    * @param mode must be {@link SearchMode#EQUAL}; range modes go via
    *        {@link #range(Comparable, Comparable)} / {@link #iteratorFrom(Comparable, boolean)}
-   * @return reassembled NodeReferences, or {@code null} if no chunks exist for {@code key}
+   * @return reassembled NodeReferences after any NAME residual, or {@code null} if no posting matches
    * @throws IllegalArgumentException if {@code mode} is not {@link SearchMode#EQUAL}. This parameter
    *         used to be documented as "reserved" and silently ignored, i.e. every mode got the
    *         {@code EQUAL} answer; memoization makes that assumption load-bearing, because the cache
@@ -147,9 +147,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Create a stored-key bucket cursor between the serialized {@code fromKey} and {@code toKey},
-   * both inclusive. Marked NAME buckets carry candidates; selecting expanded names requires the
-   * NAME residual.
+   * Create a stored-key bucket cursor between the serialized {@code fromKey} and {@code toKey}, both
+   * inclusive. Marked NAME buckets carry candidates; selecting expanded names requires the NAME
+   * residual.
    *
    * @param fromKey start key (inclusive)
    * @param toKey end key (inclusive)
@@ -159,9 +159,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Create a stored-key bucket cursor between the serialized {@code fromKey} and {@code toKey}
-   * with explicit bound inclusivity. Marked NAME buckets expose {@link RawKeyBytes} metadata for
-   * the caller's exact-name residual; the decoded shortened key cannot select their postings.
+   * Create a stored-key bucket cursor between the serialized {@code fromKey} and {@code toKey} with
+   * explicit bound inclusivity. Marked NAME buckets expose {@link RawKeyBytes} metadata for the
+   * caller's exact-name residual; the decoded shortened key cannot select their postings.
    *
    * <p>
    * Inclusivity is enforced by the cursor itself, on each group's logical key bytes — see
@@ -182,9 +182,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Iterate every stored-key bucket in the index, aggregating its chunk slots. Marked NAME
-   * buckets retain their candidate postings and {@link RawKeyBytes} marker metadata. An unfiltered
-   * scan includes every posting; a name-selecting consumer applies the NAME residual.
+   * Iterate every stored-key bucket in the index, aggregating its chunk slots. Marked NAME buckets
+   * retain their candidate postings and {@link RawKeyBytes} marker metadata. An unfiltered scan
+   * includes every posting; a name-selecting consumer applies the NAME residual.
    */
   @Override
   public Iterator<Map.Entry<K, NodeReferences>> iterator() {
@@ -202,7 +202,10 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     return new ChunkAggregatingIterator(fromPrefix, inclusive, null, true);
   }
 
-  /** Iterate stored-key buckets below serialized {@code toKey}; NAME residuals follow {@link #iteratorFrom}. */
+  /**
+   * Iterate stored-key buckets below serialized {@code toKey}; NAME residuals follow
+   * {@link #iteratorFrom}.
+   */
   public Iterator<Map.Entry<K, NodeReferences>> iteratorTo(K toKey, boolean inclusive) {
     requireNonNull(toKey);
     final byte[] toPrefix = serializeKeyToArray(toKey);

@@ -660,7 +660,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * @param key the logical index key
    * @param mode must be {@link SearchMode#EQUAL}; range modes go through the reader's
    *        {@code range}/{@code iteratorFrom} APIs
-   * @return reassembled NodeReferences, or {@code null} if no chunks exist for {@code key}
+   * @return reassembled NodeReferences after any NAME residual, or {@code null} if no posting matches
    * @throws IllegalArgumentException if {@code mode} is not {@link SearchMode#EQUAL}. This parameter
    *         used to be documented as advisory and silently ignored, i.e. every mode got the
    *         {@code EQUAL} answer; the guard is shared with {@link HOTIndexReader#get} so a caller

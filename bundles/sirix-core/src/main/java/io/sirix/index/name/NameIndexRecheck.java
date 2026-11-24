@@ -25,8 +25,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The exact re-check a NAME read owes a name longer than {@link NameKeySerializer#MAX_NAME_KEY_BYTES}
- * (FMT-305).
+ * The exact re-check a NAME read owes a name longer than
+ * {@link NameKeySerializer#MAX_NAME_KEY_BYTES} (FMT-305).
  *
  * <p>
  * Such a name is stored under a prefix of itself, so several names can share one key and its
@@ -72,8 +72,7 @@ public final class NameIndexRecheck {
     }
     final String namespaceURI = name.getNamespaceURI();
     final String localName = name.getLocalName();
-    return filteredPostings(reader, candidates,
-        (uri, local) -> namespaceURI.equals(uri) && localName.equals(local));
+    return filteredPostings(reader, candidates, (uri, local) -> namespaceURI.equals(uri) && localName.equals(local));
   }
 
   static NamePredicate filter(final Set<QNm> includes, final Set<QNm> excludes) {
@@ -101,8 +100,8 @@ public final class NameIndexRecheck {
     return localNames != null && localNames.contains(localName);
   }
 
-  static @Nullable NodeReferences filteredPostings(final StorageEngineReader reader,
-      final NodeReferences candidates, final NamePredicate keep) {
+  static @Nullable NodeReferences filteredPostings(final StorageEngineReader reader, final NodeReferences candidates,
+      final NamePredicate keep) {
     requireNonNull(reader, "reader");
     requireNonNull(candidates, "candidates");
     requireNonNull(keep, "keep");
@@ -125,8 +124,12 @@ public final class NameIndexRecheck {
       if (localName == null) {
         continue;
       }
-      final String uri = uriKey == -1 ? "" : reader.getName(uriKey, NodeKind.NAMESPACE);
-      if (keep.test(uri == null ? "" : uri, localName)) {
+      final String uri = uriKey == -1
+          ? ""
+          : reader.getName(uriKey, NodeKind.NAMESPACE);
+      if (keep.test(uri == null
+          ? ""
+          : uri, localName)) {
         surviving.addLong(nodeKey);
       }
     }

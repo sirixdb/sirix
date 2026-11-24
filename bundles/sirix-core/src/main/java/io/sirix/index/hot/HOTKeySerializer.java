@@ -42,12 +42,10 @@ import java.util.Arrays;
  *
  * <h2>Order Preservation</h2>
  * <p>
- * Implementations MUST ensure that the byte representation preserves the natural ordering of keys:
+ * Byte comparison determines stored-key order. Per-kind ordering guarantees and required residuals
+ * are specified in {@code docs/HOT_INDEX_SPECIFICATION.md}, section 2.4. NAME's bounded
+ * candidate-bucket encoding and read contract are specified in section 2.3.2.
  * </p>
- * 
- * <pre>
- * ∀ a, b: a.compareTo(b) &lt; 0  ⟺  compare(serialize(a), serialize(b)) &lt; 0
- * </pre>
  *
  * <h2>Zero Allocation</h2>
  * <p>

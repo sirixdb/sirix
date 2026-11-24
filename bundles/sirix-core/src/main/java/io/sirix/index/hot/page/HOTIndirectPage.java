@@ -199,12 +199,12 @@ public final class HOTIndirectPage implements Page {
    * inclusive can be named by one of the two layouts (FMT-305).
    *
    * <p>
-   * {@code SINGLE_MASK} names one base byte position and an eight-byte window, so it covers any
-   * span narrower than eight bytes at any base position. {@code MULTI_MASK} names each
-   * discriminative byte individually in one byte, so it covers a wider span only while every byte
-   * stays at or below {@link #MAX_EXTRACTION_BYTE_POSITION}. A set of bytes outside both is not
-   * routable by a single node: the caller has to split it over levels rather than reduce a position
-   * to its field's width, which would route the node on an unrelated key byte.
+   * {@code SINGLE_MASK} names one base byte position and an eight-byte window, so it covers any span
+   * narrower than eight bytes at any base position. {@code MULTI_MASK} names each discriminative byte
+   * individually in one byte, so it covers a wider span only while every byte stays at or below
+   * {@link #MAX_EXTRACTION_BYTE_POSITION}. A set of bytes outside both is not routable by a single
+   * node: the caller has to split it over levels rather than reduce a position to its field's width,
+   * which would route the node on an unrelated key byte.
    *
    * @param firstByte smallest discriminative key byte of the node
    * @param lastByte largest discriminative key byte of the node
