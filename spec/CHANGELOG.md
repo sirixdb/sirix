@@ -14,6 +14,19 @@
   [CONV-302](CONV-conventions.md#conv-302--timed-acceptance-verdict): their whole-byte figure
   must be identical in every process; the importer refuses other legs.
   The allocation acceptance rule is unchanged.
+
+- Say which discriminative key bytes HOT routing can name, and require every index kind to stay
+  inside them. New [FMT-305](FMT-disk-format.md#fmt-305--hot-routable-key-bound) forbids a
+  persisted indirect node from naming a byte its layout cannot express: a `MULTI_MASK` node may
+  name key bytes 0 to 255 only, a builder that would exceed that must narrow the node and leave
+  the remaining bits to deeper levels, and reducing a byte position to the layout's width is
+  forbidden because it routes on an unrelated key byte. The leading discriminative bit position
+  FMT-302 and the range-scan walk-up read must survive the round trip without overflow or be
+  recomputed on decode. Every index kind must state a key bound rather than inherit one by
+  accident; CAS and VALIDTIME already truncate to one, the NAME index has none. The numeric bound
+  and what a NAME key past it does are recorded as open maintainer choices under the chapter's
+  deferred release implementation.
+
 - Make the PR mutation lane's unit of work its blocking criterion. New
   [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant
   generation to the PR's own lines through a repository interceptor on PIT's tool classpath,
