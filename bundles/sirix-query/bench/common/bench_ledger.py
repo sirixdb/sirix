@@ -1202,7 +1202,7 @@ def _jvm_flag(args: Sequence[str], name: str) -> bool | None:
 
 
 def _allocation_per_operation(result: Mapping[str, Any], profiled: Mapping[str, Any], name: str, source: str) -> float:
-    """CONV-302: a leg counts allocation as written, the same in every process, per operation of its batch."""
+    """CONV-302: allocation as written, per operation of the single-shot batch."""
     args = [str(arg) for arg in result.get("jvmArgs") or []]
     if _jvm_flag(args, "DoEscapeAnalysis") is not False:
         raise LedgerError(f"{source} {name}: an allocation leg needs escape analysis disabled (-XX:-DoEscapeAnalysis)")

@@ -252,8 +252,8 @@ counterfactuals are qualified in [the mutation notes](../docs/lifecycle-mutation
 - **Level:** MUST
 - **Status:** partial
 - **Since:** 1.0
-- **Code:** [timed_gate.py](../bundles/sirix-query/bench/common/timed_gate.py) `difference_and_threshold`, `classify`, `stop_states`, `judge`, `allocation_median`, `collect_allocation`; [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `stop`, `judge`; [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh) for `SIRIX_BENCH_TIER=gate`; [DEVELOPMENT.md](../docs/DEVELOPMENT.md#the-benchmark-protocol).
-- **Verified by:** [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py) `ThresholdTest`, `VerdictTest`, `AAControlTest`, `StopRuleTest`, `BoundaryTest`, `JudgeTest`, `OtherRowsTest`, `AllocationTest`, `ReportTextTest`, `CommandLineTest`; [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `RunDirectoryTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`.
+- **Code:** [timed_gate.py](../bundles/sirix-query/bench/common/timed_gate.py) `difference_and_threshold`, `classify`, `stop_states`, `judge`, `allocation_median`, `collect_allocation`; [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `stop`, `judge`, `_jvm_flag`, `_allocation_per_operation`, `_jmh_row`; [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh) for `SIRIX_BENCH_TIER=gate`; [DEVELOPMENT.md](../docs/DEVELOPMENT.md#the-benchmark-protocol).
+- **Verified by:** [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py) `ThresholdTest`, `VerdictTest`, `AAControlTest`, `StopRuleTest`, `BoundaryTest`, `JudgeTest`, `OtherRowsTest`, `AllocationTest`, `ReportTextTest`, `CommandLineTest`; [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `RunDirectoryTest`, `ImporterTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`.
 - **Evidence class:** code+test (local execution, historical mutation results and pending remeasurement recorded in [MUTATION_DISPOSITIONS.md](../bundles/sirix-query/bench/common/MUTATION_DISPOSITIONS.md); the `Benchmark protocol tooling` CI job arrives with the same change and has not reported for this baseline)
 - **Gap/note:** Replaces the fixed bar (paired point estimate at most +1%, lower 95% bound at most 0), which failed identical code in about 81% of ten-pair runs of a twelve-benchmark gate (A/A control of 2026-11-23: `main` against itself, 17 accepted pairs, kept as the fixture of `AAControlTest`). Decided by the maintainer on 2026-11-23, with the floor at 4%. No CI job runs a timed comparison: the rule binds whoever drives one, and the analysis refuses a gate run that did not end at its stop point. Of the kits only the ClickBench cold rounds apply the stop rule themselves; other drivers call `bench_ledger.py stop`. Pair admission on outside load is the driver's and is recorded, not checked. A threshold learned from ledger history, as an outlier fence over a benchmark's earlier paired differences, is a later refinement and is not specified here.
 
@@ -309,22 +309,22 @@ no allocation check. Allocation has no threshold and no `unstable` verdict.
 
 An allocation leg MUST count the allocation as the code writes it:
 escape analysis disabled (`-XX:-DoEscapeAnalysis`), the Graal JIT disabled
-(`-XX:-UseJVMCICompiler`, so the top-tier compiler is HotSpot C2 on every JDK), a collector that
-never collects (`-XX:+UseEpsilonGC`), and a fixed number of operations per measured iteration (JMH single-shot
-mode with a batch size). Its figure per operation is the iteration's allocation divided by the
-batch size. The figure is therefore an upper bound of what a production process allocates, not the
+(`-XX:-UseJVMCICompiler`), a collector that never collects (`-XX:+UseEpsilonGC`), and a fixed
+number of operations per measured iteration (JMH single-shot mode with a batch size).
+Its figure per operation is the iteration's allocation divided by the batch size. The figure is
+therefore an upper bound of what a production process allocates, not the
 share that escape analysis happens to remove in one process: whether C2 scalar-replaces an object is
 decided per compilation, and a collecting run adds allocation that follows GC timing. On GraalVM,
 the Graal compiler ignores `-XX:-DoEscapeAnalysis` and keeps partial escape analysis, so the leg
-forces C2. A leg measured otherwise MUST be refused.
+forces C2. The last occurrence of each boolean `-XX` flag MUST determine its effective value,
+as in the JVM. A leg measured otherwise MUST be refused.
 
-For fresh-process reproducibility, the judged quantity is the leg's whole-byte figure: its
-per-operation figure rounded to the nearest whole byte, ties to the even byte. This figure MUST be
-identical in every process of the same code. A leg still carries a one-time residual allocation of
-a few tens of bytes per run (harness work and lazy initialisation), which the batch divides. The
-batch MUST be large enough that this residual stays far below half a byte per operation, so the
-rounded figure cannot move. A batch of 100,000 operations per iteration meets this requirement for
-the gate's benchmarks (observed: 32 bytes over 300,000 operations, about 0.0001 B/op).
+For fresh-process reproducibility, round the leg's per-operation figure to the nearest whole byte,
+ties to the even byte. This figure MUST be identical in every process of the same code.
+The batch MUST be large enough to keep one-time
+residual allocation far below half a byte per operation. Importer checks alone do not establish
+fresh-process equality; the measured limitation is recorded in the
+[compiler follow-up evidence](../bundles/sirix-query/bench/common/MUTATION_DISPOSITIONS.md#compiler-follow-up-root-cause-and-verification).
 
 ### CONV-303 — Results ledger and conditions record
 

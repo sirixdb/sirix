@@ -99,26 +99,13 @@ The candidate's median minus the baseline's is rounded to whole bytes, ties to t
 must be at most zero. Reports show both rounded arm figures and the rounded delta. If a series has
 allocation legs, both arms must retain an accepted leg or judgment is refused.
 
-An allocation leg counts allocation as the code writes it: escape analysis off
-(`-XX:-DoEscapeAnalysis`), the Graal JIT disabled
-(`-XX:-UseJVMCICompiler`, forcing HotSpot C2 on every JDK), a collector that never
-collects (`-XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC`, with a heap large enough for the
-run) and a fixed number of operations per measured iteration (`-bm ss -bs N`). `import-jmh
---allocation-leg` refuses a leg measured any other way and divides the profiler's figure by the batch
-size. The figure is the **upper bound** of what a production process allocates, not the share that
-escape analysis happens to remove in one process. On GraalVM the Graal compiler ignores
-`-XX:-DoEscapeAnalysis`, so the leg forces C2. Both effects it excludes were measured on the HOT
-leaf gate's `compactMaterialize`: two fresh legs of identical code differed by 24 B/op because C2
-scalar-replaced a transient `Arena` in one process and not in the other, and by up to 1 B/op through
-the automatic arena's Cleaner, whose bookkeeping follows GC timing.
-
-For fresh-process reproducibility, the judged quantity is the leg's whole-byte figure: its
-per-operation figure rounded to the nearest whole byte, ties to the even byte. This figure must be
-identical in every process of the same code. A leg still carries a one-time residual allocation of
-a few tens of bytes per run (harness work and lazy initialisation), which the batch divides. The
-batch must be large enough that this residual stays far below half a byte per operation, so the
-rounded figure cannot move. A batch of 100,000 operations per iteration meets this requirement for
-the gate's benchmarks (observed: 32 bytes over 300,000 operations, about 0.0001 B/op).
+The allocation-leg settings and reproducibility requirements are defined in
+[CONV-302](../../../../spec/CONV-conventions.md#conv-302--timed-acceptance-verdict).
+They measure allocation as written, an **upper bound** on production allocation. Use the same
+settings for both arms, with a heap large enough for the non-collecting run. `import-jmh
+--allocation-leg` checks the required settings and converts the profiler's bytes per batch to
+bytes per operation; it does not establish fresh-process equality. The measured limitation is
+recorded in the [compiler follow-up evidence](MUTATION_DISPOSITIONS.md#compiler-follow-up-root-cause-and-verification).
 
 With the ClickBench kit, set `OLD` and `NEW` to the full commit SHAs used to build the two
 images, then run the gate:
