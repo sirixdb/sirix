@@ -439,3 +439,49 @@ check or CodeFactor change is included.
 No push, PR update, remote workflow trigger, pipeline-control command, system installation
 or global configuration change was performed in this CI phase. All intentional evidence
 and source/document edits remain inside the worktree.
+
+## CI follow-up: fragment convention and changed-line PIT deadline
+
+- Fix / issue: PR #1480; CI run `45449972080`, jobs `138644028565` and `138646683883`.
+- Symptom and trigger: the rebased branch added one changelog entry and five lesson entries
+  directly to shared files. The newly inherited fragment guard rejected all six additions.
+- Root cause: the branch's entries predated the fragment convention. New entries must each
+  live in their own fragment; extensions to existing lessons remain in `docs/LESSONS.md`.
+- Why earlier verification missed it: the convention and its CI job arrived on the base
+  after those entries were written. This is a documentation placement failure, not an engine
+  regression. The existing fragment CLI is the regression oracle.
+- Correction: move the changelog entry to `changelog.d/fmt-one-format.md` and each new lesson
+  to its own `docs/lessons.d/` fragment, preserving the lesson bodies. Expand the release
+  entry to name the strict version, UUID and stride contracts and retain FMT-401's partial
+  discovery scope. `spec/CHANGELOG.md` is outside this convention and remains unchanged.
+- Path audit: the guard reads both shared-file diffs and validates both fragment directories;
+  the collector restores changelog bullets into the named release section, lesson rows into
+  the table and notes at the end. Existing lesson extensions stay in place and all fragment
+  links remain relative to the collected destination. No executable path changes.
+- Lesson: apply the inherited [fragment convention](../../changelog.d/README.md) to every
+  new entry after rebasing, including lessons; preserve their content rather than dropping it.
+- Regression evidence: `python3 .github/scripts/changelog_fragments.py check --base-sha
+  e2d784b7c7c8e249af4d74c9b621dcad9b8b22f9` reproduced the six hosted errors before the move.
+  Because the CLI checks committed history, the corrected tree was committed only in the
+  disposable `build/ci-round9/guard-repo/` fixture against the supplied base's shared files;
+  its CLI check passes. The real collector preserves all original lesson rows and all three
+  complete notes, plus the new release entry. All 63 existing fragment-tooling tests pass.
+- Vision check: documentation placement changes no engine behavior or default. The release
+  entry retains the one-format/history route and explicitly names the deferred repair gap.
+
+The **new** changed-line PIT lane failed at its unchanged 1,320-second module deadline,
+not the former partition deadline. The uploaded `summary.md` and `results.json` report
+`state: timed out`, `partial: true`, 82 production targets, 40 test patterns, 604 changed lines,
+111 killed mutants, 32 surviving changed-line mutants and zero uncovered mutants. The survivors
+are in `FileChannelReader` (6), `InterruptedFirstCommitRecovery` (5),
+`ResourceFormatCompatibility` (20) and `LocalDatabase` (1). All 32 remain unresolved evidence;
+the deadline does not explain them away. The format repair, format baseline, interrupted
+recovery, store-feature and discovery-budget suites were already selected, so their absence
+is not an association fix. Seven sources were individually unmapped, but the union retained
+all production targets and reported no uncovered mutant in its partial results.
+
+CONV-202 forbids accepting dispositions from an unfinished report. No disposition, behavior
+test, production change, target reduction, selector relaxation or timeout change is made for
+this result. Complete mutation evidence and requirement-based review of the surviving
+identities are still required; this round does not claim PIT is green. The downloaded hosted
+artifact is retained locally under `build/ci-round9/hosted-pr-mutation/`.
