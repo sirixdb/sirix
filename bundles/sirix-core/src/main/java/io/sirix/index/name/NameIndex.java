@@ -58,6 +58,7 @@ public interface NameIndex<B, L extends ChangeListener> {
     final Iterator<Map.Entry<QNm, NodeReferences>> entries = reader.iterator();
     return new Iterator<>() {
       private NodeReferences next;
+      private NameIndexRecheck.NamePredicate recheckFilter;
 
       @Override
       public boolean hasNext() {
@@ -74,8 +75,11 @@ public interface NameIndex<B, L extends ChangeListener> {
           }
           final RawKeyBytes raw = (RawKeyBytes) entry;
           if (NameKeySerializer.isTruncated(raw.rawKeyBytes(), 0, raw.rawKeyLength())) {
+            if (recheckFilter == null) {
+              recheckFilter = NameIndexRecheck.filter(includes, excludes);
+            }
             final NodeReferences filtered =
-                NameIndexRecheck.filteredPostings(storageEngineReader, entry.getValue(), includes, excludes);
+                NameIndexRecheck.filteredPostings(storageEngineReader, entry.getValue(), recheckFilter);
             if (filtered != null) {
               next = filtered;
               return true;

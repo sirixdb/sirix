@@ -80,3 +80,32 @@
 - Verification: the review phase runs the focused serializer, boundary-read, namespace, work-budget
   and bulk-builder tests after all edits; baseline counterfactual and mutation validation remain
   with the outer executor's dedicated validation phases.
+
+## Review follow-up: NAME read and serialization cost
+
+- Symptom: each long-name candidate constructed a temporary `QNm`, so lookup allocation grew with
+  bucket size. Every ordinary serialized component also took a scalar UTF-8 counting pass before
+  its existing ASCII check/copy or UTF-8 encoding, despite already being known to fit.
+- Root cause: matching consumed materialized name objects rather than dictionary components;
+  truncation's counting helper was also used on the complete-name path. The record-read budget
+  observes neither temporary object allocation nor redundant character work.
+- Correction: exact matching compares URI/local strings; filtered matching prepares component
+  lookup maps at the first truncated bucket and shares them across that read's candidate buckets.
+  Reads over complete keys never prepare these maps. The candidate loop resolves
+  one record, preserves missing-name/URI handling and compares strings without constructing a name.
+  Complete URI and local components pass their full character lengths to the unchanged writer;
+  serialization and length reporting only count a bounded prefix when truncation is required.
+- Regression oracles: FMT-305 and the per-node allocation rule require exact expanded-name
+  membership with no temporary name per candidate, prefix ignored. The clean-fork allocation test
+  rejects 4096 candidates on exact, include and exclude paths within 1024 bytes per read, with an
+  escaping `QNm` loop proving that the meter sees per-candidate names. An independent dictionary
+  fixture verifies URI/local differences, prefix aliases, stale cached names, missing records,
+  non-name records and missing local/URI dictionary entries, together with one record per candidate.
+  Existing serialization boundary, namespace, differential-read and record-budget tests remain the
+  behavior oracle for removing the redundant complete-component scans.
+- Lesson: match the components already available at a storage boundary, and prepare lookup state
+  at read scope; a helper for a rare overflow path must not impose its full traversal on every key.
+- Vision check: these corrections preserve result identity and the existing record-read bound while
+  removing candidate-sized garbage and redundant encoding work. No default or stored layout changes.
+- Verification: focused NAME/serializer tests and the new clean allocation-fork test run after the
+  complete edit round; counterfactual mutation validation remains with the outer executor.

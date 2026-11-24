@@ -293,7 +293,10 @@ Namespaced name (with either an empty or non-empty prefix):
   end a complete UTF-8 name and is removed before decoding the shortened components. Marked keys
   are candidate buckets; exact and filtered NAME reads re-check their postings against the node's
   dictionary name. Complete keys incur no such record reads. Stored-byte order governs the buckets;
-  a shortened bucket does not represent an exact name-order range.
+  a shortened bucket does not represent an exact name-order range. Re-check matching compares
+  resolved URI and local-name strings directly, ignoring prefixes, with include/exclude lookups
+  prepared once per read. Complete components go straight to the existing UTF-8/ASCII writer;
+  only truncated components need a character-budget scan.
 - This replaces the old prefix/local codec. Existing NAME index data must be rebuilt; there is no
   old-format reader.
 

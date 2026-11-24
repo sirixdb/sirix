@@ -81,8 +81,9 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     int pos = offset;
     int budget = MAX_NAME_KEY_BYTES - (truncated ? 1 : 0);
     if (!uri.isEmpty()) {
-      final int uriChars = charsWithinBudget(uri,
-          budget - NAMESPACE_FRAMING_BYTES - utf8Width(localName.codePointAt(0)), true);
+      final int uriChars = truncated
+          ? charsWithinBudget(uri, budget - NAMESPACE_FRAMING_BYTES - utf8Width(localName.codePointAt(0)), true)
+          : uri.length();
       dest[pos++] = NAMESPACE_SENTINEL;
       final int start = pos;
       final int uriLength = writeUtf8(uri, uriChars, dest, start);
@@ -108,7 +109,8 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
       dest[pos++] = 0;
       budget -= NAMESPACE_FRAMING_BYTES + uriLength + zeros;
     }
-    pos += writeUtf8(localName, charsWithinBudget(localName, budget, false), dest, pos);
+    final int localChars = truncated ? charsWithinBudget(localName, budget, false) : localName.length();
+    pos += writeUtf8(localName, localChars, dest, pos);
     if (truncated) {
       dest[pos++] = TRUNCATION_MARKER;
     }
@@ -129,13 +131,15 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     int budget = MAX_NAME_KEY_BYTES - (truncated ? 1 : 0);
     int length = truncated ? 1 : 0;
     if (!uri.isEmpty()) {
-      final int uriChars = charsWithinBudget(uri,
-          budget - NAMESPACE_FRAMING_BYTES - utf8Width(localName.codePointAt(0)), true);
+      final int uriChars = truncated
+          ? charsWithinBudget(uri, budget - NAMESPACE_FRAMING_BYTES - utf8Width(localName.codePointAt(0)), true)
+          : uri.length();
       final int uriBytes = escapedUtf8Length(uri, uriChars);
       length += NAMESPACE_FRAMING_BYTES + uriBytes;
       budget -= NAMESPACE_FRAMING_BYTES + uriBytes;
     }
-    return length + utf8Length(localName, charsWithinBudget(localName, budget, false));
+    final int localChars = truncated ? charsWithinBudget(localName, budget, false) : localName.length();
+    return length + utf8Length(localName, localChars);
   }
 
   /**

@@ -16,6 +16,9 @@ import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -66,33 +69,62 @@ public final class NameIndexRecheck {
     if (!NameKeySerializer.isTruncated(name)) {
       return candidates; // the stored key is the whole name: it already answers exactly
     }
-    return retain(reader, candidates, resolved -> name.equals(resolved));
+    final String namespaceURI = name.getNamespaceURI();
+    final String localName = name.getLocalName();
+    return filteredPostings(reader, candidates,
+        (uri, local) -> namespaceURI.equals(uri) && localName.equals(local));
   }
 
-  /**
-   * The postings of {@code candidates} whose own name passes the filter. Used where a stored key may
-   * be a prefix shared by several names, so the entry's own key cannot decide inclusion.
-   *
-   * @return the surviving postings, or {@code null} when none do
-   */
-  public static @Nullable NodeReferences filteredPostings(final StorageEngineReader reader,
-      final NodeReferences candidates, final Set<QNm> includes, final Set<QNm> excludes) {
-    requireNonNull(reader, "reader");
-    requireNonNull(candidates, "candidates");
+  static NamePredicate filter(final Set<QNm> includes, final Set<QNm> excludes) {
     requireNonNull(includes, "includes");
     requireNonNull(excludes, "excludes");
-    return retain(reader, candidates,
-        resolved -> (includes.isEmpty() || includes.contains(resolved)) && !excludes.contains(resolved));
+    final Map<String, Set<String>> included = namesByURI(includes);
+    final Map<String, Set<String>> excluded = namesByURI(excludes);
+    return (uri, localName) -> (included.isEmpty() || contains(included, uri, localName))
+        && !contains(excluded, uri, localName);
   }
 
-  private static @Nullable NodeReferences retain(final StorageEngineReader reader, final NodeReferences candidates,
-      final NamePredicate keep) {
+  private static Map<String, Set<String>> namesByURI(final Set<QNm> names) {
+    if (names.isEmpty()) {
+      return Map.of();
+    }
+    final Map<String, Set<String>> byURI = HashMap.newHashMap(names.size());
+    for (final QNm name : names) {
+      byURI.computeIfAbsent(name.getNamespaceURI(), ignored -> new HashSet<>()).add(name.getLocalName());
+    }
+    return byURI;
+  }
+
+  private static boolean contains(final Map<String, Set<String>> names, final String uri, final String localName) {
+    final Set<String> localNames = names.get(uri);
+    return localNames != null && localNames.contains(localName);
+  }
+
+  static @Nullable NodeReferences filteredPostings(final StorageEngineReader reader,
+      final NodeReferences candidates, final NamePredicate keep) {
+    requireNonNull(reader, "reader");
+    requireNonNull(candidates, "candidates");
+    requireNonNull(keep, "keep");
     final Roaring64Bitmap surviving = new Roaring64Bitmap();
     final LongIterator postings = candidates.getNodeKeys().getLongIterator();
     while (postings.hasNext()) {
       final long nodeKey = postings.next();
-      final QNm resolved = nameOf(reader, nodeKey);
-      if (resolved != null && keep.test(resolved)) {
+      RECHECK_RECORD_READS.incrementAndGet();
+      final DataRecord record = reader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+      if (!(record instanceof NameNode nameNode) || !(record instanceof Node node)) {
+        continue;
+      }
+      final int localNameKey = nameNode.getLocalNameKey();
+      if (localNameKey == -1) {
+        continue;
+      }
+      final String localName = reader.getName(localNameKey, node.getKind());
+      if (localName == null) {
+        continue;
+      }
+      final int uriKey = nameNode.getURIKey();
+      final String uri = uriKey == -1 ? "" : reader.getName(uriKey, NodeKind.NAMESPACE);
+      if (keep.test(uri == null ? "" : uri, localName)) {
         surviving.addLong(nodeKey);
       }
     }
@@ -101,37 +133,8 @@ public final class NameIndexRecheck {
         : new NodeReferences(surviving);
   }
 
-  /**
-   * The name the addressed node actually carries, resolved from the dictionary rather than from any
-   * cached name on a page-backed view — the same resolution the index builders use.
-   *
-   * @return the node's expanded name, or {@code null} when the node is gone or carries no name
-   */
-  private static @Nullable QNm nameOf(final StorageEngineReader reader, final long nodeKey) {
-    RECHECK_RECORD_READS.incrementAndGet();
-    final DataRecord record = reader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-    if (!(record instanceof NameNode nameNode) || !(record instanceof Node node)) {
-      return null;
-    }
-    final int localNameKey = nameNode.getLocalNameKey();
-    if (localNameKey == -1) {
-      return null;
-    }
-    final String localName = reader.getName(localNameKey, node.getKind());
-    if (localName == null) {
-      return null;
-    }
-    final int uriKey = nameNode.getURIKey();
-    final String uri = uriKey == -1
-        ? ""
-        : reader.getName(uriKey, NodeKind.NAMESPACE);
-    return new QNm(uri == null
-        ? ""
-        : uri, "", localName);
-  }
-
   @FunctionalInterface
-  private interface NamePredicate {
-    boolean test(QNm name);
+  interface NamePredicate {
+    boolean test(String uri, String localName);
   }
 }
