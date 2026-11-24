@@ -38,7 +38,7 @@ the platform moves by itself. Runtimes are recorded per arm of each run.
 | Kernel and OS | Linux 6.8.0-138-generic, Linux Mint 22.3 |
 | Frequency policy | `intel_pstate` driver, `powersave` governor on all 20 policies, turbo enabled; long-term package power limit 50 W, with a second platform limit that the firmware moves by itself (76 W when this entry was written) |
 | Runtimes | Oracle GraalVM 25.0.3+9.1 for JVM arms and native images; Temurin 25.0.5+8 for the JMH gates. A run records the runtime of each arm |
-| Load control | One timed campaign at a time on a machine shared with development work. Timed processes run on the performance cores (CPUs 0-11), other work on the efficiency cores (12-19). The kits wait for the package to cool below 55 °C before each timed process and evict the page cache for cold figures; gate drivers reject a pair on sampled foreign load |
+| Load control | One timed campaign at a time on a machine shared with development work. Timed processes run on the performance cores (CPUs 0-11), other work on the efficiency cores (12-19). **2026-11-24 correction:** Cooling and eviction follow the kit-specific [ClickBench](../../bundles/sirix-query/bench/clickbench/README.md#measuring-the-cold-protocol) and [JSONBench](../../bundles/sirix-query/bench/jsonbench/README.md#4-measurement-discipline) protocols; gate drivers reject a pair on sampled foreign load |
 | Benchmark set | ClickBench kit (43 queries), JSONBench kit (5 queries), Supply History 1 bitemporal kit, and the JMH benchmarks of `bundles/sirix-benchmarks` |
 | Changed | First entry. The results ledger starts here; no earlier run was recorded in it |
 | Comparable with | Nothing earlier |

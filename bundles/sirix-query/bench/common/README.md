@@ -140,9 +140,11 @@ more measurements.
 `timed_gate.py judge ROWS.jsonl` and `timed_gate.py stop ROWS.jsonl` apply the same analysis to a
 file of measurement rows without a ledger, for looking at data that is not a protocol result.
 
-A control run (`--tier control`), such as an A/A run of one build against itself, is recorded and
-judged the same way, with a pair count fixed by its plan instead of the stop rule. A single-arm run
-(`--arm head,...`) is recorded with `commit` and never judged.
+A paired control run (`--tier control`), such as an A/A run of one build against itself, uses a pair
+count fixed by its plan instead of the stop rule. The ClickBench kit records it without a verdict;
+call `bench_ledger.py judge --run DIR` afterwards to judge it under
+[CONV-302](../../../../spec/CONV-conventions.md#conv-302--timed-acceptance-verdict).
+A single-arm run (`--arm head,...`) is recorded with `commit` and never judged.
 
 ## The nightly trend report
 
