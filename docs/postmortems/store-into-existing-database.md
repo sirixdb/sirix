@@ -13,20 +13,9 @@
   resource, so the database-level meaning of the flag and the resource-level intent of the call
   never met. With `$create-new` false, an existing name was written *into* the resource, so
   store/load also overlapped with `jn:import`/`xn:import`.
-- Contract now (`ExistingResourceTarget`, function descriptions):
-  - A missing database is created, as before.
-  - In an existing database, a new resource name is added, and every other resource keeps its
-    content, revisions and indexes.
-  - An existing name is replaced alone when `$create-new` is true: its history is discarded and a
-    new one starts, as for REST PUT (REST-210). This needs CREATE, MODIFY and DELETE.
-  - An existing name is refused with `SIRIXDBF0006` when `$create-new` is false, and nothing is
-    written. Writing into an existing resource is `jn:import`/`xn:import`.
-  - Several inputs always receive new automatic names, including named `xn:load` calls.
-  - No store or load call drops a database; replacing one is `jn:drop-database`/`xn:drop-database`
-    followed by a store.
-  - A replace first closes this handle's session on the resource, so items an earlier query read
-    no longer block it. A session held through another handle still refuses the removal, and
-    nothing is changed.
+- Contract: see the [query usage guide](../../README.md#using-the-cli-native-binaries) and
+  [REST-210](../../spec/REST-api.md#rest-210--resource-creation-and-query-import-boundaries).
+  `ExistingResourceTarget` documents the session ownership constraint on replacement.
 - Why tests missed it: tests stored into fresh locations, or asserted the replacement itself
   (`createAndDeleteRolesCanReplaceAnExistingDatabase`, `StoreResourceNameTest`'s "recreating
   replaces the database"). No test stored a second resource into a populated database and checked

@@ -19,8 +19,7 @@
 - Fix: one claim step per item (`writeUnderFreeName` in both collections; the same discipline in
   `xn:load`). Under the candidate's resource hold, the name is claimed by creating it.
   `createResource` is atomic and fails for an existing name, so a taken name is skipped. The item
-  is written only into the resource it just created, which needs only CREATE. The first candidate
-  is unchanged, so names in the common contiguous case stay as before.
+  is written only into the resource it just created, which needs only CREATE.
 - Why tests missed it: naming tests used empty or contiguously named collections. The REST tests
   asserted the collision itself, as "needs MODIFY" or a write into the colliding resource
   (`generatedAppendCannotOverwriteAnyResolvedTarget`, `xmlAddsRequireModifyForExistingTargets`

@@ -70,7 +70,7 @@ public final class Store extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param createNew determines if a new collection has to be created or not
+   * @param createNew whether this overload omits the explicit {@code $create-new} argument
    */
   public Store(final boolean createNew) {
     this(STORE, createNew);
@@ -80,7 +80,7 @@ public final class Store extends AbstractFunction {
    * Constructor.
    *
    * @param name the function name
-   * @param createNew determines if a new collection has to be created or not
+   * @param createNew whether this overload omits the explicit {@code $create-new} argument
    */
   public Store(final QNm name, final boolean createNew) {
     super(name, createNew

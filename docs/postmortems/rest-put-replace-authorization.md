@@ -1,8 +1,8 @@
 # Bug: REST PUT replaced an existing resource with only the CREATE role
 
 - Fix / issue: [#1477](https://github.com/sirixdb/sirix/issues/1477), found while fixing #1384.
-- Symptom: `PUT /:database/:resource` (and the multipart `PUT /:database`) onto an existing
-  resource removed and recreated it, discarding its whole history, for any caller holding CREATE.
+- Symptom: `PUT /:database/:resource` onto an existing resource removed and recreated it,
+  discarding its whole history, for any caller holding CREATE.
   Since #1384, the query functions require CREATE, MODIFY and DELETE for the same replacement, so
   the two paths disagreed.
 - Trigger: a caller with CREATE but without MODIFY or DELETE PUTs a resource name that exists.

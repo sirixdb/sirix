@@ -150,7 +150,8 @@ public final class Load extends AbstractFunction {
         }
       }
       if (inputs instanceof Atomic input) {
-        try (final JsonReader reader = new JsonReader(new InputStreamReader(URIHandler.getInputStream(input.stringValue())))) {
+        try (final JsonReader reader =
+            new JsonReader(new InputStreamReader(URIHandler.getInputStream(input.stringValue())))) {
           final var database = collection.getDatabase();
           try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
             ExistingResourceTarget.prepare(ctx, JNFun.ERR_RESOURCE_EXISTS, collectionName, database, collection::remove,

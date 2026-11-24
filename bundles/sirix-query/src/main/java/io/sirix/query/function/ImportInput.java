@@ -58,7 +58,9 @@ public final class ImportInput {
         values.add(new Str(((Str) item).stringValue()));
       }
     }
-    return values.size() == 1 ? values.getFirst() : new ItemSequence(values.toArray(new Str[0]));
+    return values.size() == 1
+        ? values.getFirst()
+        : new ItemSequence(values.toArray(new Str[0]));
   }
 
   public static String json(final Sequence input) {

@@ -204,8 +204,8 @@ All notable changes to SirixDB are documented in this file.
 ### Fixed
 
 - **REST PUT needs MODIFY and DELETE to replace an existing resource** — `PUT /:database/:resource`
-  and the multipart `PUT /:database` replaced an existing resource, discarding its history, with
-  only the CREATE role. Replacing now also needs MODIFY and DELETE, checked before anything is
+  replaced an existing resource, discarding its history, with only the CREATE role.
+  Replacing now also needs MODIFY and DELETE, checked before anything is
   removed, the same rule as the query functions (REST-210). Creating a new resource still needs only
   CREATE ([write-up](docs/postmortems/rest-put-replace-authorization.md), #1477).
 - **Automatic resource names are always new** — adding unnamed items to a collection (`jn:store`,
@@ -229,8 +229,8 @@ All notable changes to SirixDB are documented in this file.
   and exits with -1 if any query failed. LF and CRLF scripts yield the same query text on every
   platform; other separator characters remain query content. Before, it could not run any query
   ([write-up](docs/postmortems/shell-query-script-mode.md), #1470).
-- **`xn:store` stores a single node under the given resource name** on creation, recreation and
-  append, including singleton sequences, as `xn:load` and `jn:store` do; before, creation and
+- **`xn:store` stores a single node under the given resource name** in new and existing databases,
+  including singleton sequences, as `xn:load` and `jn:store` do; before, creation and
   singleton sequences stored the document under an automatic name
   ([write-up](docs/postmortems/xml-store-resource-name.md), #1471).
 - **The shell returns to its prompt after any query failure, and failed updates no longer leak** —

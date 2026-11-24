@@ -251,17 +251,26 @@ xn:store('names', (), <root>
 </root>)
 ```
 
-`xn:store($coll, $res, $nodes, $create-new)` stores a single node under `$res`, including
-singleton sorted or lazy sequences. This holds when creating or recreating a collection,
-creating a missing collection with `false()`, and appending with `false()`. With `$res = ()`,
-a single node uses an automatic `resourceN` name on creation and `resource` on append.
-Several nodes use automatic names regardless of `$res`.
+`xn:store($coll, $res, $nodes, $create-new)` and the sibling `jn:store`, `jn:load` and
+`xn:load` functions create a database only when it is missing; they never drop an existing
+database. A single input uses `$res`, including singleton sorted
+or lazy sequences. A new resource name is added beside existing resources. If the name already
+exists, `$create-new = true()` (the default) replaces only that resource, discarding its history
+and starting a new one; `false()` raises `SIRIXDBF0006` without writing. Every other resource
+keeps its content, revisions and indexes. Use `jn:import`/`xn:import` below to update a resource
+while preserving its history; see the [migration notes](CHANGELOG.md) for whole-database replacement.
+
+Several inputs use new automatic `resourceN` names regardless of `$res` or `$create-new`.
+Automatic naming skips names already in use, including names claimed by concurrent callers.
+With `$res = ()`, `xn:store` uses `resource1` for a single node in a new database and
+`resource` in an existing database; `xn:load` uses automatic names in either case.
 
 For embedded Java/CLI queries, `xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
 `xn:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
-documents to an existing collection, or creates it if absent. An empty resource-name argument
-assigns names starting at `resource` followed by the current document count plus one. A failed
-addition reports the import error without replacing the collection or its existing documents.
+documents to an existing collection, or creates it if absent. Loads acquire every source before
+preparing targets or writing, so an unavailable source leaves existing content and revisions
+unchanged. A later parsing or write failure can leave earlier imports committed; a load is not
+a transaction across resources.
 
 `jn:import($database, $resource, $new-version)` is the JSON counterpart of
 `xn:import`: it compares a full new document against the latest stored revision with FMSE,

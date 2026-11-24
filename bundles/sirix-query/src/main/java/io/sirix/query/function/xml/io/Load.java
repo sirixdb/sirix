@@ -67,7 +67,7 @@ public final class Load extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param createNew determines if a new collection has to be created or not
+   * @param createNew whether this overload omits the explicit {@code $create-new} argument
    */
   public Load(final boolean createNew) {
     this(LOAD, createNew);
@@ -77,7 +77,7 @@ public final class Load extends AbstractFunction {
    * Constructor.
    *
    * @param name the function name
-   * @param createNew determines if a new collection has to be created or not
+   * @param createNew whether this overload omits the explicit {@code $create-new} argument
    */
   public Load(final QNm name, final boolean createNew) {
     super(name, createNew
@@ -113,19 +113,25 @@ public final class Load extends AbstractFunction {
       }
       final boolean createNew = args.length < 4 || args[3].booleanValue();
       final String commitMessage = args.length >= 5
-          ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
+          ? FunUtil.getString(args, 4, "commitMessage", null, null, false)
+          : null;
       final Instant commitTimestamp = args.length == 6
-          ? dateTimeToInstant.convert((DateTime) args[5]) : null;
+          ? dateTimeToInstant.convert((DateTime) args[5])
+          : null;
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       MutationAuthorization.requireCreate(ctx, collName, resName);
       final boolean contentOnly = store instanceof ContentOnlyStore;
-      final Sequence inputs = contentOnly ? ImportInput.strings(resources, true) : resources;
+      final Sequence inputs = contentOnly
+          ? ImportInput.strings(resources, true)
+          : resources;
       try (final ParserStream parsers = new ParserStream(inputs, contentOnly)) {
         final boolean singleton = parsers.size() == 1;
         final Path databasePath = store.databaseDirectory(collName);
         XmlDBCollection coll = store.lookup(collName);
         if (coll == null) {
-          try (var gate = databasePath == null ? null : MutationGate.acquireDatabase(databasePath)) {
+          try (var gate = databasePath == null
+              ? null
+              : MutationGate.acquireDatabase(databasePath)) {
             coll = store.lookup(collName);
             if (coll == null) {
               return singleton
@@ -155,8 +161,8 @@ public final class Load extends AbstractFunction {
   }
 
   @SuppressWarnings("NullAway")
-  private static void add(final XmlDBCollection coll, final @Nullable String resName,
-      final ParserStream parsers, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
+  private static void add(final XmlDBCollection coll, final @Nullable String resName, final ParserStream parsers,
+      final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
     long next = coll.getDocumentCount() + 1;
     for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
       if (resName != null) {
@@ -213,7 +219,9 @@ public final class Load extends AbstractFunction {
 
     @Override
     public @Nullable NodeSubtreeParser next() {
-      return next < parsers.size() ? parsers.get(next++) : null;
+      return next < parsers.size()
+          ? parsers.get(next++)
+          : null;
     }
 
     @Override
