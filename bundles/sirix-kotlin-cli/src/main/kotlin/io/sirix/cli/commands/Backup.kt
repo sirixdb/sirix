@@ -20,7 +20,7 @@ class Backup(options: CliOptions, private val targetPath: String) : CliCommand(o
     }
 }
 
-/** Prints the per-resource detail of a backup/restore summary (verbose only). */
+/** Keeps hidden and omitted resources visible even without verbose per-resource detail. */
 internal fun printBackupSummary(summary: BackupManager.BackupSummary, cliPrinter: CliPrinter) {
     cliPrinter.prnLnV("Resources: ${summary.resourcesCopied()}, total bytes: ${summary.totalBytesCopied()}")
     summary.resources().forEach {

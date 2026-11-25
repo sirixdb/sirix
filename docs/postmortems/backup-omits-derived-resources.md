@@ -163,12 +163,12 @@ The new cancellation regression reproduced a masked refusal before the fix:
 `interruptedBackupPreservesInterruptionAndCanBeRetried` failed because writer rollback threw
 `SirixThreadedException` from its interruptible lifecycle lock, replacing the original derived
 quiescence `SirixIOException` and skipping writer close. Interruption during writer I/O could also
-close a live channel. The source writer's shared cleanup boundary now temporarily clears the
-interrupt flag, always closes the writer after rollback, and restores interruption afterwards.
-The regression injects interruption only after a real writer has finished admission, checks the
-original refusal and interrupt state, then performs a real backup again to prove ownership and
-channels remain usable. The pending-rewind refusal also checks that another thread can acquire
-the history lock while maintenance is paused.
+close a live channel. The initial fix deferred interruption through writer cleanup, but left the
+enclosing lifetimes exposed; see [the complete cancellation follow-up](#cancellation-across-the-complete-backup-lifetime)
+for its replacement and regression. The operative cleanup invariant is owned by
+[TXN-613](../../spec/TXN-transactions-durability.md#txn-613--backups-include-derived-resources).
+The pending-rewind refusal also checks that another thread can acquire the history lock while
+maintenance is paused.
 
 The CI follow-up keeps the original writer implementation and its direct session access: tool readers keep configuration internally rather than adding a public accessor or changing
 posting-index readers. It removes the unnecessary configuration API and the fallback that copied a sibling without its installed maintainer. The derived summary now

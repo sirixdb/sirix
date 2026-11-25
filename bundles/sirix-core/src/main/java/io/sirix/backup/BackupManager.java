@@ -396,8 +396,8 @@ public final class BackupManager {
    * @throws SirixIOException if maintenance does not become quiescent in time — the alternative would
    *         be a partial copy of a store that is being written
    */
-  private static DerivedQuiescence quiesceDerivedResource(final ResourceSession<?, ?> session,
-      final Path resourcePath, final boolean[] interrupted) {
+  private static DerivedQuiescence quiesceDerivedResource(final ResourceSession<?, ?> session, final Path resourcePath,
+      final boolean[] interrupted) {
     final Path derivedPath = resourcePath.resolveSibling(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX);
     if (!Files.isDirectory(derivedPath)) {
       return new DerivedQuiescence(null, null);

@@ -12,13 +12,13 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Open-time superblock validation, performed once per JVM per canonical file path.
+ * Superblock validation with cached session opens and fresh tool verification.
  * <p>
  * Storage instances are request-scoped (a REST request opens and closes its own storage), so a
  * per-instance "validated" flag re-paid two file opens + header reads on every request. The
- * superblock is immutable after the first commit; once a path's header validated, re-checking it
- * for every new storage instance buys nothing — corruption that happens AFTER the first validation
- * is caught by the per-read beacon checksums, which is the existing protection model.
+ * superblock is immutable after the first commit, so {@link #validateOnce(Path, byte)} caches
+ * successful validation per canonical path. Tool verification uses {@link #validate} to inspect the
+ * current bytes even when a previous copy occupied the same path.
  * <p>
  * Invalidation: resource removal drops the resource's paths ({@link #invalidateUnder(Path)}); tests
  * that mutate files out-of-band simulate a cold process via {@code Databases.clearGlobalCaches()},

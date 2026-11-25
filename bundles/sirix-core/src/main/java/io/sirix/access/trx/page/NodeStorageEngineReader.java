@@ -252,8 +252,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private final long resourceId;
 
   /**
-   * Epoch tracker ticket for this transaction (for MVCC-aware eviction). Registered when transaction
-   * opens, deregistered when it closes.
+   * Epoch tracker ticket for session readers (for MVCC-aware eviction). Registered when the reader
+   * opens, deregistered when it closes; absent for isolated tool readers.
    */
   private final RevisionEpochTracker.@Nullable Ticket epochTicket;
 
