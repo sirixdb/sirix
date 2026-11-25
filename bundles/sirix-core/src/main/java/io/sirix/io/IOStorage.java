@@ -388,7 +388,8 @@ public interface IOStorage {
     if (!uberPage.isBootstrap()) {
       return;
     }
-    final Path dataFile = config.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
+    final Path dataFile =
+        config.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
     try {
       if (Files.exists(dataFile) && Files.size(dataFile) > 0) {
         throw new SirixIOException("No committed uber-page beacon exists for " + config.resourcePath);

@@ -1127,8 +1127,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Immutable per-resource configuration, resolved once — the insert hot path only branches
     // on a final field.
     this.insertFsstEnabled =
-        storageEngineReader.resourceSession()
-                           .getResourceConfig().stringCompressionType == StringCompressionType.FSST;
+        storageEngineReader.resourceSession().getResourceConfig().stringCompressionType == StringCompressionType.FSST;
     injectAsyncFlushFault("constructor-before-local-caches");
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
@@ -5891,7 +5890,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public PageContainer dereferenceRecordPageForModification(final PageReference reference) {
     final VersioningType versioningType = storageEngineReader.resourceSession().getResourceConfig().versioningType;
-    final int mileStoneRevision = storageEngineReader.resourceSession().getResourceConfig().maxNumberOfRevisionsToRestore;
+    final int mileStoneRevision =
+        storageEngineReader.resourceSession().getResourceConfig().maxNumberOfRevisionsToRestore;
 
     // FULL versioning: Release any reader guard before loading for modification
     // This prevents double-guarding when the page is already in RecordPageCache from a read

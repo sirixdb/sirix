@@ -481,9 +481,8 @@ public final class BackupManager {
       final long totalBytes = copyTree(source, target, rel -> isInMemoryResourceDirectory(source, rel),
           rel -> isTransientDatabaseFile(rel) || isTransientResourceFile(relativeToResource(rel)));
 
-      // Verification pass: open a read-only transaction on every restored resource, hidden derived
-      // ones included; any corruption surfaces here (superblock validation, beacon checksums,
-      // revision-slot checksums and the page-checksum chain on the root page read).
+      // Verify derived stores without installing their owners first: opening a source session
+      // could rebuild a damaged sibling and hide the corruption this pass must report.
       final VerifiedResources verified = verifyRestoredDatabase(target, databaseType);
 
       success = true;
@@ -496,9 +495,8 @@ public final class BackupManager {
   }
 
   /**
-   * Opens the restored database and a read-only transaction on every resource; reading the most
-   * recent revision exercises superblock validation, beacon recovery, the checksummed revision slot
-   * and the root-page checksum chain.
+   * Verifies hidden derived stores through isolated tool readers, then opens read-only transactions
+   * on the visible resources.
    *
    * <p>
    * The hidden derived resources are verified <em>first</em> and reported separately (TXN-613).
@@ -548,10 +546,9 @@ public final class BackupManager {
    * Verifies one restored hidden derived resource and reports what it holds.
    *
    * <p>
-   * A derived resource is internal: it has no user session, so this reads its storage directly
-   * through the tool open — strict feature compatibility, the uber beacon, then the revision-root
-   * page of its most recent revision, which exercises the checksummed revision slot and the
-   * page-checksum chain exactly as the read-only transaction on a visible resource does.
+   * No source session may be opened here: it could rebuild the sibling before its directory,
+   * committed root and durable frontier/mappings have been checked. The isolated tool reader also
+   * prevents a previous copy at this path from supplying cached revision metadata.
    */
   private static ResourceSummary verifyDerivedResource(final Path derivedPath, final int sourceHead) {
     final String derivedName = derivedPath.getFileName().toString();
@@ -559,12 +556,15 @@ public final class BackupManager {
       if (ResourceConfiguration.ResourcePaths.compareStructure(derivedPath) != 0) {
         throw new SirixIOException("Incomplete derived resource: " + derivedName);
       }
-      // A verification open observes only this path's on-disk bytes and leaves no process-wide state behind.
+      // A verification open observes only this path's on-disk bytes and leaves no process-wide state
+      // behind.
       final ResourceConfiguration config = ResourceConfiguration.deserializeForTool(derivedPath);
       final InterruptedFirstCommitRecovery.ReaderAndUberPage opened =
           InterruptedFirstCommitRecovery.openReaderForTool(config);
-      try (final Reader disk = opened.reader(); final BufferManagerImpl buffers = BufferManagerImpl.forVerification();
-          final StorageEngineReader reader = NodeStorageEngineReader.forTool(config, opened.uberPage(), disk, buffers)) {
+      try (final Reader disk = opened.reader();
+          final BufferManagerImpl buffers = BufferManagerImpl.forVerification();
+          final StorageEngineReader reader =
+              NodeStorageEngineReader.forTool(config, opened.uberPage(), disk, buffers)) {
         final int mostRecentRevision = opened.uberPage().getRevisionNumber();
         if (reader.getActualRevisionRootPage().getRevision() != mostRecentRevision) {
           throw new SirixIOException("Derived resource " + derivedName + " holds an unexpected revision.");

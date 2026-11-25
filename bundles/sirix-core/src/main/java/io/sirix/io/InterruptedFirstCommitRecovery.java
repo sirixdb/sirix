@@ -150,15 +150,25 @@ public final class InterruptedFirstCommitRecovery {
   public record ReaderAndUberPage(Reader reader, UberPage uberPage) {
   }
 
+  /**
+   * Opens existing storage read-only with private revision metadata and fresh disk validation. Unlike
+   * session opens, this cannot repair or rebuild the store being verified. The caller must close the
+   * returned reader.
+   */
   public static ReaderAndUberPage openReaderForTool(final ResourceConfiguration config) {
-    // Keep disk-engine beacon, feature, superblock/UUID and revision-index checks with private metadata.
+    // Keep disk-engine beacon, feature, superblock/UUID and revision-index checks with private
+    // metadata.
     final UberPage uberPage = probeUberPage(config);
     uberPage.getFeatures().requireToolCompatible();
     IOStorage.requireCommittedBeacon(config, uberPage);
     final Path dataFile = dataFilePath(config);
     final Path revisionsFile = revisionsFilePath(config);
-    final long uuidHigh = config.resourceUuid == null ? 0L : config.resourceUuid.getMostSignificantBits();
-    final long uuidLow = config.resourceUuid == null ? 0L : config.resourceUuid.getLeastSignificantBits();
+    final long uuidHigh = config.resourceUuid == null
+        ? 0L
+        : config.resourceUuid.getMostSignificantBits();
+    final long uuidLow = config.resourceUuid == null
+        ? 0L
+        : config.resourceUuid.getLeastSignificantBits();
     SuperblockValidator.validate(dataFile, Superblock.ROLE_DATA, uuidHigh, uuidLow);
     SuperblockValidator.validate(revisionsFile, Superblock.ROLE_REVISIONS, uuidHigh, uuidLow);
     try {
@@ -166,9 +176,9 @@ public final class InterruptedFirstCommitRecovery {
       try {
         final FileChannel revisions = FileChannel.open(revisionsFile, StandardOpenOption.READ);
         try {
-          final FileChannelReader reader = new FileChannelReader(data, revisions,
-              new ByteHandlerPipeline(config.byteHandlePipeline), SerializationType.DATA, new PagePersister(),
-              Caffeine.newBuilder().build());
+          final FileChannelReader reader =
+              new FileChannelReader(data, revisions, new ByteHandlerPipeline(config.byteHandlePipeline),
+                  SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build());
           reader.setStoreFeatures(uberPage.getFeatures());
           IOStorage.readRevisionIndex(reader, uberPage.getRevisionNumber());
           return new ReaderAndUberPage(reader, uberPage);

@@ -1,7 +1,7 @@
 # Backup & Restore
 
 Persistent SirixDB resources use append-only files: a copy of the database directory taken
-while no commit is in flight preserves their committed history. IN_MEMORY state is excluded
+while no resource writer is active preserves their committed history. IN_MEMORY state is excluded
 under [TXN-615](../spec/TXN-transactions-durability.md#txn-615--in-memory-state-lives-with-the-open-database).
 The `io.sirix.backup.BackupManager` API automates this safely for a *live* database from within
 its owning process. The `backup`/`restore` CLI verbs use the same API.
@@ -92,8 +92,9 @@ state) under TXN-615, retirement tombstones, and the runtime files listed below.
 - If a derived resource's maintenance does not become quiescent within the same ~5 s, the backup is
   **refused** with a message naming that resource, rather than copying a store that is mid-build.
   Retry once its temporal-aggregate maintenance has caught up.
-- Resources created while the backup is running are not included (the resource list is
-  snapshotted once at the start). Avoid creating/removing resources during a backup.
+- Visible resources created after the initial resource listing are not included. A hidden derived
+  sibling created or rebuilt while opening a listed source is included with that source. Avoid
+  creating/removing resources during a backup.
 - The backup briefly blocks writers per resource for the duration of that resource's file copy
   (readers are unaffected).
 

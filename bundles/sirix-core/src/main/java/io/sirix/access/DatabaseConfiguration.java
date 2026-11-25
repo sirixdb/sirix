@@ -482,8 +482,8 @@ public final class DatabaseConfiguration {
     final Path dbFile = file.toAbsolutePath();
     final Path configFile = dbFile.resolve(DatabasePaths.CONFIG_BINARY.getFile());
     try {
-      return fromParsedConfig(dbFile, parseConfigFile(configFile,
-          Files.readAttributes(configFile, BasicFileAttributes.class)));
+      return fromParsedConfig(dbFile,
+          parseConfigFile(configFile, Files.readAttributes(configFile, BasicFileAttributes.class)));
     } catch (final IOException failure) {
       throw new SirixIOException(failure);
     }

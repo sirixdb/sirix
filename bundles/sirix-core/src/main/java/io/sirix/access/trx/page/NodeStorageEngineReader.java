@@ -413,8 +413,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   private NodeStorageEngineReader(final int trxId, final ResourceConfiguration config,
       final @Nullable InternalResourceSession<?, ?> resourceSession, final UberPage uberPage, final int revision,
-      final Reader reader, final BufferManager resourceBufferManager, final RevisionRootPageReader revisionRootPageReader,
-      final @Nullable TransactionIntentLog trxIntentLog) {
+      final Reader reader, final BufferManager resourceBufferManager,
+      final RevisionRootPageReader revisionRootPageReader, final @Nullable TransactionIntentLog trxIntentLog) {
     checkArgument(trxId > 0, "Transaction-ID must be >= 0.");
     this.trxId = trxId;
     this.resourceBufferManager = requireNonNull(resourceBufferManager);
@@ -436,7 +436,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
 
     // Register with epoch tracker for MVCC-aware eviction
-    this.epochTicket = resourceSession == null ? null : resourceSession.getRevisionEpochTracker().register(revision);
+    this.epochTicket = resourceSession == null
+        ? null
+        : resourceSession.getRevisionEpochTracker().register(revision);
   }
 
   private Page loadPage(final PageReference reference) {
@@ -1758,7 +1760,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (resourceSession != null) {
       resourceSession.assertAccess(revisionKey);
     } else {
-      checkArgument(revisionKey >= 0 && revisionKey <= uberPage.getRevisionNumber(), "Revision is outside the tool view");
+      checkArgument(revisionKey >= 0 && revisionKey <= uberPage.getRevisionNumber(),
+          "Revision is outside the tool view");
     }
     if (trxIntentLog == null) {
       final Cache<RevisionRootPageCacheKey, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
@@ -3241,10 +3244,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     // Load first fragment atomically with guard
-    KeyValueLeafPage page =
-        resourceBufferManager.getRecordPageFragmentCache()
-                             .getOrLoadAndGuard(pageReferenceWithKey,
-                                 key -> (KeyValueLeafPage) pageReader.read(key, resourceConfig));
+    KeyValueLeafPage page = resourceBufferManager.getRecordPageFragmentCache()
+                                                 .getOrLoadAndGuard(pageReferenceWithKey,
+                                                     key -> (KeyValueLeafPage) pageReader.read(key, resourceConfig));
 
     assert page != null && !page.isClosed();
     pages.add(page);

@@ -117,9 +117,11 @@ public interface StorageEngineReader extends AutoCloseable {
    * Get the resource session this transaction is bound to.
    *
    * @return resource session instance
+   * @throws NullPointerException if this is a session-free tool reader
    */
   ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession();
 
+  /** Returns the resource configuration, including for session-free tool readers. */
   default ResourceConfiguration getResourceConfig() {
     return getResourceSession().getResourceConfig();
   }

@@ -8,7 +8,8 @@
   verifies those stores before any visible resource and reports them, and a derived store whose
   maintenance does not quiesce is refused rather than copied mid-build. The clause's reference to
   the TXN-614 pinned start snapshot is unchanged and still unimplemented, so the status moves from
-  `designed` to `partial` rather than to a conformance claim. No requirement text changes.
+  `designed` to `partial` rather than to a conformance claim. Clarify the clause's copied-resource
+  identity, frontier and isolated-verification requirements following backup/restore review.
 
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from
