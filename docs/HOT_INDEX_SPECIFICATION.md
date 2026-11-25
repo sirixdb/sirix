@@ -265,8 +265,8 @@ owner keys (`hot/AbstractHOTIndexWriter.java:5643`, `:6738`; `hot/HOTIncremental
 
 #### 2.3.2 NAME (`hot/NameKeySerializer.java`)
 
-Namespace-free name (including every JSON field): the local name as raw UTF-8, no terminator
-or overhead. The prefix is never stored; [NAME matching semantics](../README.md#indexes)
+Complete namespace-free name (including every JSON field): the local name as raw UTF-8, no
+terminator or overhead. The prefix is never stored; [NAME matching semantics](../README.md#indexes)
 apply to both lookups and scans.
 
 Namespaced name (with either an empty or non-empty prefix):
@@ -279,13 +279,56 @@ Namespaced name (with either an empty or non-empty prefix):
 | 3+N | M | local name, UTF-8 |
 
 - `0xFF` never occurs in valid UTF-8, so namespace-free keys sort before namespaced keys.
-- Namespaced keys order by URI bytes then local-name bytes; the URI terminator sorts before
+- Complete namespaced keys order by URI bytes then local-name bytes; the URI terminator sorts before
   extensions of the URI. Escaping makes component boundaries unambiguous.
 - Deserialization reconstructs the URI and local name with an empty prefix.
-- An empty local name is rejected. URI and local-name lengths are not truncated. ASCII components
-  write directly into the reusable destination; namespace-free names still discriminate at byte 0.
+- An empty local name is rejected. ASCII components write directly into the reusable destination;
+  namespace-free names still discriminate at byte 0.
+- [FMT-305](../spec/FMT-disk-format.md#fmt-305--hot-routable-key-bound) bounds the stored key to
+  4096 bytes including its four-byte chunk index and four-byte posting-delta suffix allowance.
+  Complete expanded names of at most 4088 encoded bytes keep the encoding above unchanged. Longer
+  names reserve one byte for a trailing `0xFF` truncation marker and store character-aligned URI
+  and local-name prefixes in the remaining budget. A namespace reserves the actual encoded width
+  of the first local character, so that component never becomes empty. The trailing marker cannot
+  end a complete UTF-8 name and is removed before decoding the shortened components. Marked keys
+  are candidate buckets; exact and filtered NAME reads re-check their postings against the node's
+  dictionary name. Complete keys incur no such record reads. Stored-byte order governs the buckets;
+  a shortened bucket does not represent an exact name-order range. Re-check matching compares
+  resolved URI and local-name strings directly, ignoring prefixes, with include/exclude lookups
+  prepared once per read. Each complete component uses its existing ASCII check/copy or one UTF-8
+  encoding. ASCII length or the produced UTF-8 byte-array length determines its stored size; those
+  same bytes are written without a separate size traversal. Only a truncated name needs
+  component prefix-budget scans; its namespace can survive whole when the local name exceeds the
+  remaining budget. Exact HOT NAME lookup captures the trailing marker before its chunk
+  walk and passes that decision to the re-check; it never recounts the requested name. The chunk
+  cache retains candidate postings, so different names sharing one key are each re-checked against
+  their own requested components.
 - This replaces the old prefix/local codec. Existing NAME index data must be rebuilt; there is no
   old-format reader.
+
+The NAME read surface has two layers:
+
+| Entry point | Posting contract |
+|---|---|
+| `HOTIndexReader.get`, `HOTIndexWriter.get` | Exact expanded-name lookup. Both capture the serialized marker before candidate chunk assembly and call `NameIndexRecheck.exactPostings`; complete keys pass through without dictionary reads. |
+| `NameIndex.openIndex`, one include and no excludes | Uses the exact reader point lookup. |
+| `NameIndex.openIndex`, multiple includes or excludes | Walks stored buckets, tests the raw marker and uses the shared component-matching loop for marked candidates. Filter lookup preparation is once per read. |
+| `NameIndex.openIndex`, no filter | Includes every posting from every bucket; a shared bucket needs no name decision. |
+| `HOTIndexReader.iterator`, both `range` overloads, `iteratorFrom`, `iteratorTo` | Deliberately return stored-key **candidate buckets**, with `RawKeyBytes` metadata. Bounds and exclusivity apply to serialized buckets, not full expanded-name order. A NAME consumer selecting original names must apply the residual; `NameIndex.openIndex` does. The direct NAME cursor tests check bucket order, while production CAS/VALIDTIME callers use their own serializers. |
+| `ChunkAggregatingIterator`, `pointLookup` and its cache, writer `reassembleChunksForPrefix`, raw `HOTTrieReader` cursors, protected mutation reads | Candidate-only assembly/physical access. Keeping shared candidates is necessary for later exact requests for different names and for mutation membership. |
+
+`HOTIndexWriter` has no public range or iteration read; its `index` return value is the supplied
+mutation input, not a lookup. Primitive long readers/writers have PATH keys, not expanded names.
+Interval/temporal adapters (`ValidTimeIntervalIndexFactory`, `HotOrderedStore`) use
+`ValidTimeKeySerializer`; projection/derived storage uses numeric or dedicated tuple codecs.
+Repository NAME serialization originates only in the NAME builder/listener factories and the NAME
+read facade, so these entry points cover its public posting reads without adding name residuals to
+unrelated index kinds. No separate NAME prefix-read API exists; the bounded cursor family above is
+the serialized-prefix surface.
+
+The shared NAME matching loop copies the local-name key, URI key and node kind before the first
+dictionary lookup. Dictionary reconstruction can perform record reads and release the candidate's
+page guard, so no page-backed candidate field is accessed after that boundary.
 
 #### 2.3.3 CAS (`hot/CASKeySerializer.java`)
 
@@ -362,7 +405,8 @@ Byte order equals key order within each serializer, except:
 | CAS integers outside `long` | saturate to `Long.MIN_VALUE`/`MAX_VALUE` (`:688-718`) | `narrowsNumeric` |
 | CAS floats | narrowed through `float` (`:296-304`) | `narrowsNumeric` returns true when `(double)(float)d != d` |
 | CAS keys of different type ids | the type id is not part of `CASValue.compareTo` (`idx/redblacktree/keyvalue/CASValue.java:81-90`) | range scans only use a byte range when `isByteOrderPreserving(type)` (`idx/cas/CASIndex.java:654-675`) |
-| NAME Unicode strings containing supplementary code points | UTF-8 byte order can differ from the UTF-16 order used by `QNm.cmp` | NAME lookups use EQUAL or filtered full scans, never ordered bounds |
+| Bounded NAME keys | stored buckets need not preserve original-name order or identity | the NAME candidate-bucket contract in §2.3.2 |
+| NAME Unicode strings containing supplementary code points | UTF-8 byte order can differ from the UTF-16 order used by `QNm.cmp` | the NAME facade uses EQUAL or filtered full scans; direct cursors follow §2.3.2 |
 | VALIDTIME store byte | raw byte vs. `Byte.compare` agree only for 0..127; all discriminators in `ValidTimeKey` are in that range | none needed |
 
 CAS keys are designed "INJECTIVE first and order-preserving second" (`hot/CASKeySerializer.java:150-151`).
@@ -416,8 +460,8 @@ into a *dense partial key*:
   of `D`.
 - `mostSignificantBitIndex = initialBytePos*8 + (63 − highestSetBit(mask))`, stored as a `short`
   (`hot/page/HOTIndirectPage.java:201-207`, `:227`). A `short` overflows for bit indices above 32767
-  (key byte 4095); CAS, PATH and VALIDTIME keys are far shorter, NAME keys are not bounded by the
-  serializer.
+  (key byte 4095); FMT-305 bounds stored keys, including NAME keys and their suffixes, to 4096
+  bytes so that every leading position fits.
 - Bytes past the end of the search key read as 0 (`:800-829`).
 
 #### 2.6.2 Sparse partial keys and search
@@ -480,6 +524,25 @@ A boundary-child collision MUST NOT publish a new local root at or above the con
 child's leading discriminator. Unless a direct leaf can certainly accept the mutation
 without splitting, use the existing outer structural-frontier fallback before publication.
 Commit normalization may remove redundant valid levels; it cannot defer routing invariants.
+An incremental fold that assumes one compound level MUST decline before publication when
+the union of its discriminative bits needs multiple routing levels. This applies at every
+level of a full-parent capacity cascade; the complete structural frontier handles that
+geometry instead. A leaf overflow below a full root MUST preserve exact heights immediately,
+including when the overflow's parent also has no free child slot.
+
+Assembly shape audit (all production `assembleIndirect` calls and their primitive callers):
+
+| Consumer | Shape contract |
+|---|---|
+| `HOTBulkBuilder.BulkContext.buildIndirect`, `assembleGroup`, `assembleOverLevels` | Consume actual child/root heights; recursive assembly may return a nest. The counting allocator counts every level. |
+| `HOTIncrementalInsert.compressHalf`, `mergeBiNodeAtExistingDiscBit`, `addChildAtCombination` | Retain or reduce a valid source mask. A subset of a nameable mask stays nameable, so assembly remains flat. Split primitives derive the BiNode height from the actual halves. |
+| `compressRangeWithEntry`, `addEntryWithInsertInfo` | Branch insertion's `routeCanNameBranchBit` checks the source mask plus the new bit, including the boundary child and ancestors. Compressed halves use subsets of that checked union. |
+| `addEntry`, `foldIntoHalf`, `integrate` | `canIntegrateBiNodeCleanly` checks the mask-plus-bit union at each cascade level before a leaf overflow, branch split or strand discharge publishes. A subset used by a split half is also nameable. Root/intermediate materialization has one bit and cannot need a level split. |
+| `AbstractHOTIndexWriter.tryTwoLeafMigration` | Reuses the existing mask and child order, computes actual child heights, and propagates the replacement height up the spine. |
+| `assembleFrontierBlock`, `joinOrderedParts` | Accept nested output, consume its actual height, and follow routes to original part references rather than assuming direct child slots. |
+| `replaceSingleChildAndReencode`, `propagateStructuralSpliceAfterPublication` | Reuse nameable ancestor masks and compute heights from the actual replacement children; no new discriminative bit is introduced. |
+| `HOTIncrementalInsert.prepareCompatibleChild` / commit folding | Refuse an unnameable union before materialization; do not call multi-level assembly. |
+
 For a compatible compound-child fold, composed sparse partials MUST remain strictly ordered
 and unique; acceptance MUST preserve the original two-stage router for every key, including
 absent keys. Reject a fold whose combined sparse requirements alias or reorder slots.
@@ -1774,8 +1837,8 @@ insert-driven consolidation of §4.5.1.
 4. `buildIndirect` (`:382-600`): start the frontier with the root's two children; repeatedly expand
    the **largest** expandable frontier node (one whose group does not fit a leaf) until 32 children
    or nothing is expandable; D = union of the expanded BiNodes' bits; sparse partial keys from the
-   paths; recurse; height = 1 + max child height; choose `SINGLE_MASK` if D fits one 8-byte window,
-   else `MULTI_MASK`.
+   paths; recurse; assemble the frontier under the
+   [routing and assembly contracts](#26-partial-keys-and-routing).
 
 `MAX_FANOUT = 32`, `MAX_LEAF_ENTRIES = 512` (`:75`, `:78`). There is no fill-factor constant: a leaf is
 the highest subtree of R(S) that fits. The builder does no I/O; all keys, values, one record per R(S)
@@ -2177,10 +2240,9 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
 4. **Remaining excess height on skewed descending inserts**: see §2.6 for the normalization
    contract, regression bounds and remaining frontier-shape follow-up under issue #1452.
 5. **I5 coverage for oversized mutation scopes** (§5.3 item 2).
-6. **`short` MSB index** for keys longer than 4 095 bytes (NAME keys are not bounded) (§2.6.1).
-7. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
+6. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
    misdirected write below the newest leaf image is detected only structurally, if at all.
-8. **Height optimality** under multi-entry leaves is not established; the paper states the structure is
+7. **Height optimality** under multi-entry leaves is not established; the paper states the structure is
    not minimum-height (§5.3 item 3).
 
 ---

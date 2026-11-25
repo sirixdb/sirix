@@ -311,6 +311,79 @@ hold left unreleased keeps that leaf resident for the session. Clause 6 is obser
 bytes in a clean-JVM budget test. Clause 4 is observable through clause 3's declines, while the
 caller duty behind it is checked by a test-only assertion.
 
+### FMT-305 — HOT routable key bound
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [HOTKeySerializer.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTKeySerializer.java):`ROUTABLE_KEY_BYTES`; [NameKeySerializer.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/NameKeySerializer.java):`MAX_NAME_KEY_BYTES`; [NameIndexRecheck.java](../bundles/sirix-core/src/main/java/io/sirix/index/name/NameIndexRecheck.java):`exactPostings`; [HOTIndirectPage.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTIndirectPage.java):`canNameDiscriminativeBytes`; [HOTBulkBuilder.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTBulkBuilder.java):`assembleOverLevels`; [AbstractHOTIndexWriter.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/AbstractHOTIndexWriter.java):`routeCanNameBranchBit`; [CASKeySerializer.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/CASKeySerializer.java):`MAX_STRING_VALUE_BYTES`; [HOTBulkBuilder.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTBulkBuilder.java):`assembleIndirect`; [HOTIndirectPage.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTIndirectPage.java):`computeMostSignificantBitIndex`; [PageKind.java](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java):`HOTINDIRECTPAGE`
+- **Verified by:** [NameIndexNamespaceTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/name/NameIndexNamespaceTest.java):`longNamespacesRemainExactAcrossBuildMutationAndColdHistory`; [NameIndexRecheckAllocationBudgetTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/name/NameIndexRecheckAllocationBudgetTest.java); [NameIndexLongSharedPrefixRoutingTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/name/NameIndexLongSharedPrefixRoutingTest.java); [NameIndexRecheckWorkBudgetTest.java](../bundles/sirix-core/src/test/java/io/sirix/budget/NameIndexRecheckWorkBudgetTest.java); [NameKeySerializerRoutableBoundTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/NameKeySerializerRoutableBoundTest.java) **Planned:** HOTRoutableKeyBoundConformance: a differential index-versus-scan case per index kind over key families whose discriminative bytes sit below, at and above each layout's addressable end (255 for an extraction byte, 4095 for a leading bit position), built both by the bulk builder and incrementally, at several revisions and after cold reopen; a key at the bound indexes and reads exactly, a key past it reads exactly through its re-check, and no persisted node names a byte it does not route on.
+- **Evidence class:** code+test (the committed differential tests fail on the baseline without the level split and pass with it; the budget's zero has a nonzero long-name control)
+- **Gap/note:** The bound, level split and exact NAME re-check are implemented. JSON routing/bound cases, XML namespace truncation across build, mutation and cold history, and record/allocation budgets are committed; the cross-kind sweep over every layout boundary remains planned. The maintainer decided the numeric bound and truncate-and-re-check behavior on 24 November 2026. Root cause and regression history belong to the [NAME routing-range write-up](../docs/postmortems/2026-11-hot-name-key-routing-range.md).
+
+A HOT indirect node MUST be able to name, in the layout it persists, every discriminative key byte
+it routes on. Discriminative positions are absolute and MSB-first (FMT-302). The `SINGLE_MASK`
+layout persists one base byte position and an 8-byte window mask, so it can name key bytes 0 to
+65535 and spans at most 8 bytes; the `MULTI_MASK` layout persists one extraction position per
+discriminative key byte in a single byte, so it can name only key bytes 0 to 255 and MUST NOT be
+chosen for any node that routes on a byte above 255. A builder or splitter that would assemble such
+a node MUST narrow the node's discriminative-bit set and leave the remaining bits to deeper levels,
+which FMT-302 permits because lookup and scan results do not depend on where the frontier is cut.
+Reducing a byte position to its layout's width MUST NOT happen: a reduced position routes the node
+on an unrelated key byte, which is a wrong lookup result and not a slower one.
+
+Both layouts persist the node's leading discriminative bit position, which FMT-302's strictly
+increasing per-level progression and the range-scan walk-up both read. That value MUST be persisted
+without loss over the whole addressable range, or be recomputed on decode from the layout it
+belongs to; a value that overflowed its field MUST NOT be accepted as a leading position.
+
+The routable key bound MUST be 4096 bytes, measured on the stored key including its four-byte chunk
+index and any posting-delta suffix. That is where the signed 16-bit leading-bit field runs out — bit
+32767, key byte 4095 — so the bound costs no change to the persisted layout, and every leading
+position a 1.0 engine can write stays inside the field it is written to. Every index kind MUST bound
+its keys to it and MUST state that bound rather than inherit it by accident; CAS and VALIDTIME
+already truncate their encoded value to one.
+
+For the NAME index the bounded object is the serialized key — namespace sentinel, escaped URI,
+terminator and local name — and the bound MUST hold for programmatically supplied names, not only
+for names a document parser is likely to produce. A name whose key would exceed the bound MUST NOT
+fail an insert. It MUST be stored under a character-aligned prefix of its components with an unambiguous
+truncation marker inside the same bound. A truncated key MUST NOT equal any complete key, including
+a complete name ending at or immediately below the bound. The marker is a trailing `0xFF` byte,
+which cannot end a complete UTF-8 local name; decoding the preceding bytes yields the shortened
+expanded name. Namespace framing and the chunk and posting-delta suffixes retain their meanings.
+Namespace truncation MUST reserve only the actual UTF-8 width of the first local-name character.
+Such a key MAY therefore stand for several names,
+so its postings are candidates: a read that answers for a name MUST re-check each candidate against
+the name the addressed node actually carries, resolved from the name dictionary rather than from a
+cached name on a page-backed view, and MUST return only the postings that match. The local-name key,
+URI key and node kind MUST be copied while the candidate record's page is held, before dictionary
+access can reconstruct other records and release that hold. A filtered read whose entry key may be
+truncated MUST decide inclusion per node for the same reason.
+
+Both public point lookups, `HOTIndexReader.get` and `HOTIndexWriter.get`, MUST apply that same
+marker-driven exact re-check after candidate chunk assembly. Stored-key cursors (`iterator`, both
+`range` overloads, `iteratorFrom`, `iteratorTo`, and the underlying trie cursors) deliberately expose
+serialized buckets and their raw-key metadata, not exact expanded-name ranges. A NAME consumer that
+selects names from those cursors MUST apply the marker-driven residual; `NameIndex.openIndex` does so
+for includes/excludes. An unfiltered full scan includes every candidate and needs no name residual.
+Internal assembly and caches MUST retain candidates so one name cannot remove another's postings
+from a shared bucket.
+
+That re-check MUST cost nothing for a name inside the bound: such a name is stored whole, its key
+answers exactly, and the read MUST NOT read a record to confirm it. Only a name past the bound pays,
+and then one record read per candidate posting. Re-check matching MUST compare the resolved URI
+and local-name components without allocating a name object per candidate; include/exclude lookup
+preparation belongs to the read, not to each posting. Serializing a complete name MUST NOT add a
+character-counting pass to its existing encoding work. Truncation is determined from the bytes
+produced by encoding, or from the character length already established by the ASCII fast path;
+an exact read MUST reuse that serialization decision rather than re-count the requested name.
+
+Within the bound an index read at revision `r` MUST equal a scan at `r` for keys of any length,
+whether the index was bulk-built or maintained incrementally, before and after commit and after cold
+reopen. No layout choice, frontier cut or key length inside the bound MAY change which postings a
+lookup returns.
+
 ### FMT-401 — 1.0 compatibility baseline and beta refusal
 
 - **Level:** MUST
@@ -372,6 +445,7 @@ are the current encoder evidence; the ring is bounded to 16 recent records.
 
 - FMT-102/401/402: beta refusal, removal of zero UUID/stride exceptions and history-preserving export/import are decided. Implement the 1.0 discriminator and migration tooling, including the decided conditional timestamp adjustment and queryable original metadata in TXN-310/VER-204.
 - FMT-302: the numeric bound and indirect-level height convention are decided. Enforcing the key-derived bound and rejecting undefined discriminative positions remain implementation/test gaps, not open product choices.
+- FMT-305: the cross-kind/layout-boundary conformance sweep remains planned; see the [requirement and current evidence](#fmt-305--hot-routable-key-bound). Widening the bound later would need the leading-bit field read as unsigned (8192 bytes) or a per-node base for `MULTI_MASK` extraction positions (65536 bytes), so it is a format decision rather than a later addition.
 - FMT-208: produce and check in the immutable 1.0-created feature/index/config corpus and CI coverage manifest; the compatibility policy is decided. The corpus MUST include a resource carrying the FMT-209 last-revert entry and one without it, and a resource whose incarnation id was regenerated by a truncate.
 - FMT-209: the extension tag, the feature bit, the carry-forward in the revision-root clone, the settings member and cryptographically secure id generation at the four lifecycle boundaries are unimplemented. The tag and bit assignments above are the first entries in the otherwise empty FMT-203 tag and FMT-205 feature registries and must be reviewed before the format freeze; TXN-311 cannot be retrofitted compatibly afterwards.
 - Node hash defaults are owned by [CONF-104](CONF-configuration.md#conf-104--current-creation-defaults).
@@ -401,5 +475,6 @@ are the current encoder evidence; the ring is bounded to 16 recent records.
 | FMT-302 | [HOTInvariantValidatorChecksTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorChecksTest.java); [HOTHeightOptimalTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTHeightOptimalTest.java); [HOTStructuralPropertyTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTStructuralPropertyTest.java) **Planned:** HOTHeightBoundConformance: independent encoded-key discriminative-position oracle; empty/leaf-only/one-indirect conventions; ascending, descending, shuffled, long common-prefix and variable-length/prefix keys; valid boundaries and malformed repeated/decreasing/undefined/out-of-range leading positions; assert h <= D and D <= 8*L after mutation and cold reopen, across node types; compare lookup/scan with an ordered-map oracle. | designed |
 | FMT-303 | [GoldenFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenFormatTest.java):`indexTypeIdsArePinned` | partial |
 | FMT-304 | See [HOT mutation leaf lifetime](#fmt-304--hot-mutation-leaf-lifetime) for verification and remaining gaps. | partial |
+| FMT-305 | [Current evidence and planned conformance](#fmt-305--hot-routable-key-bound) | partial |
 | FMT-401 | [GoldenFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenFormatTest.java); [GoldenCompositePageTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenCompositePageTest.java) **Planned:** FormatBaselineConformance: pre-1.0 beta refusal and unchanged source bytes, successful exported-history import to a newly created 1.0 store, and mandatory later-reader compatibility with the frozen corpus. | designed |
 | FMT-402 | [BackupRestoreTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupRestoreTest.java) **Planned:** HistoryMigrationConformance: JSON/XML source histories with equal, regressing and already-increasing timestamps, cascaded adjustments, authors and escaped/empty messages; independent sequential adjustment oracle, original metadata queries for adjusted revisions, unchanged timestamps where possible, preserved revision order/content, unique time lookup after cold reopen, unavailable/pruned history diagnostics and unchanged source bytes. | designed |

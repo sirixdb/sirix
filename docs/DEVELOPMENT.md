@@ -323,6 +323,34 @@ changelog entry arrives the same way, in [changelog.d/](../changelog.d/README.md
 every branch appends to turn each merge into a rebase for every other open pull request, and a
 rebase costs a full revalidation — one file per entry costs nothing and conflicts with nothing.
 
+### Shared append-only files
+
+One shared log has no fragment directory: [`spec/CHANGELOG.md`](../spec/CHANGELOG.md), where each
+pull request prepends an independent paragraph under the same heading. `.gitattributes` marks it
+`merge=union`, git's built-in driver, so a local `git rebase` or `git merge` of two such pull
+requests keeps both paragraphs instead of stopping on a conflict, and the rebase then needs only CI,
+not a new review round. Two limits apply:
+
+- **GitHub ignores merge drivers.** Its mergeability check can still report a conflict on that file
+  until the branch is rebased locally; the local result is clean.
+- **The union is line-wise, not paragraph-wise.** Git hoists a line both sides share out of the
+  conflict, so the blank line between the two new paragraphs may disappear, and two entries that
+  share a non-blank line can interleave. Read the file after a union rebase.
+
+A file belongs in the union list only when its entries are independent and order-insensitive,
+nothing else edits it in place, and a union of two appended entries still parses. The measured
+hotspots (edits to `main` since 2026-10-15) that stay out, and why:
+
+| File | Why not |
+| --- | --- |
+| `CHANGELOG.md`, `docs/LESSONS.md` | Entries arrive as fragments; a union would let a direct entry bypass that check. |
+| `.github/mutation-dispositions.toml`, `.github/mutation-test-associations.toml` | The union keeps a repeated `[[mutant]]` or `[[association]]` header once and fuses two appended tables into one with duplicate keys: invalid TOML. |
+| `docs/VERIFICATION.md`, `README.md`, `docs/DISK_FORMAT.md` | Prose edited in place, not appended to. |
+| `docs/bench/CONDITIONS.md` | Entries are dated and kept in date order, and share their table lines. |
+
+`.github/scripts/tests/test_union_merge.py` builds two branches that each add an entry to every
+union file and asserts the merge and the rebase keep both, and that the other files stay out.
+
 The write-up's load-bearing field is *why tests missed it*. The root cause explains this bug; that
 field explains the hole that let it through, and it is the only part that prevents the next one.
 Name the broken invariant and the causal chain rather than the failing line, say which layer should

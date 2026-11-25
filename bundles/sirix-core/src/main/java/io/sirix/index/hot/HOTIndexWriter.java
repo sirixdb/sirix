@@ -27,12 +27,14 @@
  */
 package io.sirix.index.hot;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.index.hot.reader.HOTRangeCursor;
 import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
+import io.sirix.index.name.NameIndexRecheck;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
@@ -658,7 +660,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * @param key the logical index key
    * @param mode must be {@link SearchMode#EQUAL}; range modes go through the reader's
    *        {@code range}/{@code iteratorFrom} APIs
-   * @return reassembled NodeReferences, or {@code null} if no chunks exist for {@code key}
+   * @return reassembled NodeReferences after any NAME residual, or {@code null} if no posting matches
    * @throws IllegalArgumentException if {@code mode} is not {@link SearchMode#EQUAL}. This parameter
    *         used to be documented as advisory and silently ignored, i.e. every mode got the
    *         {@code EQUAL} answer; the guard is shared with {@link HOTIndexReader#get} so a caller
@@ -674,7 +676,12 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
 
     final byte[] keyBuf = prefixKeyBuffer(key);
     final int prefixLen = keySerializer.serialize(key, keyBuf, 0);
-    return reassembleChunksForPrefix(keyBuf, prefixLen);
+    final boolean nameKey = keySerializer instanceof NameKeySerializer;
+    final boolean truncatedName = nameKey && NameKeySerializer.isTruncated(keyBuf, 0, prefixLen);
+    final NodeReferences refs = reassembleChunksForPrefix(keyBuf, prefixLen);
+    return nameKey && refs != null
+        ? NameIndexRecheck.exactPostings(storageEngineWriter, refs, (QNm) key, truncatedName)
+        : refs;
   }
 
   /**
@@ -747,11 +754,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * The thread-local key buffer, grown first if {@code key} could need more than it currently holds.
    *
    * <p>
-   * Sizing has to happen BEFORE the write. The previous shape serialized into the buffer and only
-   * then compared the returned length against {@code buffer.length} — by which point a key larger
-   * than the buffer had already been written past its end. Only NAME keys can reach that: a CAS key
-   * is bounded by a constant well under the buffer, but a local name is raw UTF-8 of whatever the
-   * document called the field.
+   * Size from the serializer's {@link HOTKeySerializer#maxSerializedLength} before writing: checking
+   * the returned length afterwards cannot prevent a buffer overflow.
    * </p>
    *
    * @param key the key about to be serialized

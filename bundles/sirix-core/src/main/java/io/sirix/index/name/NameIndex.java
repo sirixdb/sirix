@@ -7,6 +7,7 @@ import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
+import io.sirix.index.hot.AbstractHOTIndexReader.RawKeyBytes;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.hot.NameKeySerializer;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
@@ -42,15 +43,17 @@ public interface NameIndex<B, L extends ChangeListener> {
     if (includes.size() == 1 && excludes.isEmpty()) {
       final QNm name = includes.iterator().next();
       final NodeReferences refs = reader.get(name, SearchMode.EQUAL);
-      if (refs != null) {
-        return Iterators.forArray(refs);
+      if (refs == null) {
+        return Collections.emptyIterator();
       }
-      return Collections.emptyIterator();
+      return Iterators.forArray(refs);
     }
 
+    final boolean filtering = !includes.isEmpty() || !excludes.isEmpty();
     final Iterator<Map.Entry<QNm, NodeReferences>> entries = reader.iterator();
     return new Iterator<>() {
       private NodeReferences next;
+      private NameIndexRecheck.NamePredicate recheckFilter;
 
       @Override
       public boolean hasNext() {
@@ -59,6 +62,25 @@ public interface NameIndex<B, L extends ChangeListener> {
         }
         while (entries.hasNext()) {
           final Map.Entry<QNm, NodeReferences> entry = entries.next();
+          if (!filtering) {
+            // Every posting is included, so no name decides anything — and the entry's key stays
+            // undeserialized, which is one name fewer to build per entry of the whole index.
+            next = entry.getValue();
+            return true;
+          }
+          final RawKeyBytes raw = (RawKeyBytes) entry;
+          if (NameKeySerializer.isTruncated(raw.rawKeyBytes(), 0, raw.rawKeyLength())) {
+            if (recheckFilter == null) {
+              recheckFilter = NameIndexRecheck.filter(includes, excludes);
+            }
+            final NodeReferences filtered =
+                NameIndexRecheck.filteredPostings(storageEngineReader, entry.getValue(), recheckFilter);
+            if (filtered != null) {
+              next = filtered;
+              return true;
+            }
+            continue;
+          }
           final QNm name = entry.getKey();
           if ((includes.isEmpty() || includes.contains(name)) && !excludes.contains(name)) {
             next = entry.getValue();

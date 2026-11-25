@@ -188,6 +188,52 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
+   * Highest key byte a {@code MULTI_MASK} extraction position can name. The layout persists one
+   * position per discriminative key byte in a single byte, so a node routing on a byte above this
+   * cannot be expressed in it at all (FMT-305).
+   */
+  public static final int MAX_EXTRACTION_BYTE_POSITION = 0xFF;
+
+  /**
+   * Whether a node whose discriminative key bytes run from {@code firstByte} to {@code lastByte}
+   * inclusive can be named by one of the two layouts (FMT-305).
+   *
+   * <p>
+   * {@code SINGLE_MASK} names one base byte position and an eight-byte window, so it covers any span
+   * narrower than eight bytes at any base position. {@code MULTI_MASK} names each discriminative byte
+   * individually in one byte, so it covers a wider span only while every byte stays at or below
+   * {@link #MAX_EXTRACTION_BYTE_POSITION}. A set of bytes outside both is not routable by a single
+   * node: the caller has to split it over levels rather than reduce a position to its field's width,
+   * which would route the node on an unrelated key byte.
+   *
+   * @param firstByte smallest discriminative key byte of the node
+   * @param lastByte largest discriminative key byte of the node
+   * @return {@code true} iff a layout can name every byte in that range
+   */
+  public static boolean canNameDiscriminativeBytes(final int firstByte, final int lastByte) {
+    return lastByte - firstByte < Long.BYTES || lastByte <= MAX_EXTRACTION_BYTE_POSITION;
+  }
+
+  /**
+   * How many leading bits of {@code discBits} one node can name together: all of them when the whole
+   * set is nameable, and otherwise the longest prefix that is (FMT-305). Never less than one, since a
+   * node naming a single key byte is always possible.
+   *
+   * @param discBits discriminative bits as sorted ascending absolute bit positions
+   * @return the number of leading bits a single node may take, between one and
+   *         {@code discBits.length}
+   */
+  public static int nameableLeadingBits(final int[] discBits) {
+    Objects.requireNonNull(discBits, "discBits");
+    final int firstByte = discBits[0] >>> 3;
+    int prefix = 1;
+    while (prefix < discBits.length && canNameDiscriminativeBytes(firstByte, discBits[prefix] >>> 3)) {
+      prefix++;
+    }
+    return prefix;
+  }
+
+  /**
    * Compute the most significant discriminative bit index from a {@code bitMask} and
    * {@code initialBytePos}. The MSB is the bit closest to the start of the key (smallest absolute
    * MSB-first bit position).

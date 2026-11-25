@@ -554,3 +554,38 @@ it does not check an item, whose null value intentionally signals exhaustion. No
 sequence can take the null failure. Removing the assertion changes no result, error,
 ownership or counted work. QuerySerializerLifecycleTest covers bounded, exhausted,
 past-end and failing iterations and observes iterator/serializer close ordering."""
+
+# FMT-305: two boundaries the NAME key encoding and the frontier route walk make unreachable.
+# Each argument was checked by applying the mutant to a source copy and running the behaviour
+# tests, not by reading the code alone.
+[[mutant]]
+class = "io.sirix.index.hot.AbstractHOTIndexWriter"
+method = "blockRoutesToPart"
+descriptor = "(Lio/sirix/index/hot/page/HOTIndirectPage;[BLio/sirix/page/PageReference;)Z"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [13]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "1cc911a0c28814ac59defcb5f847f5ef7d04338a"
+justification = """The loop bound is a cycle guard, not a decision. The walk takes one step per
+level of the block it was handed: it returns at the part's own reference and breaks at the first
+child that is not an indirect page, so it cannot take more steps than the block has levels — the
+level split builds at most a root over one nest node over the parts. MAX_PATH_DEPTH is 64, so one
+extra permitted step changes no answer for any block a frontier join can assemble, and a structure
+that really reached that depth would have been refused long before this question is asked."""
+
+[[mutant]]
+class = "io.sirix.index.hot.NameKeySerializer"
+method = "utf8Width"
+descriptor = "(I)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [5]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "1cc911a0c28814ac59defcb5f847f5ef7d04338a"
+justification = """0x80 is the only argument whose answer the mutant changes, and it never arrives.
+This method is asked for the width of a UTF-8 LEAD byte: callers pass `encoded[prefix] & 0xFF` where
+prefix advances by whole character widths, `encoded[0] & 0xFF`, or a char of a string
+AsciiKeyBytes.isAsciiPrefix accepted, which is below 0x80. 0x80 is a continuation byte and cannot
+lead a character of well-formed UTF-8, which is what String.getBytes(UTF_8) produces. Every other
+byte takes the same branch under both forms."""
