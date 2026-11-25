@@ -2,12 +2,14 @@
 
 > **Status (2026-11-26): the defect is OPEN and the fix is withdrawn.** This change carries the
 > measurement, this write-up and the lessons; it carries none of the pooled-storage implementation
-> the sections below describe. Read everything from "Fix" to "Review round 4" as the history of a
-> withdrawn attempt: the pool, its admission and accounting, the reclaimer and the regression suites
+> the sections below describe. Read the review and CI sections before "Outcome" as the history of a
+> withdrawn attempt: the pool, its admission and accounting, the reclaimer and the pool regression suites
 > are not in the tree, and every sentence written in the present tense there described that attempt,
 > not the engine. What *is* in this change, besides the documents: the removal of
 > `MemorySegmentAllocator.resetSegment` and the virtual-memory layer's `discardToZeros`, a contract
-> no platform could honour and nothing in the engine called. The per-decode arena will be fixed by
+> the POSIX implementation could not honour on macOS and nothing in the engine called. The timestamp
+> allocation-fork correction also remains; [Verification](../VERIFICATION.md#running-the-layers)
+> owns its current execution guidance. The per-decode arena will be fixed by
 > the unified memory-pool work (step 3), specification first; the accounting design and the five
 > review rounds behind it are carried by
 > [issue #1503](https://github.com/sirixdb/sirix/issues/1503).
@@ -85,11 +87,9 @@ it:
   microseconds apart. That places the fault in the decrypt computation, not in the ownership of any
   buffer. It remains open there and is not affected by this change.
 
-What this change does touch is the general rule the flake round was probing: an image whose storage
-can be recycled needs a reader protocol that detects the recycle. The compact image has one — the
-page's optimistic stamp — and `releaseMemory()` publishes `closed` and an odd stamp binding before
-it calls the releaser, so the block cannot reach a second owner while a reader can still certify
-reads of the first. That ordering is now an asserted invariant rather than an incidental one.
+The withdrawn pool also needed a reader protocol that detects recycled storage; its proposed
+regression tests are recorded below as history. The current compact-image ownership and read
+contract remains in [Projection read performance](../PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
 
 ## Review: slab admission, ownership and cold population
 
@@ -395,7 +395,7 @@ the positive control.
   — existed only to let cached compact images give bytes back to the allowance page frames commit
   from. A reclaimer is a small garbage collector, and each round found the part of a collector the
   previous round had not specified.
-- Correction (the design now in the code): the pool is bounded by **its owner's share** —
+- Correction at round 4 (withdrawn at round 5): the pool is bounded by **its owner's share** —
   `HeapCacheBudget.Pool.HOT_IMAGES`, the ceiling that already bounds what the fragment cache's
   compact half retains — and charges none of the allocator's frame commitment. A full pool refuses a
   lease and the decoder keeps its own GC-owned image. Storage comes back the way the owning cache's
