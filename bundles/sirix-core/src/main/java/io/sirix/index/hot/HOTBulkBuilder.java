@@ -63,9 +63,8 @@ import java.util.function.LongSupplier;
  * weight {@code 1 << (m-1)}. This is exactly the bit order {@link HOTIndirectPage}'s routing
  * produces from {@code Long.compress} (SingleMask) and from the chunked
  * {@code computeMultiMaskPartialKey} (MultiMask): the lowest long-bit / lowest result-bit
- * corresponds to the least-significant captured key bit. The builder chooses the SingleMask layout
- * when every discriminative bit fits an 8-byte window and the MultiMask layout otherwise; both
- * decode the partials identically.
+ * corresponds to the least-significant captured key bit. Both layouts decode the partials
+ * identically; {@link #assembleIndirect} handles layout selection and level splitting.
  *
  * @author Johannes Lichtenberger
  * @see HOTLeafPage
@@ -555,9 +554,9 @@ public final class HOTBulkBuilder {
    * Assemble a {@link HOTIndirectPage} from the discriminative-bit set, the sparse-path partials, and
    * the child references. Children must already be in strictly ascending partial-key order
    * (foundation §4, I7) — {@code R(S)} left-to-right order for a bulk build, a contiguous re-encoded
-   * sub-block for an incremental split — so no re-sort is needed. Picks the SingleMask layout when
-   * the bits fit an 8-byte window and the MultiMask layout otherwise; both decode {@code partials}
-   * identically.
+   * sub-block for an incremental split — so no re-sort is needed. A nameable set uses SingleMask
+   * when the bits fit an 8-byte window and MultiMask otherwise; both decode {@code partials}
+   * identically. An unnameable set is split over levels as described below.
    *
    * <p>
    * Package-private: shared with {@link HOTIncrementalInsert}'s {@code splitIndirect} and
@@ -676,16 +675,14 @@ public final class HOTBulkBuilder {
    * @param height the height a node holding {@code children} directly would have
    * @return the root of the nest
    */
-  static HOTIndirectPage assembleOverLevels(final int[] discBits, final int[] partials,
-      final PageReference[] children, final int height, final int revision, final IndexType indexType,
-      final LongSupplier pageKeyAllocator) {
+  static HOTIndirectPage assembleOverLevels(final int[] discBits, final int[] partials, final PageReference[] children,
+      final int height, final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
     final int columns = discBits.length;
     final int firstByte = discBits[0] >>> 3;
     final int prefix = HOTIndirectPage.nameableLeadingBits(discBits);
     if (prefix == columns) {
-      throw new IllegalArgumentException(
-          "HOT level split is unnecessary for discriminative key byte " + (discBits[columns - 1] >>> 3)
-              + " from base byte " + firstByte);
+      throw new IllegalArgumentException("HOT level split is unnecessary for discriminative key byte "
+          + (discBits[columns - 1] >>> 3) + " from base byte " + firstByte);
     }
     final int suffixColumns = columns - prefix;
 

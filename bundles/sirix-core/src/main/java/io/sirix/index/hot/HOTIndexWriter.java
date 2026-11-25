@@ -754,11 +754,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * The thread-local key buffer, grown first if {@code key} could need more than it currently holds.
    *
    * <p>
-   * Sizing has to happen BEFORE the write. The previous shape serialized into the buffer and only
-   * then compared the returned length against {@code buffer.length} — by which point a key larger
-   * than the buffer had already been written past its end. Only NAME keys can reach that: a CAS key
-   * is bounded by a constant well under the buffer, but a local name is raw UTF-8 of whatever the
-   * document called the field.
+   * Size from the serializer's {@link HOTKeySerializer#maxSerializedLength} before writing: checking
+   * the returned length afterwards cannot prevent a buffer overflow.
    * </p>
    *
    * @param key the key about to be serialized

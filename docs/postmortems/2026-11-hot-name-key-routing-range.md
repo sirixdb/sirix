@@ -93,8 +93,9 @@
   lookup maps at the first truncated bucket and shares them across that read's candidate buckets.
   Reads over complete keys never prepare these maps. The candidate loop resolves
   one record, preserves missing-name/URI handling and compares strings without constructing a name.
-  Complete URI and local components pass their full character lengths to the unchanged writer;
-  serialization and length reporting only count a bounded prefix when truncation is required.
+  The later encoding-decision follow-up below supersedes the initial serialization and
+  length-reporting correction; the current encoding mechanics belong to
+  [the NAME key format](../HOT_INDEX_SPECIFICATION.md#232-name-hotnamekeyserializerjava).
 - Regression oracles: FMT-305 and the per-node allocation rule require exact expanded-name
   membership with no temporary name per candidate, prefix ignored. The clean-fork allocation test
   rejects 4096 candidates on exact, include and exclude paths within 1024 bytes per read, with an
@@ -121,7 +122,8 @@
   A separately computed truncation decision also gave the read path work the encoder had already done.
 - Correction: ASCII is checked once and copied by the existing direct writer; a non-ASCII component
   is UTF-8 encoded once, and its produced bytes supply both the length and the bytes copied into
-  the key. Only an overflowing encoded component runs the prefix-budget walk. Namespace escaping
+  the key. Prefix-budget walking follows the
+  [NAME key format](../HOT_INDEX_SPECIFICATION.md#232-name-hotnamekeyserializerjava). Namespace escaping
   retains its existing NUL accounting and backward expansion. The HOT reader captures the serialized
   marker before lookup, then passes that boolean to component-wise matching; the NAME facade no
   longer applies a second re-check. Candidate caching stays below the exact re-check, so names
