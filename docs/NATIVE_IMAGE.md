@@ -87,6 +87,16 @@ remap/teardown; closing a shared arena in a native image requires
 lifecycle passes in a native image — see `NativeWriteSmokeMain` (`:sirix-query:writeSmoke`
 on the JVM, or build natively with `-Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain`).
 
+Because `close()` is a no-op under that strategy, an arena that is *not* shared must not be
+released through `SharedArenas.close(Arena)`: a confined arena handed to it is never reclaimed in a
+native image. The JVM side of that invariant runs in `:sirix-core:sharedArenaAutoStrategyTest`
+(`ConfinedWriterArenaStrategyTest`, forked with `-Dsirix.arena.strategy=auto`, the strategy an image
+resolves at startup). To confirm it in the image itself, build the write smoke
+(`-Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain`) and watch its resident set across
+repeated commit rounds: every disposable page serialization creates one serializer-local confined
+arena, so a leak there grows RSS without bound, and a refused close would surface as an
+`UnsupportedOperationException` or `WrongThreadException` out of `RegionTable.close`.
+
 See [Cache budgets](operations.md#4-cache-budgets) for startup lifetime policy and the
 restrictions on diagnostic overrides. The native-image `auto` default remains supported.
 

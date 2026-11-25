@@ -36,6 +36,18 @@ final class SharedArenaStartupPolicyTest {
       assertTrue(SharedArenas.skipArenaClose());
       return;
     }
+    if ("auto-strategy".equals(mode)) {
+      assertEquals(SharedArenas.Strategy.AUTO, SharedArenas.strategy());
+      assertFalse(SharedArenas.skipArenaClose());
+      assertFalse(SharedArenas.supportsDeterministicClose());
+      final Arena arena = SharedArenas.newSharedArena();
+      final MemorySegment data = arena.allocate(ValueLayout.JAVA_LONG);
+      data.set(ValueLayout.JAVA_LONG, 0, 23L);
+      SharedArenas.close(arena);
+      assertTrue(data.scope().isAlive(), "an auto arena is GC-reclaimed, so close(Arena) must release nothing");
+      assertEquals(23L, data.get(ValueLayout.JAVA_LONG, 0));
+      return;
+    }
     assertTrue("reject-global".equals(mode) || "reject-skip".equals(mode),
         "a launcher fixture must select a known policy case");
     final ExceptionInInitializerError failure = assertThrows(ExceptionInInitializerError.class, SharedArenas::strategy);

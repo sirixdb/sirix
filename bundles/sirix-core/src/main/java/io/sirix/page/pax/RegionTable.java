@@ -439,7 +439,12 @@ public final class RegionTable implements AutoCloseable {
   }
 
   // Not a try-with-resources resource by design: the returned arena becomes this table's #arena
-  // field and is released by close()/closeLastOwnership() through SharedArenas.close(Arena).
+  // field, and which path releases it depends on which kind of arena this is. A confined writer
+  // table's arena is closed directly by closeConfinedWriterTable(); it must NEVER go through
+  // SharedArenas.close(Arena), which releases nothing under the automatic strategy a GraalVM native
+  // image runs with and would leak one arena per serialized page there (#1408). Only the shared
+  // arena of an ordinary table is released through SharedArenas.close(Arena), in
+  // closeLastOwnership().
   @SuppressWarnings("MustBeClosedChecker")
   private Arena newPayloadArena() {
     if (closed) {

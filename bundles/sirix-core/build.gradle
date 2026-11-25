@@ -398,7 +398,10 @@ def sharedArenaPolicyCases = [
     'diagnostic-global': ['global', 'false', 'true'],
     'diagnostic-skip': ['shared', 'true', 'true'],
     'reject-global': ['global', 'false', 'false'],
-    'reject-skip': ['shared', 'true', 'false']
+    'reject-skip': ['shared', 'true', 'false'],
+    // The strategy a GraalVM native image runs with: shared-arena close is a no-op there, so the
+    // owners that must close their own arenas are only provable in this fork (#1408).
+    'auto-strategy': ['auto', 'false', 'false']
 ]
 def sharedArenaPolicyTests = sharedArenaPolicyCases.collect { mode, settings ->
     def suffix = mode.split('-').collect { it.capitalize() }.join('')
@@ -412,6 +415,9 @@ def sharedArenaPolicyTests = sharedArenaPolicyCases.collect { mode, settings ->
             includeTestsMatching 'io.sirix.io.SharedArenaStartupPolicyTest'
             if (mode == 'diagnostic-skip') {
                 includeTestsMatching 'io.sirix.io.memorymapped.ArenaGenerationLifetimeTest'
+            }
+            if (mode == 'auto-strategy') {
+                includeTestsMatching 'io.sirix.page.pax.ConfinedWriterArenaStrategyTest'
             }
         }
     }
@@ -515,6 +521,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/utils/CleanerStartupTest*.class'
     exclude 'io/sirix/access/AllocatorColdStartupTest*.class'
     exclude 'io/sirix/io/SharedArenaStartupPolicyTest*.class'
+    exclude 'io/sirix/page/pax/ConfinedWriterArenaStrategyTest*.class'
     exclude 'io/sirix/access/ConfigurationStartupTest*.class'
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'

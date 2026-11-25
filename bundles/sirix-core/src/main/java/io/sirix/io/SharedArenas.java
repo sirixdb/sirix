@@ -165,7 +165,12 @@ public final class SharedArenas {
    * strategy; a no-op otherwise (auto arenas are reclaimed by the GC once unreachable, global arenas
    * live for the process lifetime).
    *
-   * @param arena the arena to release
+   * <p>
+   * Only an arena this class created may be passed. A {@link Arena#ofConfined()} arena handed here is
+   * <em>not</em> released under {@code auto} or {@code global}, and nothing reclaims it instead: its
+   * owner must call {@link Arena#close()} itself (#1408).
+   *
+   * @param arena the arena to release, obtained from {@link #newSharedArena()}
    */
   public static void close(final Arena arena) {
     if (STRATEGY == Strategy.SHARED) {
