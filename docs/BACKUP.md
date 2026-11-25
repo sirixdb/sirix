@@ -61,6 +61,9 @@ state) under TXN-615, retirement tombstones, and the runtime files listed below.
   copy resumes from its own durable frontier (TXN-612) and catches up. A pending truncation rewind
   causes a refusal naming the derived resource. The durable frontier and mappings are checked against
   the copied source head during backup and restore; a later mapping is rejected.
+- **Fresh verification.** Verification reads the copied bytes with private revision metadata and
+  page caches. A failed copy can be retried at the cleaned target without reusing the previous
+  copy's offsets, hashes, revision index or superblock validation.
 - **Live cache ownership.** Verification uses private caches without changing the live allocator
   pressure handler, during either successful or failed backup/restore.
 - **Resource IDs.** The target metadata reserves every copied resource ID, including hidden siblings

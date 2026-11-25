@@ -5,23 +5,18 @@ import io.sirix.access.DatabaseType;
 import io.sirix.access.InMemoryResources;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.PathBasedPool;
-import io.sirix.access.ResourceStore;
-import io.sirix.access.ResourceStoreImpl;
-import io.sirix.access.trx.node.json.JsonResourceSessionImpl;
-import io.sirix.access.trx.page.StorageEngineWriterFactory;
 import io.sirix.access.trx.node.AbstractResourceSession;
+import io.sirix.access.trx.page.NodeStorageEngineReader;
+import io.sirix.io.Reader;
 import io.sirix.api.Database;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineReader;
-import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.BufferManagerImpl;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
-import io.sirix.io.IOStorage;
 import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.page.UberPage;
 import io.sirix.utils.SirixFiles;
@@ -40,7 +35,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
@@ -565,33 +559,17 @@ public final class BackupManager {
       if (ResourceConfiguration.ResourcePaths.compareStructure(derivedPath) != 0) {
         throw new SirixIOException("Incomplete derived resource: " + derivedName);
       }
-      final ResourceConfiguration config = ResourceConfiguration.deserialize(derivedPath);
-      final AtomicReference<ResourceStore<JsonResourceSession>> storeReference = new AtomicReference<>();
-      final ResourceStore<JsonResourceSession> store = new ResourceStoreImpl<>(new PathBasedPool<>(),
-          (resourceConfig, buffers, path) -> {
-            final InterruptedFirstCommitRecovery.StorageAndUberPage opened =
-                InterruptedFirstCommitRecovery.openStorageForTool(resourceConfig);
-            final IOStorage storage = opened.storage();
-            try {
-              return new JsonResourceSessionImpl(requireNonNull(storeReference.get()), resourceConfig, buffers, storage,
-                  opened.uberPage(), new Semaphore(1), null, derivedPath.getParent().getParent().getFileName().toString(),
-                  new StorageEngineWriterFactory(DatabaseType.JSON));
-            } catch (final RuntimeException | Error failure) {
-              storage.close();
-              throw failure;
-            }
-          });
-      storeReference.set(store);
-      try (final BufferManagerImpl buffers = BufferManagerImpl.forVerification();
-          final var notifications = store.getNotifications(); store) {
-        final JsonResourceSession session = store.beginResourceSession(config, buffers, derivedPath);
-        final int mostRecentRevision = session.getMostRecentRevisionNumber();
-        try (final StorageEngineReader reader = session.createStorageEngineReader()) {
-          if (reader.getActualRevisionRootPage().getRevision() != mostRecentRevision) {
-            throw new SirixIOException("Derived resource " + derivedName + " holds an unexpected revision.");
-          }
-          DerivedIndexMaintainer.validateBackupSnapshot(reader, sourceHead);
+      // A verification open observes only this path's on-disk bytes and leaves no process-wide state behind.
+      final ResourceConfiguration config = ResourceConfiguration.deserializeForTool(derivedPath);
+      final InterruptedFirstCommitRecovery.ReaderAndUberPage opened =
+          InterruptedFirstCommitRecovery.openReaderForTool(config);
+      try (final Reader disk = opened.reader(); final BufferManagerImpl buffers = BufferManagerImpl.forVerification();
+          final StorageEngineReader reader = NodeStorageEngineReader.forTool(config, opened.uberPage(), disk, buffers)) {
+        final int mostRecentRevision = opened.uberPage().getRevisionNumber();
+        if (reader.getActualRevisionRootPage().getRevision() != mostRecentRevision) {
+          throw new SirixIOException("Derived resource " + derivedName + " holds an unexpected revision.");
         }
+        DerivedIndexMaintainer.validateBackupSnapshot(reader, sourceHead);
         return new ResourceSummary(derivedName, mostRecentRevision, directorySize(derivedPath));
       }
     } catch (final RuntimeException e) {

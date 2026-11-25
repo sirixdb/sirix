@@ -499,23 +499,22 @@ public interface IOStorage {
         return;
       }
 
-      final long[] timestamps = new long[revisionCount];
-      final long[] offsets = new long[revisionCount];
-
-      // Bulk-read the whole revisions file in one request. Reading record-by-record cost one
-      // syscall + one direct-buffer allocation per revision, so this rebuild — which runs on
-      // a storage open whenever a concurrent commit makes the in-memory index disagree with
-      // the on-disk count — made request-scoped opens linear in revision count.
-      final RevisionFileData[] data = reader.getRevisionFileData(0, revisionCount);
-      for (int i = 0; i < revisionCount; i++) {
-        timestamps[i] = CommitTimestamps.toEpochMicros(data[i].timestamp());
-        offsets[i] = data[i].offset();
-      }
-
-      data[0].requireReadable(0);
-      data[lastRevisionNumber].requireReadable(lastRevisionNumber);
-      final RevisionIndex index = RevisionIndex.create(timestamps, offsets);
-      holder.update(index);
+      holder.update(readRevisionIndex(reader, lastRevisionNumber));
     }
   }
+
+  static RevisionIndex readRevisionIndex(final Reader reader, final int lastRevisionNumber) {
+    final int revisionCount = Math.addExact(lastRevisionNumber, 1);
+    final long[] timestamps = new long[revisionCount];
+    final long[] offsets = new long[revisionCount];
+    final RevisionFileData[] data = reader.getRevisionFileData(0, revisionCount);
+    for (int i = 0; i < revisionCount; i++) {
+      timestamps[i] = CommitTimestamps.toEpochMicros(data[i].timestamp());
+      offsets[i] = data[i].offset();
+    }
+    data[0].requireReadable(0);
+    data[lastRevisionNumber].requireReadable(lastRevisionNumber);
+    return RevisionIndex.create(timestamps, offsets);
+  }
+
 }

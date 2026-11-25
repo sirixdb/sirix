@@ -1,5 +1,6 @@
 package io.sirix.access.trx.page;
 
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.page.TemporalAggregateIndexPage;
 import io.sirix.page.ChangeLogIndexPage;
 
@@ -54,6 +55,11 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   @Override
   public DataRecord getValue(KeyValuePage<? extends DataRecord> page, long nodeKey) {
     return delegate().getValue(page, nodeKey);
+  }
+
+  @Override
+  public ResourceConfiguration getResourceConfig() {
+    return delegate().getResourceConfig();
   }
 
   @Override

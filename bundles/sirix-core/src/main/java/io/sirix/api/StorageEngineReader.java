@@ -1,5 +1,6 @@
 package io.sirix.api;
 
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.hot.reader.HOTReadIntent;
 import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.access.trx.node.CommitCredentials;
@@ -118,6 +119,10 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return resource session instance
    */
   ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession();
+
+  default ResourceConfiguration getResourceConfig() {
+    return getResourceSession().getResourceConfig();
+  }
 
   boolean hasTrxIntentLog();
 

@@ -83,3 +83,32 @@
   outer verification phases.
 - Vision check: preserves the existing allocation-pressure path and private verification caches,
   supporting “Speed is part of correctness” without changing live-manager defaults.
+
+## Reusing a failed copy's target
+
+- Symptom: retrying a backup at its cleaned target rejects valid reissued history using stale
+  offsets and hashes from the first copy's derived resource.
+- Trigger: copy and verify the first resource, fail on a second resource's busy writer, truncate and
+  reissue the first resource with larger aggregate contents under the same revision numbers, then
+  retry at the same target path.
+- Root cause: the verifier's private page caches still sat above normal storage opens, which used
+  path-keyed revision caches/indexes and superblock validation. The temporary session also updated
+  the global revision epoch. Private page caches did not isolate the whole verification open.
+- Fix: the shared verifier uses a session-free tool reader with read-only channels, uncached
+  configuration, a private revision-record cache and fresh superblock checks. The existing complete
+  revision-index validation is shared with normal storage opens, and frontier/mapping acceptance is
+  unchanged. No storage-provider registry, session registry, writer lock registry or global epoch
+  is entered. Normal resource readers and writers retain their session ownership and cached opens.
+- Why tests missed it: every prior backup test used a fresh target and did not replace the physical
+  history after a partial copy had populated path-keyed metadata.
+- Regression: `BackupDerivedResourceTest.backupRetriesACleanedTargetAfterHistoryReissue` exercises
+  partial success, writer refusal, cleanup, reissue with twenty groups instead of one, retry and
+  restore. TXN-613 is the independent oracle: the retry must accept the new bytes and report their
+  source and derived revision heads. Reusing stale offsets/hashes must fail this behavior test.
+  Focused execution passed all 21 cases across `BackupDerivedResourceTest`,
+  `BackupPressureHandlerTest`, `NodeStorageEngineReaderTest` and
+  `NodeStorageEngineWriterTruncateToRevisionIntegrationTest`, using only those class filters on
+  `:sirix-core:test` and excluding attached startup/allocation/storage-epoch/disabled-cache tasks.
+  Mutation and counterfactual runs remain with the outer verification phases.
+- Vision check: verification reads the actual durable history and refuses actual corruption without
+  retaining identity-bound state from earlier copies; no live read/cache default changes.

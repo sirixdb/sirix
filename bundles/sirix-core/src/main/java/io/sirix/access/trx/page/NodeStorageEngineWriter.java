@@ -1127,7 +1127,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Immutable per-resource configuration, resolved once — the insert hot path only branches
     // on a final field.
     this.insertFsstEnabled =
-        storageEngineReader.getResourceSession()
+        storageEngineReader.resourceSession()
                            .getResourceConfig().stringCompressionType == StringCompressionType.FSST;
     injectAsyncFlushFault("constructor-before-local-caches");
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
@@ -4275,7 +4275,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (!alreadyCommittingHot && page instanceof HOTIndirectPage indirect && indirect.needsNormalization()) {
         committingHotSubtree = true;
         page = HOTCommitNormalizer.normalize(reference, indirect, this,
-            storageEngineReader.resourceSession.getHOTCommitScratch());
+            storageEngineReader.resourceSession().getHOTCommitScratch());
         container = Objects.requireNonNull(log.get(reference));
       }
       // Recursively commit indirectly referenced pages and then write self.
@@ -4367,11 +4367,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @SuppressWarnings("java:S1181")
   public UberPage commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isAutoCommitting, final boolean isIntermediateCommit) {
-    storageEngineReader.resourceSession.assertNotInCommitCallback();
+    storageEngineReader.resourceSession().assertNotInCommitCallback();
     storageEngineReader.assertNotClosed();
     assertTransactionWritable();
 
-    storageEngineReader.resourceSession.getCommitLock().lock();
+    storageEngineReader.resourceSession().getCommitLock().lock();
 
     try {
       final UberPage uberPage = commitWritePages(commitMessage, commitTimestamp, isIntermediateCommit);
@@ -4379,20 +4379,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return uberPage;
     } catch (final RuntimeException | Error failure) {
       try {
-        storageEngineReader.resourceSession.requireCommitRecovery();
+        storageEngineReader.resourceSession().requireCommitRecovery();
       } catch (final RuntimeException | Error markerFailure) {
         retainFirstFailure(failure, markerFailure);
       }
       throw failure;
     } finally {
-      storageEngineReader.resourceSession.getCommitLock().unlock();
+      storageEngineReader.resourceSession().getCommitLock().unlock();
     }
   }
 
   @Override
   public UberPage commitWritePages(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
-    storageEngineReader.resourceSession.assertNotInCommitCallback();
+    storageEngineReader.resourceSession().assertNotInCommitCallback();
     storageEngineReader.assertNotClosed();
     assertTransactionWritable();
 
@@ -4405,10 +4405,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     {
       final boolean timing = LOGGER.isDebugEnabled();
 
-      final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
+      final Path commitFile = storageEngineReader.resourceSession().getCommitFile();
 
       // Only durable backends need crash-recovery markers; RAM must remain writable after failure.
-      if (storageEngineReader.resourceSession.getResourceConfig().getStorageType() != StorageType.IN_MEMORY) {
+      if (storageEngineReader.resourceSession().getResourceConfig().getStorageType() != StorageType.IN_MEMORY) {
         createIfAbsent(commitFile);
       }
 
@@ -4481,11 +4481,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void hardenCommit(final UberPage uberPage, final boolean isIntermediateCommit) {
-    storageEngineReader.resourceSession.assertNotInCommitCallback();
+    storageEngineReader.resourceSession().assertNotInCommitCallback();
     {
       final boolean timing = LOGGER.isDebugEnabled();
 
-      final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
+      final Path commitFile = storageEngineReader.resourceSession().getCommitFile();
 
       final PageReference uberPageReference = new PageReference().setDatabaseId(storageEngineReader.getDatabaseId())
                                                                  .setResourceId(storageEngineReader.getResourceId());
@@ -4579,7 +4579,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     newRevisionRootPage.assignCommitTimestampMicros(commitTimestamp);
-    storageEngineReader.resourceSession.prepareRevisionIndexForCommit(newRevisionRootPage.getRevision());
+    storageEngineReader.resourceSession().prepareRevisionIndexForCommit(newRevisionRootPage.getRevision());
     final PageReference rootReference = storageEngineReader.getUberPage().getRevisionRootReference();
     if (rootReference.getLogKey() < 0) {
       log.put(rootReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
@@ -4588,7 +4588,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private void serializeIndexDefinitions(int revision) {
     final var indexCatalog = indexController.getIndexes();
-    final Path indexes = storageEngineReader.getResourceSession().getResourceConfig().resourcePath.resolve(
+    final Path indexes = storageEngineReader.resourceSession().getResourceConfig().resourcePath.resolve(
         ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
     // The catalogue of a revision is the newest {N}.xml at or below it
     // (AbstractResourceSession#initializeIndexController), so a commit whose definitions are the ones
@@ -4629,7 +4629,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // The session answers the next writer's catalogue lookup from this report instead of listing
       // the directory, so it has to learn of the file here, where it is created.
       indexCatalog.markPersisted(revision);
-      storageEngineReader.resourceSession.recordSerializedIndexCatalogueRevision(revision);
+      storageEngineReader.resourceSession().recordSerializedIndexCatalogueRevision(revision);
     }
   }
 
@@ -5178,7 +5178,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   private void setUserIfPresent() {
-    final Optional<User> optionalUser = storageEngineReader.resourceSession.getUser();
+    final Optional<User> optionalUser = storageEngineReader.resourceSession().getUser();
     optionalUser.ifPresent(newRevisionRootPage::setUser);
   }
 
@@ -5251,7 +5251,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     // Use the retained immutable session/config directly during rollback cleanup, independent of
     // the forwarding reader's lifecycle. Failed close hands recovery to the next admission.
-    final ResourceConfiguration resourceConfiguration = storageEngineReader.resourceSession.getResourceConfig();
+    final ResourceConfiguration resourceConfiguration = storageEngineReader.resourceSession().getResourceConfig();
     Databases.clearCachesForResource(resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
     hasUncommittedReclaimableWrites = false;
     firstUncommittedPageOffset = Long.MAX_VALUE;
@@ -5263,7 +5263,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
   @SuppressWarnings("java:S1181")
   public UberPage rollback() {
-    storageEngineReader.resourceSession.assertNotInCommitCallback();
+    storageEngineReader.resourceSession().assertNotInCommitCallback();
     storageEngineReader.assertNotClosed();
 
     Throwable asyncFailure = null;
@@ -5290,7 +5290,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     Throwable teardownFailure = null;
     if (hasUncommittedReclaimableWrites) {
       try {
-        storageEngineReader.resourceSession.requireCommitRecovery();
+        storageEngineReader.resourceSession().requireCommitRecovery();
       } catch (final Throwable failure) {
         teardownFailure = retainFirstFailure(teardownFailure, failure);
       }
@@ -5369,7 +5369,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @SuppressWarnings({"java:S1181", "java:S3776"})
   @Override
   public void close() {
-    storageEngineReader.resourceSession.assertNotInCommitCallback();
+    storageEngineReader.resourceSession().assertNotInCommitCallback();
     if (isClosed) {
       return;
     }
@@ -5495,7 +5495,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     if (hasUncommittedReclaimableWrites) {
       try {
-        storageEngineReader.resourceSession.requireCommitRecovery();
+        storageEngineReader.resourceSession().requireCommitRecovery();
       } catch (final Throwable failure) {
         teardownFailure = retainFirstFailure(teardownFailure, failure);
       }
@@ -5538,21 +5538,21 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     if (lastUberPage != null) {
       try {
-        storageEngineReader.resourceSession.setLastCommittedUberPage(lastUberPage);
+        storageEngineReader.resourceSession().setLastCommittedUberPage(lastUberPage);
       } catch (final Throwable t) {
         teardownFailure = retainFirstFailure(teardownFailure, t);
       }
     }
     if (teardownFailure != null || asyncFailure != null) {
       try {
-        storageEngineReader.resourceSession.requireCommitRecovery();
+        storageEngineReader.resourceSession().requireCommitRecovery();
       } catch (final Throwable failure) {
         teardownFailure = retainFirstFailure(teardownFailure, failure);
       }
     }
     if (!isBoundToNodeTrx && unboundTrxId != Constants.NULL_ID_INT) {
       try {
-        storageEngineReader.resourceSession.closePageWriteTransaction(unboundTrxId, this);
+        storageEngineReader.resourceSession().closePageWriteTransaction(unboundTrxId, this);
       } catch (final Throwable failure) {
         teardownFailure = retainFirstFailure(teardownFailure, failure);
       }
@@ -5890,8 +5890,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   @Override
   public PageContainer dereferenceRecordPageForModification(final PageReference reference) {
-    final VersioningType versioningType = storageEngineReader.resourceSession.getResourceConfig().versioningType;
-    final int mileStoneRevision = storageEngineReader.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
+    final VersioningType versioningType = storageEngineReader.resourceSession().getResourceConfig().versioningType;
+    final int mileStoneRevision = storageEngineReader.resourceSession().getResourceConfig().maxNumberOfRevisionsToRestore;
 
     // FULL versioning: Release any reader guard before loading for modification
     // This prevents double-guarding when the page is already in RecordPageCache from a read
@@ -6642,7 +6642,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public StorageEngineWriter truncateTo(final int revision) {
-    final InternalResourceSession<?, ?> session = storageEngineReader.resourceSession;
+    final InternalResourceSession<?, ?> session = storageEngineReader.resourceSession();
     session.assertNotInCommitCallback();
     if (isClosed) {
       throw new IllegalStateException("Storage engine writer is closed");
@@ -6667,7 +6667,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (Thread.currentThread().isInterrupted()) {
       throw new SirixThreadedException(new InterruptedException("Interrupted before storage truncation"));
     }
-    final InternalResourceSession<?, ?> session = storageEngineReader.resourceSession;
+    final InternalResourceSession<?, ?> session = storageEngineReader.resourceSession();
     try (var retirement = session.retireHistory(revision)) {
       session.assertAccess(revision);
       final DerivedIndexMaintainer.Resource derived =
@@ -6719,7 +6719,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         rolledBackUberPage, Bytes.elasticOffHeapByteBuffer());
     ((InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(rolledBackUberPage);
 
-    storageEngineReader.resourceSession.invalidateIndexCataloguesAfter(revision);
+    storageEngineReader.resourceSession().invalidateIndexCataloguesAfter(revision);
     storagePageReaderWriter.truncateTo(revision);
 
     // The truncated range's offsets are reused by the next commit — drop THIS RESOURCE's cached

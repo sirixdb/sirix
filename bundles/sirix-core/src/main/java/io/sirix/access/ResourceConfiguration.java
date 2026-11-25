@@ -777,6 +777,14 @@ public final class ResourceConfiguration {
    * @throws SirixIOException if an I/O error occurs
    */
   public static ResourceConfiguration deserialize(final Path file) throws SirixIOException {
+    return deserialize(file, false);
+  }
+
+  public static ResourceConfiguration deserializeForTool(final Path file) {
+    return deserialize(file, true);
+  }
+
+  private static ResourceConfiguration deserialize(final Path file, final boolean forTool) {
     final Path configFile = file.resolve(ResourcePaths.CONFIG_BINARY.getPath());
     try (final FileReader fileReader = new FileReader(configFile.toFile());
         final JsonReader jsonReader = new JsonReader(fileReader)) {
@@ -917,7 +925,10 @@ public final class ResourceConfiguration {
       jsonReader.endObject();
 
       // Deserialize database config.
-      final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file.getParent().getParent());
+      final Path database = file.getParent().getParent();
+      final DatabaseConfiguration dbConfig = forTool
+          ? DatabaseConfiguration.deserializeForTool(database)
+          : DatabaseConfiguration.deserialize(database);
 
       // Builder.
       final ResourceConfiguration.Builder builder = ResourceConfiguration.newBuilder(file.getFileName().toString());

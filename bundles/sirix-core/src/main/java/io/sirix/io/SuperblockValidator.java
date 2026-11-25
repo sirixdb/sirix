@@ -86,7 +86,7 @@ public final class SuperblockValidator {
    * @return {@code true} if a superblock was actually validated, {@code false} for a fresh/empty
    *         file (nothing to validate yet)
    */
-  private static boolean validate(final Path path, final byte role, final long expectedUuidMsb,
+  public static boolean validate(final Path path, final byte role, final long expectedUuidMsb,
       final long expectedUuidLsb) {
     try {
       if (!Files.exists(path) || Files.size(path) == 0) {

@@ -10,6 +10,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
@@ -71,38 +72,42 @@ final class BackupDerivedResourceTest {
     sourceDb = tempDir.resolve("source-db");
     Databases.createJsonDatabase(new DatabaseConfiguration(sourceDb));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(sourceDb)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .validTimePaths("lo", "hi")
-                                                   .customCommitTimestamps(true)
-                                                   .storeDiffs(false)
-                                                   .build());
-      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-          final JsonNodeTrx writer = session.beginNodeTrx()) {
-        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
-            [{"g":1,"n":10,"lo":"2024-01-01T00:00:00Z","hi":"2025-01-01T00:00:00Z"}]
-            """), JsonNodeTrx.Commit.NO);
-        final IndexDef projection = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
-            List.of(parse("/[]/g", PathParser.Type.JSON), parse("/[]/n", PathParser.Type.JSON),
-                parse("/[]/lo", PathParser.Type.JSON), parse("/[]/hi", PathParser.Type.JSON)),
-            List.of(Type.LON, Type.LON, Type.STR, Type.STR), 0, IndexDef.DbType.JSON);
-        session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(projection), writer);
-        TemporalAggregateDeclarations.declare(session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]",
-            List.of("g"), List.of("sum(n)"));
-        writer.commit("first", Instant.parse("2024-01-01T00:00:00Z"));
-        writer.moveToDocumentRoot();
-        writer.moveToFirstChild();
-        writer.moveToFirstChild();
-        writer.moveToFirstChild();
-        writer.moveToRightSibling();
-        writer.moveToFirstChild();
-        for (int revision = 2; revision <= REVISIONS; revision++) {
-          writer.setNumberValue(revision * 10);
-          writer.commit("revision " + revision, Instant.parse("2024-0" + revision + "-01T00:00:00Z"));
-        }
-        assertEquals(REVISIONS, session.getMostRecentRevisionNumber(), "test setup: source revisions");
-        DerivedIndexTestSupport.await(session);
+      createTemporalResource(database, RESOURCE);
+    }
+  }
+
+  private static void createTemporalResource(final Database<JsonResourceSession> database, final String resourceName) {
+    database.createResource(ResourceConfiguration.newBuilder(resourceName)
+                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                 .validTimePaths("lo", "hi")
+                                                 .customCommitTimestamps(true)
+                                                 .storeDiffs(false)
+                                                 .build());
+    try (final JsonResourceSession session = database.beginResourceSession(resourceName);
+        final JsonNodeTrx writer = session.beginNodeTrx()) {
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
+          [{"g":1,"n":10,"lo":"2024-01-01T00:00:00Z","hi":"2025-01-01T00:00:00Z"}]
+          """), JsonNodeTrx.Commit.NO);
+      final IndexDef projection = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
+          List.of(parse("/[]/g", PathParser.Type.JSON), parse("/[]/n", PathParser.Type.JSON),
+              parse("/[]/lo", PathParser.Type.JSON), parse("/[]/hi", PathParser.Type.JSON)),
+          List.of(Type.LON, Type.LON, Type.STR, Type.STR), 0, IndexDef.DbType.JSON);
+      session.getWtxIndexController(writer.getRevisionNumber()).createIndexes(Set.of(projection), writer);
+      TemporalAggregateDeclarations.declare(session.getWtxIndexController(writer.getRevisionNumber()), writer, "/[]",
+          List.of("g"), List.of("sum(n)"));
+      writer.commit("first", Instant.parse("2024-01-01T00:00:00Z"));
+      writer.moveToDocumentRoot();
+      writer.moveToFirstChild();
+      writer.moveToFirstChild();
+      writer.moveToFirstChild();
+      writer.moveToRightSibling();
+      writer.moveToFirstChild();
+      for (int revision = 2; revision <= REVISIONS; revision++) {
+        writer.setNumberValue(revision * 10);
+        writer.commit("revision " + revision, Instant.parse("2024-0" + revision + "-01T00:00:00Z"));
       }
+      assertEquals(REVISIONS, session.getMostRecentRevisionNumber(), "test setup: source revisions");
+      DerivedIndexTestSupport.await(session);
     }
   }
 
@@ -333,6 +338,84 @@ final class BackupDerivedResourceTest {
         () -> BackupManager.restoreDatabase(backupDir, restoredDir));
     assertTrue(failure.getMessage().contains(DERIVED));
     assertFalse(Files.exists(restoredDir));
+  }
+
+  @Test
+  @DisplayName("TXN-613: retrying a cleaned backup target verifies the reissued history's bytes")
+  void backupRetriesACleanedTargetAfterHistoryReissue() {
+    final Path backupDir = tempDir.resolve("retry-backup");
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(sourceDb)) {
+      createTemporalResource(database, "other");
+      final List<Path> resources = database.listResources();
+      final String first = resources.getFirst().getFileName().toString();
+      final String second = resources.getLast().getFileName().toString();
+      try (final JsonResourceSession session = database.beginResourceSession(first);
+          final JsonResourceSession busy = database.beginResourceSession(second)) {
+        final DerivedIndexMaintainer.Resource maintained =
+            Objects.requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource());
+        maintained.pause();
+        try {
+          reissueHistory(session, maintained, 1);
+          final int previousDerivedHead = derivedHead(sourceDb, first);
+          try (final JsonNodeTrx blocker = busy.beginNodeTrx()) {
+            assertThrows(SirixUsageException.class, () -> BackupManager.backupDatabase(sourceDb, backupDir));
+          }
+          assertFalse(Files.exists(backupDir), "the second resource's busy writer removes the partial target");
+          reissueHistory(session, maintained, 20);
+          final int expectedDerivedHead = derivedHead(sourceDb, first);
+          assertEquals(previousDerivedHead, expectedDerivedHead,
+              "the reissued history reuses revision numbers with different persisted contents");
+          final BackupManager.BackupSummary retry = BackupManager.backupDatabase(sourceDb, backupDir);
+          assertEquals(2, retry.resourcesCopied());
+          assertEquals(REVISIONS, retry.resources().stream()
+                                      .filter(resource -> resource.resourceName().equals(first))
+                                      .findFirst().orElseThrow().mostRecentRevision());
+          assertEquals(expectedDerivedHead, retry.derivedResources().stream()
+                                                .filter(resource -> resource.resourceName().equals(first + "$derived"))
+                                                .findFirst().orElseThrow().mostRecentRevision());
+          final BackupManager.BackupSummary restored =
+              BackupManager.restoreDatabase(backupDir, tempDir.resolve("retried-restored"));
+          assertEquals(retry.derivedResources().stream().map(BackupManager.ResourceSummary::mostRecentRevision).toList(),
+              restored.derivedResources().stream().map(BackupManager.ResourceSummary::mostRecentRevision).toList());
+        } finally {
+          maintained.resume();
+        }
+      }
+    }
+  }
+
+  private static void reissueHistory(final JsonResourceSession session,
+      final DerivedIndexMaintainer.Resource maintained, final int groups) {
+    try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+      writer.truncateTo(1);
+    }
+    maintained.drain();
+    try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+      final StringBuilder document = new StringBuilder("[");
+      for (int group = 0; group < groups; group++) {
+        if (group > 0) {
+          document.append(',');
+        }
+        document.append("{\"g\":").append(group).append(",\"n\":10000000000,\"lo\":\"2024-01-01T00:00:00Z\",")
+                .append("\"hi\":\"2025-01-01T00:00:00Z\"}");
+      }
+      document.append(']');
+      for (int revision = 2; revision <= REVISIONS; revision++) {
+        writer.moveToDocumentRoot();
+        writer.moveToFirstChild();
+        writer.remove();
+        writer.moveToDocumentRoot();
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(document.toString()), JsonNodeTrx.Commit.NO);
+        writer.commit("reissued groups=" + groups, Instant.parse("2024-0" + revision + "-01T00:00:00Z"));
+        maintained.drain();
+      }
+    }
+  }
+
+  private static int derivedHead(final Path database, final String sourceName) {
+    return InterruptedFirstCommitRecovery.probeUberPage(
+        ResourceConfiguration.deserialize(database.resolve("resources").resolve(sourceName + "$derived")))
+                                        .getRevisionNumber();
   }
 
   private static BackupManager.ResourceSummary onlyDerived(final BackupManager.BackupSummary summary) {

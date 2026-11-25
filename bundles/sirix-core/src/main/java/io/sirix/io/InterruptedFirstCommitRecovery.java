@@ -147,6 +147,42 @@ public final class InterruptedFirstCommitRecovery {
     }
   }
 
+  public record ReaderAndUberPage(Reader reader, UberPage uberPage) {
+  }
+
+  public static ReaderAndUberPage openReaderForTool(final ResourceConfiguration config) {
+    final UberPage uberPage = probeUberPage(config);
+    uberPage.getFeatures().requireToolCompatible();
+    final Path dataFile = dataFilePath(config);
+    final Path revisionsFile = revisionsFilePath(config);
+    final long uuidHigh = config.resourceUuid == null ? 0L : config.resourceUuid.getMostSignificantBits();
+    final long uuidLow = config.resourceUuid == null ? 0L : config.resourceUuid.getLeastSignificantBits();
+    SuperblockValidator.validate(dataFile, Superblock.ROLE_DATA, uuidHigh, uuidLow);
+    SuperblockValidator.validate(revisionsFile, Superblock.ROLE_REVISIONS, uuidHigh, uuidLow);
+    try {
+      final FileChannel data = FileChannel.open(dataFile, StandardOpenOption.READ);
+      try {
+        final FileChannel revisions = FileChannel.open(revisionsFile, StandardOpenOption.READ);
+        try {
+          final FileChannelReader reader = new FileChannelReader(data, revisions,
+              new ByteHandlerPipeline(config.byteHandlePipeline), SerializationType.DATA, new PagePersister(),
+              Caffeine.newBuilder().build());
+          reader.setStoreFeatures(uberPage.getFeatures());
+          IOStorage.readRevisionIndex(reader, uberPage.getRevisionNumber());
+          return new ReaderAndUberPage(reader, uberPage);
+        } catch (final RuntimeException | Error failure) {
+          revisions.close();
+          throw failure;
+        }
+      } catch (final IOException | RuntimeException | Error failure) {
+        data.close();
+        throw failure;
+      }
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
+
   public static StoreFeatures probeFeatures(final ResourceConfiguration resourceConfig) {
     return probeUberPage(resourceConfig).getFeatures();
   }

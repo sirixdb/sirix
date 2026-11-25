@@ -192,7 +192,7 @@ public final class HOTTrieReader implements AutoCloseable {
   }
 
   public boolean verifyChecksumsOnRead() {
-    return storageEngineReader.getResourceSession().getResourceConfig().verifyChecksumsOnRead;
+    return storageEngineReader.getResourceConfig().verifyChecksumsOnRead;
   }
 
   /** The storage engine reader. */
