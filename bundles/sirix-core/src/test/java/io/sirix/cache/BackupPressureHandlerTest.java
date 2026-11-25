@@ -93,8 +93,8 @@ final class BackupPressureHandlerTest {
           switch (operation) {
             case BACKUP -> assertEquals(1, BackupManager.backupDatabase(source, backup).derivedResourcesCopied());
             case RESTORE -> assertEquals(1, BackupManager.restoreDatabase(backup, restored).derivedResourcesCopied());
-            case FAILED_RESTORE -> assertThrows(SirixIOException.class,
-                () -> BackupManager.restoreDatabase(backup, restored));
+            case FAILED_RESTORE ->
+              assertThrows(SirixIOException.class, () -> BackupManager.restoreDatabase(backup, restored));
           }
           assertPressureEvictsLivePages(live);
         } finally {

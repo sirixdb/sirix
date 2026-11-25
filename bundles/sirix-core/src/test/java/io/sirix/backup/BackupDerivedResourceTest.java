@@ -176,7 +176,8 @@ final class BackupDerivedResourceTest {
     final byte[] originalRevisions = Files.readAllBytes(derivedFile(backupDir, "sirix.revisions"));
     assertTrue(originalData.length > IOStorage.DATA_REGION_START);
     try (final FileChannel channel = FileChannel.open(dataFile, StandardOpenOption.WRITE)) {
-      final ByteBuffer zeros = ByteBuffer.allocate((int) (IOStorage.DATA_REGION_START - IOStorage.PRIMARY_BEACON_OFFSET));
+      final ByteBuffer zeros =
+          ByteBuffer.allocate((int) (IOStorage.DATA_REGION_START - IOStorage.PRIMARY_BEACON_OFFSET));
       while (zeros.hasRemaining()) {
         channel.write(zeros, IOStorage.PRIMARY_BEACON_OFFSET + zeros.position());
       }
@@ -190,8 +191,8 @@ final class BackupDerivedResourceTest {
     assertArrayEquals(originalRevisions, Files.readAllBytes(derivedFile(backupDir, "sirix.revisions")),
         "the revision records stay intact");
     final Path restoredDir = tempDir.resolve("restored-db");
-    final SirixIOException refusal = assertThrows(SirixIOException.class,
-        () -> BackupManager.restoreDatabase(backupDir, restoredDir));
+    final SirixIOException refusal =
+        assertThrows(SirixIOException.class, () -> BackupManager.restoreDatabase(backupDir, restoredDir));
     assertTrue(refusal.getMessage().contains(DERIVED));
     assertFalse(Files.exists(restoredDir), "a missing committed beacon must leave no restored target");
   }
@@ -275,8 +276,8 @@ final class BackupDerivedResourceTest {
           writer.truncateTo(2);
         }
         assertEquals(2, session.getMostRecentRevisionNumber());
-        final SirixIOException failure = assertThrows(SirixIOException.class,
-            () -> BackupManager.backupDatabase(sourceDb, backupDir));
+        final SirixIOException failure =
+            assertThrows(SirixIOException.class, () -> BackupManager.backupDatabase(sourceDb, backupDir));
         assertTrue(failure.getMessage().contains(DERIVED));
         assertFalse(Files.exists(backupDir), "a refused backup must leave no target");
       } finally {
@@ -316,8 +317,8 @@ final class BackupDerivedResourceTest {
       }
     }
     final Path restoredDir = tempDir.resolve("restored-db");
-    final SirixIOException failure = assertThrows(SirixIOException.class,
-        () -> BackupManager.restoreDatabase(backupDir, restoredDir));
+    final SirixIOException failure =
+        assertThrows(SirixIOException.class, () -> BackupManager.restoreDatabase(backupDir, restoredDir));
     assertTrue(failure.getMessage().contains(DERIVED));
     assertFalse(Files.exists(restoredDir));
   }
@@ -354,8 +355,8 @@ final class BackupDerivedResourceTest {
       damaged.storage().close();
     }
     final Path restoredDir = tempDir.resolve("restored-db");
-    final SirixIOException failure = assertThrows(SirixIOException.class,
-        () -> BackupManager.restoreDatabase(backupDir, restoredDir));
+    final SirixIOException failure =
+        assertThrows(SirixIOException.class, () -> BackupManager.restoreDatabase(backupDir, restoredDir));
     assertTrue(failure.getMessage().contains(DERIVED));
     assertFalse(Files.exists(restoredDir));
   }
@@ -367,8 +368,8 @@ final class BackupDerivedResourceTest {
     BackupManager.backupDatabase(sourceDb, backupDir);
     SirixFiles.recursiveRemove(derivedDir(backupDir).resolve("indexes"));
     final Path restoredDir = tempDir.resolve("restored-db");
-    final SirixIOException failure = assertThrows(SirixIOException.class,
-        () -> BackupManager.restoreDatabase(backupDir, restoredDir));
+    final SirixIOException failure =
+        assertThrows(SirixIOException.class, () -> BackupManager.restoreDatabase(backupDir, restoredDir));
     assertTrue(failure.getMessage().contains(DERIVED));
     assertFalse(Files.exists(restoredDir));
   }
@@ -400,15 +401,24 @@ final class BackupDerivedResourceTest {
               "the reissued history reuses revision numbers with different persisted contents");
           final BackupManager.BackupSummary retry = BackupManager.backupDatabase(sourceDb, backupDir);
           assertEquals(2, retry.resourcesCopied());
-          assertEquals(REVISIONS, retry.resources().stream()
-                                      .filter(resource -> resource.resourceName().equals(first))
-                                      .findFirst().orElseThrow().mostRecentRevision());
-          assertEquals(expectedDerivedHead, retry.derivedResources().stream()
-                                                .filter(resource -> resource.resourceName().equals(first + "$derived"))
-                                                .findFirst().orElseThrow().mostRecentRevision());
+          assertEquals(REVISIONS,
+              retry.resources()
+                   .stream()
+                   .filter(resource -> resource.resourceName().equals(first))
+                   .findFirst()
+                   .orElseThrow()
+                   .mostRecentRevision());
+          assertEquals(expectedDerivedHead,
+              retry.derivedResources()
+                   .stream()
+                   .filter(resource -> resource.resourceName().equals(first + "$derived"))
+                   .findFirst()
+                   .orElseThrow()
+                   .mostRecentRevision());
           final BackupManager.BackupSummary restored =
               BackupManager.restoreDatabase(backupDir, tempDir.resolve("retried-restored"));
-          assertEquals(retry.derivedResources().stream().map(BackupManager.ResourceSummary::mostRecentRevision).toList(),
+          assertEquals(
+              retry.derivedResources().stream().map(BackupManager.ResourceSummary::mostRecentRevision).toList(),
               restored.derivedResources().stream().map(BackupManager.ResourceSummary::mostRecentRevision).toList());
         } finally {
           maintained.resume();
@@ -429,7 +439,9 @@ final class BackupDerivedResourceTest {
         if (group > 0) {
           document.append(',');
         }
-        document.append("{\"g\":").append(group).append(",\"n\":10000000000,\"lo\":\"2024-01-01T00:00:00Z\",")
+        document.append("{\"g\":")
+                .append(group)
+                .append(",\"n\":10000000000,\"lo\":\"2024-01-01T00:00:00Z\",")
                 .append("\"hi\":\"2025-01-01T00:00:00Z\"}");
       }
       document.append(']');
@@ -448,7 +460,7 @@ final class BackupDerivedResourceTest {
   private static int derivedHead(final Path database, final String sourceName) {
     return InterruptedFirstCommitRecovery.probeUberPage(
         ResourceConfiguration.deserialize(database.resolve("resources").resolve(sourceName + "$derived")))
-                                        .getRevisionNumber();
+                                         .getRevisionNumber();
   }
 
   private static BackupManager.ResourceSummary onlyDerived(final BackupManager.BackupSummary summary) {
