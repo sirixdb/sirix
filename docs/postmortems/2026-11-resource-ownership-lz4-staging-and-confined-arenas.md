@@ -41,8 +41,7 @@
   to return exactly once. #1408 was invisible by
   construction: `RegionTableTest.confinedWriterTableClosesNativePayloads` passes with the confined
   arena routed through the shared-arena path, because the JVM default strategy closes shared arenas
-  for real. Only the strategy a native image resolves at startup can tell the two apart, and no CI
-  lane ran it.
+  for real. AUTO and GLOBAL expose the difference, but neither had confined-owner coverage.
 - Regression test:
   - `io.sirix.cache.Lz4OwnershipFailureTest.stagingAllocationFailureReturnsTheOutputFrameWithoutRetainingNativeMemory`
     — a positive 50000-byte output size and a heap input larger than the fork's 16 MiB allocator
@@ -84,15 +83,13 @@
     resource-lifetime oracle, without changing production logic in the delivered change.
 - Read latency (#1407's fourth acceptance item): nothing on the read path changed — the only edits
   to `FFILz4Compressor` are a comment — so the success path's instruction sequence is unchanged by
-  construction. Measurement waived by the maintainer: no production code change, so no latency
-  effect; the 4% rule still applies to code changes.
-- Native-image configuration (#1408's second acceptance item): the bounded
-  `confinedWriterArenaLeakCheck` harness must run with `-Dsirix.arena.strategy=auto`. It retains
-  payload handles across 4096 serializer-local table create-and-release cycles, allocating 64 KiB
-  per cycle, and requires every scope to be closed and zero payload bytes to remain live after
-  every release and at the end. This is exact arena-lifetime accounting, independent of GC and RSS
-  noise. The same close invariant must hold in the SHARED, AUTO, diagnostic GLOBAL and diagnostic
-  skip-close policy forks; each fork must assert its startup strategy before exercising it.
+  construction. The native-build read-latency comparison against a control and its verdict must
+  still be reported in the pull request; unchanged production logic alone does not replace that
+  measurement.
+- Native-image configuration (#1408's second acceptance item): see the
+  [arena lifetime harness](../NATIVE_IMAGE.md#arena-blocker--resolved-iosirixiosharedarenas) for the
+  policy, accounting contract and command. This harness exercises the native-image policy on the
+  JVM; it does not execute a native image.
 - Lesson: a resource whose release goes through a strategy may be released by nothing; prove the
   owner in a lane that runs the strategy that releases least. See `../lessons.d/`
   (the [fragment convention](../../changelog.d/README.md)).

@@ -401,7 +401,7 @@ def sharedArenaPolicyCases = [
     'reject-global': ['global', 'false', 'false'],
     'reject-skip': ['shared', 'true', 'false'],
     // The strategy a GraalVM native image runs with: shared-arena close is a no-op there, so the
-    // owners that must close their own arenas are only provable in this fork (#1408).
+    // confined owners must still close their own arenas in this fork (#1408).
     'auto-strategy': ['auto', 'false', 'false']
 ]
 def sharedArenaPolicyTests = sharedArenaPolicyCases.collect { mode, settings ->

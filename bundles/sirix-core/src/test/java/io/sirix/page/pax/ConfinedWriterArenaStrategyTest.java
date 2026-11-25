@@ -20,11 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Serializer-local confined arenas across startup arena policies.
  *
  * <p>
- * Runs in the shared-arena policy forks because
- * {@link SharedArenas} reads its strategy once at class initialization. Under {@code auto} — the
- * native-image default — {@link SharedArenas#close(Arena)} releases nothing, so a confined arena
- * handed to that path would live for the whole process. The owner that created it must close it
- * itself under every strategy.
+ * Runs in the shared-arena policy forks because {@link SharedArenas} reads its strategy once at
+ * class initialization. Under {@code auto} — the native-image default —
+ * {@link SharedArenas#close(Arena)} releases nothing, so a confined arena handed to that path would
+ * live for the whole process. The owner that created it must close it itself under every strategy.
  */
 final class ConfinedWriterArenaStrategyTest {
 

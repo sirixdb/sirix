@@ -68,7 +68,8 @@ final class Lz4OwnershipFailureTest {
     for (int attempt = 0; attempt < INJECTED_FAILURES; attempt++) {
       final OutOfMemoryError failure = assertThrows(OutOfMemoryError.class, () -> codec.decompressScoped(oversized));
       assertTrue(failure.getMessage().contains("scratch buffer"), "the staging allocation must be refused");
-      assertEquals(before.live(), allocator.liveSlotCount(frameClass), "a refused staging borrow must return its frame");
+      assertEquals(before.live(), allocator.liveSlotCount(frameClass),
+          "a refused staging borrow must return its frame");
       assertEquals(before.active(), allocator.getActiveMemoryBytes(), "failed staging must retain no active bytes");
       assertEquals(before.committed(), allocator.getPhysicalMemoryBytes(), "failed staging must commit no extra bytes");
     }

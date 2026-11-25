@@ -582,11 +582,8 @@ public final class FFILz4Compressor implements ByteHandler {
 
     int decompressedSize = sizeHeader;
 
-    // Ownership invariant: the output frame is allocated immediately before the try, with no
-    // statement in between, and the heap-staging borrow happens INSIDE it. Both the staging
-    // allocation and its copy sat BEFORE the try until #1346 — and staged into a confined arena of
-    // their own — so a failure of either leaked the frame and never closed that arena (#1407). The
-    // finally below releases whatever this call still owns on every exit, exactly once.
+    // Keep the output-frame acquisition adjacent to try and heap staging inside it: allocation or
+    // copy failure must reach the finally that releases every resource still owned by this call.
     ScratchLease inputLease = null;
     boolean ownershipTransferred = false;
     Throwable failure = null;
