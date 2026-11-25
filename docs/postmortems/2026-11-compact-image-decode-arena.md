@@ -139,8 +139,11 @@ performance measurement and mutation gates remain owned by the outer pipeline.
   publication failures propagate. Population distinguishes unsupported advice from native refusal.
   Permanent-slab admission also reports shutdown as null, replacing the store's broad
   `IllegalStateException` catch so an allocator publication failure cannot be mistaken for refusal.
-  The allocator's shared rejected-shutdown rollback reopens compact admission once cleanup has
-  emptied its directory; a cleanup failure cannot reopen a directory that may contain unmapped blocks.
+  The allocator's shared rejected-shutdown rollback restores compact admission. Cleanup safety
+  on a failed release is covered by the
+  [partial-release follow-up](#review-follow-up-rollback-after-partial-slab-release); the
+  [compact image storage contract](../HOT_INDEX_SPECIFICATION.md#323-serialized-layout-pagekindhot_leaf_page)
+  owns the current invariants.
 - Why tests missed it: valid round-trip images never addressed recycled slack, budget refusals
   never exercised native refusals, and store-only cleanup tests never rejected allocator shutdown
   after idle slabs had already been returned.

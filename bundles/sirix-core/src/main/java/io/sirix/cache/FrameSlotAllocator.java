@@ -335,8 +335,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private volatile long budgetBytes;
 
   /**
-   * Budget share fresh page-frame slots may not commit — see {@link #initInternal}. Oversized
-   * allocations, slabs and scratch buffers share it.
+   * Budget share fresh page-frame slots and permanent slabs may not commit — see
+   * {@link #initInternal}. Oversized allocations, reclaimable slabs and scratch buffers share it.
    */
   private volatile long oversizedHeadroomBytes;
 
@@ -927,8 +927,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
     this.budgetBytes = budgetBytes;
     final long configuredHeadroom = Long.getLong("sirix.allocator.oversizedHeadroomBytes", -1L);
-    // Frame-slot commitment lasts until shutdown. Leave headroom for oversized allocations,
-    // slabs and scratch; the class budget contract specifies their separate commitment limits.
+    // Frame-slot and permanent-slab commitment lasts until shutdown. Leave headroom for oversized
+    // allocations, reclaimable slabs and scratch; the class budget contract owns their limits.
     // Default: 1/16th of the budget, capped at 1 GiB, zero for tiny test budgets.
     // Only budgets comfortably above embedded/test scale reserve headroom by default: an
     // allocator budgeted EXACTLY for its frame slots (focused tests, tiny embedded configs) must

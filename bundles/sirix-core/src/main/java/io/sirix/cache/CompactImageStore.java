@@ -406,14 +406,14 @@ public final class CompactImageStore {
 
     private final AtomicLong freeStack = new AtomicLong(EMPTY_TOP);
 
-    /** Index to block. Replaced wholesale under the monitor, read without it; never shrinks. */
+    /** Index to block. Grows under the monitor; shutdown detaches it after stopping admission. */
     // Entries below carvedBlocks never change. Growth publishes new entries before pushing them
     // onto the atomic free stack; shutdown replaces the directory only after admission has stopped.
     // The holder is atomic rather than a volatile array field: a get() is the same single load the
     // volatile field was, and the type no longer invites the reading that the ARRAY is thread-safe.
     private final AtomicReference<Block[]> blocks = new AtomicReference<>(EMPTY_BLOCKS);
 
-    /** Published directory length. Written only under this monitor; read without it. */
+    /** Published block count, excluding spare directory capacity; written under this monitor. */
     private final AtomicInteger carvedBlocks = new AtomicInteger();
 
     /** How often growth had to copy the directory. Diagnostic; same writer and readers. */
