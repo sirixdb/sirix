@@ -554,9 +554,9 @@ public final class HOTBulkBuilder {
    * Assemble a {@link HOTIndirectPage} from the discriminative-bit set, the sparse-path partials, and
    * the child references. Children must already be in strictly ascending partial-key order
    * (foundation §4, I7) — {@code R(S)} left-to-right order for a bulk build, a contiguous re-encoded
-   * sub-block for an incremental split — so no re-sort is needed. A nameable set uses SingleMask
-   * when the bits fit an 8-byte window and MultiMask otherwise; both decode {@code partials}
-   * identically. An unnameable set is split over levels as described below.
+   * sub-block for an incremental split — so no re-sort is needed. A nameable set uses SingleMask when
+   * the bits fit an 8-byte window and MultiMask otherwise; both decode {@code partials} identically.
+   * An unnameable set is split over levels as described below.
    *
    * <p>
    * Package-private: shared with {@link HOTIncrementalInsert}'s {@code splitIndirect} and
