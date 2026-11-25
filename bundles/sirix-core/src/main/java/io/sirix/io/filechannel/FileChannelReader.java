@@ -1154,21 +1154,15 @@ public final class FileChannelReader extends AbstractReader {
       final int bytesRead = readRevisionRecords(records, IOStorage.revisionsFileOffset(first));
       for (int i = 0; i < count; i++) {
         final int base = i * IOStorage.REVISIONS_FILE_RECORD_SIZE;
-        if (base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= bytesRead) {
-          final long offset = records.getLong(base);
-          final long hash = records.getLong(base + 24);
-          if (offset == IOStorage.PRUNED_REVISION_OFFSET || hash == IOStorage.PRUNED_REVISION_TAG) {
-            continue;
-          }
-          if (records.getLong(base + 16) == IOStorage.expectedRevisionRecordChecksum(offset, records.getLong(base + 8),
-              hash)) {
-            ResourceFormatCompatibility.requireRootEnvelope(dataFileChannel, offset, byteHandler);
-            continue;
-          }
+        RevisionFileData record = base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= bytesRead
+            ? storedRevisionRecord(records, base, first + i)
+            : null;
+        if (record == null) {
+          record = getRevisionFileDataWithoutHealing(first + i);
         }
-        final RevisionFileData salvaged = getRevisionFileDataWithoutHealing(first + i);
-        salvaged.requireReadable(first + i);
-        ResourceFormatCompatibility.requireRootEnvelope(dataFileChannel, salvaged.offset(), byteHandler);
+        if (!record.isPruned()) {
+          ResourceFormatCompatibility.requireRootEnvelope(dataFileChannel, record.offset(), byteHandler);
+        }
       }
     }
   }

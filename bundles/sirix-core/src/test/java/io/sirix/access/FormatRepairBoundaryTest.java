@@ -961,6 +961,75 @@ final class FormatRepairBoundaryTest {
 
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void fmt401Criterion3ChecksLiveRootsWhoseHashMatchesPruneTag(final StorageType backend) throws IOException {
+    for (final int foreignRevision : new int[] {1, 3}) {
+      for (final boolean tailOnly : new boolean[] {false, true}) {
+        final Path database =
+            createStore("prune-tag-hash-" + backend + "-" + foreignRevision + "-" + tailOnly, backend, false);
+        final Path resource = resourcePath(database, "fixture");
+        try (final var opened = Databases.openJsonDatabase(database);
+            final var session = opened.beginResourceSession("fixture");
+            final var writer = session.beginNodeTrx()) {
+          writer.commit();
+          writer.commit();
+          writer.commit();
+        }
+        patchRoot(resource, foreignRevision);
+        final byte[] records = Files.readAllBytes(file(resource, "revisions"));
+        final ByteBuffer directory = ByteBuffer.wrap(records).order(ByteOrder.LITTLE_ENDIAN);
+        final int record = (int) IOStorage.revisionsFileOffset(foreignRevision);
+        final long offset = directory.getLong(record);
+        final long timestamp = directory.getLong(record + 8);
+        assertTrue(offset >= IOStorage.DATA_REGION_START);
+        final long checksum = IOStorage.revisionRecordChecksum(offset, timestamp, IOStorage.PRUNED_REVISION_TAG);
+        directory.putLong(record + 16, checksum);
+        directory.putLong(record + 24, IOStorage.PRUNED_REVISION_TAG);
+        if (tailOnly) {
+          final byte[] bytes = Files.readAllBytes(file(resource, "data"));
+          final ByteBuffer data = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+          for (final long slot : new long[] {IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET}) {
+            final int base = (int) slot + IOStorage.tailLogEntryOffsetInSlot(foreignRevision);
+            data.putInt(base, foreignRevision).putInt(base + 4, 0);
+            data.putLong(base + 8, offset);
+            data.putLong(base + 16, timestamp);
+            data.putLong(base + 24, checksum);
+            data.putLong(base + 32, IOStorage.PRUNED_REVISION_TAG);
+            data.putLong(base + 40, LongHashFunction.xx3().hashBytes(bytes, base, 40));
+          }
+          Files.write(file(resource, "data"), bytes);
+          Arrays.fill(records, record, record + IOStorage.REVISIONS_FILE_RECORD_SIZE, (byte) 0);
+        }
+        Files.write(file(resource, "revisions"), records);
+        final Path spill = resource.resolve("projection-sort-spill/build-999999999-orphan");
+        Files.createDirectories(spill);
+        Files.writeString(spill.resolve("run.bin"), "must survive refusal");
+        final Map<String, String> before = snapshot(resource);
+        final byte[] dataBefore = Files.readAllBytes(file(resource, "data"));
+        final byte[] revisionsBefore = Files.readAllBytes(file(resource, "revisions"));
+        Databases.clearGlobalCaches();
+        try (final var opened = Databases.openJsonDatabase(database)) {
+          final UnsupportedFormatVersionException refusal = assertThrows(UnsupportedFormatVersionException.class,
+              () -> opened.beginResourceSession("fixture"));
+          assertTrue(messageChain(refusal).contains("unsupported format version 1"), messageChain(refusal));
+        }
+        try (final FileChannel data = FileChannel.open(file(resource, "data"), StandardOpenOption.READ);
+            final FileChannel revisions = FileChannel.open(file(resource, "revisions"), StandardOpenOption.READ);
+            final FileChannelReader reader = new FileChannelReader(data, revisions, new ByteHandlerPipeline(),
+                SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build())) {
+          final UnsupportedFormatVersionException refusal = assertThrows(UnsupportedFormatVersionException.class,
+              () -> ResourceFormatCompatibility.verifyRepair(data, revisions, reader));
+          assertTrue(messageChain(refusal).contains("unsupported format version 1"), messageChain(refusal));
+        }
+        assertEquals("must survive refusal", Files.readString(spill.resolve("run.bin")));
+        assertEquals(before, snapshot(resource));
+        assertArrayEquals(dataBefore, Files.readAllBytes(file(resource, "data")));
+        assertArrayEquals(revisionsBefore, Files.readAllBytes(file(resource, "revisions")));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void everyPresentInvalidSettingsVersionPreventsDerivedRebuild(final StorageType backend) throws IOException {
     final String[] versions = {"7", "7.0", "7e0", "{}", "{\"version\":\"V0\"}", "[]", "[\"V0\"]", "true", "false",
         "null", "\"V7\"", "\"\"", "\"V0 \""};
