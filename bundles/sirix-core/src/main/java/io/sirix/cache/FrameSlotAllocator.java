@@ -2204,7 +2204,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   @SuppressWarnings("unchecked")
-  private static <T extends Throwable> void rethrowCleanupFailure(final Throwable failure) throws T {
+  static <T extends Throwable> void rethrowCleanupFailure(final Throwable failure) throws T {
     throw (T) failure;
   }
 

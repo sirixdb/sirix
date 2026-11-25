@@ -250,3 +250,34 @@ performance measurement and mutation gates remain owned by the outer pipeline.
 - Lesson: read *which* issues drive the failing quality-gate condition before fixing anything — a
   bug and a smell with the same impact are not interchangeable — and on a cold path prefer removing
   the flagged construct to maintaining a suppression.
+
+
+## Review follow-up: rollback after partial slab release
+
+- Symptom: a rejected shutdown could reopen lease admission with blocks pointing into unmapped
+  memory, risking corruption or a JVM crash on the next compact decode.
+- Trigger: release an idle pool containing multiple slabs; a release throws after earlier slabs
+  have been unmapped, or allocation of the replacement empty directory fails after unmapping.
+  Allocator shutdown catches the failure and restores pool admission.
+- Root cause: the free stack, directory and carved count stayed published until all slab releases
+  and an allocating reset completed. Cleanup confused ownership withdrawal with successful native
+  release, so failure left reusable views alive longer than their mappings.
+- Correction: each class detaches its free stack, directory and count before any slab release,
+  using one shared empty directory. Cleanup attempts all slabs and classes and preserves the first
+  failure with subsequent failures suppressed through the existing cleanup helpers. Rollback can
+  safely reopen admission: detached classes grow fresh slabs rather than returning freed blocks.
+- Why tests missed it: existing lifecycle tests covered rejected shutdown after successful pool
+  cleanup, but never a release that unmapped storage and then threw partway through cleanup.
+- Regression: `CompactImageAllocatorLifecycleTest.partialSlabReleaseFailureCannotReopenReleasedBlocks`
+  injects runtime and heap failures at the allocator boundary after closing actual native arenas.
+  It checks all releases, primary/suppressed errors, empty pool accounting, stopped admission and
+  writable fresh leases in both affected classes after rollback. The independent oracle is the
+  native arena lifetime plus the compact storage contract in HOT_INDEX_SPECIFICATION §3.2;
+  reusing a closed segment or abandoning sibling cleanup fails these assertions. Existing live-slab
+  and foreign-owner rejection cases continue to check real pooled decoding after rollback.
+- Verification command: `./gradlew :sirix-core:compactImageAllocatorLifecycleTest`.
+  The review phase permits one final focused verification, so no pre-fix run was performed.
+- Vision check: protects readable, identical compact images without changing persisted bytes,
+  defaults, lease operations or their allocation and work budgets.
+- Lesson: withdraw reusable ownership before native teardown, and make teardown resets independent
+  of heap availability; see the compact-image fragment collected into docs/LESSONS.md.

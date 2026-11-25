@@ -259,8 +259,16 @@ public final class CompactImageStore {
     if (hook != null) {
       hook.run();
     }
+    Throwable cleanupFailure = null;
     for (final SizeClass sizeClass : classes) {
-      sizeClass.releaseSlabs(allocator);
+      try {
+        sizeClass.releaseSlabs(allocator);
+      } catch (final RuntimeException | Error failure) {
+        cleanupFailure = FrameSlotAllocator.retainCleanupFailure(cleanupFailure, failure);
+      }
+    }
+    if (cleanupFailure != null) {
+      FrameSlotAllocator.rethrowCleanupFailure(cleanupFailure);
     }
     return true;
   }
@@ -388,6 +396,8 @@ public final class CompactImageStore {
 
     private static final long INDEX_MASK = 0xFFFF_FFFFL;
 
+    private static final Block[] EMPTY_BLOCKS = new Block[0];
+
     private final CompactImageStore store;
 
     private final int blockBytes;
@@ -401,7 +411,7 @@ public final class CompactImageStore {
     // onto the atomic free stack; shutdown replaces the directory only after admission has stopped.
     // The holder is atomic rather than a volatile array field: a get() is the same single load the
     // volatile field was, and the type no longer invites the reading that the ARRAY is thread-safe.
-    private final AtomicReference<Block[]> blocks = new AtomicReference<>(new Block[0]);
+    private final AtomicReference<Block[]> blocks = new AtomicReference<>(EMPTY_BLOCKS);
 
     /** Published directory length. Written only under this monitor; read without it. */
     private final AtomicInteger carvedBlocks = new AtomicInteger();
@@ -526,13 +536,21 @@ public final class CompactImageStore {
     }
 
     synchronized void releaseSlabs(final MemorySegmentAllocator allocator) {
-      for (final MemorySegment slab : slabs) {
-        allocator.releaseSlab(slab);
+      freeStack.set(EMPTY_TOP);
+      blocks.set(EMPTY_BLOCKS);
+      carvedBlocks.set(0);
+      Throwable cleanupFailure = null;
+      for (int i = 0; i < slabs.size(); i++) {
+        try {
+          allocator.releaseSlab(slabs.get(i));
+        } catch (final RuntimeException | Error failure) {
+          cleanupFailure = FrameSlotAllocator.retainCleanupFailure(cleanupFailure, failure);
+        }
       }
       slabs.clear();
-      blocks.set(new Block[0]);
-      carvedBlocks.set(0);
-      freeStack.set(EMPTY_TOP);
+      if (cleanupFailure != null) {
+        FrameSlotAllocator.rethrowCleanupFailure(cleanupFailure);
+      }
     }
   }
 }

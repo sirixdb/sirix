@@ -12,6 +12,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.CompactImageStore.Block;
@@ -24,11 +29,14 @@ import io.sirix.page.PagePersister;
 import io.sirix.page.SerializationType;
 import io.sirix.settings.VersioningType;
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -39,6 +47,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 @Isolated
 final class CompactImageAllocatorLifecycleTest {
@@ -231,6 +240,88 @@ final class CompactImageAllocatorLifecycleTest {
       assertPooledRead(wire);
     } finally {
       assertTrue(allocator.releaseSlab(other));
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void partialSlabReleaseFailureCannotReopenReleasedBlocks(final boolean heapFailure) {
+    final MemorySegmentAllocator allocator = mock(MemorySegmentAllocator.class);
+    final CompactImageStore store = new CompactImageStore(allocator);
+    final Map<MemorySegment, Arena> arenas = new IdentityHashMap<>();
+    final List<MemorySegment> slabs = new ArrayList<>();
+    final List<MemorySegment> released = new ArrayList<>();
+    final List<Block> held = new ArrayList<>();
+    final Throwable primary = heapFailure
+        ? new OutOfMemoryError("release failure")
+        : new IllegalStateException("release failure");
+    final Throwable secondary = new IllegalStateException("later release failure");
+    final Class<? extends Throwable> failureType = heapFailure
+        ? OutOfMemoryError.class
+        : IllegalStateException.class;
+    when(allocator.allocatePermanentSlab(anyLong())).thenAnswer(invocation -> {
+      final Arena arena = Arena.ofConfined();
+      final MemorySegment slab = arena.allocate(invocation.<Long>getArgument(0), 8);
+      arenas.put(slab, arena);
+      slabs.add(slab);
+      return slab;
+    });
+    doAnswer(invocation -> {
+      final MemorySegment slab = invocation.getArgument(0);
+      arenas.get(slab).close();
+      released.add(slab);
+      if (released.size() == 2) {
+        throw primary;
+      }
+      if (released.size() == 4) {
+        throw secondary;
+      }
+      return true;
+    }).when(allocator).releaseSlab(any(MemorySegment.class));
+    try {
+      for (int i = 0; i < 9; i++) {
+        final Block block = store.acquire(4096);
+        assertNotNull(block);
+        held.add(block);
+      }
+      final Block otherClass = store.acquire(8192);
+      assertNotNull(otherClass);
+      held.add(otherClass);
+      for (final Block block : held) {
+        block.run();
+      }
+      assertEquals(4, slabs.size());
+
+      assertSame(primary, assertThrows(failureType, store::releaseIdleSlabs));
+      assertArrayEquals(new Throwable[] {secondary}, primary.getSuppressed());
+      assertEquals(slabs, released);
+      assertEquals(0, store.blockCount());
+      assertEquals(0L, store.pooledBytes());
+      assertNull(store.acquire(4096));
+      store.resumeAfterRejectedShutdown();
+
+      for (final int size : new int[] {4096, 8192}) {
+        final Block recovered = store.acquire(size);
+        assertNotNull(recovered);
+        held.add(recovered);
+        assertTrue(recovered.segment().scope().isAlive());
+        recovered.segment().set(ValueLayout.JAVA_LONG, 0L, 42L);
+        assertEquals(42L, recovered.segment().get(ValueLayout.JAVA_LONG, 0L));
+        recovered.run();
+      }
+      assertEquals(6, slabs.size());
+      assertTrue(store.releaseIdleSlabs());
+    } finally {
+      for (final Block block : held) {
+        if (block.isLeased()) {
+          block.run();
+        }
+      }
+      for (final Arena arena : arenas.values()) {
+        if (arena.scope().isAlive()) {
+          arena.close();
+        }
+      }
     }
   }
 

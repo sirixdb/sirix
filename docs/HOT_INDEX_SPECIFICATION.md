@@ -813,7 +813,13 @@ Body fields below follow the shared envelope and any extension block.
   Slabs remain committed until shutdown, including when all their blocks have been returned.
   Shutdown MUST stop lease admission before checking both in-flight acquisitions and live
   leases; it MUST refuse cleanup while either exists and MUST refuse new leases after successful
-  cleanup. Permanent pool slabs MUST share the frame commitment ceiling, preserving oversized
+  cleanup. Before releasing any slab in a class, cleanup MUST detach that class's free blocks and
+  reset its directory and block count without allocation. Cleanup MUST attempt every slab in every
+  class even when a release throws, preserving the first failure and suppressing later failures
+  when possible. Rejected shutdown MUST never restore access to a released block; subsequent
+  leases may use only surviving mapped storage or freshly allocated slabs.
+  `CompactImageAllocatorLifecycleTest` checks partial-release failure and pooled decoding after
+  rejected shutdown. Permanent pool slabs MUST share the frame commitment ceiling, preserving oversized
   headroom, while reclaimable slabs keep their existing ceiling. Before a newly mapped slab is
   published, every failure MUST return it to the allocator and preserve the primary exception,
   retaining a cleanup exception as suppressed when possible. Directory growth MUST copy O(n)
