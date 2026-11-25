@@ -44,6 +44,7 @@ The Sirix campaign uses these names (some from the design doc, some Sirix-specif
 | **I10-fanout-bounded** | C++ A.2 — minimum 2 entries; max 32 (MAX_NODE_ENTRIES) | 2 ≤ indirect.numChildren ≤ MAX_NODE_ENTRIES |
 | **I11-trie-condition** | C++ C.5 — `parent.MSB < child.discBit` (HOTSingleThreaded.hpp:521-523) | for every indirect with parent, parent.mostSigDiscBit < indirect.discBitsInRange.highest |
 | **I12-disc-bit-monotone** | C++ asserts A.6, A.7 — insert bit ≠ parent MSB | when adding a new disc bit β, β must not equal any existing parent disc bit on the path |
+| **I13-stored-height-exact** | Sirix-specific (persisted height field, [FMT-306](../spec/FMT-disk-format.md)) | for every indirect I: `I.height == 1 + max(height of I's children)`, a node above leaves storing 1 |
 | **I-Binna-sparse-path** | C++ B.4 (`(dense & sparse) === sparse`) | for every indirect I, every child c at slot s: `(I.partialKeys[s] & ~PEXT(c.firstKey, I.mask)) == 0` |
 | **I-PDEP-PEXT-identity** | C++ D.7 | for every conversionMask M and value X: `_pext_u32(_pdep_u32(X, M), M) == X` |
 | **I-Sparse-Path-Subtree** | extension of I-Binna for multi-entry leaves | same as I-Binna-sparse-path but ALL keys in c.subtree, not just c.firstKey (= I5 strict variant) |
@@ -303,6 +304,22 @@ for (int depth = 0; depth < pathDepth; depth++) {
   }
 }
 ```
+
+---
+
+### I13 — Stored-Height-Exact
+
+**Predicate**: ∀ indirect I: `I.height == 1 + max over children c of (c is a leaf page ? 0 : c.height-as-walked)`.
+
+**Source**: Sirix-specific. The height is per-node wire state (`HOTIndirectPage.height`, a nonzero u8), and [FMT-306](../spec/FMT-disk-format.md) requires it to be exact live in the writing transaction, in every published revision and after cold decode, in both directions.
+
+**Why it matters**: no routing reads the field, so a stale value still answers every key — what it corrupts is the next structural decision taken from it (`SiblingMerger` equal-height merges, `NodeUpgradeManager` upgrades, `HOTIncrementalInsert` integrate/fold choices, `HOTCommitNormalizer` scheduling) and the excess levels a lost outer spine leaves behind. Issue [1457](https://github.com/sirixdb/sirix/issues/1457) was exactly this pair of symptoms.
+
+**Preservation operations**: `AbstractHOTIndexWriter.refreshOuterHeight` and `propagateStructuralSpliceUpSpine` after a subtree-local replacement, `HOTCommitNormalizer.normalize` when it folds a child away, and every indirect-construction site that passes an explicit height.
+
+**Current coverage**:
+- Validator: ✅ checked — `validateStoredHeightExact`, from the walked structure rather than the field, skipped only for a node with a missing or unloadable child so the height defect is not reported on top of the structural one.
+- Writer: ✅ exact propagation on growth and shrinkage; a propagation it cannot complete poisons the transaction.
 
 ---
 

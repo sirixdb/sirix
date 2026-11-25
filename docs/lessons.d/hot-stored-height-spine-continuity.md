@@ -1,0 +1,4 @@
+---
+kind: row
+---
+| A fix for a structural defect was held only by the three tests written with it: the invariant every HOT test ran did not check the field the defect corrupted, no requirement said the field had to be exact, and the shape the fix restored was not counted anywhere, so the next writer change could undo it silently. | After fixing a structural invariant, put it where everything already looks: state it in the spec, add it to the shared structural validator so every existing test enforces it, and count the shape on the path that pays for it. Derive the check from the walked structure rather than from the field the writer maintains, and skip it for a node whose children could not be walked so one defect is not reported twice. | FMT-306, `HOTInvariantValidator` I13-stored-height-exact, `HOTStoredHeightSpineTest`, `HOTLookupShapeWorkBudgetTest`, [lost outer spine write-up](postmortems/hot-lost-outer-spine.md) |

@@ -603,7 +603,11 @@ four/eight 512-entry leaves and reach H=1 after commit; live height may be great
 metadata MUST already equal the live structure. Every key routes to its actual leaf before
 and after commit. Descending skewed
 50,000-key seeds 5 and 6 exercise deeper ancestors and fanout overflow; their regression bound
-is H<=3 after commit (live H=9), with the attainable H=2 remaining a known gap under issue #1452.
+is H<=3 after commit (live H=9), with the attainable H=2 remaining a known gap under issue #1457;
+it needs repartitioning across block boundaries, because the only remaining height-3 edge joins a
+fanout-32 parent to a fanout-32 child and a direct fold would need 63 children against the limit of 32.
+FMT-306 requires the stored heights and the spine continuity these bounds depend on, and the
+invariant validator enforces the heights (I13).
 All stored heights must equal independently walked child-reference heights. Check live and cold-reopened
 snapshots and historical revisions. These checks do not establish global minimality.
 Bulk SMHP construction and rebuilding from leaf minima are separate follow-ups; minima alone
@@ -2238,7 +2242,7 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
 3. **Thread-safety of one index reader** across threads: the walk-state pool suggests yes, the storage
    reader contract says no (§4.9.5).
 4. **Remaining excess height on skewed descending inserts**: see §2.6 for the normalization
-   contract, regression bounds and remaining frontier-shape follow-up under issue #1452.
+   contract, regression bounds and remaining frontier-shape follow-up under issue #1457.
 5. **I5 coverage for oversized mutation scopes** (§5.3 item 2).
 6. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
    misdirected write below the newest leaf image is detected only structurally, if at all.

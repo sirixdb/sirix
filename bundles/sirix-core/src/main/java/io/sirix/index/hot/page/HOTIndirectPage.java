@@ -337,6 +337,31 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
+   * Whether routing-step diagnostics collect. HFT: a static final {@code false} in production, so C2
+   * removes the counted branch from {@link #findChildIndex(byte[], int)} entirely; the gate is the
+   * existing HOT diagnostic property, which the core test fork already sets.
+   */
+  private static final boolean ROUTING_WORK_DIAG = Boolean.getBoolean("sirix.hot.mergeDiag");
+
+  private static final LongAdder INDIRECT_ROUTING_STEPS = new LongAdder();
+
+  /**
+   * Routing steps taken through indirect nodes by {@link #findChildIndex(byte[], int)}, including a
+   * step that routes to no child. One successful point descent takes exactly one step per indirect
+   * level it passes, so this counter reads that descent's trie height — the shape a lost outer spine
+   * used to inflate (FMT-306). Writer descents and range cursors route through the same method and
+   * also count, so a budget reading this must fix the work it captures.
+   *
+   * <p>
+   * Collected only while {@code sirix.hot.mergeDiag} is set, like the HOT leaf counters, so a test
+   * asserting on it MUST first assert the instrument is live: with the gate off it reads zero, which
+   * is indistinguishable from a route that stopped taking steps.
+   */
+  public static long indirectRoutingSteps() {
+    return INDIRECT_ROUTING_STEPS.sum();
+  }
+
+  /**
    * Determine the partial key width (in bytes) from the number of discriminative bits. Matches C++
    * reference: uint8_t for ≤8 bits, uint16_t for ≤16, uint32_t for ≤32.
    *
@@ -635,6 +660,9 @@ public final class HOTIndirectPage implements Page {
   public int findChildIndex(final byte[] key, final int keyLen) {
     Objects.requireNonNull(key, "key");
     Objects.checkFromIndexSize(0, keyLen, key.length);
+    if (ROUTING_WORK_DIAG) {
+      INDIRECT_ROUTING_STEPS.increment();
+    }
     return findChildByPartialKey(key, keyLen);
   }
 
