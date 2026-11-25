@@ -13,6 +13,7 @@ import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.interval.HotOrderedStore;
+import io.sirix.index.name.NameIndexRecheck;
 import io.sirix.index.interval.ValidTimeReadCache;
 import io.sirix.index.aggregate.TemporalAggregateStorage;
 import io.sirix.index.changelog.ChangeLogStorage;
@@ -271,6 +272,16 @@ public final class EngineWorkCounters {
   public static final WorkCounter POSTING_DELTA_FOLDS =
       WorkCounter.gated("hot.postingDeltaFolds", "one posting chunk folded in memory and replaced",
           HOTIndexWriter::postingDeltaFolds, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
+  /**
+   * Record reads the NAME index's exact re-check performed. A name inside the routable key bound is
+   * stored and answered by its whole key, so it must cost none of these; only a name longer than the
+   * bound shares its stored key with others and has to ask each candidate node for its real name
+   * (FMT-305).
+   */
+  public static final WorkCounter NAME_RECHECK_RECORD_READS = WorkCounter.alwaysOn("name.recheckRecordReads",
+      "one record read by the NAME index's exact re-check of a truncated key's candidates",
+      NameIndexRecheck::recheckRecordReads);
 
   public static final List<WorkCounter> HOT_POSTINGS = List.of(POSTING_DELTA_WRITES, POSTING_DELTA_FOLDS);
 

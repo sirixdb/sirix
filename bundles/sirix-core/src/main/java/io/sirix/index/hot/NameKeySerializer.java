@@ -28,6 +28,7 @@
 package io.sirix.index.hot;
 
 import io.brackit.query.atomic.QNm;
+import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 
@@ -45,9 +46,26 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * ASCII components write directly into the caller's reusable buffer to avoid temporary arrays on
  * the per-posting serialization path.
+ *
+ * <p>
+ * A name is bounded by {@link #MAX_NAME_KEY_BYTES} (FMT-305): HOT routing can only address the
+ * discriminative bytes of a key inside {@link HOTKeySerializer#ROUTABLE_KEY_BYTES}, and names have
+ * no length of their own. A name inside the bound is stored and read exactly as before.
  */
 public final class NameKeySerializer implements HOTKeySerializer<QNm> {
   private static final byte NAMESPACE_SENTINEL = (byte) 0xFF;
+
+  /** Bytes the namespace framing costs: the sentinel plus the two-byte terminator. */
+  private static final int NAMESPACE_FRAMING_BYTES = 3;
+
+  private static final byte TRUNCATION_MARKER = (byte) 0xFF;
+
+  /**
+   * The longest stored NAME key (FMT-305): the routable bound less the four-byte chunk index and the
+   * four-byte posting-delta suffix a stored key may carry after it.
+   */
+  public static final int MAX_NAME_KEY_BYTES =
+      HOTKeySerializer.ROUTABLE_KEY_BYTES - HOTKeySerializer.CHUNK_IDX_BYTES - PostingDeltas.SUFFIX_BYTES;
 
   public static final NameKeySerializer INSTANCE = new NameKeySerializer();
 
@@ -60,20 +78,53 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     checkFromIndexSize(offset, 0, dest.length);
     final String localName = checkedLocalName(key);
     final String uri = key.getNamespaceURI();
+    final boolean localAscii = AsciiKeyBytes.isAsciiPrefix(localName, localName.length());
+    final byte[] localBytes = localAscii
+        ? null
+        : localName.getBytes(StandardCharsets.UTF_8);
+    final int localLength = localBytes == null
+        ? localName.length()
+        : localBytes.length;
+    final boolean uriAscii = AsciiKeyBytes.isAsciiPrefix(uri, uri.length());
+    final byte[] uriBytes = uriAscii
+        ? null
+        : uri.getBytes(StandardCharsets.UTF_8);
+    final int uriLength = uriBytes == null
+        ? uri.length()
+        : uriBytes.length;
+    int uriZeros = 0;
+    for (int index = uri.indexOf(0); index >= 0; index = uri.indexOf(0, index + 1)) {
+      uriZeros++;
+    }
+    final boolean truncated = (long) localLength + (uri.isEmpty()
+        ? 0L
+        : (long) NAMESPACE_FRAMING_BYTES + uriLength + uriZeros) > MAX_NAME_KEY_BYTES;
     int pos = offset;
+    int budget = MAX_NAME_KEY_BYTES - (truncated
+        ? 1
+        : 0);
     if (!uri.isEmpty()) {
+      final int firstLocalWidth = localBytes == null
+          ? 1
+          : utf8Width(localBytes[0] & 0xFF);
+      final int uriBudget = budget - NAMESPACE_FRAMING_BYTES - firstLocalWidth;
+      final int uriPrefix = truncated
+          ? prefixWithinBudget(uri, uriBytes, uriLength, uriBudget, true)
+          : uriLength;
       dest[pos++] = NAMESPACE_SENTINEL;
       final int start = pos;
-      final int uriLength = writeUtf8(uri, dest, start);
-      pos += uriLength;
-      // Only NUL needs escaping. Expand backwards in the caller buffer, with no temporary array.
-      int zeros = 0;
-      for (int i = uri.indexOf(0); i >= 0; i = uri.indexOf(0, i + 1)) {
-        zeros++;
+      writeEncodedPrefix(uri, uriBytes, uriPrefix, dest, start);
+      pos += uriPrefix;
+      if (uriPrefix != uriLength) {
+        uriZeros = 0;
+        for (int index = start; index < pos; index++) {
+          if (dest[index] == 0) {
+            uriZeros++;
+          }
+        }
       }
-      if (zeros != 0) {
-        checkFromIndexSize(start, uriLength + zeros, dest.length);
-        int target = pos + zeros;
+      if (uriZeros != 0) {
+        int target = pos + uriZeros;
         for (int source = pos - 1; source >= start; source--) {
           final byte value = dest[source];
           if (value == 0) {
@@ -81,13 +132,64 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
           }
           dest[--target] = value;
         }
-        pos += zeros;
+        pos += uriZeros;
       }
       dest[pos++] = 0;
       dest[pos++] = 0;
+      budget -= NAMESPACE_FRAMING_BYTES + uriPrefix + uriZeros;
     }
-    pos += writeUtf8(localName, dest, pos);
+    final int localPrefix = truncated
+        ? prefixWithinBudget(localName, localBytes, localLength, budget, false)
+        : localLength;
+    writeEncodedPrefix(localName, localBytes, localPrefix, dest, pos);
+    pos += localPrefix;
+    if (truncated) {
+      dest[pos++] = TRUNCATION_MARKER;
+    }
     return pos - offset;
+  }
+
+  public static boolean isTruncated(final byte[] bytes, final int offset, final int length) {
+    requireNonNull(bytes, "Bytes cannot be null");
+    checkFromIndexSize(offset, length, bytes.length);
+    return length > 0 && bytes[offset + length - 1] == TRUNCATION_MARKER;
+  }
+
+  /**
+   * The longest whole-character prefix that fits {@code budget}, reached only for a key past the
+   * bound. A component may still fit whole when the other component causes truncation.
+   */
+  private static int prefixWithinBudget(final String value, final byte @Nullable [] encoded, final int length,
+      final int budget, final boolean escapeZeros) {
+    int bytes = 0;
+    int prefix = 0;
+    while (prefix < length) {
+      final int leadingByte = encoded == null
+          ? value.charAt(prefix)
+          : encoded[prefix] & 0xFF;
+      final int width = utf8Width(leadingByte);
+      final int storedWidth = width + (escapeZeros && leadingByte == 0
+          ? 1
+          : 0);
+      if (bytes + storedWidth > budget) {
+        break;
+      }
+      bytes += storedWidth;
+      prefix += width;
+    }
+    return prefix;
+  }
+
+  private static int utf8Width(final int leadingByte) {
+    if (leadingByte < 0x80) {
+      return 1;
+    }
+    if (leadingByte < 0xE0) {
+      return 2;
+    }
+    return leadingByte < 0xF0
+        ? 3
+        : 4;
   }
 
   private static String checkedLocalName(final QNm key) {
@@ -98,13 +200,13 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     return localName;
   }
 
-  private static int writeUtf8(final String value, final byte[] dest, final int offset) {
-    if (AsciiKeyBytes.isAsciiPrefix(value, value.length())) {
-      return AsciiKeyBytes.writeAsciiPrefix(value, value.length(), dest, offset);
+  private static void writeEncodedPrefix(final String value, final byte @Nullable [] encoded, final int length,
+      final byte[] dest, final int offset) {
+    if (encoded == null) {
+      AsciiKeyBytes.writeAsciiPrefix(value, length, dest, offset);
+    } else {
+      System.arraycopy(encoded, 0, dest, offset, length);
     }
-    final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-    System.arraycopy(bytes, 0, dest, offset, bytes.length);
-    return bytes.length;
   }
 
   @Override
@@ -117,10 +219,10 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     final long bound = 3L * localName.length() + (uri.isEmpty()
         ? 0L
         : 3L + 3L * uri.length());
-    if (bound > Integer.MAX_VALUE) {
-      throw new IllegalArgumentException("QNm too long to serialize: " + bound + " bytes");
-    }
-    return (int) bound;
+    // Serialization clamps to the routable bound (FMT-305), so that is the real ceiling whenever
+    // the unclamped estimate is larger. Reporting it keeps a caller's buffer from being sized for a
+    // name no key ever stores in full.
+    return (int) Math.min(bound, MAX_NAME_KEY_BYTES);
   }
 
   @Override
@@ -130,10 +232,16 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     if (length == 0) {
       throw new IllegalArgumentException("Invalid QNm serialization: zero length");
     }
-    if (bytes[offset] != NAMESPACE_SENTINEL) {
-      return new QNm(new String(bytes, offset, length, StandardCharsets.UTF_8));
+    final int contentLength = length - (isTruncated(bytes, offset, length)
+        ? 1
+        : 0);
+    if (contentLength == 0) {
+      throw new IllegalArgumentException("Invalid QNm serialization: missing name");
     }
-    final int end = offset + length;
+    if (bytes[offset] != NAMESPACE_SENTINEL) {
+      return new QNm(new String(bytes, offset, contentLength, StandardCharsets.UTF_8));
+    }
+    final int end = offset + contentLength;
     final int start = offset + 1;
     int escapes = 0;
     for (int pos = start; pos < end - 1; pos++) {

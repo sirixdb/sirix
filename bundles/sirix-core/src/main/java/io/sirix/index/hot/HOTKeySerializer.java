@@ -42,12 +42,10 @@ import java.util.Arrays;
  *
  * <h2>Order Preservation</h2>
  * <p>
- * Implementations MUST ensure that the byte representation preserves the natural ordering of keys:
+ * Byte comparison determines stored-key order. Per-kind ordering guarantees and required residuals
+ * are specified in {@code docs/HOT_INDEX_SPECIFICATION.md}, section 2.4. NAME's bounded
+ * candidate-bucket encoding and read contract are specified in section 2.3.2.
  * </p>
- * 
- * <pre>
- * ∀ a, b: a.compareTo(b) &lt; 0  ⟺  compare(serialize(a), serialize(b)) &lt; 0
- * </pre>
  *
  * <h2>Zero Allocation</h2>
  * <p>
@@ -61,6 +59,20 @@ import java.util.Arrays;
 public interface HOTKeySerializer<K> {
 
   int MAX_KEY_BYTES = 1 << Byte.SIZE;
+
+  /**
+   * The routable key bound of FMT-305: the longest stored key, chunk index and posting-delta suffix
+   * included, whose every discriminative bit position a routing node can still carry.
+   *
+   * <p>
+   * A node persists its leading discriminative bit position in a signed 16-bit field, which runs out
+   * at bit 32767 — key byte 4095. Keeping keys inside 4096 bytes keeps every position a 1.0 engine
+   * can write inside that field, so the bound needs no change to the persisted layout. An index kind
+   * whose keys could be longer has to state what it does with one (for NAME that is
+   * {@code NameKeySerializer.MAX_NAME_KEY_BYTES} and an exact re-check); it may not route a key the
+   * format cannot address.
+   */
+  int ROUTABLE_KEY_BYTES = 1 << 12;
 
   /**
    * Serializes the key into the destination buffer.

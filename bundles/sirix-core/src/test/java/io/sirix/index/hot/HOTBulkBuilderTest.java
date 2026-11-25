@@ -62,6 +62,49 @@ final class HOTBulkBuilderTest {
   private static final byte[] TOMBSTONE = {(byte) 0xFE};
 
   @Test
+  void buildCountsEveryIndirectPageInAMultiLevelAssembly() {
+    final List<HOTBulkBuilder.Entry> entries = new ArrayList<>();
+    final byte[] value = new byte[HOTLeafPage.DEFAULT_SIZE / 2];
+    for (int index = 0; index < 4; index++) {
+      final byte[] key = new byte[301];
+      key[10] = (index & 2) == 0
+          ? 0
+          : (byte) 0x80;
+      key[300] = (index & 1) == 0
+          ? 0
+          : (byte) 0x80;
+      entries.add(new HOTBulkBuilder.Entry(key, value));
+    }
+    final AtomicLong pageKeys = new AtomicLong();
+    final HOTBulkBuilder.BuildResult result =
+        HOTBulkBuilder.build(entries, 1, IndexType.NAME, pageKeys::getAndIncrement);
+    try {
+      assertEquals(4, result.leafCount());
+      assertEquals(3, result.indirectCount(), "two inner branch pages and their root");
+      final List<Page> pages = new ArrayList<>();
+      pages.add(result.rootPage());
+      int indirectPages = 0;
+      int leafPages = 0;
+      for (int index = 0; index < pages.size(); index++) {
+        final Page page = pages.get(index);
+        if (page instanceof HOTIndirectPage indirect) {
+          indirectPages++;
+          for (int child = 0; child < indirect.getNumChildren(); child++) {
+            pages.add(indirect.getChildReference(child).getPage());
+          }
+        } else {
+          leafPages++;
+        }
+      }
+      assertEquals(leafPages, result.leafCount());
+      assertEquals(indirectPages, result.indirectCount());
+      assertEquals(2, ((HOTIndirectPage) result.rootPage()).getHeight());
+    } finally {
+      closeLeaves(result.rootPage());
+    }
+  }
+
+  @Test
   void oversizedStoredKeysAndOffsetsFailBeforeAllocatingPages() {
     final AtomicLong allocator = new AtomicLong(1);
     final List<HOTBulkBuilder.Entry> entries =
