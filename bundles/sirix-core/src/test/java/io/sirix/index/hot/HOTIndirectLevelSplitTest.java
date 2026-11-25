@@ -136,7 +136,6 @@ final class HOTIndirectLevelSplitTest {
     assertFalse(HOTIndirectPage.canNameDiscriminativeBytes(0, 256), "one byte past them");
   }
 
-  /** Four single-entry leaves under one bit at {@link #EARLY_BYTE} and one at {@code lateByte}. */
   /**
    * A nest over four discriminative bits in three regions: two the top level can name together, and
    * two past the extraction range. One group's children agree on the last bit, so that bit branches
