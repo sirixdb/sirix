@@ -136,3 +136,96 @@ run_gradle() {
   "${gradle}" --console=plain ${GRADLE_FLAGS:-} -p "${REPO_ROOT}" "${task}" "$@" \
     || die "gradle ${task} failed (see the output above; the JVM's own stack trace is the cause)"
 }
+
+# ---------------------------------------------------------------------------
+# run record: environment capture and results ledger
+#
+# spec/CONV-conventions.md, CONV-303. A kit using bench_run_begin captures the machine's state
+# into <out>/environment.json before its first timed process. With
+# SIRIX_BENCH_LEDGER=<file> the run is also written to that results ledger, and
+# it refuses to start when docs/bench/CONDITIONS.md has no entry for the
+# machine's fingerprint -- a result nobody can place is not worth the hour it
+# took. Without the variable the kit runs exactly as before and says that its
+# numbers are not protocol results.
+#
+#   SIRIX_BENCH_LEDGER     the ledger file (JSON Lines, append-only)
+#   SIRIX_BENCH_TIER       gate | control | nightly   (default control)
+#   SIRIX_BENCH_NIGHT      YYYY-MM-DD, required for nightly
+#   SIRIX_BENCH_JUDGE      space-separated benchmark names a gate judges
+#                          (default: every benchmark the run measures)
+#   SIRIX_BENCH_MIN_PAIRS  a gate's minimum pair count, 10 to 20 (default 10)
+# ---------------------------------------------------------------------------
+
+BENCH_LEDGER_PY="${BENCH_LEDGER_PY:-${BENCH_COMMON_DIR}/bench_ledger.py}"
+BENCH_RUN_DIR=""
+
+bench_ledger_enabled() {
+  [ -n "${SIRIX_BENCH_LEDGER:-}" ]
+}
+
+bench_tier() {
+  printf '%s' "${SIRIX_BENCH_TIER:-control}"
+}
+
+# bench_head_commit / bench_tree_dirty -- identity of an arm built from this checkout.
+bench_head_commit() {
+  git -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null \
+    || die "cannot read the commit of ${REPO_ROOT}; a ledger row needs the commit of every arm"
+}
+
+bench_tree_dirty() {
+  if [ -n "$(git -C "${REPO_ROOT}" status --porcelain 2>/dev/null)" ]; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}
+
+# bench_run_begin <out-dir> <kit> <data-path> [<arm-spec>...]
+# arm-spec: name,commit=<40 hex>,binary=jvm|native|native-pgo[,dirty=true][,java=PATH|,runtime=TEXT]
+# Call it before the first timed process. Arm specs are only read with a ledger.
+bench_run_begin() {
+  local out="$1" kit="$2" data="$3"
+  shift 3
+  [ -f "${BENCH_LEDGER_PY}" ] || die "bench_ledger.py missing from the kit: ${BENCH_LEDGER_PY}"
+  if ! bench_ledger_enabled; then
+    python3 "${BENCH_LEDGER_PY}" capture --out "${out}" --data "${data}" \
+      || die "environment capture failed for ${out}"
+    log "SIRIX_BENCH_LEDGER is not set: this run goes to no results ledger and is not a protocol result"
+    return 0
+  fi
+  local args=(begin --out "${out}" --tier "$(bench_tier)" --kit "${kit}" --data "${data}")
+  local spec name
+  for spec in "$@"; do
+    args+=(--arm "${spec}")
+  done
+  if [ -n "${SIRIX_BENCH_NIGHT:-}" ]; then
+    args+=(--night "${SIRIX_BENCH_NIGHT}")
+  fi
+  if [ -n "${SIRIX_BENCH_MIN_PAIRS:-}" ]; then
+    args+=(--min-pairs "${SIRIX_BENCH_MIN_PAIRS}")
+  fi
+  for name in ${SIRIX_BENCH_JUDGE:-}; do
+    args+=(--benchmark "${name}")
+  done
+  python3 "${BENCH_LEDGER_PY}" "${args[@]}" \
+    || die "the run was not opened for the results ledger (see the message above); nothing was measured"
+  BENCH_RUN_DIR="${out}"
+  trap bench_run_at_exit EXIT
+}
+
+# A run that ends early -- a failed arm, an interrupt, a die -- still records the processes it
+# measured: what the kit lost is the rest of the run, not the evidence it already has. Rows the
+# ledger already holds are not appended twice, so this is a no-op after a normal finish.
+bench_run_at_exit() {
+  if [ -n "${BENCH_RUN_DIR}" ]; then
+    python3 "${BENCH_LEDGER_PY}" commit --run "${BENCH_RUN_DIR}" > /dev/null \
+      || warn "the run in ${BENCH_RUN_DIR} could not be appended to the results ledger"
+  fi
+}
+
+# bench_run_ledger <bench_ledger.py subcommand> <args...> -- no-op without a ledger.
+bench_run_ledger() {
+  bench_ledger_enabled || return 0
+  python3 "${BENCH_LEDGER_PY}" "$@" || die "bench_ledger.py $1 failed (see the message above)"
+}

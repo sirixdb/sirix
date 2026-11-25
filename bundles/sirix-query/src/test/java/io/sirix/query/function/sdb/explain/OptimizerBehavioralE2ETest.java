@@ -27,14 +27,17 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * Behavioral end-to-end tests for the cost-based query optimizer.
  *
- * <p>Each test stores real data, optionally creates indexes, then verifies BOTH:
+ * <p>
+ * Each test stores real data, optionally creates indexes, then verifies BOTH:
  * <ol>
- *   <li>The optimizer makes correct plan decisions (via {@link QueryPlan} API)</li>
- *   <li>The query returns exact correct results (via {@code Query.serialize()})</li>
+ * <li>The optimizer makes correct plan decisions (via {@link QueryPlan} API)</li>
+ * <li>The query returns exact correct results (via {@code Query.serialize()})</li>
  * </ol>
  *
- * <p>This is the only test class that exercises the full 10-stage optimizer
- * pipeline against real databases and verifies both plan and result correctness.</p>
+ * <p>
+ * This is the only test class that exercises the full 10-stage optimizer pipeline against real
+ * databases and verifies both plan and result correctness.
+ * </p>
  */
 final class OptimizerBehavioralE2ETest {
 
@@ -55,8 +58,8 @@ final class OptimizerBehavioralE2ETest {
   @Test
   @DisplayName("CAS index present but optimizer correctly prefers seq scan for tiny dataset")
   void casIndexNotUsedForTinyDataset() {
-    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
-        "'[{\"price\":10},{\"price\":20},{\"price\":30},{\"price\":40},{\"price\":50}]')");
+    storeAndCommit("jn:store('json-path1','mydoc.jn',"
+        + "'[{\"price\":10},{\"price\":20},{\"price\":30},{\"price\":40},{\"price\":50}]')");
 
     storeAndCommit("""
         let $doc := jn:doc('json-path1','mydoc.jn')
@@ -66,14 +69,12 @@ final class OptimizerBehavioralE2ETest {
 
     // Verify plan: index exists but cost model should reject it for 5 rows
     try (final var store = newStore()) {
-      final QueryPlan plan = QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.price gt 25 return $x",
-          store, null);
+      final QueryPlan plan =
+          QueryPlan.explain("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.price gt 25 return $x", store, null);
 
       assertNotNull(plan.optimizedAST(), "Optimized AST should not be null");
       assertNotNull(plan.parsedAST(), "Parsed AST should not be null");
-      assertFalse(plan.usesIndex(),
-          "Cost model should prefer seq scan over index for 5 rows");
+      assertFalse(plan.usesIndex(), "Cost model should prefer seq scan over index for 5 rows");
 
       final String json = plan.toJSON();
       assertFalse(json.equals("null"), "Plan should not serialize to 'null'");
@@ -92,22 +93,18 @@ final class OptimizerBehavioralE2ETest {
   @Test
   @DisplayName("No index: plan valid, equality predicate returns exact match")
   void noIndexEqualityPredicateExactResult() {
-    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
-        "'[{\"val\":1},{\"val\":2},{\"val\":3}]')");
+    storeAndCommit("jn:store('json-path1','mydoc.jn'," + "'[{\"val\":1},{\"val\":2},{\"val\":3}]')");
 
     try (final var store = newStore()) {
-      final QueryPlan plan = QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.val eq 2 return $x",
-          store, null);
+      final QueryPlan plan =
+          QueryPlan.explain("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.val eq 2 return $x", store, null);
 
       assertNotNull(plan.optimizedAST());
-      assertFalse(plan.usesIndex(),
-          "No index exists → optimizer must not prefer index scan");
+      assertFalse(plan.usesIndex(), "No index exists → optimizer must not prefer index scan");
       assertTrue(plan.toJSON().contains("\"operator\""));
     }
 
-    assertEquals("2",
-        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.val eq 2 return $x.val"));
+    assertEquals("2", executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.val eq 2 return $x.val"));
   }
 
   // ─────────────────────────────────────────────
@@ -119,7 +116,8 @@ final class OptimizerBehavioralE2ETest {
   void cardinalityReflectsDataSize() {
     final StringBuilder json = new StringBuilder("[");
     for (int i = 0; i < 100; i++) {
-      if (i > 0) json.append(",");
+      if (i > 0)
+        json.append(",");
       json.append("{\"id\":").append(i).append(",\"name\":\"item").append(i).append("\"}");
     }
     json.append("]");
@@ -127,12 +125,9 @@ final class OptimizerBehavioralE2ETest {
     storeAndCommit("jn:store('json-path1','mydoc.jn','" + json + "')");
 
     try (final var store = newStore()) {
-      final QueryPlan plan = QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] return $x",
-          store, null);
+      final QueryPlan plan = QueryPlan.explain("for $x in jn:doc('json-path1','mydoc.jn')[] return $x", store, null);
 
-      assertFalse(plan.usesIndex(),
-          "No index exists → optimizer must not prefer index scan");
+      assertFalse(plan.usesIndex(), "No index exists → optimizer must not prefer index scan");
 
       final long cardinality = plan.estimatedCardinality();
       assertTrue(cardinality > 0 || cardinality == -1,
@@ -147,8 +142,7 @@ final class OptimizerBehavioralE2ETest {
   @Test
   @DisplayName("Parsed and optimized ASTs both present, differ after optimization, verbose JSON correct")
   void parsedAndOptimizedASTsDiffer() {
-    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
-        "'[{\"a\":1,\"b\":2},{\"a\":3,\"b\":4}]')");
+    storeAndCommit("jn:store('json-path1','mydoc.jn'," + "'[{\"a\":1,\"b\":2},{\"a\":3,\"b\":4}]')");
 
     storeAndCommit("""
         let $doc := jn:doc('json-path1','mydoc.jn')
@@ -157,14 +151,12 @@ final class OptimizerBehavioralE2ETest {
         """);
 
     try (final var store = newStore()) {
-      final QueryPlan plan = QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.a gt 1 return $x",
-          store, null);
+      final QueryPlan plan =
+          QueryPlan.explain("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.a gt 1 return $x", store, null);
 
       assertNotNull(plan.parsedAST(), "Parsed AST should be present");
       assertNotNull(plan.optimizedAST(), "Optimized AST should be present");
-      assertFalse(plan.usesIndex(),
-          "CAS index exists but cost model should prefer seq scan for 2 rows");
+      assertFalse(plan.usesIndex(), "CAS index exists but cost model should prefer seq scan for 2 rows");
 
       final String verbose = plan.toVerboseJSON();
       assertTrue(verbose.contains("\"parsed\":"), "Verbose should include parsed section");
@@ -173,8 +165,7 @@ final class OptimizerBehavioralE2ETest {
       // Optimizer must annotate/rewrite — ASTs should differ
       final String parsedRaw = plan.parsedAST().toJSON();
       final String optimizedRaw = plan.optimizedAST().toJSON();
-      assertNotEquals(parsedRaw, optimizedRaw,
-          "Optimizer should modify the AST (cost annotations at minimum)");
+      assertNotEquals(parsedRaw, optimizedRaw, "Optimizer should modify the AST (cost annotations at minimum)");
     }
   }
 
@@ -188,16 +179,12 @@ final class OptimizerBehavioralE2ETest {
     storeAndCommit("jn:store('json-path1','mydoc.jn','[{\"x\":1},{\"x\":2}]')");
 
     try (final var store = newStore()) {
-      final QueryPlan plan = QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] return $x",
-          store, null);
+      final QueryPlan plan = QueryPlan.explain("for $x in jn:doc('json-path1','mydoc.jn')[] return $x", store, null);
 
-      assertFalse(plan.usesIndex(),
-          "Without an index, optimizer should not prefer index scan");
+      assertFalse(plan.usesIndex(), "Without an index, optimizer should not prefer index scan");
     }
 
-    assertEquals("1 2",
-        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] return $x.x"));
+    assertEquals("1 2", executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] return $x.x"));
   }
 
   // ─────────────────────────────────────────────
@@ -207,11 +194,10 @@ final class OptimizerBehavioralE2ETest {
   @Test
   @DisplayName("sdb:explain() returns valid JSON through the full query engine")
   void explainThroughQueryEngine() {
-    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
-        "'[{\"category\":\"A\",\"value\":10},{\"category\":\"B\",\"value\":20}]')");
+    storeAndCommit("jn:store('json-path1','mydoc.jn',"
+        + "'[{\"category\":\"A\",\"value\":10},{\"category\":\"B\",\"value\":20}]')");
 
-    final String plan = executeQuery(
-        "sdb:explain('for $x in jn:doc(\"json-path1\",\"mydoc.jn\")[] return $x')");
+    final String plan = executeQuery("sdb:explain('for $x in jn:doc(\"json-path1\",\"mydoc.jn\")[] return $x')");
 
     assertNotNull(plan, "sdb:explain() should return a result");
     assertTrue(plan.startsWith("{"), "Plan should be JSON object");
@@ -223,8 +209,8 @@ final class OptimizerBehavioralE2ETest {
   void explainVerboseThroughQueryEngine() {
     storeAndCommit("jn:store('json-path1','mydoc.jn','[{\"x\":1}]')");
 
-    final String plan = executeQuery(
-        "sdb:explain('for $x in jn:doc(\"json-path1\",\"mydoc.jn\")[] return $x', true())");
+    final String plan =
+        executeQuery("sdb:explain('for $x in jn:doc(\"json-path1\",\"mydoc.jn\")[] return $x', true())");
 
     assertNotNull(plan, "sdb:explain verbose should return a result");
     assertTrue(plan.contains("\"parsed\""), "Verbose plan must include parsed AST");
@@ -238,17 +224,16 @@ final class OptimizerBehavioralE2ETest {
   @Test
   @DisplayName("FLWOR with where + order by: plan valid, results exact and ordered")
   void flworWithWhereAndOrderByExactResult() {
-    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
-        "'[{\"name\":\"Charlie\",\"age\":30},{\"name\":\"Alice\",\"age\":25},{\"name\":\"Bob\",\"age\":35}]')");
+    storeAndCommit("jn:store('json-path1','mydoc.jn',"
+        + "'[{\"name\":\"Charlie\",\"age\":30},{\"name\":\"Alice\",\"age\":25},{\"name\":\"Bob\",\"age\":35}]')");
 
     try (final var store = newStore()) {
       final QueryPlan plan = QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.age gt 20 order by $x.name return $x.name",
-          store, null);
+          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.age gt 20 order by $x.name return $x.name", store,
+          null);
 
       assertNotNull(plan.optimizedAST());
-      assertFalse(plan.usesIndex(),
-          "No index exists → optimizer must not prefer index scan");
+      assertFalse(plan.usesIndex(), "No index exists → optimizer must not prefer index scan");
       assertTrue(plan.toJSON().contains("\"operator\""));
     }
 
@@ -264,17 +249,15 @@ final class OptimizerBehavioralE2ETest {
   @Test
   @DisplayName("Count with string equality filter returns exact count")
   void countAggregationExactResult() {
-    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
-        "'[{\"status\":\"active\"},{\"status\":\"inactive\"},{\"status\":\"active\"},{\"status\":\"active\"}]')");
+    storeAndCommit("jn:store('json-path1','mydoc.jn',"
+        + "'[{\"status\":\"active\"},{\"status\":\"inactive\"},{\"status\":\"active\"},{\"status\":\"active\"}]')");
 
     try (final var store = newStore()) {
       final QueryPlan plan = QueryPlan.explain(
-          "count(for $x in jn:doc('json-path1','mydoc.jn')[] where $x.status eq 'active' return $x)",
-          store, null);
+          "count(for $x in jn:doc('json-path1','mydoc.jn')[] where $x.status eq 'active' return $x)", store, null);
 
       assertNotNull(plan.optimizedAST());
-      assertFalse(plan.usesIndex(),
-          "No index exists → optimizer must not prefer index scan");
+      assertFalse(plan.usesIndex(), "No index exists → optimizer must not prefer index scan");
     }
 
     assertEquals("3",
@@ -296,15 +279,11 @@ final class OptimizerBehavioralE2ETest {
       final QueryPlan plan1 = QueryPlan.explain(query, store, null);
       final QueryPlan plan2 = QueryPlan.explain(query, store, null);
 
-      assertFalse(plan1.usesIndex(),
-          "No index exists → optimizer must not prefer index scan");
-      assertFalse(plan2.usesIndex(),
-          "No index exists → second compilation must also not prefer index scan");
+      assertFalse(plan1.usesIndex(), "No index exists → optimizer must not prefer index scan");
+      assertFalse(plan2.usesIndex(), "No index exists → second compilation must also not prefer index scan");
 
-      assertEquals(plan1.toJSON(), plan2.toJSON(),
-          "Same query should produce identical plans");
-      assertEquals(plan1.toRawJSON(), plan2.toRawJSON(),
-          "Same query should produce identical raw ASTs");
+      assertEquals(plan1.toJSON(), plan2.toJSON(), "Same query should produce identical plans");
+      assertEquals(plan1.toRawJSON(), plan2.toRawJSON(), "Same query should produce identical raw ASTs");
     }
 
     assertEquals("1 2", executeQuery(query));
@@ -317,16 +296,16 @@ final class OptimizerBehavioralE2ETest {
   @Test
   @DisplayName("Results are identical before and after CAS index creation")
   void resultsIdenticalBeforeAndAfterIndex() {
-    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
-        "'[{\"score\":10},{\"score\":20},{\"score\":30},{\"score\":40},{\"score\":50}]')");
+    storeAndCommit("jn:store('json-path1','mydoc.jn',"
+        + "'[{\"score\":10},{\"score\":20},{\"score\":30},{\"score\":40},{\"score\":50}]')");
 
     final String queryExpr = "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.score gt 25 return $x.score";
 
     // Before index
     try (final var store = newStore()) {
-      assertFalse(QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.score gt 25 return $x",
-          store, null).usesIndex(),
+      assertFalse(
+          QueryPlan.explain("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.score gt 25 return $x", store, null)
+                   .usesIndex(),
           "No index → should not use index");
     }
     final String resultBefore = executeQuery(queryExpr);
@@ -341,17 +320,16 @@ final class OptimizerBehavioralE2ETest {
 
     // After index — plan should still prefer seq scan for 5 rows
     try (final var store = newStore()) {
-      assertFalse(QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.score gt 25 return $x",
-          store, null).usesIndex(),
+      assertFalse(
+          QueryPlan.explain("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.score gt 25 return $x", store, null)
+                   .usesIndex(),
           "CAS index exists but cost model should still prefer seq scan for 5 rows");
     }
 
     // After index — results must be identical
     final String resultAfter = executeQuery(queryExpr);
     assertEquals("30 40 50", resultAfter, "After index: exact result");
-    assertEquals(resultBefore, resultAfter,
-        "Results must be identical regardless of index presence");
+    assertEquals(resultBefore, resultAfter, "Results must be identical regardless of index presence");
   }
 
   // ─────────────────────────────────────────────
@@ -364,16 +342,13 @@ final class OptimizerBehavioralE2ETest {
     storeAndCommit("jn:store('json-path1','mydoc.jn','[{\"x\":1},{\"x\":2},{\"x\":3}]')");
 
     try (final var store = newStore()) {
-      final QueryPlan plan = QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.x gt 999 return $x",
-          store, null);
+      final QueryPlan plan =
+          QueryPlan.explain("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.x gt 999 return $x", store, null);
       assertNotNull(plan.optimizedAST(), "Plan should exist even for empty result");
-      assertFalse(plan.usesIndex(),
-          "No index exists → optimizer must not prefer index scan");
+      assertFalse(plan.usesIndex(), "No index exists → optimizer must not prefer index scan");
     }
 
-    assertNull(executeQuery(
-        "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.x gt 999 return $x.x"),
+    assertNull(executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.x gt 999 return $x.x"),
         "No matches → null result");
   }
 
@@ -396,16 +371,14 @@ final class OptimizerBehavioralE2ETest {
   @Test
   @DisplayName("AND predicates: plan valid, exact filtered results")
   void multipleAndPredicatesExactResult() {
-    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
-        "'[{\"a\":1,\"b\":10},{\"a\":2,\"b\":20},{\"a\":3,\"b\":30},{\"a\":4,\"b\":5}]')");
+    storeAndCommit("jn:store('json-path1','mydoc.jn',"
+        + "'[{\"a\":1,\"b\":10},{\"a\":2,\"b\":20},{\"a\":3,\"b\":30},{\"a\":4,\"b\":5}]')");
 
     try (final var store = newStore()) {
       final QueryPlan plan = QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.a gt 1 and $x.b gt 15 return $x",
-          store, null);
+          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.a gt 1 and $x.b gt 15 return $x", store, null);
       assertNotNull(plan.optimizedAST());
-      assertFalse(plan.usesIndex(),
-          "No index exists → optimizer must not prefer index scan");
+      assertFalse(plan.usesIndex(), "No index exists → optimizer must not prefer index scan");
     }
 
     // a>1 AND b>15 → only {a:2,b:20} and {a:3,b:30} match
@@ -424,11 +397,9 @@ final class OptimizerBehavioralE2ETest {
 
     try (final var store = newStore()) {
       final QueryPlan plan = QueryPlan.explain(
-          "let $sum := fn:sum(for $x in jn:doc('json-path1','mydoc.jn')[] return $x.v) return $sum",
-          store, null);
+          "let $sum := fn:sum(for $x in jn:doc('json-path1','mydoc.jn')[] return $x.v) return $sum", store, null);
       assertNotNull(plan.optimizedAST());
-      assertFalse(plan.usesIndex(),
-          "No index exists → optimizer must not prefer index scan");
+      assertFalse(plan.usesIndex(), "No index exists → optimizer must not prefer index scan");
     }
 
     assertEquals("60",
@@ -453,19 +424,16 @@ final class OptimizerBehavioralE2ETest {
         """);
 
     try (final var store = newStore()) {
-      final QueryPlan plan = QueryPlan.explain(
-          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 3] return $i",
-          store, null);
+      final QueryPlan plan =
+          QueryPlan.explain("for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 3] return $i", store, null);
 
-      assertFalse(plan.usesIndex(),
-          "Cost model should close index gate for 5-row dataset — seq scan is cheaper");
-      assertNull(plan.indexType(),
-          "No IndexExpr → no index type");
+      assertFalse(plan.usesIndex(), "Cost model should close index gate for 5-row dataset — seq scan is cheaper");
+      assertNull(plan.indexType(), "No IndexExpr → no index type");
     }
 
     // Results still correct via sequential scan
-    assertEquals("{\"price\":4} {\"price\":5}",
-        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price gt 3 order by $x.item.price return $x.item"));
+    assertEquals("{\"price\":4} {\"price\":5}", executeQuery(
+        "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price gt 3 order by $x.item.price return $x.item"));
   }
 
   // ─────────────────────────────────────────────
@@ -487,14 +455,11 @@ final class OptimizerBehavioralE2ETest {
 
     try (final var store = newStore()) {
       final QueryPlan plan = QueryPlan.explain(
-          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i",
-          store, null);
+          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i", store, null);
 
-      assertTrue(plan.usesIndex(),
-          "IndexMatching should create IndexExpr for CAS index on /[]/item/price");
+      assertTrue(plan.usesIndex(), "IndexMatching should create IndexExpr for CAS index on /[]/item/price");
 
-      assertEquals("CAS", plan.indexType(),
-          "Should use CAS index type");
+      assertEquals("CAS", plan.indexType(), "Should use CAS index type");
     }
 
     // Verify results: 10 items with price 9991..10000
@@ -520,14 +485,11 @@ final class OptimizerBehavioralE2ETest {
 
     try (final var store = newStore()) {
       final QueryPlan plan = QueryPlan.explain(
-          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price eq 5000] return $i",
-          store, null);
+          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price eq 5000] return $i", store, null);
 
-      assertTrue(plan.usesIndex(),
-          "IndexMatching should rewrite to IndexExpr for equality on 10000 rows");
+      assertTrue(plan.usesIndex(), "IndexMatching should rewrite to IndexExpr for equality on 10000 rows");
 
-      assertEquals("CAS", plan.indexType(),
-          "Should use CAS index type for equality predicate");
+      assertEquals("CAS", plan.indexType(), "Should use CAS index type for equality predicate");
     }
 
     assertEquals("{\"price\":5000}",
@@ -554,14 +516,11 @@ final class OptimizerBehavioralE2ETest {
     // IndexMatching runs JsonCASStep before JsonPathStep — CAS wins
     try (final var store = newStore()) {
       final QueryPlan plan = QueryPlan.explain(
-          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i",
-          store, null);
+          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i", store, null);
 
-      assertTrue(plan.usesIndex(),
-          "Should use an index for 10000-row dataset");
+      assertTrue(plan.usesIndex(), "Should use an index for 10000-row dataset");
 
-      assertEquals("CAS", plan.indexType(),
-          "CAS should take precedence over PATH index");
+      assertEquals("CAS", plan.indexType(), "CAS should take precedence over PATH index");
     }
 
     final String result16 = executeQuery(
@@ -588,18 +547,14 @@ final class OptimizerBehavioralE2ETest {
 
     try (final var store = newStore()) {
       final QueryPlan plan = QueryPlan.explain(
-          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i",
-          store, null);
+          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i", store, null);
 
       // Cost model finds the PATH index and prefers it...
-      assertTrue(plan.prefersIndex(),
-          "Cost model should prefer PATH index over seq scan at 10K rows");
+      assertTrue(plan.prefersIndex(), "Cost model should prefer PATH index over seq scan at 10K rows");
 
       // ...but JsonCASStep can't use a PATH index for value predicates → no rewrite
-      assertFalse(plan.usesIndex(),
-          "Without CAS index, value predicate cannot use PATH index");
-      assertNull(plan.indexType(),
-          "No index type when no CAS index available");
+      assertFalse(plan.usesIndex(), "Without CAS index, value predicate cannot use PATH index");
+      assertNull(plan.indexType(), "No index type when no CAS index available");
     }
 
     // Results still correct via sequential scan
@@ -624,14 +579,13 @@ final class OptimizerBehavioralE2ETest {
     executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] return $x.item.price");
 
     // Check that the histogram is now in the catalog (synchronous — no delay needed)
-    final var histogram = io.sirix.query.compiler.optimizer.stats.StatisticsCatalog.getInstance()
-        .get("json-path1", "mydoc.jn", "price");
+    final var histogram =
+        io.sirix.query.compiler.optimizer.stats.StatisticsCatalog.getInstance().get("json-path1", "mydoc.jn", "price");
 
     // Histogram may or may not be collected depending on whether the path "price"
     // matches the PathSummary lookup in HistogramCollector.
     if (histogram != null) {
-      assertTrue(histogram.totalCount() > 0,
-          "Auto-collected histogram should have positive total count");
+      assertTrue(histogram.totalCount() > 0, "Auto-collected histogram should have positive total count");
       assertTrue(histogram.distinctCount() > 0 || histogram.mcvCount() > 0,
           "Auto-collected histogram should have distinct values or MCVs");
     }
@@ -656,9 +610,8 @@ final class OptimizerBehavioralE2ETest {
         """);
 
     try (final var store = newStore()) {
-      final QueryPlan plan = QueryPlan.explain(
-          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 40] return $i",
-          store, null);
+      final QueryPlan plan =
+          QueryPlan.explain("for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 40] return $i", store, null);
 
       // Candidates JSON should always be valid regardless of index decision
       final String candidates = plan.toCandidatesJSON();
@@ -666,8 +619,10 @@ final class OptimizerBehavioralE2ETest {
     }
 
     // Verify correct results
-    assertEquals("{\"price\":41} {\"price\":42} {\"price\":43} {\"price\":44} {\"price\":45} {\"price\":46} {\"price\":47} {\"price\":48} {\"price\":49} {\"price\":50}",
-        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price gt 40 order by $x.item.price return $x.item"));
+    assertEquals(
+        "{\"price\":41} {\"price\":42} {\"price\":43} {\"price\":44} {\"price\":45} {\"price\":46} {\"price\":47} {\"price\":48} {\"price\":49} {\"price\":50}",
+        executeQuery(
+            "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price gt 40 order by $x.item.price return $x.item"));
   }
 
   // ─────────────────────────────────────────────
@@ -680,7 +635,8 @@ final class OptimizerBehavioralE2ETest {
     // Build skewed dataset: 900 items with price=42, 100 items with price 1-100
     final var sb = new StringBuilder("[");
     for (int i = 0; i < 900; i++) {
-      if (i > 0) sb.append(",");
+      if (i > 0)
+        sb.append(",");
       sb.append("{\"item\":{\"price\":42}}");
     }
     for (int i = 1; i <= 100; i++) {
@@ -697,23 +653,24 @@ final class OptimizerBehavioralE2ETest {
 
     // Pre-populate histogram with MCV data
     final var histBuilder = new io.sirix.query.compiler.optimizer.stats.Histogram.Builder(64);
-    for (int i = 0; i < 900; i++) histBuilder.addValue(42.0);
-    for (int i = 1; i <= 100; i++) histBuilder.addValue(i);
+    for (int i = 0; i < 900; i++)
+      histBuilder.addValue(42.0);
+    for (int i = 1; i <= 100; i++)
+      histBuilder.addValue(i);
     histBuilder.setDistinctCount(101);
     final var histogram = histBuilder.build();
 
     io.sirix.query.compiler.optimizer.stats.StatisticsCatalog.getInstance()
-        .put("json-path1", "mydoc.jn", "price", histogram);
+                                                             .put("json-path1", "mydoc.jn", "price", histogram);
 
     // The histogram should have MCVs with value 42 as the most common
     assertTrue(histogram.mcvCount() > 0, "Should have MCVs");
     final double selFor42 = histogram.estimateEqualitySelectivity(42.0);
-    assertTrue(selFor42 > 0.5,
-        "MCV selectivity for 42 should be high (~0.9), got " + selFor42);
+    assertTrue(selFor42 > 0.5, "MCV selectivity for 42 should be high (~0.9), got " + selFor42);
 
     // Verify correct results despite skewed distribution
-    final String result = executeQuery(
-        "fn:count(for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price eq 42 return $x)");
+    final String result =
+        executeQuery("fn:count(for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price eq 42 return $x)");
     // 900 original + 1 from the 1-100 range = 901
     assertEquals("901", result, "Should find all 901 items with price=42");
 
@@ -731,15 +688,11 @@ final class OptimizerBehavioralE2ETest {
     storeAndCommit("jn:store('json-path1','mydoc.jn','[{\"a\":1,\"b\":2},{\"a\":3,\"b\":4}]')");
 
     try (final var store = newStore()) {
-      final QueryPlan plan = QueryPlan.explain(
-          "for $x in jn:doc('json-path1','mydoc.jn')[] return $x",
-          store, null);
+      final QueryPlan plan = QueryPlan.explain("for $x in jn:doc('json-path1','mydoc.jn')[] return $x", store, null);
 
       // Simple query without joins — should not have intersection/decomposition
-      assertFalse(plan.isIntersectionJoin(),
-          "Simple scan should not be intersection join");
-      assertFalse(plan.isDecompositionRestructured(),
-          "Simple scan should not have decomposition");
+      assertFalse(plan.isIntersectionJoin(), "Simple scan should not be intersection join");
+      assertFalse(plan.isDecompositionRestructured(), "Simple scan should not have decomposition");
     }
   }
 
@@ -751,8 +704,8 @@ final class OptimizerBehavioralE2ETest {
   @DisplayName("Re-creating a database with a leaked open handle must not poison plans or data")
   void restoredDatabaseWithLeakedHandleStaysExact() {
     // 1. OLD small store, plus stale state a prior generation leaves behind: a cached
-    //    histogram for (json-path1, mydoc.jn, price) and — the decisive part — a LEAKED
-    //    open database handle (any earlier component that forgot to close).
+    // histogram for (json-path1, mydoc.jn, price) and — the decisive part — a LEAKED
+    // open database handle (any earlier component that forgot to close).
     storeAndCommit("jn:store('json-path1','mydoc.jn','" + buildNestedPriceArray(5) + "')");
     final var histBuilder = new Histogram.Builder(64);
     for (int i = 1; i <= 100; i++) {
@@ -762,11 +715,12 @@ final class OptimizerBehavioralE2ETest {
     StatisticsCatalog.getInstance().put("json-path1", "mydoc.jn", "price", histBuilder.build());
     final var leaked = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try {
-      // 2. jn:store REPLACES the whole database. With the leaked handle open, removal used
-      //    to SILENTLY NO-OP: the re-store then found the old resource name taken and wrote
-      //    the 10000-row payload under 'resource2', while queries, index creation, and the
-      //    cost model kept operating on the STALE 5-row mydoc.jn — silently wrong plans
-      //    (index gate closed) and silently misdirected data.
+      // 2. Explicitly remove and re-create the database. With the leaked handle open, removal used
+      // to SILENTLY NO-OP: the re-store then found the old resource name taken and wrote
+      // the 10000-row payload under 'resource2', while queries, index creation, and the
+      // cost model kept operating on the STALE 5-row mydoc.jn — silently wrong plans
+      // (index gate closed) and silently misdirected data.
+      Databases.removeDatabase(JsonTestHelper.PATHS.PATH1.getFile());
       storeAndCommit("jn:store('json-path1','mydoc.jn','" + buildNestedPriceArray(10_000) + "')");
       storeAndCommit("""
           let $doc := jn:doc('json-path1','mydoc.jn')
@@ -776,10 +730,8 @@ final class OptimizerBehavioralE2ETest {
 
       try (final var store = newStore()) {
         final QueryPlan plan = QueryPlan.explain(
-            "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i",
-            store, null);
-        assertTrue(plan.usesIndex(),
-            "stale state from the re-created database must not close the index gate");
+            "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i", store, null);
+        assertTrue(plan.usesIndex(), "stale state from the re-created database must not close the index gate");
       }
 
       assertEquals("10",
@@ -799,8 +751,8 @@ final class OptimizerBehavioralE2ETest {
 
   private void storeAndCommit(String query) {
     try (final var store = newStore();
-         final var ctx = SirixQueryContext.createWithJsonStore(store);
-         final var chain = SirixCompileChain.createWithJsonStore(store)) {
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, query).evaluate(ctx);
     }
   }
@@ -810,14 +762,16 @@ final class OptimizerBehavioralE2ETest {
    */
   private String executeQuery(String query) {
     try (final var store = newStore();
-         final var ctx = SirixQueryContext.createWithJsonStore(store);
-         final var chain = SirixCompileChain.createWithJsonStore(store);
-         final var out = new ByteArrayOutputStream();
-         final var writer = new PrintWriter(out)) {
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store);
+        final var out = new ByteArrayOutputStream();
+        final var writer = new PrintWriter(out)) {
       new Query(chain, query).serialize(ctx, writer);
       writer.flush();
       final String result = out.toString();
-      return result.isEmpty() ? null : result;
+      return result.isEmpty()
+          ? null
+          : result;
     } catch (Exception e) {
       fail("Query execution failed: " + e.getMessage(), e);
       return null;
@@ -825,13 +779,14 @@ final class OptimizerBehavioralE2ETest {
   }
 
   /**
-   * Build nested array: [{"item":{"price":1}},{"item":{"price":2}},...].
-   * This structure produces the DerefExpr AST node that JsonCASStep requires.
+   * Build nested array: [{"item":{"price":1}},{"item":{"price":2}},...]. This structure produces the
+   * DerefExpr AST node that JsonCASStep requires.
    */
   private String buildNestedPriceArray(int count) {
     final var sb = new StringBuilder("[");
     for (int i = 1; i <= count; i++) {
-      if (i > 1) sb.append(",");
+      if (i > 1)
+        sb.append(",");
       sb.append("{\"item\":{\"price\":").append(i).append("}}");
     }
     sb.append("]");
@@ -839,8 +794,6 @@ final class OptimizerBehavioralE2ETest {
   }
 
   private BasicJsonDBStore newStore() {
-    return BasicJsonDBStore.newBuilder()
-        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-        .build();
+    return BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
   }
 }

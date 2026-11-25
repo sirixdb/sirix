@@ -1,0 +1,19 @@
+gradle.projectsEvaluated {
+    def root = gradle.rootProject
+    def benchmark = root.project(':sirix-benchmarks')
+    benchmark.sourceSets.jmh.java.setSrcDirs([
+        root.file('data/sirix-1-0-lifecycle-fences/lock-benchmark'),
+        root.file('build/r15-benchmark-src')
+    ])
+    benchmark.tasks.register('r15LockBenchmark', JavaExec) {
+        dependsOn benchmark.tasks.named('jmhClasses')
+        classpath = benchmark.sourceSets.jmh.runtimeClasspath
+        mainClass = 'org.openjdk.jmh.Main'
+        jvmArgs '--enable-preview', '--add-modules=jdk.incubator.vector', '-Xmx512m'
+        args 'io.sirix.benchmark.TimedTransactionLockBenchmark',
+             '-wi', '3', '-i', '5', '-w', '500ms', '-r', '500ms', '-f', '2', '-t', '1',
+             '-bm', 'avgt', '-tu', 'ns', '-rf', 'json',
+             '-rff', root.file('build/r15-lock-benchmark.json').absolutePath,
+             '-jvmArgsAppend', '--enable-preview --add-modules=jdk.incubator.vector -Xms256m -Xmx512m'
+    }
+}

@@ -118,3 +118,6 @@ complete data work with 42, then hit the watchdog with the snapshot append
 workers explicitly reported as teardown laggards. This diagnostic failure is
 counted only for the deliberately mutated caller; the normal caller must exit
 successfully first.
+On the pinned 25i5 toolchain, the native diagnostic is `Teardown is taking too
+long` followed by the snapshot worker record. This control uses a direct SIGKILL
+watchdog (exit 137), so a stuck runtime's SIGTERM handling cannot affect the result.

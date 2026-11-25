@@ -2,13 +2,18 @@
 
 Keep entries short and evidence-based: broken assumption, prevention, and fix/test evidence.
 For each new bug, add a [write-up](postmortems/TEMPLATE.md), a failing-before regression and a
-lesson here. Extend an existing lesson when the same failure mode recurs.
+lesson. A new lesson arrives as one fragment file in [lessons.d/](lessons.d/README.md), which the
+release collects into this file. Extend an existing lesson here when the same failure mode recurs.
 
 | Failure / broken assumption | Apply next time | Repository evidence |
 | --- | --- | --- |
+| `xn:store` read its resource name but dropped it when creating a database; tests passed `()` or read results back through the collection. | Exercise a shared parameter on every path of each sibling function and read the result back by that parameter, not by position. Test singleton cardinality independently of bare, sorted and lazy sequence representations. | [xn:store write-up](postmortems/xml-store-resource-name.md), `StoreResourceNameTest` |
+| A shell option declared without a value could not run at all; mutation reviews recorded its unreachable lines as legacy instead of a defect. | Treat an unreachable public entry point as a bug to repair or remove; a mutation disposition must not explain away a user-visible command. Keep query line endings independent of native output framing, distinguish compiler normalization from serialization with a runtime-generated CR control, and use the same narrow delimiter grammar for splitting and blank-line classification. | [-iqf write-up](postmortems/shell-query-script-mode.md), `MainTest.queryScriptsRunEveryBlankLineSeparatedQueryInOneSessionAndReportFailuresInTheStatus` |
+| A session-long query context treated only `QueryException` as query failure and had no failure path for pending updates or the writers an apply opened; the next query committed the failed query's changes or met a rollback-only writer. | When state outlives one unit of work, end every failed unit explicitly: discard its pending state and release what it opened, keeping caller-held resources. Test failures raised after side effects began, under each commit strategy, and assert the next unit's persisted result through the same retained query items. Rollback must invalidate their mutation-populated memos as well as restore storage; use a later failing operation for insert, replace and rename. Distinguish empty submissions from EOF at the shared input reader and test both interactive dispatches. Escape line terminators only when rendering reports; preserve diagnostic objects for debug logging and assert complete output lines. | [Shell failure write-up](postmortems/shell-query-failure-recovery.md), `MainTest.interactiveShellReturnsToThePromptAfterAnyQueryFailureWithoutApplyingItsUpdates`, `SirixQueryContextFailedApplyTest` |
+| A repository regression treated valid CONV-204 additions as forbidden inventory changes. | Validate the complete configuration through its consumer, then assert required historical mappings individually; do not close an extensible inventory by whole-map equality. | [Timestamp CI association regression](postmortems/commit-timestamp-ci-associations.md), `AssociationTest.test_repository_files_are_valid_and_keep_the_former_contract_pairs` |
 | A starvation test leaked its shortened JVM-wide retry deadline into a later retirement test. | Reset every static test override in common teardown, including failure paths; exercise the setter test before an existing default-behavior test in one JVM. | [Retry-deadline isolation](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#review-follow-up-retry-deadline-test-isolation), `HOTIndexWriterLeafRetentionTest.restore`, `HOTLeafWriterGuardTest.abstractIndexWriterYieldsTheCoreToTheThreadRetiringTheLeaf` |
 | Disposition validators combined schema, field rules and verdict precedence in complex methods. | Extract complete validation stages, preserving diagnostic order and first-match verdicts; verify aggregate errors and overlapping rules through public outputs. | [CodeFactor disposition refactor](postmortems/pr-mutation-codefactor-complexity.md) |
-| Mutation review used helper counts, filenames, the first matching tier and only new-side patch paths as substitutes for behavioral contracts. | Assert emitted verdicts; share declaration-based ownership across validation and selection; exercise overlapping ranking tiers, literal-versus-declaration syntax, and both text and header-only Git patch effects at every consumer. Withdraw internal-only mutation kills. | [Disposition review write-up](postmortems/pr-mutation-disposition-review.md), focused reporter regressions |
+| Mutation review used helper counts, filenames, the first matching tier and only new-side patch paths as substitutes for behavioral contracts; later tests coupled empty selections and required pairs to the repository's changing configuration. | Assert emitted verdicts; share declaration-based ownership across validation and selection; exercise overlapping ranking tiers, literal-versus-declaration syntax, and both text and header-only Git patch effects at every consumer. Isolate CLI fixtures with an explicit root and assert required association pairs while permitting valid additions. Withdraw internal-only mutation kills. | [Disposition review write-up](postmortems/pr-mutation-disposition-review.md), [RAM CI fixture follow-up](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-mutation-tooling-fixture-isolation), focused reporter regressions |
 | A conditional-write draft used inconsistent definitions of insert context, semantic modification, incarnation, mutation scope and response identity. | Trace each predicate through every insert direction, hash mode, lifecycle reset, indirect mutation boundary and response shape, including XML's separately stored attribute/namespace membership and records. Shared semantics do not imply mandatory exposure in every binding; preserve the approved release scope and honest planned evidence. | [Specification boundary write-up](postmortems/conditional-write-spec-boundaries.md) |
 | Real-method static mocks can execute destructive lifecycle calls while registering a stub. | Default terminal-boundary mocks to no-op, opt in only test-owned resources to real calls, and assert shared resources still work after the mock closes. | [Native CI isolation regression](postmortems/native-ci-contracts.md#ci-follow-up-test-isolation-and-fixture-layout) |
 | A package declaration alone does not satisfy the Java package/directory contract. | Keep standalone fixture directories aligned with packages and update every compiler input path when moving them. | [Native fixture layout](postmortems/native-ci-contracts.md#ci-follow-up-test-isolation-and-fixture-layout) |
@@ -17,7 +22,7 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 | A subtree-local insertion treated its local root as the publication root, retaining redundant inner pages and stale ancestor heights while lookups stayed correct. | Propagate live height changes through the original spine; normalize only dirty blocks at commit when per-insert folding costs latency. Commit is still a per-page hot path: skip unchanged blocks before visitor setup, re-arm transient hints at every structural publication (including periodic consolidation after value-only dispatch), retain scratch across the actual writer-replacement lifecycle, and pin owned output plus publication costs separately. Audit paired classpaths as well as timing windows. Check routing, structural heights, insert/page allocation and commit cost independently; re-establish constructed path witnesses after normalization boundaries. | [Lost-spine write-up](postmortems/hot-lost-outer-spine.md), `HOTSubInsertSpineTest`, `HOTConstructedShapeIntegrationTest` |
 | PR mutation selection assumed filenames were JVM class names; a timeout repair also allowed uncovered mutants to pass. | Resolve declared test identities before compilation at the shared discovery boundary; keep scope bounds separate from the [acceptance criterion](VERIFICATION.md#blocking-criterion-the-prs-own-lines). Test mismatched filenames across every lookup path and execute blocking/advisory report handling. | [Mutation scope write-up](postmortems/pr-mutation-test-identity.md), `SelectionTest` and `ReportingTest` in `test_pr_mutation.py` |
 | JSON serialization assumed every result item matched a supported branch; unsupported items could leave the iterator on the same item. | Specify iterator progress and unsupported-type errors; test unsupported items alone and mixed into sequences. | [c9efc3a7b158](https://github.com/sirixdb/sirix/commit/c9efc3a7b158a12af7fc544c03b6113081ffe077), `JsonDBSerializerTest` and `QueryJsonSerializationTest` |
-| Query mutation authorization relied on an updating-expression flag; ordinary function calls could mutate too. Assertions comparing absent aggregate headers also became vacuous after storage moved. | Guard the actual mutation boundary; require the witness to exist, assert persisted state is unchanged on refusal, and include an authorized control. Verify the relevant JVM tests actually run in CI. | [36ee410f1f8d](https://github.com/sirixdb/sirix/commit/36ee410f1f8d0ff201bcb80170781f8d86b47550), `QueryMutationAuthorizationTest`, `PermissionCheckingQueryTest` |
+| Query mutation authorization relied on an updating-expression flag; ordinary function calls could mutate too. Assertions comparing absent aggregate headers also became vacuous after storage moved. Later, `xn:store` was found to lack the function-level check its siblings had gained; only REST's store decorators covered it. | Guard the actual mutation boundary in every sibling function; require the witness to exist, assert persisted state is unchanged on refusal, and include an authorized control. Verify the relevant JVM tests actually run in CI. Judge the impact of a missing check through the real deployment layers before calling it exploitable. | [36ee410f1f8d](https://github.com/sirixdb/sirix/commit/36ee410f1f8d0ff201bcb80170781f8d86b47550), `QueryMutationAuthorizationTest`, `PermissionCheckingQueryTest`, [xn:store authorization write-up](postmortems/xml-store-create-authorization.md), `StoreAuthorizationTest`, `QueryMutationAuthorizationTest.xmlStore*` |
 | Correct timestamp results alone did not guard temporary allocations on the indexing path. | Pair a randomized independent JDK oracle with an allocation budget and a control that proves the budget detects the allocating implementation; retain precision and overflow cases. | [2c96b9196502](https://github.com/sirixdb/sirix/commit/2c96b91965024aaf9692974d661d39f3d7570d7c), `UtcTimestampParserTest`; [verification layers](VERIFICATION.md) |
 | A successful argv-based subprocess call and passing tests did not prove revision arguments were safe, or that a new language's coverage reached Sonar. | Reject option-like revisions and hostile paths, check selected sources against the Git tree, test the boundary with a real hostile filename, and verify the language-specific coverage import. | [initial implementation](https://github.com/sirixdb/sirix/commit/48f3d9d2f04def3bd4bdc74ff9eed031c449a931), [write-up](postmortems/pr-mutation-validation.md) |
 | Parsed or logged settings were treated as proof of an effective resource policy. | Assert actual cache admission/eviction and effective process allowance; include binary-unit overflow that wraps back to a positive long, precedence, and separate startup JVMs. | [Configuration write-up](postmortems/configuration-cleanup-hygiene.md), `ConfigurationPropertiesTest`, `PageCacheConfigurationTest`, `ConfigurationStartupTest`, `AllocatorColdStartupTest`, `SirixTranslatorThresholdTest` and `MainTest` |
@@ -33,6 +38,7 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 | Unknown persisted discriminants, metadata tails and checksum-valid reserved fields were accepted; omitted optional settings desynchronized the reader. | Validate the semantic domain independently of checksums. Patch bytes independently of the writer, assert the actual discriminator in the refusal, and dispatch optional settings by name. | [Reader-boundary postmortem](postmortems/2026-11-page-reader-boundaries.md) |
 | A focused JIT profile hid an `Enum.values()` array clone performed per page. | Avoid `values()` in per-page or per-record loops; use a direct lookup or prebuilt registry and verify allocation checks across compilation profiles. | [Reader allocation follow-up](postmortems/2026-11-page-reader-boundaries.md) |
 | A newly merged legacy-envelope byte oracle inherited default-on random salts and misreported a salt change as an extension rewrite failure. | Pin deterministic mode only at the byte-oracle configuration boundary; retain a default-salted companion that checks records, salt preservation and extension refusal together. | [Integration write-up](postmortems/record-page-salt-reader-integration.md), `LegacyEnvelopeImagesTest`, `PageKindTest.optionalExtensionsPreserveSaltAndRecordsWhileRequiredEntriesRefuse` and `ResourceConfigurationTest` |
+| RAM commits shared writer-owned pages; retirement, publication and cleanup depended on incomplete ownership or filesystem evidence. | Own independent stored payloads and caller-owned decoded pages; use reusable allocator scratch for hot reads. Check committed values and historical revisions after reopening writers, readers and sessions; publish timestamp metadata only at the committed beacon. Share ended-instance release and discard boundaries, consult remembered source/derived ownership, clear stores and known caches after quiescence, remove discarded IDs, and keep admission pending after incomplete discovery. Retain source proof until derived retirement, rename before deletion using bounded garbage names, report remaining paths, exclude garbage at shared tool preflight, and bind retries to exact old paths and proof UUIDs. Keep known paths until absence is proved; enumerate the parent after inconclusive lookups and test denied traversal plus actual derived siblings. Probe fixture filename limits before exercising retirement, retaining the original case where supported. | [RAM commit write-up](postmortems/ram-storage-committed-revision-loss.md), [retirement and read scratch](postmortems/ram-storage-committed-revision-loss.md#review-follow-up-retirement-and-read-scratch), [cleanup admission and proof](postmortems/ram-storage-committed-revision-loss.md#review-follow-up-failed-cleanup-admission-and-proof), [retained sessions and close retries](postmortems/ram-storage-committed-revision-loss.md#review-follow-up-retained-sessions-and-close-retries), [publication and inaccessible paths](postmortems/ram-storage-committed-revision-loss.md#review-follow-up-publication-and-inaccessible-known-paths), [remembered removal ownership](postmortems/ram-storage-committed-revision-loss.md#review-follow-up-remembered-ownership-on-removal), [long-name fixture](postmortems/ram-long-name-test-filesystem-limit.md), [derived-name cleanup](postmortems/ram-long-name-derived-cleanup.md); `RAMStorageCommittedRevisionTest`, `RAMStorageContractTest`, `DatabasesInMemoryLifetimeTest` (AC12), TXN-615 memory, permission, publication and retry regressions |
 | Revision zero was treated as proof that a resource held nothing, even after the root gained active feature metadata. | Before auto-reinitializing a store, prove both data and root metadata are disposable; distinguish unsupported features from corrupted beacons. | [write-up](postmortems/store-feature-recovery.md), `InterruptedFirstCommitRecoveryStoreFeaturesTest.bootstrapRecoveryCannotEraseActiveFeatures` and its guard-removal control |
 | Opening a reader was assumed to be side-effect free, and a derived-store runtime failure was assumed to justify rebuilding. | Check compatibility before preload can heal records; preserve unsupported-feature failures at every destructive recovery owner. Test cold caches, damaged but salvageable records, and indirect parent opens with byte-preservation assertions. | [write-up](postmortems/store-feature-recovery.md), `InterruptedFirstCommitRecoveryStoreFeaturesTest.readOnlySalvageDoesNotHealRevisionRecords`, `damagedRevisionToolRefusalPreservesBothFiles`, `parentOpenPreservesUnsupportedDerivedSibling` |
 | Repair gates covered a reported writer and exception, while file creation, spill cleanup, unrelated derived failures and hidden tool inputs remained reachable. | Apply the [open-time compatibility contract](DISK_FORMAT.md#uberpage-store-feature-words) at every mutation owner, and assert file absence and orphan preservation as well as bytes. Execute the fault fixture and validate its precondition before interpreting mutation results. | [write-up](postmortems/store-feature-recovery.md#review-round-2-all-open-time-mutation-owners), `InterruptedFirstCommitRecoveryStoreFeaturesTest.unsupportedOpenPreservesMissingFilesAndSpills`, `unsupportedDerivedDamageNeverTriggersRebuild`, `toolsRefuseHiddenDerivedFeaturesBeforeOpeningParents` |
@@ -47,7 +53,7 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 | Storage-epoch replay lost a page's FSST binding, and epoch materialization judged raw string sizes, changing inline placement despite equal values. | A replay must reproduce the original read, not only its combine. Every route into a size-based placement decision must apply all canonical encoding passes in the same order before consuming append capacity. Pin geometry-changing settings (hash kind) in differential tests, and compare decisions and bindings, not only values. Pair isolated regressions with fast boundary tests selected by the actual PR mutation lane. | [FSST epoch carrier write-up](postmortems/2026-11-fsst-epoch-carrier-spill.md), `StorageEpochFsstInlineDecisionTest`, `StorageEpochStoreIdentityTest` under both hash kinds, `VersioningTypeFsstMetadataCopyTest`, `BulkAdoptionDiagnosticsTest` |
 | PIT split inherited property values at commas/whitespace, missed late test properties, and exhausted its heap on a large baseline fixture. | Exercise the real launcher with commas, whitespace, late properties and the largest selected deterministic oracle; configure coverage and mutation JVMs at their shared boundary. | [write-up and reproduction](postmortems/pr-fastpath-ci.md) |
 | Passing focused PIT runs did not establish that the full changed-source gate could finish or cover its whole-source inventory. | Inspect the full inventory, baseline coverage and mutation-unit distribution before proposing a bounded-gate repair; make scope/budget policy changes explicit human decisions. | [deadline diagnosis and limitations](postmortems/pr-fastpath-ci.md#follow-up-shared-execution-deadline) |
-| An interval test expected five rapid commits to have distinct millisecond timestamps; PIT exposed the valid last-tie result. | Use explicit timestamps for ordering and tie fixtures, and assert exact revision IDs against the floor lookup contract. | `OpenRevisionsTest`; [write-up and reproduction](postmortems/pr-fastpath-ci.md#follow-up-revision-interval-baseline-flake) |
+| An interval test expected five rapid commits to have distinct millisecond timestamps; PIT exposed the then-valid last-tie result. | Use explicit ordering fixtures under the current [timestamp and lookup contracts](../spec/VER-versioning-bitemporal.md#ver-201--timestamp-precision-and-persistence), and assert exact revision IDs. | `OpenRevisionsTest`; [write-up and reproduction](postmortems/pr-fastpath-ci.md#follow-up-revision-interval-baseline-flake) |
 | A refusal wrapper covered only the sequential compiler while the parallel strategy admitted the same SPI. | Enumerate every physical compiler, function interception and public factory; test refusals and admitted controls through each, including outer count semantics and cold reopen. | `VectorizedReleaseCorrectnessTest`; [parallel grouping write-up](postmortems/parallel-grouping-refusal.md), [count-wrapped grouping write-up](postmortems/count-wrapped-grouping-refusal.md) |
 | Bounded PIT naming heuristics omitted a compiler/refusal contract; its parallel cases also omitted the non-grouping return. | Associate integration contracts at the shared selection boundary, preserve matches and caps, include ordinary-path controls, and verify real mutant outcomes. | `SelectionTest` release associations, `ordinaryPipelineRetainsRowsAcrossReopen`; [write-up](postmortems/pr-fastpath-mutation-selection.md) |
 | Long allocation-test loops warmed OSR but left normal helper entry cold; late VM string materialization contaminated zero-byte windows. | Warm the helper with repeated short calls before measurement; retain strict N/2N checks and an escaping-allocation control, and diagnose transient bursts with allocation stacks. | `BitemporalLoaderBudgetTest`; [warmup write-up](postmortems/bitemporal-allocation-warmup.md) |
@@ -144,7 +150,24 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   accessor coverage: a positive-wait integration failure cannot reject a constructor
   that wrongly refuses zero or an accessor that loses the page key. Evidence:
   [word-buffer mutation scope](postmortems/shell-pit-word-buffer-scope.md) and
-  [HOT retirement diagnostics](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#ci-follow-up-retirement-diagnostic-coverage).
+  [HOT retirement diagnostics](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#ci-follow-up-retirement-diagnostic-coverage) and
+  [RAM lifetime contracts](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-executable-contracts-and-mutation-selection).
+  Keep child-JVM lifetime and memory tests in a separate ordinary-CI suite: children load
+  unmutated classes and cannot observe PIT instrumentation in their parent. Verify the full
+  bounded lane and use counterfactual evidence for effects observable only in clean processes.
+  For cross-process exclusion, let a child hold the real OS lock while the parent retries cleanup;
+  assert refusal and later recovery for both original paths and tombstones. Parent-side operations
+  remain observable under PIT even though the independent lock holder is unmutated.
+  [Ownership-retry follow-up](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-cleanup-retry-must-respect-independent-ownership).
+  [Forked-contract follow-up](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-isolate-forked-lifetime-contracts-from-pit).
+  Writer-lifecycle regressions must also distinguish historical update targets from the latest
+  committed head, and caller-held edits from apply-created state, under both commit strategies.
+  [XML snapshot and ownership coverage](postmortems/shell-query-failure-recovery.md#ci-follow-up-xml-snapshot-and-writer-ownership-coverage).
+  Cross-class timestamp suites also need explicit associations to writer entry points;
+  exercise a commit after reverting content so an older represented root cannot stand in
+  for the latest committed predecessor. CLI fixtures must own their repository metadata
+  as well as their output manifest. Evidence:
+  [timestamp mutation follow-up](postmortems/commit-timestamp-ci-associations.md#follow-up-timestamp-mutation-scope-and-revert-coverage).
 
 - **Check semantic state beyond scratch-capacity boundaries.** A lossless streaming
   renderer can still lose container context and style keys as values. Exercise
@@ -168,6 +191,9 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   helper extraction changes bytecode, so retain pinned allocation budgets and
   recapture compiled shape before claiming latency neutrality. Evidence:
   [HOT complexity follow-up](postmortems/hot-codefactor-complexity.md).
+- Split update lifecycle orchestration at whole-loop boundaries, preserving writer ownership,
+  cleanup order and failure suppression without adding per-operation calls. Evidence:
+  [XML apply complexity](postmortems/shell-query-failure-recovery.md#ci-follow-up-xml-apply-complexity).
 - **Bound retained pages by ownership.** A full-fanout node can produce additional private leaves
   during repeated merges. Exclude those replacements at the shared acquisition boundary and
   check capacity before taking a guard. Exercise full fanout and count live frames to catch guards
@@ -177,198 +203,192 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   eviction and released bytes, including cleanup after failure, rather than accepting a green replay
   with its trigger disabled. Evidence: [HOT replay follow-up](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#review-follow-up-replay-lost-the-eviction-trigger).
 
-### Logical codec bounds
+<a id="commit-attempt-state"></a>
 
-When codec input uses reusable scratch, test every truncated frame length while
-leaving the complete valid frame in the backing array. Run the same adversarial
-contract against every output overload: bounds against array capacity alone can
-silently consume stale bytes. Require exact input consumption and bound decoded
-output before any writes. See the [native zero-run postmortem](postmortems/2026-11-17-zero-run-native-frame-bounds.md).
+- **Distinguish attempt state from committed state.** Retrying must derive metadata from the original
+  committed predecessor and the retry input, while repeated serialization within an attempt remains
+  stable. Exercise a failure after assignment, both increasing and decreasing replacement inputs,
+  the synchronous and asynchronous recovery paths, and warm as well as cold read-back. Repeat the
+  failure after each metadata publication boundary: an index append before the final flush can
+  survive a failed attempt even when the root timestamp itself is recomputed correctly. Keep effective timestamps from other timelines as mapping metadata, not custom commit input:
+  monotonic adjustment can place them ahead of a regressed clock. Verify dependent maintenance and
+  folds with a controlled backward clock step. Verify formatted metadata through its actual
+  serializers and handlers, including zero and trailing fractional groups.
+  Recompile merged test sources after a unit-bearing API rename: newly integrated fixtures must
+  migrate both accessors and their independent numeric oracles.
+  Evidence: [commit timestamp retry](postmortems/commit-timestamp-retry.md).
 
-### Cold paths can change warm compilation
+- **Give public reader metadata a focused behavior contract.** The mutation selector's package
+  fallback can pull unrelated integration suites for a one-getter change; JUnit 5 executes them
+  again during mutation discovery. Verify exact historical/current metadata through the public
+  reader, then check the selector's emitted scope without widening its limits or excluding tests.
+  Keep independent clock and history contracts separately executable, retaining both in ordinary tests.
+  Evidence: [timestamp CI associations](postmortems/commit-timestamp-ci-associations.md#follow-up-focused-path-summary-timestamp-contract).
+| Async hardening's background path was safe while two inline ownership routes were not; `isClosed` was mistaken for recovered storage. | Derive failure tests for every ownership transfer, including paired construction/submission and hardening faults. Fence workers, release independent owners, and require marker recovery before offset reuse; test a second session with warm caches. | [write-up](postmortems/async-commit-ownership-recovery.md), `NodeTransactionAbortLifecycleTest`, `AsyncFlushFailurePathTest` |
 
-When adding a cold codec, include its setup work in fresh-process warm lookup
-benchmarks. Heap-backed foreign-memory scalar accesses can alter process-wide
-receiver profiles and slow unchanged native lookup methods. Keep heap parsing
-on array accessors and native FFM paths native-only; verify compiled shape as
-well as allocations. See the [leaf-codec postmortem](postmortems/2026-11-17-leaf-codec-receiver-profiles.md).
+- Test worker ownership independently of operating-system I/O cancellation: inject a known cancellation failure at the storage boundary for fence/interrupt assertions and keep file-backed correctness comparisons separate. In multi-stage hardening, rethrow the accumulated first failure after retirement, outside finally. See [the CI postmortem](postmortems/lifecycle-ci-portability.md).
 
-### Measure allocation at each cold entry point
+- Establish who can perform an executor fence before adding it to close. The [hook contract](hooks.md) supersedes the callback-initiated teardown in the historical [self-join](postmortems/scheduler-close-self-join.md) and [lock-ordering](postmortems/scheduler-close-lock-ordering.md) fixes. Recheck open state under the ownership lock before recovery handling, and test external session close and rollback as well as transaction close, including RAM backends where a spurious marker blocks admission. Check embedded and keyed roots against the same committed contents; a valid inline page must not hide a broken storage key. After integrating a storage ownership change, avoid assuming page identity or identical redundant-beacon keys. See `NodeTransactionAbortLifecycleTest` and [the RAM beacon oracle postmortem](postmortems/lifecycle-ram-beacon-oracle.md).
 
-A zero-allocation warm lookup does not establish an allocation-free codec.
-Compare raw and encoded arms for encoder selection, decode into existing storage,
-full/compact materialization, image creation and uncached selection. Reuse input
-arrays **and** parsing cursors. A native view eliminated in a standalone
-helper may still allocate in a larger caller; use JFR stacks to verify whole
-entry points and remove avoidable view construction instead of assuming escape
-analysis will remove it. When instrumentation changes the result, disable escape analysis for the allocation-site comparison. Gate every fresh fork, rather than only the mean. Pass owning base segments and primitive offsets through an adapter instead of replacing checked FFM arguments with raw addresses. Compare unchanged main with owned-result fixtures. When substituting scratch for an exact array, test every logical
-truncation after a valid longer frame and verify previously published images
-remain independent. See the [codec allocation postmortem](postmortems/2026-11-17-leaf-codec-allocation.md).
+- Keep owner registrations alive until their final release obligation is discharged, not merely until payload close publishes CLOSED. Serialize registration removal and permit release at one boundary; test a second closer in the window after reader cleanup and fencing, while another user keeps the resource alive. See [the owner-registration postmortem](postmortems/node-owner-admission-release.md) and `lateConcurrentCloseRetainsOwnerUntilPermitRelease`.
 
-### Move conditional native resources with their loader
+- Include setup in the lifecycle lock graph: never wait for a writer permit while retaining a monitor that the old owner's close needs. Revalidate closing/open state after acquiring admission, before allocating any reader or writer. Test same-session queued node/page admission with both owner close and session close. See [the admission-cycle postmortem](postmortems/writer-admission-monitor-cycle.md).
 
-A loader refactor must update native-image `typeReached` resource conditions as
-well as Java calls. JVM tests do not apply those conditions. Pin the resource's
-actual loading type in a packaging regression, and keep downcall descriptors in
-sync with adapter signatures. See the [resource reachability postmortem](postmortems/2026-11-17-native-codec-resource-reachability.md).
+- Guard lifecycle reentry at the database boundary, including nested callbacks and sibling handles/sessions. Use the [database notification contract](hooks.md) rather than the superseded writer-borrowing design in [the callback postmortem](postmortems/commit-callback-reentrancy.md).
 
-### Production read ownership and retention
+- Test async notification timing with held durability and delivery barriers, and assert identities and reported failures outside the dispatcher. The earlier final-close Error oracle is historical; see [the current error policy](hooks.md) and [callback completion postmortem](postmortems/callback-completion-reader-ownership.md).
 
-A direct decoder comparison can hide a production regression when raw reads
-transfer decompression storage and encoded reads allocate a second destination.
-Exercise the public reader as well as the real byte-handler ownership route;
-remove an identity-pipeline copy when the decoder always owns its output. Assert live allocator bytes and
-cache charge, then force mutation and verify lazy promotion invalidates the old
-stamp and releases its allocation. Include failure after decode, such as a
-truncated side-reference trailer. See the [retained-frame postmortem](postmortems/2026-11-17-leaf-codec-retained-frames.md).
+- Post-commit hooks must not share a mutable writer cursor with a lock-free successor. Open a separate read-only cursor pinned to the committed revision for each hook, close it at dispatch, and test navigation on B while the writer updates A. Do not add row locking to compensate for shared callback ownership; remove borrowing-only reservation checks and fence job lifetime at teardown. See [the revision-view postmortem](postmortems/post-commit-revision-views.md).
 
-### Codec preference is a separate boundary
+- An identity ownership snapshot supplies membership, not teardown order. Fence every writer/callback source before closing any ordinary direct/shared reader, then refresh reader membership. Retain reader dependencies if a node owner refuses its fence; force and assert adverse initial reader-before-writer ordering in regressions, including interruption and cleanup errors. See [the session reader fence postmortem](postmortems/session-reader-fence-order.md).
 
-A smaller encoding does not automatically justify its decoder, and a codec's name
-does not say what decoding costs. The leaf-codec plan called zero-run the cheap
-codec and a review round built a margin on that; timed on real leaves, zero-run
-decoded 3.3 times slower than native LZ4 and saved less. Before a rule prefers one
-codec, time every decoder a store can meet (native and fallback) on real payloads
-through the production reader, and derive the rule from those costs and the cost
-of reading a byte. Test one step under, on and over the rule's boundary with
-framing included, measure codec lengths independently and assert the emitted
-codec as well as the round trip. Keep reader tests for every codec id ever
-written, on frames the test builds, so they do not depend on what the writer
-chooses on that host. See the
-[preference-margin postmortem](postmortems/2026-11-17-leaf-codec-preference-margin.md).
+- Exercise cross-session readers and destructive history changes against the [current notification lifetime boundary](hooks.md). The resource-shared completion fence in [the earlier postmortem](postmortems/shared-callback-history-lifetime.md) is historical.
 
-### Codec CI contracts
+- Check enclosing writer execution across sibling sessions before retirement waits, including raw page truncation. Cover both pre-publication hooks and post-publication readers; see [the current retirement contract](hooks.md) and [original regression](postmortems/resource-execution-prehook-lifetime.md).
 
-Keep exact packing oracles on decoded logical frames and checksum oracles on stored wire
-frames. Compression fixtures used across platforms must compress with every supported
-codec set; explicitly exercise missing-native-codec behavior. Verify native staging names,
-fallback directories and losing-publication cleanup through filesystem behavior, and
-separate functionally equivalent decoder-routing mutants from missing correctness tests.
-Keep encoded-frame expanders strict when callers already route raw frames: accepting raw
-scratch adds a redundant copy route that functional assertions cannot distinguish. Upload
-reports from all test tasks, including allocation forks, and print complete failures there.
-See the [leaf codec CI postmortem](postmortems/2026-11-17-leaf-codec-ci.md).
+- Registration does not guarantee notification progress. Test raw page publication followed by sequential sibling-session cleanup, awaiting dispatcher results independently of the publishing call; see [the current delivery contract](hooks.md) and [historical idle publication defect](postmortems/idle-page-publication-dispatch.md).
 
-- **Do not depend on escape analysis to remove codec accessor objects.** A heap segment's
-  `heapBase()` returns an `Optional` per call. Reuse the writer's cached buffer view when
-  accessing its heap array, and validate allocation gates on HotSpot with escape analysis
-  disabled as well as the workstation compiler. Exercise both process settings through
-  the shared writer, and document intentional thread-lifetime scratch at the field.
-  Evidence: [leaf codec CI follow-up](postmortems/2026-11-17-leaf-codec-ci.md#follow-up-hotspot-allocation-writer-mode-coverage-and-sonar-lifetime).
+## Database notification ownership
 
-### Runtime vector width is an allocation boundary
+Reject lifecycle reentry before database-handle admission, not only inside resource/session cleanup.
+Keep synchronous pre-publication veto hooks separate from asynchronous after-durability notifications.
+Bound callback drain, drop only unopened queued work, and retain live reader/backend dependencies on
+close timeout. Recovery after truncation must select an existing durable revision, even if a node cursor still names discarded history. Resolve dispatcher read views from durable roots even while writer pending roots exist.
+Exercise the public wrapper and nested database scopes in deterministic interleavings; never treat
+cancellation or a deadline as proof that a callback released its readers.
+See [postmortem](postmortems/database-notification-dispatch.md) and [contract](hooks.md).
 
-A fixed species' lane count does not establish hardware support. Gate fixed-width
-Vector API operations on runtime-preferred width across every primitive representation;
-otherwise software fallback can allocate on each cached lookup. Run exact allocation
-bounds in a clean narrow-vector C2 fork as well as the normal runtime, with unsigned
-key-order oracles for both lookup overloads. Attribute equal raw/encoded allocations
-to their actual stack before calling them codec overhead. See the
-[HOT leaf vector-width postmortem](postmortems/2026-11-17-hot-leaf-vector-width.md).
+## Resource bootstrap and notification drain
 
-### Verify ordered VM options on the CI runtime
+A session close can hide inside resource bootstrap, removal or derived-resource repair. Establish
+notification quiescence before the outer handle/database monitor, including eager work behind session
+open. Never restrict already permitted callback metadata reads to compensate for reversed lock order.
+Keep registration serialized and move mutating initialization outside admission monitors.
+See [postmortem](postmortems/bootstrap-notification-monitor-order.md).
 
-A compiler-specific regression fork must start on the CI JDK as well as the local
-JDK. Unlock experimental VM options before setting `UseJVMCICompiler`, even when
-disabling it: GraalVM can accept an argument list that Temurin rejects. Verify a
-real Gradle worker and its existing behavioral assertions on the CI distribution;
-removing or misordering the unlock must fail startup. Keep compiler/vector flags
-and strict allocation bounds intact. See the
-[fork-startup postmortem](postmortems/2026-11-18-hot-leaf-fork-startup.md).
+## Mutation gates precede notification retirement
 
-### A closed check is not a lifetime
+Trace outer collection/store authorization gates before moving lifecycle waits. Any path needing
+both a mutation gate and notification retirement must acquire the gate first, then drain outside
+admission monitors. Reject callback mutation at gate entry itself; keep independent metadata reads
+ungated. Include held-outer-gate regressions alongside callback-drain tests.
+See [postmortem](postmortems/mutation-retirement-lock-order.md).
 
-Code that reads off-heap page memory must hold the page for the whole read, or validate a
-stamp afterwards and discard what it read. Checking `isClosed()` first proves nothing about
-the bytes read next: eviction can release the frame in between, and a released frame keeps
-its bytes until it is reused, so the read is usually still correct and the defect hides
-until a slower or busier machine reuses the frame in time. Zero-fill released frames
-(`FrameSlotAllocator.setPoisonOnReleaseForTesting`) when testing any such reader, evict at
-the point between "resolved" and "read", and assert on background threads as well as the
-test thread. See the
-[validator leaf-lifetime postmortem](postmortems/2026-11-18-hot-validator-unguarded-leaf-read.md).
+## Separate quiescence from exclusive ownership
 
-### Fewer bytes only pay where the bytes come from the device
+Notification retirement pauses callback admission and drains existing readers; it must not serve as
+an exclusive lock between lifecycle owners. Trace execution/history ownership and worker joins in
+both directions. Destructive maintenance must fence hardening and append workers at the shared
+page boundary, including raw entry and captured predecessors. Test scheduled admission refusal
+separately from a user-hook veto so temporary maintenance cannot disable later ticks.
+See [the ownership postmortem](postmortems/storage-maintenance-retirement-ownership.md).
 
-- A page codec was credited with "cold reads only: a decode replaces a copy". In the gate's cold
-  regime a fresh process reads from a warm page cache: the smaller pages save nothing there, every
-  loaded leaf is decoded, and the first use of the decoder costs about a millisecond once.
-- Before building a codec, multiply the per-page decode cost by the pages a fresh process loads for
-  the heaviest gated query, and compare it with that query's time. If it exceeds the gate's
-  threshold, the codec is opt-in from the start.
-- Measure in the gate's own regime first. A half-hour run of the real cold endpoints with the
-  feature on and off would have shown this before the microbenchmarks, the device probe and the
-  image builds. A device-cold probe and an in-memory decode comparison answer different questions.
-- See [`2026-11-18-leaf-codec-default-cold-cost.md`](postmortems/2026-11-18-leaf-codec-default-cold-cost.md).
+## Deferred publications still own their history
 
-### Corrupt wire fixtures must pin their layout
+A deferred callback that opens its view later still depends on the original committed pages.
+Destructive admission must account for deferred as well as executing work; a reused revision number
+is not the same publication. Bound the combined active, queued and deferred retention budget, and
+check saturation with a latched consumer while proving durable commits finish. Never turn overflow
+into caller-thread delivery or claim replay that is not implemented.
+See [the deferred-publication postmortem](postmortems/deferred-notification-history.md).
 
-Build ordinary and packed golden controls independently of the writer's
-selection policy. Use the declared directory width for both the stride and
-the offset load. After editing a valid fixture, assert at the reader
-boundary so a failure in fixture construction cannot stand in for a
-decoder refusal. See the
-[projection directory fixture postmortem](postmortems/2026-11-19-hot-leaf-directory-fixture-width.md).
+## Cancellation must allow its own cleanup
 
-### Check logical bounds before packing
+A worker's interrupt status can make an otherwise correct retirement guard reject its cleanup.
+Consume cancellation before session retirement admission, including failures before writer
+construction; writer fences retain their own interrupt handling. Restore the public caller's status
+at its own boundary; terminal executor tasks need no extra interrupt bookkeeping. Keep user callback guards intact: inject failures at a
+valid lifecycle boundary. Registry assertions must use canonical path identity, including temporary
+path aliases. Mutation coverage must explicitly map dedicated ownership suites and retain every
+selected source across bounded partitions; partial reports and timeouts never prove assertion kills.
+See [the CI ownership postmortem](postmortems/lifecycle-ci-ownership-contracts.md).
 
-Source slots carry a logical high-water mark separate from allocator capacity.
-Before choosing or emitting a packed layout, check each selected header and
-value against the used byte range. Exercise retirement and sparse emission
-with a real backing allocation larger than the logical range. See the
-[packed HOT writer postmortem](postmortems/2026-11-19-hot-leaf-packed-source-bounds.md).
+## Coordinate cancellation before releasing borrowed state
 
-### Reuse unpublished packed wire views
+When retirement may abort promptly on interruption, observe that result while the callback
+is still held, then prove its readers/history remain usable. A future's completion is not
+proof of destructive cleanup, and releasing the callback first races interruption against
+quiescence notification. Keep the successful retirement path's pending assertion before
+callback release. Executor mocks must assertion-fail impossible waits, so inverted termination
+loops are killed by assertions rather than process timeouts.
+See [the CI coordination postmortem](postmortems/lifecycle-ci-interrupt-coordination.md).
+After the final test edit, run the configured Spotless check as well as test compilation;
+an assertion-only repair can still block every downstream runtime and mutation job on formatting.
 
-Borrowed slot selection keeps only a synchronous descriptor with its backing
-cleared on every exit. A copying reader can rebase its unpublished descriptor
-to the destination. Count the descriptor, backing wrapper and slices in the
-clean allocation fork, including formats that save enough wire bytes to hide
-the object costs in other read paths. See the
-[packed HOT allocation postmortem](postmortems/2026-11-19-hot-leaf-packed-read-allocations.md).
+## Assert exhaustion before explicit cleanup
 
-### Preserve contiguous keys for fixed-word probes
+A set operation can finish while an unused operand still produces results. Hold that producer
+with latches and assert termination and owned-resource release immediately after the public
+exhaustion call, before test cleanup. Keep borrowed transactions usable. An explicit-close
+assertion cannot detect a missing natural-exhaustion fence. Always release and close the fixture
+in `finally` so a removed fence fails an assertion instead of a mutation timeout.
+See [the exhaustion-oracle postmortem](postmortems/concurrent-set-exhaustion-oracle.md).
 
-Select grouped prefixes only where the read path can afford two key
-ranges. Preserve the bounded native word lookup for eight-byte projection
-keys, including the last slot where an otherwise safe forward word load
-can cross the slot region. Keep the suffix-work counter active on packed
-paths. See the [projection probe postmortem](postmortems/2026-11-19-hot-leaf-projection-suffix-budget.md).
+Inline fault injection changes shared runtime classes. Prefer interface delegates for real
+owners, and isolate suites requiring that instrumentation from normal hot-workload execution.
+Use the framework's class-ordering boundary, retaining every case and assertion. Diagnose with
+per-test A/B durations while preserving workloads and keeping elapsed-time assertions out of CI.
 
-### Distinguish writable copies from cache images
+## Separate source hygiene from behavioral verification
 
-Preserve the mutable-copy contract when a cache starts retaining encoded
-pages. Give the cache an explicit read-only copy path and charge all
-retained wire metadata. Check that independent copies can grow and
-mutate while the guarded source retains the same values. See the
-[packed copy postmortem](postmortems/2026-11-19-hot-leaf-packed-copy-contract.md).
+Unused imports and misplaced package directories can pass runtime tests. Remove stale
+imports after fixture changes, keep standalone Java fixtures under their declared package,
+and verify their real build consumer. Do not add source-string tests as behavioral evidence.
+Failure-path fixtures must also obey return-value contracts: explicitly discard an intentionally
+unused result without adding an assertion that changes the failure oracle, and compile with the
+same Error Prone/NullAway configuration as hosted CI after the last test edit.
+See [the lifecycle CI hygiene postmortem](postmortems/lifecycle-ci-source-hygiene.md).
 
-### Let pointers name the directory entry
+## Retryable teardown must restore admission
 
-When a slot owns shared bytes, make every alias identify that slot with
-one directory load. The validator can then check earlier ownership and
-reuse proved bounds without an additional search. Prove the current
-slot's span before reading its alias. Reuse an earlier alias proof only
-when both the target and its declared length match. Measure complete
-and compact materialization, borrowed selection and retained hits
-separately. Check the compiled borrowed loop when replacing a typed
-load with narrower loads. When writer eligibility changes, keep
-ownership fixtures on eligible pages and assert the resulting wire mode.
-See the [packed read postmortem](postmortems/2026-11-20-packed-hot-leaf-read-cost.md).
+An open flag alone does not prove that an instance survived failed close. Rejoin it,
+read old revisions, commit new work with hooks, then retry close. Restore admission
+after backend failure once user sessions have drained; retain refusal while a user
+owner is still live. Defer irreversible shutdown until dependent teardown succeeds.
+Route repeated close through existing cleanup retry rather than returning
+early in a wrapper; exercise direct and facade callers and preserve newer instances.
+For CI tooling, use the declared contract for raw PIT detection versus assertion
+kills, and keep fixture signatures and serialized result consumers current.
+See [the close-retry postmortem](postmortems/lifecycle-ci-close-retry.md).
 
-### Keep the HOT leaf frame contract across read paths
+### Own the operation before racing teardown
 
-Exercise a format boundary on full materialization, borrowed point
-lookup and cached images. Share the directory and trailer bounds,
-then apply the same exact-consumption and trailer-order rules even
-when a path skips slot materialization. Pin valid layouts independently
-of writer selection. See the [HOT leaf framing postmortem](postmortems/2026-11-20-hot-leaf-framing.md).
+A lock protecting derived state does not keep an idle transaction alive. A concurrency
+test must acquire the operation's execution ownership before releasing a competing
+closer, then exercise the operation within that scope. Nested maintenance uses its
+owned page boundary rather than reentering the node lifecycle guard. For thread-local
+diagnostics, distinguish retaining a callback/writer from retaining a null-valued map
+entry. Trace every `finally` and parent restoration before changing working scope logic.
+Behavioral guard tests verify nesting and exception cleanup; they do not prove removal
+of empty entries.
+See [the lifecycle CI postmortem](postmortems/lifecycle-ci-contexts.md).
 
-### Make size decisions on the logical value
+## Budget lifecycle work independently of lifecycle correctness
 
-When a stored value gains a compact representation, every decision that
-reads its size or bytes must use the logical value: thresholds, hotness,
-fold triggers and buffer sizing. Read the logical length and the expanded
-bytes through one accessor, and run the full suite, including other
-branches' stream tests, before trusting a targeted subset. See the
-[packed posting hotness postmortem](postmortems/2026-11-21-hot-packed-posting-delta-hotness.md).
+Successful reopen and cleanup do not exclude a document scan or a repeated device barrier.
+Specify commit/close work bounds before measuring, cover each enclosing owner and document
+representation, supply a nonzero counter control, and verify persisted results as well as cost.
+Measure allocation primitives in the existing clean JVM. For one-key ownership, remove the
+key directly rather than searching unrelated owners; do not resurrect a private-state oracle
+to claim that a removed predicate was behaviorally killed.
+See [the lifecycle budget postmortem](postmortems/lifecycle-work-budgets.md).
+
+## Check lifecycle error precedence and identity reuse
+
+A downstream guard does not prove that an early guard is redundant: invalid arguments and
+closed owners may return different errors before reaching it. Derive those boundary cases
+from the lifecycle contract. Deletion/recreation with a fresh identity cannot prove release
+of an obligation keyed by the old identity; restore a clean backup at the same path and
+identity and observe persisted markers and committed values instead of private bookkeeping.
+Remove a wake with no predicate transition rather than claiming universal cost equivalence.
+See [the mutation closure postmortem](postmortems/lifecycle-ci-mutation-closure.md).
+
+## Check optional work before retirement and collect worker outcomes
+
+Quiescing shared callbacks is an ownership operation, even when the surrounding feature is
+optional. Decide whether initialization is needed before retirement, then revalidate after
+admission. Termination alone does not report a worker's outcome: cancellation, reset and exhaustion
+must all collect its first unreported failure before replacing the worker or closing descendants.
+Use first-close-only failures to distinguish worker error retention from a later close retry.
+Keep process-exit ordering with the embedding application through explicit shutdown.
+See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-open-worker-failure.md).

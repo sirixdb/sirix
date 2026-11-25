@@ -16,7 +16,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
-import java.time.Instant;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Random;
@@ -155,11 +154,9 @@ public final class PageEnvelopeContractTest {
     final BytesIn<?> unknownVersionSource = Bytes.wrapForRead(unknownVersion);
     assertThrows(unsupportedType,
         () -> persister.deserializePage(CONFIG, unknownVersionSource, SerializationType.DATA));
+    // A deserialized revision root keeps the epoch-microsecond commit timestamp it was committed
+    // with, so a rewrite is byte-identical without pinning the timestamp here.
     final Page parsed = persister.deserializePage(CONFIG, Bytes.wrapForRead(extended), SerializationType.DATA);
-    if (parsed instanceof RevisionRootPage revisionRoot) {
-      // A rewrite normally stamps a new commit time; hold it fixed for this byte-identity check.
-      revisionRoot.setCommitTimestamp(Instant.ofEpochMilli(revisionRoot.getRevisionTimestamp()));
-    }
     final BytesOut<?> rewritten = Bytes.elasticHeapByteBuffer();
     persister.serializePage(CONFIG, rewritten, parsed, SerializationType.DATA);
     assertArrayEquals(page.getClass().getSimpleName(), oldBytes, rewritten.toByteArray());

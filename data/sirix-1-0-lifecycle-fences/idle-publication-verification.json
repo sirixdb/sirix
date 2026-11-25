@@ -1,0 +1,318 @@
+{
+  "scope": [
+    "review-shared-retirement-reentrancy",
+    "review-idle-publication-dispatch"
+  ],
+  "starting_head": "d05db87759ef5a2c76755416b59871abbce8a37b",
+  "base": "802984dc79044e67190a1fcf47814f212fe42731",
+  "binding": "Uncommitted review fix; final Java hashes bind the tested worktree content for the outer executor.",
+  "result": "passed",
+  "finding_disposition": {
+    "review-shared-retirement-reentrancy": "Already fixed at the starting head: shared registered writer guard rejects enclosing execution before close snapshots and page-truncation waits. Retained unchanged and verified by JSON/XML same-resource/different-resource cases.",
+    "review-idle-publication-dispatch": "Fixed: remove registration-only routing; route only explicit/current execution, preserve async epoch context, queue idle truncation notifications until maintenance ownership is released, and publish idle close notifications after terminal cleanup."
+  },
+  "selected": {
+    "tests": 386,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "classes": [
+      {
+        "module": "sirix-core",
+        "task": "test",
+        "class": "io.sirix.access.AsyncCommitTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "test",
+        "class": "io.sirix.access.DatabaseOwnershipTest",
+        "tests": 20,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "test",
+        "class": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "test",
+        "class": "io.sirix.access.trx.node.CommitSafetyTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "test",
+        "class": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+        "tests": 159,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "test",
+        "class": "io.sirix.access.trx.node.SharedCallbackLifetimeTest",
+        "tests": 138,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "test",
+        "class": "io.sirix.access.trx.node.TransactionExecutionLockTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "test",
+        "class": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+        "tests": 18,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "test",
+        "class": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "test",
+        "class": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-query",
+        "task": "test",
+        "class": "io.sirix.access.trx.node.XmlPendingUpdatePublicationTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "configured_auxiliary": {
+    "tests": 45,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2,
+    "classes": [
+      {
+        "module": "sirix-core",
+        "task": "allocatorColdStartupTest",
+        "class": "io.sirix.access.AllocatorColdStartupTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "cleanerStartupTest",
+        "class": "io.sirix.utils.CleanerStartupTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "configurationStartupTest",
+        "class": "io.sirix.access.ConfigurationStartupTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "dictionaryReadViewAllocationTest",
+        "class": "io.sirix.budget.InlineSlotCopyAllocationBudgetTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "dictionaryReadViewAllocationTest",
+        "class": "io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "sharedArenaDiagnosticGlobalTest",
+        "class": "io.sirix.io.SharedArenaStartupPolicyTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "sharedArenaDiagnosticSkipTest",
+        "class": "io.sirix.io.SharedArenaStartupPolicyTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "sharedArenaDiagnosticSkipTest",
+        "class": "io.sirix.io.memorymapped.ArenaGenerationLifetimeTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 2
+      },
+      {
+        "module": "sirix-core",
+        "task": "sharedArenaRejectGlobalTest",
+        "class": "io.sirix.io.SharedArenaStartupPolicyTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "sharedArenaRejectSkipTest",
+        "class": "io.sirix.io.SharedArenaStartupPolicyTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "storageEpochStoreIdentityTest",
+        "class": "io.sirix.access.trx.page.StorageEpochDifferentialTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "storageEpochStoreIdentityTest",
+        "class": "io.sirix.access.trx.page.StorageEpochStoreIdentityTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-core",
+        "task": "validTimeDisabledLookupCacheTest",
+        "class": "io.sirix.index.interval.ValidTimeDisabledLookupCacheTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-query",
+        "task": "temporalNodeReaderLifetimeGenericTest",
+        "class": "io.sirix.query.function.xml.io.TemporalNodeReaderLifetimeTest",
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-query",
+        "task": "translatorThresholdIndependentTest",
+        "class": "io.sirix.query.SirixTranslatorThresholdTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "sirix-query",
+        "task": "translatorThresholdLegacyTest",
+        "class": "io.sirix.query.SirixTranslatorThresholdTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "command": "/home/johannes/IdeaProjects/firstmate/data/tools/heavy.sh bash build/verify-idle-publication.sh",
+  "log": "build/verify-idle-publication.log",
+  "fresh_compilation": [
+    "sirix-core:compileJava",
+    "sirix-core:compileTestJava",
+    "sirix-query:compileJava",
+    "sirix-query:compileTestJava"
+  ],
+  "new_regression": {
+    "test": "SharedCallbackLifetimeTest.rawPagePublicationDeliversBeforeSequentialSessionCleanup",
+    "cases": 16,
+    "matrix": "JSON/XML x untimed/timed x raw truncate/bound close x success/listener Error",
+    "oracle": "Listener navigates the expected revision/value before the publishing call returns, without T/session/retirement ownership; independent later listener still runs, Error identity is retained, then A.close and B.close finish sequentially with all owners and permits released."
+  },
+  "retained_regressions": [
+    "resource-wide reentrancy and different-resource independence",
+    "pre-hook sync/async shared reader lifetime/veto/retry",
+    "async successor overlap and ordered epoch completion",
+    "pinned distant-page views versus truncation",
+    "writer refusal/failure/admission/owner release",
+    "query atomic update/scheduler lifecycle"
+  ],
+  "performance": {
+    "TransactionExecutionLock": "unchanged",
+    "runLocked": "unchanged",
+    "timed_mutators": "unchanged",
+    "count_only_row_paths": "unchanged",
+    "new_state_queues_threads": false,
+    "benchmark_run": false,
+    "changed_boundaries": "cold publication routing, async owner context, page cleanup/maintenance delivery"
+  },
+  "limitations": [
+    "The pre-fix source was not executed in this round; the independent regression oracle is the existing publication timing, committed-value and sequential cleanup contract.",
+    "Raw destructive truncation leaves the owning node cursor on its old lineage; sequential session abort can surface the existing IllegalArgumentException with message Revision must not be bigger than 1! after releasing owners. Tests permit only that exact exception for truncation and still require session/node/page closure and one writer permit.",
+    "Full repository tests/lint, benchmarks and mutation runs were not run in this review phase. Fresh scoped PIT, final compiled-path/work-budget evidence and delivery remain with the outer executor.",
+    "Earlier focused and benchmark results remain historical; no performance equivalence claim is made."
+  ],
+  "source_sha256": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java": "045148c89e59287e4d3c5771fd1e5ee1eea34ddd4f931fef4bef65ad8e070b16",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java": "563a0aa5249f335c78620261f8894353c66e5c872bcc94531393dddd5933869e",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalNodeTrx.java": "78f4eaecf30fa359400382aa31aa7cdb7232ecdf2ea73fab1b790aaf23b7de6f",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java": "8dba8e4e153ee58581c1814767cd577d31a33ea1ec46857d120c12f6c2975e47",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java": "eaf79443d38cb081bf20304826d6d88707d12d969e87a84be127b8b234e251f8",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/SharedCallbackLifetimeTest.java": "05eaf84a6499cd752c26341e0b9df6ee84caf3274eb2e27a1c0772bdb5c90cc6"
+  }
+}

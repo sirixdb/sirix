@@ -26,4 +26,7 @@ internal fun printBackupSummary(summary: BackupManager.BackupSummary, cliPrinter
     summary.resources().forEach {
         cliPrinter.prnLnV("  - ${it.resourceName()}: revision ${it.mostRecentRevision()}, ${it.bytesCopied()} bytes")
     }
+    if (summary.notBackedUp().isNotEmpty()) {
+        cliPrinter.prnLn("Not backed up (in-memory resources): ${summary.notBackedUp().joinToString(", ")}")
+    }
 }

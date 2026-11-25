@@ -23,6 +23,8 @@ package io.sirix.axis.concurrent;
 import java.util.concurrent.BlockingQueue;
 
 import io.sirix.api.Axis;
+import io.sirix.cache.ShardedPageCache;
+import io.sirix.exception.SirixThreadedException;
 import io.sirix.utils.LogWrapper;
 import io.sirix.settings.Fixed;
 import org.slf4j.LoggerFactory;
@@ -52,7 +54,26 @@ public class ConcurrentAxisHelper implements Runnable {
    * Queue that stores result keys already computed by this axis. End of the result sequence is marked
    * by the NULL_NODE_KEY. This is used for communication with the consumer.
    */
-  private BlockingQueue<Long> results;
+  private final BlockingQueue<Long> results;
+
+  // Read only after the consumer has established executor termination.
+  private Throwable failure;
+  private Throwable cleanupFailure;
+
+  Throwable takeFailure(final boolean cancelled) {
+    Throwable result = failure;
+    failure = null;
+    if (cancelled && result instanceof SirixThreadedException && result.getCause() instanceof InterruptedException) {
+      final Throwable interruption = result;
+      result = null;
+      for (final Throwable suppressed : interruption.getSuppressed()) {
+        result = ShardedPageCache.retainCleanupFailure(result, suppressed);
+      }
+    }
+    result = ShardedPageCache.retainCleanupFailure(result, cleanupFailure);
+    cleanupFailure = null;
+    return result;
+  }
 
   /**
    * Bind axis step to transaction. Make sure to create a new ReadTransaction instead of using the
@@ -67,6 +88,8 @@ public class ConcurrentAxisHelper implements Runnable {
   }
 
   @Override
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   public void run() {
     LOGWRAPPER.debug("ConcurrentAxisHelper producer thread starting");
     int resultCount = 0;
@@ -99,7 +122,8 @@ public class ConcurrentAxisHelper implements Runnable {
         LOGWRAPPER.error("Interrupted while sending NULL_NODE_KEY", e);
         Thread.currentThread().interrupt();
       }
-    } catch (Exception e) {
+    } catch (final Throwable e) {
+      failure = e;
       // CRITICAL: Catch any unexpected exceptions to prevent silent thread death
       LOGWRAPPER.error("FATAL: ConcurrentAxisHelper producer thread crashed with exception", e);
       // Try to signal end to prevent consumer from hanging
@@ -107,6 +131,12 @@ public class ConcurrentAxisHelper implements Runnable {
         results.put(Fixed.NULL_NODE_KEY.getStandardProperty());
       } catch (InterruptedException ie) {
         LOGWRAPPER.error("Could not signal end after crash", ie);
+      }
+    } finally {
+      try {
+        axis.close();
+      } catch (final RuntimeException | Error closeFailure) {
+        cleanupFailure = closeFailure;
       }
     }
   }

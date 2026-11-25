@@ -1,10 +1,13 @@
 package io.sirix.access;
 
 import io.brackit.query.atomic.QNm;
+import io.sirix.access.InMemoryLifetimeFixture.Model;
 import io.sirix.api.Database;
 import io.sirix.api.NodeTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.access.trx.node.AbstractNodeTrxImpl;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -13,8 +16,11 @@ import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixDatabaseLockException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.io.StorageType;
 import io.sirix.utils.SirixFiles;
 import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
@@ -37,9 +43,13 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.OpenOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -56,7 +66,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -65,10 +74,14 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 
+@Isolated
+@Order(Integer.MAX_VALUE)
 final class DatabaseOwnershipTest {
   @TempDir
   Path directory;
@@ -838,7 +851,12 @@ final class DatabaseOwnershipTest {
       } else {
         ((XmlNodeTrx) writer).insertElementAsFirstChild(new QNm("pending"));
       }
-      setWriterField(writer, "asyncCommitFailure", new IOException("injected hardening failure"));
+      final StorageEngineWriter original = writer.getStorageEngineWriter();
+      final StorageEngineWriter refusing = mock(StorageEngineWriter.class, delegatesTo(original));
+      final SirixIOException refusal = new SirixIOException("writer teardown refused");
+      doThrow(refusal).when(refusing).rollback();
+      doThrow(refusal).when(refusing).close();
+      setWriterField(writer, "storageEngineWriter", refusing);
       try (final Database<?> sibling = forceRemoval
           ? openDatabase(path, type)
           : null) {
@@ -873,8 +891,7 @@ final class DatabaseOwnershipTest {
               other.getRtxIndexController(other.getMostRecentRevisionNumber()));
         }
       } finally {
-        setWriterField(writer, "asyncCommitFailure", null);
-        setWriterField(writer, "asyncCommitTerminalFailure", false);
+        setWriterField(writer, "storageEngineWriter", original);
       }
       if (forceRemoval) {
         Databases.removeDatabase(path);
@@ -1067,6 +1084,70 @@ final class DatabaseOwnershipTest {
   @Test
   void ownerExitReleasesLock() throws Exception {
     assertOwnerRelease(false);
+  }
+
+  /** TXN-101 / TXN-615 AC12: cleanup retries cannot mutate a database owned by another process. */
+  @ParameterizedTest
+  @CsvSource({"JSON,false", "JSON,true", "XML,false", "XML,true"})
+  void repeatedCloseRespectsAnotherProcessesOwnership(final Model model, final boolean tombstone) throws Exception {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    final Path path = directory.resolve("database");
+    InMemoryLifetimeFixture.createDatabase(model, path);
+    final Database<? extends ResourceSession<?, ?>> database = InMemoryLifetimeFixture.open(model, path);
+    final Path resources = path.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Path resource = resources.resolve("volatile");
+    InMemoryLifetimeFixture.createResource(database, "volatile", StorageType.IN_MEMORY);
+    try (ResourceSession<?, ?> session = database.beginResourceSession("volatile")) {
+      final long key = InMemoryLifetimeFixture.commitFirstValue(session, model, "old");
+      assertEquals("old", InMemoryLifetimeFixture.valueAt(session, model, 1, key));
+    }
+    final Path denied = tombstone
+        ? resource
+        : resources;
+    final Set<PosixFilePermission> writable = Files.getPosixFilePermissions(denied);
+    try {
+      Files.setPosixFilePermissions(denied, PosixFilePermissions.fromString("r-xr-xr-x"));
+      final Path leftover;
+      try {
+        assumeTrue(!Files.isWritable(denied), "running as a user who ignores permissions");
+        assertThrows(SirixIOException.class, database::close);
+        assertFalse(database.isOpen());
+        try (var paths = Files.list(resources)) {
+          final List<Path> remaining = paths.toList();
+          assertEquals(1, remaining.size());
+          leftover = remaining.getFirst();
+        }
+      } finally {
+        if (!tombstone || Files.exists(resource)) {
+          Files.setPosixFilePermissions(denied, writable);
+        } else {
+          try (var paths = Files.list(resources)) {
+            for (final Path remaining : paths.toList()) {
+              Files.setPosixFilePermissions(remaining, writable);
+            }
+          }
+        }
+      }
+      assertEquals(!tombstone, leftover.equals(resource), "exercise both cleanup representations");
+      final Process owner = child(path, "lock-only");
+      try {
+        assertEquals("OPEN", childResult(owner));
+        assertThrows(SirixDatabaseLockException.class, database::close);
+        assertTrue(Files.exists(leftover), "a refused cleanup leaves the pending footprint intact");
+        owner.getOutputStream().write('\n');
+        owner.getOutputStream().flush();
+        assertTrue(owner.waitFor(30, TimeUnit.SECONDS));
+        assertEquals(0, owner.exitValue());
+      } finally {
+        stopChild(owner);
+      }
+      database.close();
+      assertFalse(Files.exists(leftover), "cleanup completes after the other owner releases its lock");
+      database.close();
+    } finally {
+      database.close();
+      Databases.removeDatabase(path);
+    }
   }
 
   @Test
@@ -1293,6 +1374,7 @@ final class DatabaseOwnershipTest {
           }
         }
         final ResourceSession<?, ?> session = database.beginResourceSession("resource");
+        ((AbstractResourceSession<?, ?>) session).getNotifications().setCloseTimeout(Duration.ofSeconds(20));
         final NodeTrx writer = session.beginNodeTrx(10, TimeUnit.MILLISECONDS);
         writer.addPreCommitHook(_ -> {
           if (firstHook.compareAndSet(true, false)) {
@@ -1322,9 +1404,7 @@ final class DatabaseOwnershipTest {
                     });
                     assertThrows(IllegalStateException.class, () -> Databases.removeDatabase(path));
                   } else {
-                    try (final Database<?> concurrent = openDatabase(path, type)) {
-                      assertTrue(concurrent.isOpen());
-                    }
+                    assertThrows(IllegalStateException.class, database::close);
                   }
                 }
                 default -> throw new IllegalArgumentException(callback);
@@ -1337,9 +1417,12 @@ final class DatabaseOwnershipTest {
           }
         });
         assertTrue(hookEntered.await(30, TimeUnit.SECONDS));
-        final Field lockField = AbstractNodeTrxImpl.class.getDeclaredField("lock");
-        lockField.setAccessible(true);
-        final ReentrantLock transactionLock = (ReentrantLock) Objects.requireNonNull(lockField.get(writer));
+        final DatabaseNotifications notifications = ((AbstractResourceSession<?, ?>) session).getNotifications();
+        final Field progressField = DatabaseNotifications.class.getDeclaredField("progress");
+        progressField.setAccessible(true);
+        final Object progress = Objects.requireNonNull(progressField.get(notifications));
+        final Field acceptingField = DatabaseNotifications.class.getDeclaredField("accepting");
+        acceptingField.setAccessible(true);
         final Thread closer = Thread.ofPlatform().daemon().unstarted(() -> {
           try {
             if (forceRemoval) {
@@ -1355,11 +1438,17 @@ final class DatabaseOwnershipTest {
         try {
           closer.start();
           final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-          while (!transactionLock.hasQueuedThread(closer) && !cleanupFinished.isDone()
-              && System.nanoTime() < deadline) {
+          boolean paused = false;
+          while (!cleanupFinished.isDone() && System.nanoTime() < deadline) {
+            synchronized (progress) {
+              paused = !acceptingField.getBoolean(notifications);
+            }
+            if (paused) {
+              break;
+            }
             Thread.sleep(1);
           }
-          assertTrue(transactionLock.hasQueuedThread(closer));
+          assertTrue(paused);
           System.out.println("READY");
           System.out.flush();
           System.in.read();

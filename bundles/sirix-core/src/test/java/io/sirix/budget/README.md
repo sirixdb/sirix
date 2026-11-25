@@ -98,6 +98,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `ChangeLogWorkBudgetTest` | 20 projected row changes beside 256/4096 rows, all versioning types | slab bytes or slots grow with untouched rows; first old cells or represented base revisions disappear across page flushes, explicit barriers, cold reopening or revert; unchanged writer reads rebuild, encode or replay an already-applied batch |
 | `sirix-core` `RefusedOverflowLeafTableTest` | eight unused writer tables, then an actual overflow refusal | unused tables allocate 8 KiB or more; the positive witness fails to allocate the real 1 MiB backing array; concurrent first refusals lose an identity |
 | `sirix-core` `HotWriterLeafRetentionAllocationBudgetTest` | HOT puts that extend a leaf beside a committed neighbour and beside a logged one | reading the committed neighbour allocates, or an ordinary put takes a guard on a leaf of the page cache instead of validating the unheld read |
+| `sirix-core` `CommitTimestampProbeAllocationBudgetTest` | instant to epoch-microsecond conversion, the per-commit and per-open-by-time probe | the conversion allocates (16,384 conversions must allocate 0 bytes); the reverse conversion is the positive control that keeps the zero bound from being vacuous |
 | `sirix-core` `InlineSlotCopyAllocationBudgetTest` | inline slot reconstruction and empty overflow-reference lookups | empty-map operations allocate boxed keys, or copying an inline slot fails to retire its stale overflow reference while preserving unrelated references |
 | `sirix-core` `DerivedMaintainerWorkBudgetTest` | 20-row publication beside 256/4096 rows with the daemon deterministically paused | source writes any aggregate slots; derived replay rereads slab chunks or untouched groups, opens projection row groups, folds old parts during catch-up, or writes document pages/catalogue files |
 | `sirix-core` `TemporalAggregateMaintenanceWorkBudgetTest` | explicit internal aggregate-kernel mode: 20-row publication, 528 one-row publications/barriers beside 256/4096 rows, and 4096 publications through the large fixture's checkpoint cascade | first-delta chunk/page work exceeds changed-record bounds or opens a reader; cumulative tier-fold chunk/endpoint/node work exceeds changed-record bounds; tiers carry or checkpoints cascade more than once per boundary; historical summaries change |
@@ -181,11 +182,11 @@ to the main image, and hands the test what Gradle itself evaluated. So it checks
 produces exactly one argument naming the two holders and the default produces none; that the main
 image really initializes the two holders early when, and only when, the build asked for it (run the
 suite with `-Pnative.preinitializeDowncalls=true` to check the other state); that the smoke-test
-image, which CI builds on the LTS toolchain, never does; that the documented `-P` switch is the
-property the build really consults, so a rename cannot leave it silently doing nothing; that the
-argument names two classes that exist and still hold nothing but their call signature, so
-initializing them at build time is legal; and that no shared `native-image.properties` initializes a
-holder early, by name, outer class or package. It asserts on nothing a document says: prose is
+image, which keeps the portable run-time configuration on every toolchain, never does; that the
+documented `-P` switch is the property the build really consults, so a rename cannot leave it silently
+doing nothing; that the argument names two classes that exist and still hold nothing but their call
+signature, so initializing them at build time is legal; and that no shared `native-image.properties`
+initializes a holder early, by name, outer class or package. It asserts on nothing a document says: prose is
 reworded without changing a build, and a test that breaks on that points at the wrong file.
 
 What it **cannot** catch, stated plainly because it is the larger part:
@@ -238,6 +239,11 @@ maintains, so a budget quotes the same numbers an investigation would:
   production; the core test fork enables it, and captures require that gate to be live. The sidecar
   zero budget has a positive read control. These totals include lifecycle work during the capture;
   they do not represent unique records, allocated bytes, or physical disk reads.
+- `EngineWorkCounters.LIFECYCLE_DOCUMENT_VISITS` (`lifecycle.documentVisits`): the document-only
+  refinement of `replay.recordVisits`, counting cursor moves, storage lookups and preparations,
+  including nested delegations. It excludes name-dictionary and other index records, preserves the
+  all-index total, and uses the same `sirix.replay.workDiag` gate. The normative lifecycle fixture,
+  exclusions and bounds are in [CONV-301](../../../../../../../../spec/CONV-conventions.md#conv-301--official-work-budgets).
 - `EngineWorkCounters.REPLAY_PROJECTION_ROWS` and `REPLAY_PROJECTION_LABEL_BYTES`: old row removals
   and final row insertions queued by an identity epoch, and bytes allocated for its final row labels.
   The zero budgets for empty boundary changes have a positive indexed insertion control. These use
@@ -341,6 +347,17 @@ runs in the same `dictionaryReadViewAllocationTest` fork: in the shared core JVM
 sibling suite's inline mock of `TransactionIntentLog` had instrumented that class.
 
 ## Adding a budget test
+
+`LifecycleWorkBudgetTest` implements the Firstmate097 refinement of CONV-301 for JSON/XML
+commit and writer/session/database close with a peer retaining the storage pool, using a
+document-only refinement of the existing record-visit diagnostic and data-file-force counter.
+The refinement excludes XML name-dictionary reads without changing the original total. Its
+document traversal supplies the nonzero control; cold reopen checks every value
+and revision publication. `LifecycleLockAllocationBudgetTest` bounds the uncontended execution
+lock and close-admission primitive to zero allocated bytes after warmup in the existing clean
+allocation fork. It does not bound total commit allocations, contention or callback delivery.
+The normative fixture and bounds are in `spec/CONV-conventions.md`; no elapsed-time assertions
+or changes to existing bounds are involved.
 
 1. **Name the regression** in a sentence. If you cannot, there is nothing to budget.
 2. **Build a fixture at fixture scale** (seconds, not minutes) on a schema of your own; nothing here

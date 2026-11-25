@@ -1,0 +1,54 @@
+{
+  "modules_clean": true,
+  "dispositions": {
+    "file": ".github/mutation-dispositions.toml",
+    "errors": [],
+    "base": "valid",
+    "added": 0,
+    "new": 0,
+    "re_confirmed": 0,
+    "removed": 0,
+    "entries": [
+      {
+        "class": "io.sirix.cli.commands.BackupKt",
+        "method": "printBackupSummary",
+        "descriptor": "(Lio/sirix/backup/BackupManager$BackupSummary;Lio/sirix/cli/CliPrinter;)V",
+        "mutator": "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+        "indexes": [
+          78
+        ],
+        "description": "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue",
+        "kind": "equivalent",
+        "checked_at": "b8cb7fe7541b52fd3226346f8a7ffdd67946223e",
+        "justification": "TXN-615 clause 10 / BackupSummary's constructor contract: notBackedUp is\nList.copyOf of the supplied list, so the final Java record accessor cannot return null for\nany constructed summary. This Kotlin-generated platform-type assertion has no reachable\nfailure arm. Removing it changes no output, errors, allocations or resource iteration; the\nquiet/verbose BackupTest cases execute both empty and nonempty summaries. No nullable input\nor substitute implementation of the final record is admitted by this contract.",
+        "position": 1,
+        "state": "stale",
+        "action": "class io.sirix.cli.commands.BackupKt is in no module's compiled main classes; if it was renamed or moved, run `python3 .github/scripts/pr_mutation.py dispositions --remap --report <mutations.xml>` locally, review the candidates and update the entry, or delete it",
+        "failing": true,
+        "added": null
+      },
+      {
+        "class": "io.sirix.cli.commands.BackupKt",
+        "method": "printBackupSummary",
+        "descriptor": "(Lio/sirix/backup/BackupManager$BackupSummary;Lio/sirix/cli/CliPrinter;)V",
+        "mutator": "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+        "indexes": [
+          98
+        ],
+        "description": "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue",
+        "kind": "equivalent",
+        "checked_at": "b8cb7fe7541b52fd3226346f8a7ffdd67946223e",
+        "justification": "TXN-615 clause 10 / BackupSummary's constructor contract: notBackedUp is\nList.copyOf of the supplied list, so the final Java record accessor cannot return null for\nany constructed summary. This Kotlin-generated platform-type assertion has no reachable\nfailure arm. Removing it changes no output, errors, allocations or resource iteration; the\nquiet/verbose BackupTest cases execute both empty and nonempty summaries. No nullable input\nor substitute implementation of the final record is admitted by this contract.",
+        "position": 2,
+        "state": "stale",
+        "action": "class io.sirix.cli.commands.BackupKt is in no module's compiled main classes; if it was renamed or moved, run `python3 .github/scripts/pr_mutation.py dispositions --remap --report <mutations.xml>` locally, review the candidates and update the entry, or delete it",
+        "failing": true,
+        "added": null
+      }
+    ],
+    "failing": 2,
+    "clean": false
+  },
+  "clean": false,
+  "qualification": "Local original-scope consumer verdict at frozen uncommitted candidate; not hosted CI or committed-head readiness."
+}

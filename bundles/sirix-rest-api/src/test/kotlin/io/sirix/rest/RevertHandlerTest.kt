@@ -23,6 +23,7 @@ import io.vertx.ext.web.client.WebClient
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
+import io.sirix.utils.CommitTimestamps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -175,7 +176,7 @@ class RevertHandlerTest {
         }
         // A retention tombstone keeps the revision's timestamp while removing its readable root.
         val record = ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE)
-        IOStorage.writePrunedRevisionRecord(record, timestamp.toEpochMilli())
+        IOStorage.writePrunedRevisionRecord(record, CommitTimestamps.toEpochMicros(timestamp))
         record.flip()
         val revisions = location.resolve("db/resources/res/data").resolve(IOStorage.REVISIONS_FILENAME)
         FileChannel.open(revisions, StandardOpenOption.WRITE).use { channel ->

@@ -3,6 +3,7 @@ package io.sirix.access.trx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.Transaction;
 import io.sirix.api.TransactionManager;
+import io.sirix.access.trx.node.InternalResourceSession;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +22,7 @@ public final class TransactionImpl implements Transaction {
 
   @Override
   public Transaction commit() {
+    assertNotInCallback();
     int i = 0;
     for (boolean failure = false; i < resourceTrxs.size() && !failure; i++) {
       final NodeTrx trx = resourceTrxs.get(i);
@@ -57,10 +59,19 @@ public final class TransactionImpl implements Transaction {
 
   @Override
   public Transaction rollback() {
+    assertNotInCallback();
     resourceTrxs.forEach(NodeTrx::rollback);
     resourceTrxs.clear();
     trxMgr.closeTransaction(this);
     return this;
+  }
+
+  private void assertNotInCallback() {
+    for (final NodeTrx transaction : resourceTrxs) {
+      if (transaction.getResourceSession() instanceof InternalResourceSession<?, ?> session) {
+        session.assertNotInCommitCallback();
+      }
+    }
   }
 
   @Override

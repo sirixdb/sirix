@@ -18,6 +18,10 @@ present operands; `count(*)` counts records and is supplied by every declaration
 integers, strings, booleans, or missing values. `TemporalAggregateDeclarations.declare` is the
 equivalent Java API.
 
+When derived indexes are enabled, creating a new declaration installs the hidden derived resource.
+If installation fails, the declaration propagates the failure and marks the transaction rollback-only;
+roll it back before retrying. Query fallback does not make a failed declaration successful.
+
 The catalogue stores the source projection id, root, grouping columns, operand columns and required operations.
 Catalogue reads retain a private copy of the aggregate declaration without decoding its lanes.
 The first aggregate consumer decodes and validates those semantics once; unrelated queries and
@@ -96,7 +100,8 @@ maintainer, which retains the source and derived sessions independently of appli
 A shared revision listener wakes it only after the source revision is durable and published; a
 one-second recheck also finds missed notifications. Ordinary source commits neither acquire the
 derived writer lock nor write aggregate pages. The hidden resource uses `FILE_CHANNEL`,
-`SLIDING_SNAPSHOT`, custom source timestamps, and no diffs, node history or path summary.
+`SLIDING_SNAPSHOT` and no diffs, node history or path summary. Derived commit timestamps and source
+timestamp mappings follow [TXN-612](../spec/TXN-transactions-durability.md#txn-612--derived-frontier-recovery).
 For an encrypted source, it inherits the source byte-handler pipeline and encryption key reference.
 Opening an existing derived resource checks that it preserves the source's encryption configuration.
 An encryption mismatch uses the recreation rules below.
@@ -203,7 +208,7 @@ mapping (replaying slabs from the preceding mapped revision for a batch interior
 the new slab. Mapping entries for previously published branches survive the
 revert. Truncation invalidates mappings above the surviving source frontier and serializes against
 active maintenance, without putting a lock on normal source commits. Before replaying a replacement
-history, the maintainer truncates its own discarded revisions. Equal source timestamps are safe:
+history, the maintainer truncates its own discarded revisions. Source timestamps reused after truncation are safe:
 revision identity, rather than timestamps alone, determines admissibility. After a process crash,
 normal Sirix beacon/commit-marker recovery chooses the durable derived root. Restart resumes from
 the last mapping with a verified source log identity. Declaration-free mappings have no such identity
@@ -215,10 +220,16 @@ subject to the [store-feature compatibility contract](DISK_FORMAT.md#uberpage-st
 Rebuilding scans committed projections for declarations and replays subsequent covered slabs;
 queries use the exact fallback until a matching derived snapshot is available.
 
-Failures roll back the derived transaction and poison only that resource. Maintained revision, lag,
-poisoned revision and cause are exposed through `DerivedIndexMaintainer.Resource`; the source remains
-usable and queries retain exact fallback behavior. Shutdown stops the worker before closing resource
-sessions and allows up to 30 seconds for an in-flight batch to finish. Lag at shutdown is safe.
+Open-time activation is optional: named storage, snapshot-mapping, filesystem I/O and authorization
+failures leave the source readable with exact query fallback. Other runtime failures propagate.
+The exception boundary is documented in
+[`LocalDatabase.enableDerivedIndexes`](../bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java).
+
+Maintenance failures roll back the derived transaction and poison only that resource. Maintained
+revision, lag, poisoned revision and cause are exposed through `DerivedIndexMaintainer.Resource`;
+the source remains usable and queries retain exact fallback behavior. Shutdown stops the worker
+before closing resource sessions and allows up to 30 seconds for an in-flight batch to finish.
+Lag at shutdown is safe.
 
 Capture and slab persistence run only while the projection has a declared aggregate consumer.
 Dropping the last consumer stops logging; declaring a new one rebuilds sparse row provenance from
@@ -287,11 +298,13 @@ deletes, insertion, rollback, grouping rollup and exact-instant admission under 
 types. `TemporalAggregateColumnarOutputTest` checks ordered integral output, missing operands,
 mutable retained results, rollups and large sums, with and without stored child counts.
 `ColumnarLongOrderingTest` compares primitive stable ordering with Brackit across ordering modifiers,
-missing values, ties and long extrema. `DerivedIndexMaintainerTest` covers lag, batching,
+missing values, ties and long extrema. `DerivedIndexMaintainerHistoryTest` covers lag, batching,
 declaration changes, revert and truncate, mapping-cache eviction, encryption, resource aliases,
 poisoned maintenance and rebuilding missing
 or damaged derived resources. `TemporalAggregateDerivedLagTest` checks query answers against an
 independent `BigInteger` model before, during and after replay under all four versioning types.
+`DeclaredTemporalAggregateFailureTest` checks that denied derived writes fail an explicit declaration
+and leave its transaction uncommittable, while optional activation preserves source reads.
 `DerivedIndexCrashRecoveryTest` injects process death after source publication and before or after
 the derived beacon; its opt-in command is in [VERIFICATION.md](VERIFICATION.md).
 

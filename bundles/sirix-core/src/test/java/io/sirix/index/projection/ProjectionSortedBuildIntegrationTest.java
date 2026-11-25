@@ -466,16 +466,16 @@ final class ProjectionSortedBuildIntegrationTest {
         readRecordKeys(session, recordKeys);
         try (JsonNodeTrx writer = session.beginNodeTrx()) {
           final AtomicBoolean failNextCommit = new AtomicBoolean(true);
-          // Pre-commit hooks run ahead of the commit's own maintenance, so this hook applies the
-          // maintenance itself and then fails: the commit fails after maintenance has run.
+          // Maintenance awaits the durable predecessor, a lifecycle operation forbidden in callbacks.
+          // Apply it before commit entry, then veto publication without bypassing that guard.
           writer.addPreCommitHook(trx -> {
             if (failNextCommit.getAndSet(false)) {
-              session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance(true);
               throw new IllegalStateException("injected failure after index maintenance");
             }
           });
           setDid(writer, recordKeys[0], "z");
           setTime(writer, recordKeys[1], 50);
+          session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance(true);
           final IllegalStateException failure = assertThrows(IllegalStateException.class, writer::commit);
           assertEquals("injected failure after index maintenance", failure.getMessage());
           setDid(writer, recordKeys[0], "a");

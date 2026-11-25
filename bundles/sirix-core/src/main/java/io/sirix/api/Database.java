@@ -31,9 +31,9 @@ import java.util.List;
 
 /**
  * <p>
- * This interface describes database instances handled by Sirix. A database is a persistent place
- * where all data is stored. {@link ResourceSession}s are used to access the data in individual
- * resources.
+ * This interface describes database instances handled by Sirix. Resources may use persistent or
+ * in-memory storage. {@link ResourceSession}s are used to access their data; the in-memory lifetime
+ * and cleanup contract is defined by TXN-615 in {@code spec/TXN-transactions-durability.md}.
  * </p>
  *
  * <p>
@@ -104,9 +104,11 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
   /**
    * Close this handle and its resource sessions. Other handles at the same canonical database path
    * retain their sessions and committed view. The last handle closes the shared database and releases
-   * the operating-system ownership lock; the persistent lock file remains in place.
+   * the operating-system ownership lock; the persistent lock file remains in place. A failed close
+   * retains unfinished ownership for retry. See {@link ResourceSession#close()} for session cleanup
+   * and {@link PostCommitHook#postCommit(NodeReadOnlyTrx)} for notification drain and timeout rules.
    *
-   * @throws SirixException if anything happens within sirix.
+   * @throws IllegalStateException if invoked from a callback of this database
    */
   @Override
   void close();

@@ -75,7 +75,14 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
          * This is a synchronous, blocking check — must be called from a blocking context.
          * Throws [HttpException] with 403 if not authorized.
          */
-        fun checkIfAuthorized(user: User, name: String, role: AuthRole, authz: AuthorizationProvider) {
+        fun checkIfAuthorized(user: User, name: String, role: AuthRole, authz: AuthorizationProvider) =
+            checkIfAuthorized(user, name, role)
+
+        /**
+         * The role check alone, against the authorizations the route's [Auth] handler already loaded
+         * into [user]. Throws [HttpException] with 403 if not authorized.
+         */
+        fun checkIfAuthorized(user: User, name: String, role: AuthRole) {
             val isAuthorized = RoleBasedAuthorization.create(role.databaseRole(name)).match(user)
 
             if (!isAuthorized && !RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {

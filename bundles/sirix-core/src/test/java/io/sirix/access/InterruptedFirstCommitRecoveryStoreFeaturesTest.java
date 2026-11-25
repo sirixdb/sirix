@@ -34,6 +34,7 @@ import io.sirix.io.RevisionFileData;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.index.aggregate.TemporalAggregateStorage;
 import io.sirix.page.StoreFeatures;
+import io.sirix.utils.CommitTimestamps;
 import io.sirix.utils.SirixFiles;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -678,6 +679,7 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @SuppressWarnings("unchecked")
   private JsonResourceSessionImpl sessionBoundary(final StoreFeatures features, final Semaphore writeLock) {
     final ResourceStore<JsonResourceSession> resourceStore = mock(ResourceStore.class);
+    when(resourceStore.getNotifications()).thenReturn(new DatabaseNotifications());
     return new JsonResourceSessionImpl(resourceStore, config, mock(BufferManager.class), mock(IOStorage.class),
         new UberPage(2, features), writeLock, null, "feature-test", mock(StorageEngineWriterFactory.class));
   }
@@ -1144,9 +1146,9 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
     replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
     replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
     final ByteBuffer entry = ByteBuffer.allocate(48).order(ByteOrder.LITTLE_ENDIAN);
-    entry.putInt(1).putInt(0).putLong(revision.offset()).putLong(revision.timestamp().toEpochMilli());
-    entry.putLong(IOStorage.expectedRevisionRecordChecksum(revision.offset(), revision.timestamp().toEpochMilli(),
-        revision.pageHash())).putLong(revision.pageHash());
+    entry.putInt(1).putInt(0).putLong(revision.offset()).putLong(CommitTimestamps.toEpochMicros(revision.timestamp()));
+    entry.putLong(IOStorage.expectedRevisionRecordChecksum(revision.offset(),
+        CommitTimestamps.toEpochMicros(revision.timestamp()), revision.pageHash())).putLong(revision.pageHash());
     entry.putLong(PageHasher.computeLong(entry.array(), 0, 40, PageHasher.DEFAULT_ALGORITHM));
     try (final var channel = FileChannel.open(dataFile(), StandardOpenOption.WRITE)) {
       for (final long beacon : new long[] {IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET}) {

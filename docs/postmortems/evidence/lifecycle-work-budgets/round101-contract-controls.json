@@ -1,0 +1,1627 @@
+{
+  "baseline-contracts": {
+    "exit": 0,
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "--no-daemon",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/baseline-contracts-task-graph.json",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/callback-contract.gradle",
+      ":sirix-core:spotlessApply",
+      ":sirix-core:callbackContractControl",
+      "-PcallbackTest=io.sirix.access.DatabaseNotificationLifecycleTest"
+    ],
+    "cases": [
+      {
+        "name": "resource monitor order \"json\", false, false, \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", false, false, \"post\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", false, false, \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", false, true, \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", false, true, \"post\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", false, true, \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", true, false, \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", true, false, \"post\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", true, false, \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", true, true, \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", true, true, \"post\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"json\", true, true, \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", false, false, \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", false, false, \"post\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", false, false, \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", false, true, \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", false, true, \"post\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", false, true, \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", true, false, \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", true, false, \"post\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", true, false, \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", true, true, \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", true, true, \"post\"",
+        "failure": null
+      },
+      {
+        "name": "resource monitor order \"xml\", true, true, \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\", \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"json\", \"post\"",
+        "failure": null
+      },
+      {
+        "name": "[3] \"json\", \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "[4] \"xml\", \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "[5] \"xml\", \"post\"",
+        "failure": null
+      },
+      {
+        "name": "[6] \"xml\", \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"pre\", false, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"pre\", false, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"pre\", true, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"pre\", true, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"post\", false, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"post\", false, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"post\", true, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"post\", true, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"listener\", false, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"listener\", false, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"listener\", true, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"json\", \"listener\", true, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"pre\", false, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"pre\", false, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"pre\", true, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"pre\", true, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"post\", false, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"post\", false, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"post\", true, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"post\", true, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"listener\", false, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"listener\", false, true",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"listener\", true, false",
+        "failure": null
+      },
+      {
+        "name": "callback gate rejection \"xml\", \"listener\", true, true",
+        "failure": null
+      },
+      {
+        "name": "invalidTimeoutAdjustmentPreservesTheConfiguredTimeout()",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      },
+      {
+        "name": "contractNotificationThreadDoesNotKeepTheProcessAlive()",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\", \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"json\", \"post\"",
+        "failure": null
+      },
+      {
+        "name": "[3] \"json\", \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "[4] \"xml\", \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "[5] \"xml\", \"post\"",
+        "failure": null
+      },
+      {
+        "name": "[6] \"xml\", \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"node\", \"post\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"node\", \"post\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"node\", \"listener\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"node\", \"listener\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"bound\", \"post\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"bound\", \"post\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"bound\", \"listener\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"bound\", \"listener\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"unbound\", \"post\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"unbound\", \"post\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"unbound\", \"listener\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"json\", \"unbound\", \"listener\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"node\", \"post\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"node\", \"post\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"node\", \"listener\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"node\", \"listener\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"bound\", \"post\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"bound\", \"post\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"bound\", \"listener\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"bound\", \"listener\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"unbound\", \"post\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"unbound\", \"post\", true",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"unbound\", \"listener\", false",
+        "failure": null
+      },
+      {
+        "name": "deferred publication \"xml\", \"unbound\", \"listener\", true",
+        "failure": null
+      },
+      {
+        "name": "[1] false",
+        "failure": null
+      },
+      {
+        "name": "[2] true",
+        "failure": null
+      },
+      {
+        "name": "contractCompletedDeliveryLeavesNoPendingWork()",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"post\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"post\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"post\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"post\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"post\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"post\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"post\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"listener\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"listener\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"listener\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"listener\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"listener\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"listener\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"json\", \"listener\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"post\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"post\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"post\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"post\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"post\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"post\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"post\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"listener\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"listener\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"listener\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"listener\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"listener\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"listener\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "bounded close \"xml\", \"listener\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"json\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "[3] \"json\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "[4] \"json\", \"writer\"",
+        "failure": null
+      },
+      {
+        "name": "[5] \"json\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "[6] \"json\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "[7] \"json\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "[8] \"json\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "[9] \"json\", \"facade-close\"",
+        "failure": null
+      },
+      {
+        "name": "[10] \"xml\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "[11] \"xml\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "[12] \"xml\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "[13] \"xml\", \"writer\"",
+        "failure": null
+      },
+      {
+        "name": "[14] \"xml\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "[15] \"xml\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "[16] \"xml\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "[17] \"xml\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "[18] \"xml\", \"facade-close\"",
+        "failure": null
+      },
+      {
+        "name": "unreturnedDeliveryRetainsReadersThroughATemporaryDirectoryAlias()",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      },
+      {
+        "name": "notificationCapacityMustBePositive()",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\", \"false\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\", \"false\"",
+        "failure": null
+      },
+      {
+        "name": "[3] \"json\", \"true\"",
+        "failure": null
+      },
+      {
+        "name": "[4] \"xml\", \"true\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", false, \"create\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", false, \"remove\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", false, \"session\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", false, \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", false, \"local\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", true, \"create\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", true, \"remove\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", true, \"session\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", true, \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", true, \"local\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"json\", true, \"database\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", false, \"create\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", false, \"remove\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", false, \"session\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", false, \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", false, \"local\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", true, \"create\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", true, \"remove\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", true, \"session\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", true, \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", true, \"local\"",
+        "failure": null
+      },
+      {
+        "name": "outer mutation gate \"xml\", true, \"database\"",
+        "failure": null
+      },
+      {
+        "name": "bounded publications \"json\", \"post\", false",
+        "failure": null
+      },
+      {
+        "name": "bounded publications \"json\", \"post\", true",
+        "failure": null
+      },
+      {
+        "name": "bounded publications \"json\", \"listener\", false",
+        "failure": null
+      },
+      {
+        "name": "bounded publications \"json\", \"listener\", true",
+        "failure": null
+      },
+      {
+        "name": "bounded publications \"xml\", \"post\", false",
+        "failure": null
+      },
+      {
+        "name": "bounded publications \"xml\", \"post\", true",
+        "failure": null
+      },
+      {
+        "name": "bounded publications \"xml\", \"listener\", false",
+        "failure": null
+      },
+      {
+        "name": "bounded publications \"xml\", \"listener\", true",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      },
+      {
+        "name": "[1] false",
+        "failure": null
+      },
+      {
+        "name": "[2] true",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      },
+      {
+        "name": "[1] false",
+        "failure": null
+      },
+      {
+        "name": "[2] true",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"json\", false, false, false",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"json\", false, false, true",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"json\", false, true, false",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"json\", false, true, true",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"json\", true, false, false",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"json\", true, false, true",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"json\", true, true, false",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"json\", true, true, true",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"xml\", false, false, false",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"xml\", false, false, true",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"xml\", false, true, false",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"xml\", false, true, true",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"xml\", true, false, false",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"xml\", true, false, true",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"xml\", true, true, false",
+        "failure": null
+      },
+      {
+        "name": "resource retirement refusal \"xml\", true, true, true",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\", \"resource-create\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\", \"resource-create\"",
+        "failure": null
+      },
+      {
+        "name": "[3] \"json\", \"commit\"",
+        "failure": null
+      },
+      {
+        "name": "[4] \"xml\", \"commit\"",
+        "failure": null
+      },
+      {
+        "name": "[5] \"json\", \"auto-commit\"",
+        "failure": null
+      },
+      {
+        "name": "[6] \"xml\", \"auto-commit\"",
+        "failure": null
+      },
+      {
+        "name": "capacityCoversMixedBacklogsAndAbandonment()",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"writer\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"page-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"page-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"page-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"resource-remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"resource-create\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"resource-create-null\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"facade-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"facade-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"pre\", \"facade-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"writer\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"page-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"page-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"page-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"resource-remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"resource-create\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"resource-create-null\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"facade-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"facade-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"post\", \"facade-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"writer\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"page-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"page-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"page-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"resource-remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"resource-create\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"resource-create-null\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"facade-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"facade-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"json\", \"listener\", \"facade-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"writer\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"page-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"page-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"page-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"resource-remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"resource-create\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"resource-create-null\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"facade-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"facade-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"pre\", \"facade-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"writer\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"page-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"page-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"page-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"resource-remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"resource-create\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"resource-create-null\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"facade-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"facade-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"post\", \"facade-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"writer\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"page-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"page-truncate\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"page-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"page-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"manager\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"shutdown\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"resource-remove\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"resource-create\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"resource-create-null\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"facade-close\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"facade-commit\"",
+        "failure": null
+      },
+      {
+        "name": "callback lifecycle \"xml\", \"listener\", \"facade-rollback\"",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\", false",
+        "failure": null
+      },
+      {
+        "name": "[2] \"json\", true",
+        "failure": null
+      },
+      {
+        "name": "[3] \"xml\", false",
+        "failure": null
+      },
+      {
+        "name": "[4] \"xml\", true",
+        "failure": null
+      },
+      {
+        "name": "contractOnlyTheLastRetirementReopensAdmissionAndDeliversDeferredWork()",
+        "failure": null
+      },
+      {
+        "name": "deferredHistoryAdmissionIsScopedToRemovedRevisions()",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"json\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "[3] \"json\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "[4] \"xml\", \"session\"",
+        "failure": null
+      },
+      {
+        "name": "[5] \"xml\", \"handle\"",
+        "failure": null
+      },
+      {
+        "name": "[6] \"xml\", \"local\"",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      },
+      {
+        "name": "contractCallbackRetirementRejectsBeforeWaitingForItself()",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\", \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"json\", \"post\"",
+        "failure": null
+      },
+      {
+        "name": "[3] \"json\", \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "[4] \"xml\", \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "[5] \"xml\", \"post\"",
+        "failure": null
+      },
+      {
+        "name": "[6] \"xml\", \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      }
+    ]
+  },
+  "callback-injected": {
+    "exit": 1,
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "--no-daemon",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/callback-injected-task-graph.json",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/callback-contract.gradle",
+      ":sirix-core:spotlessApply",
+      ":sirix-core:callbackContractControl",
+      "-PcallbackTest=io.sirix.access.DatabaseNotificationLifecycleTest.closedHandleCreationRejectsCallbackReentry"
+    ],
+    "cases": [
+      {
+        "name": "[1] \"json\", \"pre\"",
+        "failure": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+      },
+      {
+        "name": "[2] \"json\", \"post\"",
+        "failure": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+      },
+      {
+        "name": "[3] \"json\", \"listener\"",
+        "failure": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+      },
+      {
+        "name": "[4] \"xml\", \"pre\"",
+        "failure": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+      },
+      {
+        "name": "[5] \"xml\", \"post\"",
+        "failure": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+      },
+      {
+        "name": "[6] \"xml\", \"listener\"",
+        "failure": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+      }
+    ]
+  },
+  "callback-restored": {
+    "exit": 0,
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "--no-daemon",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/callback-restored-task-graph.json",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/callback-contract.gradle",
+      ":sirix-core:spotlessApply",
+      ":sirix-core:callbackContractControl",
+      "-PcallbackTest=io.sirix.access.DatabaseNotificationLifecycleTest.closedHandleCreationRejectsCallbackReentry"
+    ],
+    "cases": [
+      {
+        "name": "[1] \"json\", \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"json\", \"post\"",
+        "failure": null
+      },
+      {
+        "name": "[3] \"json\", \"listener\"",
+        "failure": null
+      },
+      {
+        "name": "[4] \"xml\", \"pre\"",
+        "failure": null
+      },
+      {
+        "name": "[5] \"xml\", \"post\"",
+        "failure": null
+      },
+      {
+        "name": "[6] \"xml\", \"listener\"",
+        "failure": null
+      }
+    ]
+  },
+  "callback-source": {
+    "path": "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java",
+    "sha256": "04628081894924e759d92b95d54da22906309e9c086dfb29d99badeaf32b1388",
+    "restored": true
+  },
+  "recovery-injected": {
+    "exit": 1,
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "--no-daemon",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/recovery-injected-task-graph.json",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/callback-contract.gradle",
+      ":sirix-core:spotlessApply",
+      ":sirix-core:callbackContractControl",
+      "-PcallbackTest=io.sirix.access.DatabaseNotificationLifecycleTest.restoredBackupDoesNotInheritDeletedRecovery"
+    ],
+    "cases": [
+      {
+        "name": "[1] \"json\"",
+        "failure": "org.opentest4j.AssertionFailedError: TXN-608: deleted recovery must not run against a clean restore ==> expected: <false> but was: <true>"
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": "org.opentest4j.AssertionFailedError: TXN-608: deleted recovery must not run against a clean restore ==> expected: <false> but was: <true>"
+      }
+    ]
+  },
+  "recovery-restored": {
+    "exit": 0,
+    "command": [
+      "/usr/bin/python3",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/validation-admission-094.py",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/gradlew",
+      "--no-daemon",
+      "--max-workers=2",
+      "-Dorg.gradle.jvmargs=-Xmx2g",
+      "-PtestHeapMin=512m",
+      "-PtestHeapMax=2g",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-100/no-container-tasks.gradle",
+      "-Dlifecycle.taskGraph=/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/recovery-restored-task-graph.json",
+      "-I",
+      "/home/johannes/.no-mistakes/worktrees/41ebe26a67ec/01M81WPQ9BTK8X3THXJZ83WNWH/build/ci-101/callback-contract.gradle",
+      ":sirix-core:spotlessApply",
+      ":sirix-core:callbackContractControl",
+      "-PcallbackTest=io.sirix.access.DatabaseNotificationLifecycleTest.restoredBackupDoesNotInheritDeletedRecovery"
+    ],
+    "cases": [
+      {
+        "name": "[1] \"json\"",
+        "failure": null
+      },
+      {
+        "name": "[2] \"xml\"",
+        "failure": null
+      }
+    ]
+  },
+  "recovery-source": {
+    "path": "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java",
+    "sha256": "df80b3e4a35fd53d7cee70f7423440d4d35fc9b068fbf3088920f2e2fe16c24c",
+    "restored": true
+  }
+}

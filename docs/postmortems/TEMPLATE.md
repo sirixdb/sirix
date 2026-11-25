@@ -6,4 +6,5 @@
 - Root cause: <broken invariant and causal chain, not just the failing line>
 - Why tests missed it: <missing assertion, input, oracle, interleaving or CI lane>
 - Regression test: <test name and command; evidence it fails before and passes after>
-- Lesson: <specific prevention rule/check; link the entry in ../LESSONS.md>
+- Lesson: <specific prevention rule/check; link ../LESSONS.md as the permanent destination>
+  (see the [fragment convention](../../changelog.d/README.md)).

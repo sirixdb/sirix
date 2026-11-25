@@ -1234,10 +1234,9 @@ evidence shows `groupDense=0` and `sortedGroupBys=1`.
 - Batched `read(PageReference[], ResourceConfiguration)`: `result[i]` belongs to `references[i]`, a reference
   without a disk key gives null, offsets need not be sorted; backends on a seekable file "should override this with
   COALESCED reads"; the default is a per-page loop (`:112-147`). **If the batch fails part way, the pages it already
-  decoded for that call are released before the failure propagates** — unless the reader
-  `returnsSharedPages()`, which is false for every file-backed reader and true for `RAMStorage`, whose reads return
-  the only instance the storage holds (`:134-166`; `io/AbstractReader.java:75-104`;
-  `io/ram/RAMStorage.java:159-169`). `MMFileReader.read(PageReference[])` does the same
+  decoded for that call are released before the failure propagates**, subject to the ownership contract in
+  [`Reader.returnsSharedPages()`](../bundles/sirix-core/src/main/java/io/sirix/io/Reader.java).
+  `MMFileReader.read(PageReference[])` does the same
   (`io/memorymapped/MMFileReader.java:204-219`). Without this, a member that decoded before the failure stranded its
   allocator frame.
 - `prefetch(PageReference[] references, int count)`, default no-op (`io/Reader.java:167-196`): "**Purely an I/O hint: it must not
@@ -1347,20 +1346,9 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
   silently turn off in a native image no longer arises from a missing registration.
   The authoritative resource conditions and additional codec-adapter signatures are in
   [`reachability-metadata.json`](../bundles/sirix-core/src/main/resources/META-INF/native-image/io.sirix/sirix-core/reachability-metadata.json).
-- **FFM downcall initialization.** `.../sirix-core/native-image.properties:5` build-time-initializes **only**
-  `io.sirix.node.LE` and `io.sirix.node.SegmentAccess`. The two downcall-handle holders
-  `SirixLZ77NativeDecoder$DecodeCall` and `PosixFadvise$AdviceCall` are **run-time initialized by default**: the
-  GraalVM 25.0.x LTS line that CI resolves aborts image analysis with `linkToNative` when a downcall handle is
-  created at build time, so listing them there made every native image fail to build. An optimized image can opt in
-  with `-Pnative.preinitializeDowncalls=true`, which adds
-  `--initialize-at-build-time=io.sirix.page.SirixLZ77NativeDecoder$DecodeCall,io.sirix.io.filechannel.PosixFadvise$AdviceCall`
-  to the **main binary only** — not the smoke-test or test binaries, not the shared properties file, and nothing
-  selects it by version string, toolchain autodetection or workload
-  (`bundles/sirix-query/build.gradle:203-212`, `:814`). It needs a GraalVM 25 **innovation** release 25.1.3 or later
-  (upstream [oracle/graal#13309](https://github.com/oracle/graal/pull/13309)); on 25.0.x it fails with
-  `linkToNative`. Measured on identical bytecode, an unchanged database and unchanged PGO profiles with only that
-  setting changed, run-time adapters cost roughly **160 ms per Q3 query and 90-120 ms per Q2 query** — ongoing
-  call-path cost, not the 0.6-0.9 ms of one-time adapter construction (PR #1214, "Follow-up 2").
+- **FFM downcall initialization.** The portable default, optimized-build opt-in, toolchain
+  constraints and measured Q2/Q3 call-path cost are documented in
+  [Optional constant FFM adapters for optimized builds](NATIVE_IMAGE.md#optional-constant-ffm-adapters-for-optimized-builds).
 - The §9.4 native-binary measurements show higher cold read concurrency with tier A (in-flight maxima 50-61 against
   21-47), which already suggested the `posix_fadvise` hints reach the kernel; that was never confirmed by a native
   smoke test, and still is not.
@@ -2084,6 +2072,8 @@ owns `EngineWorkCounters.TEMPORAL_READS` and its dictionary-admission work bound
 
 **Gated identity replay work counters.** The [budget README's counter catalogue](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters)
 owns the `sirix.replay.workDiag` counters, their units and guarded maintenance work.
+That catalogue also defines the document-only lifecycle refinement;
+[CONV-301](../spec/CONV-conventions.md#conv-301--official-work-budgets) owns its commit/close bounds.
 The retained-order proof is documented at
 [`ProjectionIndexChangeListener.collectIdentityOrderChanges`](../bundles/sirix-core/src/main/java/io/sirix/index/projection/ProjectionIndexChangeListener.java).
 

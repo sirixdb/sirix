@@ -1,0 +1,134 @@
+{
+  "scope": "R11 and review-1: clarified callback lifecycle and execution ownership",
+  "starting_head": "0114c447946b83477b78f7e34aac9e7fb6dfdef4",
+  "result": "verification_blocked",
+  "final_selected_cases_planned": 210,
+  "final_executed_cases": 0,
+  "final_attempt": {
+    "log": "build/lifecycle-callback-contract-settled.log",
+    "reason": "heavy.sh remained queued over 27 minutes. Its log remained empty; no JVM or Gradle compilation/test execution started. Only this worktree-owned queued invocation was cancelled. A subsequent process inventory confirmed it had ended. No tool is missing; shared capacity/timing gates blocked startup.",
+    "log_bytes_after_cancellation": 0,
+    "command_scope": "Forced core compileJava, compileTestJava and test; nine lifecycle/ownership classes, DatabaseOwnershipTest selected methods; --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g -PtestHeapMin=512m -PtestHeapMax=3g",
+    "disk_check": "The command required a >=75 GB check immediately after heavy.sh admission and before Gradle. Admission never occurred, so that final disk check did not run."
+  },
+  "diagnostic_run": {
+    "log": "build/lifecycle-callback-contract-final.log",
+    "result": "BUILD SUCCESSFUL; 198 cases, zero failures/errors/skips",
+    "classes": [
+      {
+        "name": "io.sirix.access.AsyncCommitTest",
+        "tests": "3",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "io.sirix.access.DatabaseOwnershipTest",
+        "tests": "20",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+        "tests": "7",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "io.sirix.access.trx.node.CommitSafetyTest",
+        "tests": "3",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+        "tests": "120",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "io.sirix.access.trx.node.TransactionExecutionLockTest",
+        "tests": "4",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+        "tests": "18",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+        "tests": "15",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+        "tests": "8",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      }
+    ],
+    "available_disk_bytes_before_gradle": 79299960832,
+    "limitation": "This run compiled and tested an earlier snapshot. It predates the final cold-lifecycle, closed-session guard, lineage-hardening fence/regressions and redundant-path removals. It is diagnostic evidence only and does not validate the final submitted source."
+  },
+  "initial_attempt": {
+    "log": "build/lifecycle-callback-contract-focused.log",
+    "result": "Production compiled; test compilation rejected an ambiguous assertDoesNotThrow method reference; changed to an explicit void lambda. No tests ran.",
+    "available_disk_bytes_before_gradle": 84400517120
+  },
+  "invariants": [
+    "The same session callback context rejects lifecycle entry before locks for pre/post hooks and revision listeners on foreground, timer and async threads.",
+    "Outermost execution release and scheduled Runnable completion precede post-publication delivery; callback ownership protects borrowed payloads while T is released and P remains owned.",
+    "External cleanup drains notifications before payload retirement, drops T before scheduler termination, and retires registry ownership atomically with actual permit release.",
+    "Revert and truncate fence pending hardening before lineage replacement or storage truncation; terminal failures retain their original cause.",
+    "The R10 permit-admission ordering and marker recovery path remain unchanged."
+  ],
+  "regressions": [
+    "callbacksRejectLifecycleBeforeLockingAndRunAfterExecution",
+    "externalCloseFencesCallbackPayloadOwnership",
+    "publicationBeforeOwnerRegistrationStillUsesTheExecutionBoundary",
+    "untimedRevertCompletesNotificationDelivery",
+    "finalSessionNotificationsStillRejectLifecycleBeforeClosedChecks",
+    "lineageChangesFenceHardeningBeforeWriterRecovery",
+    "enclosingExecutionCannotEnterATerminationWait",
+    "postNotificationFailureCannotVetoDurabilityOrStrandLaterHooks",
+    "ordinaryPostCommitHooksContinueInOrder",
+    "TransactionExecutionLockTest",
+    "Existing late-close/admission matrices and hardening/construction failure regressions"
+  ],
+  "static_trace": "All callback dispatch representations and lifecycle entry points were traced; scheduler-thread close escape, redundant foreground dispatches, unreachable callback-cancellation handling and extra JSON rollback/revert wrappers were removed. No claim of pre-fix executable reproduction or final runtime success is made.",
+  "source_sha256_provenance_only": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java": "9041eaebc83842c044faa307c93427a690d859d80cad9e9b6a0ad60170453b16",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java": "b64b5d748089ae998171518776fde8ab8b324f52f6c02c84fdb506d5ab5c42dc",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalNodeTrx.java": "333f67b430c353e0668a8f3271755726b6ca0167785fc89c16f4e6c6ae1bf29e",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java": "71368a0b1aab305ccd8676057a575be1934105488ca5e667f68e6eacb7fc9e8e",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java": "56f4ae46d4208e1f4c0af3973fbb72c21a23d091f64233f7c20ca53b037cf566",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java": "768c3102c70517e6a672e41e818b9704d5bdf8c0451900afc55073eafecabd63",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/json/JsonResourceSessionImpl.java": "ad71c1e00bd3e58fcb3578a622183ea1b72d37980db3f86130c8376882349a02",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/xml/XmlNodeTrxImpl.java": "354e7be5628cfcf3083d49e25c5e7ae60ac49c9c7a814db7a9db8d6579cc651a",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/xml/XmlResourceSessionImpl.java": "cab52c83fe75a1ad7d259e773e3ce999982f931722aeb9349059be25f47efdd4",
+    "bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java": "6f7714cb280ada882adda8624f870d548fe3a638773cc0d8eddf370abfcff857",
+    "bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java": "d3e649053a7db0f1b26f8097ca6798945ea3e6570cf8974455487743017a27c2",
+    "bundles/sirix-core/src/main/java/io/sirix/api/PreCommitHook.java": "4138cb8a4604f30c88c3ecf2413a176ea1ed451a53cb2f513ba3db1c4307b4ef",
+    "bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java": "793c9b025540b39390ec2e835dfa33b3a0716af1d07504c76233970ce04c8e62",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java": "6bba706ee2259d0dbd8be5d224fd0746e782422cbf1b8f9c0eb177e25839411f",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/TransactionExecutionLockTest.java": "16a54ad7daa9cddd55802a696a47cdcdfa470d0fddcc3e85b5ec41ed916551d5"
+  },
+  "outer_validation_pending": [
+    "Final focused tests (210 planned cases)",
+    "Fresh scoped PIT with individual survivor and timeout review",
+    "Compiled-path/work-budget evidence for the timed execution boundary",
+    "Broader tests, lint and CI"
+  ]
+}

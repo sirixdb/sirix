@@ -1,0 +1,180 @@
+{
+  "head": "b19c6bc0b1eb961c990689174b150a7836e74690",
+  "workflow": "45060138272",
+  "scopeComplete": true,
+  "acceptanceComplete": false,
+  "raw": {
+    "KILLED": 116,
+    "SURVIVED": 53,
+    "TIMED_OUT": 8,
+    "NO_COVERAGE": 125
+  },
+  "total": 302,
+  "changed": {
+    "total": 46,
+    "killed": 41,
+    "survived": 2,
+    "no_coverage": 0,
+    "detected": 44
+  },
+  "parts": [
+    {
+      "module": "sirix-core",
+      "partition": 1,
+      "origin": "local099",
+      "raw": {
+        "KILLED": 27,
+        "SURVIVED": 9,
+        "TIMED_OUT": 5,
+        "NO_COVERAGE": 7
+      },
+      "total": 48,
+      "changed": {
+        "total": 16,
+        "killed": 13,
+        "survived": 2,
+        "no_coverage": 0,
+        "detected": 14,
+        "survivors": [
+          "SURVIVED | io.sirix.access.DatabaseNotifications$Retirement | close | 333 | removed call to java/lang/Object::notifyAll",
+          "SURVIVED | io.sirix.access.DatabaseHandle | createResource | 44 | removed call to io/sirix/access/DatabaseNotifications::assertNotInCallback"
+        ],
+        "failing": [
+          {
+            "mutant": "SURVIVED | io.sirix.access.DatabaseNotifications$Retirement | close | 333 | removed call to java/lang/Object::notifyAll",
+            "reason": "no disposition entry"
+          },
+          {
+            "mutant": "SURVIVED | io.sirix.access.DatabaseHandle | createResource | 44 | removed call to io/sirix/access/DatabaseNotifications::assertNotInCallback",
+            "reason": "no disposition entry"
+          }
+        ]
+      },
+      "report": "local-pit-099/results/sirix-core/part-1/report/mutations.xml",
+      "sha256": "e9430e2940c492e9dc4110952a66ac9b941a6773e9af7a8413aad516b425df9e"
+    },
+    {
+      "module": "sirix-core",
+      "partition": 2,
+      "origin": "local099",
+      "raw": {
+        "KILLED": 12,
+        "SURVIVED": 22,
+        "NO_COVERAGE": 16,
+        "TIMED_OUT": 3
+      },
+      "total": 53,
+      "changed": {
+        "total": 3,
+        "killed": 1,
+        "survived": 0,
+        "no_coverage": 0,
+        "detected": 3,
+        "survivors": [],
+        "failing": []
+      },
+      "report": "local-pit-099/results/sirix-core/part-2/report/mutations.xml",
+      "sha256": "8446cee87319c7e27895529b7938ca2caf40f5bfef76974352a711216bec6c1b"
+    },
+    {
+      "module": "sirix-core",
+      "partition": 3,
+      "origin": "local099",
+      "raw": {
+        "NO_COVERAGE": 16,
+        "KILLED": 6,
+        "SURVIVED": 13
+      },
+      "total": 35,
+      "changed": {
+        "total": 2,
+        "killed": 2,
+        "survived": 0,
+        "no_coverage": 0,
+        "detected": 2,
+        "survivors": [],
+        "failing": []
+      },
+      "report": "local-pit-099/results/sirix-core/part-3/report/mutations.xml",
+      "sha256": "3239727694dc78afdfaea610bde59ab65f4e4e4678175d2e6a183dbbb463324c"
+    },
+    {
+      "module": "sirix-core",
+      "partition": 4,
+      "origin": "CI45060138272",
+      "raw": {
+        "KILLED": 13,
+        "NO_COVERAGE": 29,
+        "SURVIVED": 4
+      },
+      "total": 46,
+      "changed": {
+        "total": 3,
+        "killed": 3,
+        "survived": 0,
+        "no_coverage": 0,
+        "detected": 3,
+        "survivors": [],
+        "failing": [],
+        "dispositioned_equivalent": [],
+        "dispositioned_out_of_lane": []
+      },
+      "report": "pipeline-098/b19-pr-mutation/sirix-core/part-4/report/mutations.xml",
+      "sha256": "57fbd2cb33e6328a0079e7aec52d5d54c81bbb6670dca83bc016e28695916c0c"
+    },
+    {
+      "module": "sirix-query",
+      "partition": null,
+      "origin": "CI45060138272",
+      "raw": {
+        "KILLED": 37,
+        "SURVIVED": 5,
+        "NO_COVERAGE": 57
+      },
+      "total": 99,
+      "changed": {
+        "total": 8,
+        "killed": 8,
+        "survived": 0,
+        "no_coverage": 0,
+        "detected": 8,
+        "survivors": [],
+        "failing": [],
+        "dispositioned_equivalent": [],
+        "dispositioned_out_of_lane": []
+      },
+      "report": "pipeline-098/b19-pr-mutation/sirix-query/report/mutations.xml",
+      "sha256": "57f7651b7e8551f892d7328c8795b3324c05644cf536ac7bb62f3b99db4156c6"
+    },
+    {
+      "module": "sirix-rest-api",
+      "partition": null,
+      "origin": "CI45060138272",
+      "raw": {
+        "KILLED": 21
+      },
+      "total": 21,
+      "changed": {
+        "total": 14,
+        "killed": 14,
+        "survived": 0,
+        "no_coverage": 0,
+        "detected": 14,
+        "survivors": [],
+        "failing": [],
+        "dispositioned_equivalent": [],
+        "dispositioned_out_of_lane": []
+      },
+      "report": "pipeline-098/b19-pr-mutation/sirix-rest-api/report/mutations.xml",
+      "sha256": "125fae3706b2aee97fd5d8691dca0619317c2a5ac9249b0512e34c6849f0a811"
+    }
+  ],
+  "remaining": [
+    "Two changed-line survivors require final-head reviewed dispositions",
+    "Separate recovery-cleanup mutant not sampled by CI plan; still unresolved",
+    "097 commit/close counted-work budgets and full main/head compiled comparison remain",
+    "Final Vision and public mutation notes, all other checks, then timing slot"
+  ],
+  "accepted_qualifications": "Decisions 063/079 retain scoped functional equivalence and downstream redundancy; not universal cost equivalence or raw KILLED.",
+  "candidate_final_proof": false
+}

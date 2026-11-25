@@ -44,13 +44,15 @@ info:
     `orders-modify` does not authorize a mutation of `tenant-b/orders`.
     Missing mutation permission returns 403 and leaves pending work intact.
 
-    `jn:store`, `jn:load`, `xn:store` and `xn:load` require `create` permission.
-    Replacing an existing database additionally requires `delete`, even when
-    the requested resource does not exist. When appending, `modify` is also
-    required if the resolved resource target already exists; generated or
-    adjusted resource names are checked against their actual targets. These
-    checks accept global roles or the corresponding `{database}-<role>` for
-    the full collection name.
+    Resource PUT and the query functions `jn:store`, `jn:load`, `xn:store`
+    and `xn:load` require `create` permission. Replacing an existing resource
+    through resource PUT additionally requires `modify` and `delete`, checked before removal;
+    missing permission returns 403 and leaves that resource unchanged.
+    These checks accept global roles or the corresponding
+    `{database}-<role>` for the full collection name. Query store/load
+    functions refuse an existing target name with `SIRIXDBF0006` (400), without
+    writes, whatever `$create-new` says, and preserve unrelated resources.
+    See the query usage guide below for target selection.
 
     `jn:import` and `xn:import` require `modify` permission for the existing
     resource. See the [query usage guide](https://github.com/sirixdb/sirix/blob/main/README.md) for import
@@ -1303,8 +1305,8 @@ components:
                 description: Empty string when the commit carried no message.
       examples:
         - history:
-            - { revision: 2, revisionTimestamp: '2024-01-10T08:00:00.000000Z', author: admin, commitMessage: 'fix prices' }
-            - { revision: 1, revisionTimestamp: '2024-01-09T15:30:00.000000Z', author: admin, commitMessage: '' }
+            - { revision: 2, revisionTimestamp: '2024-01-10T08:00:00Z', author: admin, commitMessage: 'fix prices' }
+            - { revision: 1, revisionTimestamp: '2024-01-09T15:30:00Z', author: admin, commitMessage: '' }
 
     Diff:
       type: object

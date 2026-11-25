@@ -49,6 +49,7 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.node.BytesOut;
 import io.sirix.node.MemorySegmentBytesOut;
 
+import io.sirix.utils.CommitTimestamps;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -62,7 +63,6 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.Logger;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.Files;
-import java.time.Instant;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -1196,9 +1196,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         try (ScratchLease lease = ScratchLease.of(IOStorage.REVISIONS_FILE_RECORD_SIZE, ScratchUse.WRITE_IO)) {
           final ByteBuffer buffer = lease.buffer();
           buffer.putLong(referenceOffset);
-          buffer.putLong(revisionRootPage.getRevisionTimestamp());
-          buffer.putLong(IOStorage.revisionRecordChecksum(referenceOffset, revisionRootPage.getRevisionTimestamp(),
-              storedPageHash));
+          buffer.putLong(revisionRootPage.getRevisionTimestampMicros());
+          buffer.putLong(IOStorage.revisionRecordChecksum(referenceOffset,
+              revisionRootPage.getRevisionTimestampMicros(), storedPageHash));
           buffer.putLong(storedPageHash);
           buffer.flip();
           writeFully(revisionsFileChannel, buffer, revisionsFileOffset);
@@ -1208,16 +1208,16 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           // in-memory ring; writeUberPageReference persists the ring ahead of the write-ahead
           // barrier, so the locator is durable before any beacon names it.
           stageTailLogEntry(resourceConfiguration, revisionRootPage.getRevision(), referenceOffset,
-              revisionRootPage.getRevisionTimestamp(), IOStorage.revisionRecordChecksum(referenceOffset,
-                  revisionRootPage.getRevisionTimestamp(), storedPageHash),
+              revisionRootPage.getRevisionTimestampMicros(), IOStorage.revisionRecordChecksum(referenceOffset,
+                  revisionRootPage.getRevisionTimestampMicros(), storedPageHash),
               storedPageHash);
         }
         final long currOffset = referenceOffset;
-        final long currTimestamp = revisionRootPage.getRevisionTimestamp();
+        final long currTimestampMicros = revisionRootPage.getRevisionTimestampMicros();
         cache.put(revisionRootPage.getRevision(), CompletableFuture.supplyAsync(
-            () -> new RevisionFileData(currOffset, Instant.ofEpochMilli(currTimestamp), storedPageHash)));
+            () -> new RevisionFileData(currOffset, CommitTimestamps.toInstant(currTimestampMicros), storedPageHash)));
         // Update the optimized revision index
-        revisionIndexHolder.addRevision(currOffset, currTimestamp);
+        revisionIndexHolder.addRevision(currOffset, currTimestampMicros);
       }
 
       return this;
@@ -1737,7 +1737,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * makes every buffered record durable before its salvage source dies.
    */
   private void stageTailLogEntry(final ResourceConfiguration resourceConfiguration, final int revision,
-      final long offset, final long timestampMillis, final long recordChecksum, final long pageHash)
+      final long offset, final long timestampMicros, final long recordChecksum, final long pageHash)
       throws IOException {
     ensureTailLogInitialised(resourceConfiguration, revision);
     final int ringIndex = IOStorage.tailLogRingIndex(revision);
@@ -1748,7 +1748,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // rewrites its record with content the force above never covered.
       durability.advance(revision - 1);
     }
-    writeTailLogEntry(ringIndex, revision, offset, timestampMillis, recordChecksum, pageHash);
+    writeTailLogEntry(ringIndex, revision, offset, timestampMicros, recordChecksum, pageHash);
     durability.storeTailLogSnapshot(tailLog, revision);
     if (revision > highestWrittenRevision) {
       highestWrittenRevision = revision;
@@ -1756,17 +1756,17 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   /** Writes one entry into the in-memory ring at the given index. */
-  private void writeTailLogEntry(final int ringIndex, final int revision, final long offset, final long timestampMillis,
+  private void writeTailLogEntry(final int ringIndex, final int revision, final long offset, final long timestampMicros,
       final long recordChecksum, final long pageHash) {
     final int base = ringIndex * IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES;
     tailLogView.putInt(base, revision);
     tailLogView.putInt(base + Integer.BYTES, 0);
     tailLogView.putLong(base + 8, offset);
-    tailLogView.putLong(base + 16, timestampMillis);
+    tailLogView.putLong(base + 16, timestampMicros);
     tailLogView.putLong(base + 24, recordChecksum);
     tailLogView.putLong(base + 32, pageHash);
     tailLogView.putLong(base + 40,
-        IOStorage.tailLogEntryChecksum(revision, offset, timestampMillis, recordChecksum, pageHash));
+        IOStorage.tailLogEntryChecksum(revision, offset, timestampMicros, recordChecksum, pageHash));
   }
 
   /**
@@ -1902,14 +1902,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       }
       if (base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= rangeRead) {
         final long offset = rangeBuffer.getLong(base);
-        final long timestampMillis = rangeBuffer.getLong(base + 8);
+        final long timestampMicros = rangeBuffer.getLong(base + 8);
         final long storedChecksum = rangeBuffer.getLong(base + 16);
         final long pageHash = rangeBuffer.getLong(base + 24);
         if (offset == IOStorage.PRUNED_REVISION_OFFSET || pageHash == IOStorage.PRUNED_REVISION_TAG) {
           // Compaction must discard old tail-log entries. Never use one to resurrect a pruned slot.
-          IOStorage.decodeRevisionRecord((int) entryRevision, offset, timestampMillis, storedChecksum, pageHash);
+          IOStorage.decodeRevisionRecord((int) entryRevision, offset, timestampMicros, storedChecksum, pageHash);
         }
-        intact = storedChecksum == IOStorage.expectedRevisionRecordChecksum(offset, timestampMillis, pageHash);
+        intact = storedChecksum == IOStorage.expectedRevisionRecordChecksum(offset, timestampMicros, pageHash);
       }
       if (!intact) {
         if (!healedAny) {

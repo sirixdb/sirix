@@ -14,6 +14,7 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.ItemSequence;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.utils.CommitTimestamps;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -46,11 +47,14 @@ public final class OpenRevisions extends AbstractFunction {
     }
 
     final var resourceName = ((Str) args[1]).stringValue();
-    final var epochMillis = ((DateTime) args[2]).subtract(new DateTime("1970-01-01T00:00:00-00:00"))
-                                                .divide(new DTD(false, (byte) 0, (byte) 0, (byte) 0, 1000))
+    // VER-201 stores commit timestamps in microseconds, so the start bound keeps microsecond
+    // precision: DTD's last component is microseconds, and dividing by one microsecond yields the
+    // epoch-microsecond count instead of truncating the bound to a millisecond.
+    final var epochMicros = ((DateTime) args[2]).subtract(new DateTime("1970-01-01T00:00:00-00:00"))
+                                                .divide(new DTD(false, (byte) 0, (byte) 0, (byte) 0, 1))
                                                 .longValue();
 
-    final var startPointInTime = Instant.ofEpochMilli(epochMillis);
+    final var startPointInTime = CommitTimestamps.toInstant(epochMicros);
     final var endDateTime = ((DateTime) args[3]).stringValue();
     final var endPointInTime = Instant.parse(endDateTime);
 
@@ -64,8 +68,8 @@ public final class OpenRevisions extends AbstractFunction {
     // requested instant — dereferencing unconditionally NPE'd (HTTP 500) for a timestamp
     // before the resource existed. Raise a clean query error instead.
     if (startDocNode == null || endDocNode == null) {
-      throw new QueryException(new QNm(
-          "No revision exists at the given point(s) in time (the resource was created later)."));
+      throw new QueryException(
+          new QNm("No revision exists at the given point(s) in time (the resource was created later)."));
     }
 
     var startRevision = startDocNode.getTrx().getRevisionNumber();

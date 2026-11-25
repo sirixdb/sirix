@@ -12,6 +12,7 @@ import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /** An independently closeable reference to the process's shared database instance. */
 final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
@@ -40,10 +41,12 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
 
   @Override
   public boolean createResource(final ResourceConfiguration config) {
+    owner.localDatabase.getNotifications().assertNotInCallback();
     Objects.requireNonNull(config, "config");
     // A cleanup callback must fail before waiting on the remover's database hold.
     database();
-    try (var gate = MutationGate.acquireResource(owner.path, config.getName())) {
+    try (var gate = MutationGate.acquireResource(owner.path, config.getName());
+        var retirement = owner.localDatabase.getNotifications().retire()) {
       synchronized (this) {
         database();
         return owner.localDatabase.createResource(config, resourceStore);
@@ -62,13 +65,19 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
   }
 
   @Override
-  public synchronized T beginResourceSession(final String resourceName) {
-    database();
-    return owner.localDatabase.beginUserResourceSession(resourceName, resourceStore);
+  public T beginResourceSession(final String resourceName) {
+    final LocalDatabase.OpenedSession<T> opened;
+    synchronized (this) {
+      database();
+      opened = owner.localDatabase.beginUserResourceSession(resourceName, resourceStore);
+    }
+    owner.localDatabase.finishResourceOpen(opened);
+    return opened.session();
   }
 
   @Override
   public Database<T> removeResource(final String resourceName) {
+    owner.localDatabase.getNotifications().assertNotInCallback();
     database();
     final String canonicalName = owner.localDatabase.canonicalResourceName(resourceName);
     if (DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
@@ -80,24 +89,41 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
 
   @Override
   public void close() {
+    owner.localDatabase.assertCanClose();
+    final long started = System.nanoTime();
+    final long timeout = owner.localDatabase.getNotifications().getCloseTimeout().toNanos();
     synchronized (this) {
       while (closing) {
         try {
-          wait();
+          final long remaining = timeout - (System.nanoTime() - started);
+          if (remaining <= 0) {
+            throw owner.localDatabase.getNotifications().timeoutFailure();
+          }
+          TimeUnit.NANOSECONDS.timedWait(this, remaining);
         } catch (final InterruptedException e) {
           Thread.currentThread().interrupt();
           throw new SirixThreadedException(e);
         }
       }
-      if (closed) {
-        return;
-      }
       closing = true;
     }
     // Timed writer hooks can call back through this handle; quiesce outside its admission monitor.
-    try {
+    try (DatabaseNotifications.Retirement ignored = owner.localDatabase.getNotifications().retire()) {
+      if (closed) {
+        Databases.retryInMemoryCleanup(owner);
+        return;
+      }
       resourceStore.close();
-      Databases.releaseDatabase(owner, this);
+      try {
+        Databases.releaseDatabase(owner, this);
+      } catch (final RuntimeException | Error failure) {
+        // TXN-615 clause 7: a close that ended the instance despite its failure released this handle;
+        // one that failed during session teardown keeps it open for a retry.
+        if (!owner.localDatabase.isOpen()) {
+          closed = true;
+        }
+        throw failure;
+      }
       closed = true;
     } finally {
       synchronized (this) {

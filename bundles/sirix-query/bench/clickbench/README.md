@@ -761,6 +761,13 @@ for the CPU package to fall below 55 °C, runs each arm in a **fresh process**, 
 and median suite time per arm against the DuckDB reference (0.520 s cold / 0.351 s hot on the
 campaign box; override with `--duckdb-cold` / `--duckdb-hot`).
 
+Every run writes the machine's state to `environment.json` in its output directory. With
+`SIRIX_BENCH_LEDGER` set it is also recorded in the results ledger, one row per process, query and
+figure, and with `SIRIX_BENCH_TIER=gate` and the arms `baseline` and `candidate` it is a timed
+acceptance gate: the rounds are pairs, the run stops on the precision it reached (10 to 20 rounds),
+and it ends with a verdict per judged benchmark. [`../common/README.md`](../common/README.md) has
+the variables, the required dataset name, the verdicts and the command.
+
 A cold round does not pre-read the store. Before the first query, the runner's untimed open step
 only builds the projection's catalog handle (directory walk and Bloom blocks), just as every engine
 loads its catalog when it opens a database; `-Dclickbench.catalogWarm.disabled=true` skips that as

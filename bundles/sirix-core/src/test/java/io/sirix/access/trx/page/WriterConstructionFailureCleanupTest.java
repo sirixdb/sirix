@@ -8,6 +8,7 @@ import io.brackit.query.util.path.PathParser;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.DatabaseType;
 import io.sirix.access.trx.node.AfterCommitState;
+import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.access.trx.node.json.JsonResourceSessionImpl;
 import io.sirix.access.trx.node.json.objectvalue.NumberValue;
@@ -33,6 +34,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -103,6 +105,7 @@ final class WriterConstructionFailureCleanupTest {
         assertTrue(failed.delegate().isClosed(), "the failed constructor's reader must release its epoch ticket");
         assertEquals(0, failed.log.liveEntryCount(), "the factory must release the failed writer's intent log");
         assertEquals(1, session.getMostRecentRevisionNumber(), "the predecessor commit is already durable");
+        assertTrue(Files.isRegularFile(((InternalResourceSession<?, ?>) session).getCommitFile()));
         assertDoesNotThrow(trx::rollback, "rollback must recover without entering the already-closed predecessor");
         assertTrue(trx.moveTo(valueKey));
         assertEquals(1, trx.getNumberValue().intValue());
@@ -184,6 +187,7 @@ final class WriterConstructionFailureCleanupTest {
         assertTrue(failed.delegate().isClosed());
         assertEquals(0, failed.log.liveEntryCount());
         assertEquals(1, session.getMostRecentRevisionNumber());
+        assertTrue(Files.isRegularFile(((InternalResourceSession<?, ?>) session).getCommitFile()));
         if (close) {
           assertDoesNotThrow(trx::close);
         } else {
@@ -246,6 +250,7 @@ final class WriterConstructionFailureCleanupTest {
           trx.insertObjectAsLastChild();
           trx.insertObjectRecordAsFirstChild("value", new NumberValue(value));
           trx.awaitPendingAsyncCommit();
+          assertFalse(Files.exists(((InternalResourceSession<?, ?>) session).getCommitFile()));
           assertSame(owner, ProjectionBulkLoad.active(resourceKey, 0, trx));
           assertFalse(owner.isFinished());
         }

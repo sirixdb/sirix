@@ -1,0 +1,25 @@
+--- a/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java
++++ b/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java
+@@ -839,6 +839,9 @@
+           // create a page transaction that will prepare the NEXT revision.
+           final int newlyCommittedRevision = uberPage.getRevisionNumber();
+           reInstantiate(getId(), newlyCommittedRevision);
++          for (long key = 0; key <= nodeReadOnlyTrx.getMaxNodeKey(); key++) {
++            storageEngineWriter.getRecord(key, IndexType.DOCUMENT, -1);
++          }
+           state = State.RUNNING;
+         } else {
+           state = State.COMMITTED;
+--- a/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java
++++ b/bundles/sirix-core/src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java
+@@ -7,8 +7,10 @@
+ 
+ public final class TransactionExecutionLock extends ReentrantLock {
+   private static final long serialVersionUID = 1L;
++  private static volatile Object budgetAllocation;
+ 
+   public void assertCanClose() {
++    budgetAllocation = new Object();
+     if (isHeldByCurrentThread()) {
+       throw new IllegalStateException("Lifecycle close must run outside transaction execution");
+     }

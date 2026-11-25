@@ -19,7 +19,6 @@ import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.module.StaticContext;
-import io.brackit.query.sequence.FunctionConversionSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.brackit.query.util.io.URIHandler;
 import io.sirix.access.MutationGate;
@@ -28,6 +27,8 @@ import io.sirix.query.ContentOnlyStore;
 import io.sirix.query.function.ImportInput;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
+import io.sirix.query.function.jn.JNFun;
+import io.sirix.query.function.FreeResourceName;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 
@@ -49,8 +50,12 @@ import java.util.List;
  *
  */
 @FunctionAnnotation(
-    description = "Store the given fragments in a collection. "
-        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
+    description = "Load the given resources into a collection. "
+        + "A missing collection is created. In an existing collection a new resource name is added "
+        + "and every other resource is kept; an existing name is refused with SIRIXDBF0006 "
+        + "without writes, whatever $create-new says. "
+        + "Several resources are added under new automatic names. No call drops a collection: "
+        + "use drop-database first to replace one, and import to write into an existing resource.",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Load extends AbstractFunction {
 
@@ -62,7 +67,7 @@ public final class Load extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param createIfNotExists determines if a new collection has to be created or not
+   * @param createIfNotExists whether this overload omits the explicit {@code $create-new} argument
    */
   public Load(final boolean createIfNotExists) {
     this(LOAD, createIfNotExists);
@@ -72,7 +77,7 @@ public final class Load extends AbstractFunction {
    * Constructor.
    *
    * @param name the function name
-   * @param createIfNotExists determines if a new collection has to be created or not
+   * @param createIfNotExists whether this overload omits the explicit {@code $create-new} argument
    */
   public Load(final QNm name, final boolean createIfNotExists) {
     super(name, createIfNotExists
@@ -102,7 +107,6 @@ public final class Load extends AbstractFunction {
       final String collectionName = FunUtil.getString(args, 0, "collectionName", "collection", null, true);
       final String resourceName = FunUtil.getString(args, 1, "resourceName", "resource", null, false);
       final Sequence resources = args[2];
-      final boolean createIfNotExists = args.length < 4 || args[3].booleanValue();
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       final Object options;
 
@@ -129,30 +133,39 @@ public final class Load extends AbstractFunction {
         return store.lookup(collectionName);
       }
 
-      // Only the create path can replace the whole database, so only it takes the exclusive
-      // database hold. Appending into an existing collection takes nothing here: each target's
-      // check and write are ordered on that resource's own hold, inside the collection, so two
-      // callers writing different resources of one database never wait on each other.
+      final Sequence inputs = ImportInput.snapshotStrings(resources);
+
+      // An existing database is never replaced (#1384); see jn:store.
       final Path databaseDirectory = store.databaseDirectory(collectionName);
-      final boolean mayReplaceDatabase = createIfNotExists || store.lookup(collectionName) == null;
-      try (var gate = databaseDirectory == null || !mayReplaceDatabase
-          ? null
-          : MutationGate.acquireDatabase(databaseDirectory)) {
-        if (createIfNotExists) {
-          collection = create(store, collectionName, resourceName, resources, options);
-        } else {
+      collection = store.lookup(collectionName);
+      if (collection == null) {
+        try (var gate = databaseDirectory == null
+            ? null
+            : MutationGate.acquireDatabase(databaseDirectory)) {
           collection = store.lookup(collectionName);
           if (collection == null) {
-            collection = create(store, collectionName, resourceName, resources, options);
-          } else {
-            add(collection, resourceName, resources, options);
+            return create(store, collectionName, resourceName, inputs, options);
           }
         }
-
+      }
+      if (inputs instanceof Atomic input) {
+        try (final JsonReader reader =
+            new JsonReader(new InputStreamReader(URIHandler.getInputStream(input.stringValue())))) {
+          final var database = collection.getDatabase();
+          try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
+            FreeResourceName.require(JNFun.ERR_RESOURCE_EXISTS, collectionName, database, resourceName);
+            collection.importResource(resourceName, reader, options);
+          }
+        }
+      } else {
+        add(collection, inputs, options);
       }
 
       return collection;
     } catch (final Exception e) {
+      if (e instanceof QueryException refusal && JNFun.ERR_RESOURCE_EXISTS.equals(refusal.getCode())) {
+        throw refusal;
+      }
       // (Throwable, QNm) is the cause-attaching overload. The (QNm, Object) one this used to bind to
       // renders the throwable into the message and drops it, so an authorization refusal reached the
       // caller with no HttpException in its chain and the REST failure handler could not map it to a
@@ -161,26 +174,14 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static void add(final JsonDBCollection collection, final String resourceName, final Sequence resources,
-      final Object options) {
-    if (resources instanceof Atomic res) {
-      try (final JsonReader reader =
-          new JsonReader(new InputStreamReader(URIHandler.getInputStream(res.stringValue())))) {
-        collection.add(resourceName, reader, options);
-      } catch (final Exception e) {
-        throw new QueryException(e, new QNm(e.getMessage()));
-      }
-    } else if (resources instanceof FunctionConversionSequence seq) {
-      final List<String> uris = new ArrayList<>();
-      try (final Iter iter = seq.iterate()) {
-        for (Item item; (item = iter.next()) != null;) {
-          uris.add(((Str) item).stringValue());
-        }
-        collection.addAllFromUris(uris, options);
-      } catch (final Exception e) {
-        throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
+  private static void add(final JsonDBCollection collection, final Sequence resources, final Object options) {
+    final List<String> uris = new ArrayList<>();
+    try (final Iter iter = resources.iterate()) {
+      for (Item item; (item = iter.next()) != null;) {
+        uris.add(((Str) item).stringValue());
       }
     }
+    collection.addAllFromUris(uris, options);
   }
 
   private JsonDBCollection create(final JsonDBStore store, final String collectionName, final String resourceName,
@@ -192,8 +193,8 @@ public final class Load extends AbstractFunction {
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
-    } else if (resources instanceof FunctionConversionSequence seq) {
-      try (final Iter iter = seq.iterate()) {
+    } else {
+      try (final Iter iter = resources.iterate()) {
         final List<String> uris = new ArrayList<>();
         for (Item item; (item = iter.next()) != null;) {
           uris.add(((Str) item).stringValue());
@@ -202,6 +203,5 @@ public final class Load extends AbstractFunction {
       }
     }
 
-    return null;
   }
 }

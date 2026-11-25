@@ -52,7 +52,9 @@ public final class SirixJsonStream implements Stream<Item> {
   }
 
   @Override
-  public void close() {}
+  public void close() {
+    axis.close();
+  }
 
   @Override
   public String toString() {

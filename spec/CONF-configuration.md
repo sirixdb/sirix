@@ -122,14 +122,14 @@ Resource settings MUST carry an optional boolean `requirePreconditions`, default
 ### CONF-201 — Dispatcher queue and close defaults
 
 - **Level:** MUST
-- **Status:** designed
+- **Status:** partial
 - **Since:** 1.0
-- **Code:** [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`close`; [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java):`Builder`
-- **Verified by:** No existing test mapped. **Planned:** DispatcherConfigurationConformance: unset defaults 10,000 and 5 seconds, supported custom timeout/capacity boundaries, invalid/overflow values, tiny-queue replay and stalled-listener close using controlled time.
-- **Evidence class:** code-only (implementation inspected); decided target has unverified implementation gaps
-- **Gap/note:** Defaults and policies are decided. Property/API names and exact accepted ranges remain to be implemented; the current writer-scheduler timeout is not this setting.
+- **Code:** [DatabaseNotifications.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseNotifications.java):constructors, `setCloseTimeout`
+- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`notificationCapacityMustBePositive`, `capacityCoversMixedBacklogsAndAbandonment`, `unreturnedDeliveryRetainsReadersDropsQueueAndAllowsRetry`, `invalidTimeoutAdjustmentPreservesTheConfiguredTimeout`
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Custom capacity, invalid non-positive capacity and bounded close have mapped regressions. Exhaustive property parsing/default and timeout-boundary coverage is not asserted.
 
-The per-database post-commit queue MUST be bounded with a default capacity of 10,000 notifications and replay overflow semantics from TXN-805. Dispatcher close MUST default to a 5-second finite wait and MUST be configurable. The configuration API MUST document units, accepted bounds and explicit rejection of invalid values; a configured timeout MUST NOT allow unbounded listener waiting. These values MUST NOT authorize freeing memory still used by a writer worker or callback.
+Notification retention MUST default to 1,024 jobs per database, configurable before database open with `sirix.notifications.capacity`, a positive Java `int`. The callback close timeout MUST default to 5,000 milliseconds, configurable with `sirix.notifications.closeTimeoutMillis`; `DatabaseNotifications.setCloseTimeout(Duration)` also permits adjustment. A timeout MUST be positive and representable in nanoseconds. The system property is read as a Java `long` millisecond value; an absent or unparsable value uses the default. An unparsable capacity is rejected. Invalid ranges MUST reject dispatcher construction or timeout adjustment rather than permit unbounded waiting. Retention, overflow and close ownership follow [TXN-803–806](TXN-transactions-durability.md#txn-803--bounded-listener-shutdown).
 
 ## Persisted resource schema (CONF-102)
 
@@ -211,4 +211,4 @@ is a later CONF extension, not an implicitly frozen API.
 | CONF-107 | [ChunkedBodyWireFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/chunked/ChunkedBodyWireFormatTest.java); [StoreFeaturesTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/StoreFeaturesTest.java) **Planned:** WriterToggleReadConformance: create under each supported opt-in, reopen with it disabled, compare logical historical content. | partial |
 | CONF-108 | No existing test mapped. **Planned:** StorageProviderConformance: missing provider, wrong provider name, removed FILE, and correct built-in reopen with identical logical content. | partial |
 | CONF-109 | No existing test mapped. **Planned:** RequirePreconditionsSettingConformance: omitted-when-false byte identity, round trip and rewrite, persisted value over process default, invalid value rejection, 428 for a request without a precondition and an unaffected embedded Java write. | proposed |
-| CONF-201 | No existing test mapped. **Planned:** DispatcherConfigurationConformance: unset defaults 10,000 and 5 seconds, supported custom timeout/capacity boundaries, invalid/overflow values, tiny-queue replay and stalled-listener close using controlled time. | designed |
+| CONF-201 | See [requirement mapping](#conf-201--dispatcher-queue-and-close-defaults). | partial |

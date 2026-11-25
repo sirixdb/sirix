@@ -186,7 +186,7 @@ revision sequences. Capture explicit revision IDs for reproducible work.
 |---|---|
 | Between commits | Floor: selects the preceding revision. |
 | After the latest commit | Selects the latest revision (or the supplied JVM ceiling). |
-| Exact timestamp, including ties | Lookup compares at millisecond precision. The one-argument JVM lookup, REST and `jn:open` do not promise which equal-timestamp revision wins. Pin a revision ID. |
+| Exact timestamp | Lookup compares at microsecond precision, the stored unit, with the requested instant truncated toward the past. Commit timestamps strictly increase, so an exact stored microsecond names exactly one revision; sub-microsecond digits in the request never select a later revision. |
 | Deterministic JVM selection | `getRevisionNumber(instant, ceiling)` chooses the highest revision at or below the ceiling with timestamp <= instant; capture the ceiling once. |
 | Before all revisions | Core selects bootstrap revision 0. REST GET/HEAD clamp that result to revision 1; `jn:open` can return the empty sequence before document creation. Do not interpret REST's first document as proof it existed at the requested time. |
 | Pruned selection | Metadata lookup can still return the original revision number/timestamp. Opening that revision fails; it does not silently substitute a retained neighbor. |
@@ -194,14 +194,15 @@ revision sequences. Capture explicit revision IDs for reproducible work.
 Prefer ISO 8601 timestamps with `Z` or an explicit offset. REST also accepts
 zone-less date-times as UTC; encode `+` in offsets using `--data-urlencode`.
 The JVM lookup accepts `Instant`; `jn:open` accepts `xs:dateTime` (use an explicit
-timezone). Revision IDs avoid timestamp ties and precision loss.
+timezone). Both resolve at microsecond precision; finer digits are truncated
+toward the past.
 
 Retention can remove readable historical roots while leaving timestamp
 metadata. As-of reads, diffs and reverts require the selected revision roots to
 remain readable. Core signals `SirixRevisionPrunedException`; the new REST revert
 maps a pruned target to 410. Existing REST read/query failure mappings are
 separate and do not guarantee 410. Full history including authors/messages also
-requires readable roots; core `getHistoryTimestamps()` remains suitable for
-metadata across pruned history. There is no retention configuration or pruning
+requires readable roots; core `getHistoryTimestampsMicros()` remains suitable for
+metadata across pruned history (epoch microseconds). There is no retention configuration or pruning
 command introduced by this guide. Keep required history/verified backups before
 applying a separate retention policy.

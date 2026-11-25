@@ -97,7 +97,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
-import java.time.Instant;
 import org.jspecify.annotations.Nullable;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -5536,7 +5535,7 @@ public enum PageKind {
           final long maxNodeKeyInDocumentIndex = source.readLong();
           final long maxNodeKeyInChangedNodesIndex = source.readLong();
           final long maxNodeKeyInRecordToRevisionsIndex = source.readLong();
-          final long revisionTimestamp = source.readLong();
+          final long revisionTimestampMicros = source.readLong();
           String commitMessage = null;
           User user = null;
           if (source.readBoolean()) {
@@ -5555,7 +5554,7 @@ public enum PageKind {
 
           requireFullyConsumed(source);
           return new RevisionRootPage(delegate, revision, maxNodeKeyInDocumentIndex, maxNodeKeyInChangedNodesIndex,
-              maxNodeKeyInRecordToRevisionsIndex, revisionTimestamp, commitMessage,
+              maxNodeKeyInRecordToRevisionsIndex, revisionTimestampMicros, commitMessage,
               currentMaxLevelOfDocumentIndexIndirectPages, currentMaxLevelOfChangedNodesIndirectPages,
               currentMaxLevelOfRecordToRevisionsIndirectPages, user);
         }
@@ -5574,7 +5573,6 @@ public enum PageKind {
       PageKind.serializeDelegate(sink, delegate, type);
 
       // initial variables from RevisionRootPage, to serialize
-      final Instant commitTimestamp = revisionRootPage.getCommitTimestamp();
       final int revision = revisionRootPage.getRevision();
       final long maxNodeKeyInDocumentIndex = revisionRootPage.getMaxNodeKeyInDocumentIndex();
       final long maxNodeKeyInChangedNodesIndex = revisionRootPage.getMaxNodeKeyInChangedNodesIndex();
@@ -5586,16 +5584,15 @@ public enum PageKind {
           revisionRootPage.getCurrentMaxLevelOfChangedNodesIndexIndirectPages();
       final int currentMaxLevelOfRecordToRevisionsIndirectPages =
           revisionRootPage.getCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
-      final long revisionTimestamp = commitTimestamp == null
-          ? Instant.now().toEpochMilli()
-          : commitTimestamp.toEpochMilli();
-      revisionRootPage.setRevisionTimestamp(revisionTimestamp);
+      // The effective commit timestamp of TXN-310 in the epoch microseconds of VER-201; assigned
+      // once per commit attempt, so repeated serialization within that attempt is stable.
+      final long revisionTimestampMicros = revisionRootPage.ensureCommitTimestampMicros();
 
       sink.writeInt(revision);
       sink.writeLong(maxNodeKeyInDocumentIndex);
       sink.writeLong(maxNodeKeyInChangedNodesIndex);
       sink.writeLong(maxNodeKeyInRecordToRevisionsIndex);
-      sink.writeLong(revisionTimestamp);
+      sink.writeLong(revisionTimestampMicros);
       sink.writeBoolean(commitMessage != null);
 
       if (commitMessage != null) {

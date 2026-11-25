@@ -32,7 +32,7 @@ dependencies {
     // jackson-databind provides ObjectMapper/JsonNode for semantic round-trip comparison in
     // JsonCorrectnessSweepTest (key-order-insensitive objects, order-sensitive arrays, exact
     // BigInteger/BigDecimal numeric fidelity). Pinned to match the declared jackson-core 2.18.2.
-    testImplementation 'com.fasterxml.jackson.core:jackson-databind:2.22.4'
+    testImplementation 'com.fasterxml.jackson.core:jackson-databind:2.23.0'
     // Property-based testing (generative round-trip / revision-immutability / oracle properties).
     testImplementation testLibraries.jqwik
     // Already on the test RUNTIME classpath above; promoted to compile scope so a test can attach a
@@ -126,25 +126,43 @@ artifacts {
 }
 
 test {
+    // Inline fault injection redefines shared hot classes; run those isolated suites last.
+    systemProperty 'junit.jupiter.testclass.order.default', 'org.junit.jupiter.api.ClassOrderer$OrderAnnotation'
     systemProperty 'sirix.changelog.workDiag', System.getProperty('sirix.changelog.workDiag', 'true')
     systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     // Partition the existing test task rather than copying its JVM flags, engine configuration,
     // or diagnostic properties into new tasks. Without this property existing test selection
-    // is unchanged. The same class-file pattern and its complement cover every
-    // current and future test class, including the property test's nested classes.
+    // is unchanged. Complementary class-file filters cover every current and future test class
+    // exactly once within each platform's partition, keeping nested property classes together.
     def coreTestLane = providers.gradleProperty('coreTestLane').orNull
     def hotPropertyClasses = 'io/sirix/index/hot/HOTStructuralPropertyTest*.class'
+    // The macOS, Windows and Linux ARM lanes run with -PexcludeHeavyTests, which removes most of
+    // the HOT property work, so the hot-property cut above is lopsided there. They cut on the
+    // io.sirix.index package tree instead; the Linux x86 "remaining" set is cut the same way, with
+    // the HOT property classes (which live in that tree) taken out of its index side.
+    // docs/CI_CORE_HEADROOM.md owns the measurements. Only this task is partitioned; its isolated
+    // prerequisite test tasks still run in every lane.
+    def indexPackageClasses = 'io/sirix/index/**/*.class'
     if (coreTestLane == 'hot-property') {
         include hotPropertyClasses
     } else if (coreTestLane == 'remaining') {
         exclude hotPropertyClasses
+    } else if (coreTestLane == 'remaining-index') {
+        include indexPackageClasses
+        exclude hotPropertyClasses
+    } else if (coreTestLane == 'index') {
+        include indexPackageClasses
+    } else if (coreTestLane == 'non-index') {
+        // Also the Linux non-index shard: the HOT property classes sit in the index tree.
+        exclude indexPackageClasses
     } else if (coreTestLane != null) {
-        throw new GradleException("Unknown coreTestLane '${coreTestLane}'; expected hot-property or remaining")
+        throw new GradleException("Unknown coreTestLane '${coreTestLane}'; expected hot-property, remaining, " +
+            "remaining-index, index or non-index")
     }
 
     useJUnitPlatform {
         // The cross-platform CI lanes exclude soak-style suites that cannot fit the
-        // runner budget there; Linux CI runs everything.
+        // runner budget there; Linux x86 CI runs everything.
         if (project.hasProperty('excludeHeavyTests')) {
             excludeTags 'heavy'
         }
@@ -319,11 +337,11 @@ def validTimeDisabledLookupCacheTest = tasks.register('validTimeDisabledLookupCa
 }
 
 // Inline Mockito mocks in sibling suites retransform real storage classes and allocate in their
-// interception prologues. Measure production dictionary, inline-slot, HOT commit and HOT sibling-read
+// interception prologues. Measure production dictionary, inline-slot, lifecycle lock, HOT commit and HOT sibling-read
 // allocations in a clean JVM.
 def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocationTest', Test) {
     group = 'verification'
-    description = 'Checks dictionary read-view, inline-slot, HOT commit and HOT sibling-read allocation bounds in a separate JVM.'
+    description = 'Checks dictionary read-view, inline-slot, lifecycle lock, HOT commit and HOT sibling-read allocation bounds in a separate JVM.'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform()
@@ -334,6 +352,7 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
     filter {
         includeTestsMatching 'io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest'
         includeTestsMatching 'io.sirix.budget.InlineSlotCopyAllocationBudgetTest'
+        includeTestsMatching 'io.sirix.budget.LifecycleLockAllocationBudgetTest'
         includeTestsMatching 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'
         includeTestsMatching 'io.sirix.budget.HotWriterLeafRetentionAllocationBudgetTest'
         includeTestsMatching 'io.sirix.page.HOTLeafCodecAllocationTest'
@@ -492,7 +511,7 @@ tasks.named('jacocoTestReport') {
 // methods. This report consumes restored bytecode and has no test/compile dependencies.
 tasks.register('jacocoMergedReport', JacocoReport) {
     group = 'verification'
-    description = 'Merge the two Linux core coverage artifacts without rerunning tests'
+    description = 'Merge the Linux core coverage artifacts without rerunning tests'
     executionData fileTree(rootProject.layout.buildDirectory.dir('sonar-coverage')) {
         include 'coverage-core-*/jacoco/*.exec'
     }
@@ -507,7 +526,7 @@ tasks.register('jacocoMergedReport', JacocoReport) {
         html.required = false
     }
     doFirst {
-        for (final String lane : ['hot-property', 'remaining']) {
+        for (final String lane : ['hot-property', 'remaining-index', 'non-index']) {
             for (final String suite : ['test', 'validTimeDisabledLookupCacheTest',
                                        'dictionaryReadViewAllocationTest', 'storageEpochStoreIdentityTest']) {
                 final File data = rootProject.layout.buildDirectory
@@ -534,6 +553,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/page/HOTLeafRefusalAllocationTest*.class'
     exclude 'io/sirix/index/hot/page/HOTLeafLookupAllocationTest*.class'
     exclude 'io/sirix/io/bytepipe/JavaLz4BlockDecoderAllocationTest*.class'
+    exclude 'io/sirix/budget/LifecycleLockAllocationBudgetTest*.class'
     exclude 'io/sirix/index/hot/HOTCommitAllocationBudgetTest*.class'
     exclude 'io/sirix/budget/HotWriterLeafRetentionAllocationBudgetTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'

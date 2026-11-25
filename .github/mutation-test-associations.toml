@@ -4,6 +4,19 @@
 # declared in the same module. Associations share the lane's per-module test cap.
 # See docs/VERIFICATION.md#pr-mutation-testing and spec/CONV-conventions.md.
 
+[[association]]
+class = "io.sirix.io.ram.RAMStorage"
+tests = ["io.sirix.io.ram.RAMStorageTruncateToTest"]
+
+# TXN-310/311 span writer construction, commit attempts, persisted history and reopen.
+[[association]]
+class = "io.sirix.access.trx.page.StorageEngineWriterFactory"
+tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.CommitTimestampLateFailureTest"]
+
+[[association]]
+class = "io.sirix.access.trx.page.NodeStorageEngineWriter"
+tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.CommitTimestampLateFailureTest"]
+
 # The release contract exercises refused and admitted grouping through every public compiler
 # factory, including cold reopen; its name spans these entry points.
 [[association]]
@@ -21,3 +34,123 @@ tests = ["io.sirix.query.scan.VectorizedReleaseCorrectnessTest"]
 [[association]]
 class = "io.sirix.query.scan.VectorizedRouteRefusedException"
 tests = ["io.sirix.query.scan.VectorizedReleaseCorrectnessTest"]
+
+# TXN-615 lifetime, storage ownership and backup contracts cross these entry points.
+[[association]]
+class = "io.sirix.access.DatabaseHandle"
+tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest"]
+
+[[association]]
+class = "io.sirix.access.LocalDatabase"
+tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest", "io.sirix.access.LocalDatabaseInMemoryLifetimeTest", "io.sirix.index.aggregate.DeclaredTemporalAggregateFailureTest", "io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest"]
+
+[[association]]
+class = "io.sirix.access.InMemoryResources"
+tests = ["io.sirix.backup.BackupManagerInMemoryResourcesTest"]
+
+[[association]]
+class = "io.sirix.io.Reader"
+tests = ["io.sirix.io.ram.RAMStorageContractTest"]
+
+# VER-201 ISO timestamp precision is asserted through the public output boundaries.
+[[association]]
+class = "io.sirix.service.json.serialize.JsonSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.service.json.serialize.JsonLimitedSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.service.json.serialize.JsonRecordSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.service.xml.serialize.XmlSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.query.function.sdb.trx.GetRevisionTimestamp"
+tests = ["io.sirix.query.function.sdb.trx.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.mcp.ToolHandlers"
+tests = ["io.sirix.mcp.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.HistoryHandler"
+tests = ["io.sirix.rest.CommitTimestampOutputTest"]
+
+# CONV-301: distinguish document ownership work from XML name-dictionary initialization.
+[[association]]
+class = "io.sirix.utils.ReplayWorkDiagnostics"
+tests = ["io.sirix.budget.LifecycleWorkBudgetTest"]
+
+# Store/load into an existing database (#1384): one contract for the four functions and the shared
+# target rule, specified in the two StoreIntoExistingDatabase
+# suites; the JSON collection's URI acquisition is specified by LoadSourceAcquisitionTest.
+[[association]]
+class = "io.sirix.query.function.jn.io.Load"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest", "io.sirix.query.LoadSourceAcquisitionTest"]
+
+[[association]]
+class = "io.sirix.query.function.xml.io.Load"
+tests = ["io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest", "io.sirix.query.node.XmlDBCollectionAutomaticNamesTest", "io.sirix.query.LoadSourceAcquisitionTest", "io.sirix.query.LoadSourceOwnershipTest"]
+
+[[association]]
+class = "io.sirix.query.function.FreeResourceName"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest", "io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest"]
+
+[[association]]
+class = "io.sirix.query.MutationAuthorization"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest"]
+
+[[association]]
+class = "io.sirix.query.json.JsonDBCollectionImpl"
+tests = ["io.sirix.query.LoadSourceAcquisitionTest", "io.sirix.query.LoadSourceOwnershipTest", "io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest"]
+
+# Automatic resource names (#1478): xn:load's unnamed inputs are specified with the collection API.
+[[association]]
+class = "io.sirix.query.node.XmlDBCollectionImpl"
+tests = ["io.sirix.query.node.XmlDBCollectionAutomaticNamesTest"]
+
+[[association]]
+class = "io.sirix.query.function.ImportInput"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest", "io.sirix.query.LoadSourceAcquisitionTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.AbstractCreateHandler"
+tests = ["io.sirix.rest.crud.CreateOrReplaceResourceAuthorizationTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.xml.XmlCreate"
+tests = ["io.sirix.rest.crud.XmlCreateUploadCleanupTest", "io.sirix.rest.crud.PutResourceLifecycleTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.json.JsonCreate"
+tests = ["io.sirix.rest.crud.PutResourceLifecycleTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.json.AuthCheckingJsonDBCollection"
+tests = ["io.sirix.rest.crud.CollectionImportAuthorizationTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.xml.AuthCheckingXmlDBCollection"
+tests = ["io.sirix.rest.crud.CollectionImportAuthorizationTest"]
+
+[[association]]
+class = "io.sirix.rest.SirixVerticle"
+tests = ["io.sirix.rest.crud.PutResourceLifecycleTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.CreateMultipleResources"
+tests = ["io.sirix.rest.crud.PutResourceLifecycleTest"]
+
+# Explicit REST-210 error-code evidence for both namespace definitions.
+[[association]]
+class = "io.sirix.query.function.jn.JNFun"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest"]
+
+[[association]]
+class = "io.sirix.query.function.xml.XMLFun"
+tests = ["io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest"]

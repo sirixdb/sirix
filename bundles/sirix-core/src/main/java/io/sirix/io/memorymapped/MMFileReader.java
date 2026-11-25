@@ -453,10 +453,10 @@ public final class MMFileReader extends AbstractReader {
       throw new SirixIOException("Truncated revisions record for revision " + revision);
     }
     final long revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset);
-    final long timestampMillis = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 8);
+    final long timestampMicros = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 8);
     final long storedChecksum = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 16);
     final long pageHash = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, fileOffset + 24);
-    return IOStorage.decodeRevisionRecord(revision, revisionOffset, timestampMillis, storedChecksum, pageHash);
+    return IOStorage.decodeRevisionRecord(revision, revisionOffset, timestampMicros, storedChecksum, pageHash);
   }
 
   @Override
@@ -479,11 +479,11 @@ public final class MMFileReader extends AbstractReader {
     for (int i = 0; i < count; i++) {
       final long base = IOStorage.revisionsFileOffset(fromRevision + i);
       final long revisionOffset = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base);
-      final long timestampMillis = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 8);
+      final long timestampMicros = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 8);
       final long storedChecksum = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 16);
       final long pageHash = revisionsOffsetFileSegment.get(LAYOUT_LONG_LE, base + 24);
       result[i] =
-          IOStorage.decodeRevisionRecord(fromRevision + i, revisionOffset, timestampMillis, storedChecksum, pageHash);
+          IOStorage.decodeRevisionRecord(fromRevision + i, revisionOffset, timestampMicros, storedChecksum, pageHash);
     }
     return result;
   }

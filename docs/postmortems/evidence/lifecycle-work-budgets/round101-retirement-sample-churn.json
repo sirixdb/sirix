@@ -1,0 +1,229 @@
+{
+  "qualification": "Exact sampled identities for Retirement.close only. Absence is sample churn/removal, never a killed status. Raw timeouts stay timeouts; historical controls are not rewritten as current assertion kills.",
+  "old_xml_sha256": "789b5cc388d029bd96673950f38de8cb82f9c85ccc13fdc2dca7d1a14180d8db",
+  "new_xml_sha256": "07453073aa0857f0aaf9ff065eb59701587a17819a89c75e3481b6ae33eb09dc",
+  "prior_sample": [
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.MathMutator",
+        [
+          26
+        ],
+        "Replaced integer subtraction with addition"
+      ],
+      "status": "KILLED",
+      "detected": true,
+      "line": 323,
+      "changed": true,
+      "text": "KILLED | io.sirix.access.DatabaseNotifications$Retirement | close | 323 | Replaced integer subtraction with addition",
+      "killing_test": "io.sirix.access.DatabaseCloseStrandingTest.[engine:junit-jupiter]/[class:io.sirix.access.DatabaseCloseStrandingTest]/[test-template:failingBackendCanRetryBeforeClosingTheDatabase(boolean, java.nio.file.Path)]/[test-template-invocation:#2]"
+    },
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+        [
+          37
+        ],
+        "negated conditional"
+      ],
+      "status": "KILLED",
+      "detected": true,
+      "line": 324,
+      "changed": true,
+      "text": "KILLED | io.sirix.access.DatabaseNotifications$Retirement | close | 324 | negated conditional",
+      "killing_test": "io.sirix.access.DatabaseCloseStrandingTest.[engine:junit-jupiter]/[class:io.sirix.access.DatabaseCloseStrandingTest]/[test-template:failingBackendCanRetryBeforeClosingTheDatabase(boolean, java.nio.file.Path)]/[test-template-invocation:#2]"
+    },
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+        [
+          69
+        ],
+        "negated conditional"
+      ],
+      "status": "TIMED_OUT",
+      "detected": true,
+      "line": 328,
+      "changed": true,
+      "text": "TIMED_OUT | io.sirix.access.DatabaseNotifications$Retirement | close | 328 | negated conditional",
+      "killing_test": ""
+    },
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+        [
+          83
+        ],
+        "removed call to java/lang/Object::notifyAll"
+      ],
+      "status": "SURVIVED",
+      "detected": false,
+      "line": 333,
+      "changed": true,
+      "text": "SURVIVED | io.sirix.access.DatabaseNotifications$Retirement | close | 333 | removed call to java/lang/Object::notifyAll",
+      "killing_test": ""
+    }
+  ],
+  "current_sample": [
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.MathMutator",
+        [
+          26
+        ],
+        "Replaced integer subtraction with addition"
+      ],
+      "status": "TIMED_OUT",
+      "detected": true,
+      "line": 323,
+      "changed": true,
+      "text": "TIMED_OUT | io.sirix.access.DatabaseNotifications$Retirement | close | 323 | Replaced integer subtraction with addition",
+      "killing_test": ""
+    },
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+        [
+          13
+        ],
+        "negated conditional"
+      ],
+      "status": "TIMED_OUT",
+      "detected": true,
+      "line": 321,
+      "changed": true,
+      "text": "TIMED_OUT | io.sirix.access.DatabaseNotifications$Retirement | close | 321 | negated conditional",
+      "killing_test": ""
+    },
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+        [
+          29
+        ],
+        "negated conditional"
+      ],
+      "status": "KILLED",
+      "detected": true,
+      "line": 323,
+      "changed": true,
+      "text": "KILLED | io.sirix.access.DatabaseNotifications$Retirement | close | 323 | negated conditional",
+      "killing_test": "io.sirix.access.DatabaseNotificationLifecycleTest.[engine:junit-jupiter]/[class:io.sirix.access.DatabaseNotificationLifecycleTest]/[method:contractOnlyTheLastRetirementReopensAdmissionAndDeliversDeferredWork()]"
+    },
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+        [
+          37
+        ],
+        "negated conditional"
+      ],
+      "status": "TIMED_OUT",
+      "detected": true,
+      "line": 324,
+      "changed": true,
+      "text": "TIMED_OUT | io.sirix.access.DatabaseNotifications$Retirement | close | 324 | negated conditional",
+      "killing_test": ""
+    }
+  ],
+  "not_in_current_sample": [
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+        [
+          69
+        ],
+        "negated conditional"
+      ],
+      "status": "TIMED_OUT",
+      "detected": true,
+      "line": 328,
+      "changed": true,
+      "text": "TIMED_OUT | io.sirix.access.DatabaseNotifications$Retirement | close | 328 | negated conditional",
+      "killing_test": ""
+    },
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+        [
+          83
+        ],
+        "removed call to java/lang/Object::notifyAll"
+      ],
+      "status": "SURVIVED",
+      "detected": false,
+      "line": 333,
+      "changed": true,
+      "text": "SURVIVED | io.sirix.access.DatabaseNotifications$Retirement | close | 333 | removed call to java/lang/Object::notifyAll",
+      "killing_test": ""
+    }
+  ],
+  "newly_sampled": [
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+        [
+          13
+        ],
+        "negated conditional"
+      ],
+      "status": "TIMED_OUT",
+      "detected": true,
+      "line": 321,
+      "changed": true,
+      "text": "TIMED_OUT | io.sirix.access.DatabaseNotifications$Retirement | close | 321 | negated conditional",
+      "killing_test": ""
+    },
+    {
+      "identity": [
+        "io.sirix.access.DatabaseNotifications$Retirement",
+        "close",
+        "()V",
+        "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+        [
+          29
+        ],
+        "negated conditional"
+      ],
+      "status": "KILLED",
+      "detected": true,
+      "line": 323,
+      "changed": true,
+      "text": "KILLED | io.sirix.access.DatabaseNotifications$Retirement | close | 323 | negated conditional",
+      "killing_test": "io.sirix.access.DatabaseNotificationLifecycleTest.[engine:junit-jupiter]/[class:io.sirix.access.DatabaseNotificationLifecycleTest]/[method:contractOnlyTheLastRetirementReopensAdmissionAndDeliversDeferredWork()]"
+    }
+  ]
+}

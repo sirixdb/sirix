@@ -29,6 +29,10 @@ public interface ResourceStore<R extends ResourceSession<? extends NodeReadOnlyT
     return beginResourceSession(resourceConfig, bufferManager, resourcePath);
   }
 
+  DatabaseNotifications getNotifications();
+
+  void assertCanClose();
+
   boolean hasOpenResourceSession(Path resourcePath);
 
   R getOpenResourceSession(Path resourcePath);

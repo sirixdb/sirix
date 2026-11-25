@@ -1,0 +1,28 @@
+{
+  "scope": "R10 same-session node/page writer admission ordering",
+  "starting_head": "50f6715b2ec693cb118e4230d4003f06512b0334",
+  "result": "verification_blocked",
+  "focused_command": "heavy.sh ./gradlew :sirix-core:test; eight lifecycle/ownership classes (DatabaseOwnershipTest selected methods); --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g -PtestHeapMin=512m -PtestHeapMax=3g",
+  "planned_selected_cases": 198,
+  "new_admission_cases": 16,
+  "executed_cases": 0,
+  "reason": "heavy.sh remained queued for more than 18 minutes while shared host load exceeded its configured limit of 10. The log was empty before cancellation; Gradle and JVM compilation/tests never started. No tool is missing.",
+  "log": "build/lifecycle-admission-order-focused.log",
+  "cancellation": "Only the worktree-owned queued command and its descendants were terminated; command exit 143 was observed. Shared infrastructure and other jobs were not changed.",
+  "disk_check_available_bytes": 85238476800,
+  "static_trace": "Node/page admission waits outside the session monitor, revalidates open/closing state under the monitor before construction, and releases failed admission in finally. Ordinary node/page owner release and marker recovery are preserved.",
+  "callback_redesign": {
+    "status": "unresolved; required clarification requested",
+    "conflicts": [
+      "KEEP_OPEN retains the resource write permit until transaction close; releasing it for callbacks requires a new ownership/reacquisition policy.",
+      "PreCommitHook runs before publication; moving all hooks after publication changes its veto and observation contract."
+    ],
+    "implementation": "Existing callback behavior and tests preserved pending clarification; the requested new callback protocol is not claimed implemented."
+  },
+  "outer_validation_pending": [
+    "focused JVM tests",
+    "fresh scoped PIT",
+    "compiled-path evidence",
+    "broader validation and CI"
+  ]
+}

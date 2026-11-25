@@ -1,0 +1,20 @@
+{
+  "lifecycleBudgetControl/TEST-io.sirix.budget.LifecycleLockAllocationBudgetTest.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lifecycleBudgetControl/TEST-io.sirix.budget.LifecycleWorkBudgetTest.xml": {
+    "tests": 36,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "test/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml": {
+    "tests": 357,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

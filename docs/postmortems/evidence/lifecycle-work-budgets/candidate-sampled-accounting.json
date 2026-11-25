@@ -1,0 +1,501 @@
+{
+  "candidate_parent": "b19c6bc0b1eb961c990689174b150a7836e74690",
+  "candidate_includes_uncommitted_fixes": true,
+  "scope_complete": true,
+  "acceptance_complete": false,
+  "original_targets_tests_caps_preserved": true,
+  "source_manifest_verified_unchanged": true,
+  "source_manifest_sha256": "3e84993cd2b23ab58297cbf995616b059a0f858f98af56dce19b57c980fe6948",
+  "source_files": 3052,
+  "raw": {
+    "KILLED": 115,
+    "SURVIVED": 53,
+    "TIMED_OUT": 8,
+    "NO_COVERAGE": 126
+  },
+  "changed_raw": {
+    "KILLED": 41,
+    "TIMED_OUT": 2,
+    "SURVIVED": 2
+  },
+  "reviewed_identities": [
+    {
+      "module": "sirix-core",
+      "partition": 1,
+      "status": "TIMED_OUT",
+      "mutatedClass": "io.sirix.access.DatabaseNotifications$Retirement",
+      "mutatedMethod": "close",
+      "methodDescription": "()V",
+      "lineNumber": "328",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+      "description": "negated conditional",
+      "indexes": [
+        "69"
+      ]
+    },
+    {
+      "module": "sirix-core",
+      "partition": 1,
+      "status": "SURVIVED",
+      "mutatedClass": "io.sirix.access.DatabaseNotifications$Retirement",
+      "mutatedMethod": "close",
+      "methodDescription": "()V",
+      "lineNumber": "333",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+      "description": "removed call to java/lang/Object::notifyAll",
+      "indexes": [
+        "83"
+      ]
+    },
+    {
+      "module": "sirix-core",
+      "partition": 1,
+      "status": "SURVIVED",
+      "mutatedClass": "io.sirix.access.DatabaseHandle",
+      "mutatedMethod": "createResource",
+      "methodDescription": "(Lio/sirix/access/ResourceConfiguration;)Z",
+      "lineNumber": "44",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator",
+      "description": "removed call to io/sirix/access/DatabaseNotifications::assertNotInCallback",
+      "indexes": [
+        "7"
+      ]
+    },
+    {
+      "module": "sirix-core",
+      "partition": 2,
+      "status": "TIMED_OUT",
+      "mutatedClass": "io.sirix.access.trx.node.TransactionExecutionLock",
+      "mutatedMethod": "assertCanClose",
+      "methodDescription": "()V",
+      "lineNumber": "12",
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator",
+      "description": "negated conditional",
+      "indexes": [
+        "5"
+      ]
+    }
+  ],
+  "parts": [
+    {
+      "module": "sirix-core",
+      "partition": 1,
+      "state": "complete",
+      "raw": {
+        "KILLED": 27,
+        "SURVIVED": 9,
+        "TIMED_OUT": 5,
+        "NO_COVERAGE": 7
+      },
+      "changed": {
+        "total": 16,
+        "killed": 13,
+        "survived": 2,
+        "no_coverage": 0,
+        "detected": 14,
+        "survivors": [
+          "SURVIVED | io.sirix.access.DatabaseNotifications$Retirement | close | 333 | removed call to java/lang/Object::notifyAll",
+          "SURVIVED | io.sirix.access.DatabaseHandle | createResource | 44 | removed call to io/sirix/access/DatabaseNotifications::assertNotInCallback"
+        ],
+        "failing": [
+          {
+            "mutant": "SURVIVED | io.sirix.access.DatabaseNotifications$Retirement | close | 333 | removed call to java/lang/Object::notifyAll",
+            "reason": "no disposition entry"
+          },
+          {
+            "mutant": "SURVIVED | io.sirix.access.DatabaseHandle | createResource | 44 | removed call to io/sirix/access/DatabaseNotifications::assertNotInCallback",
+            "reason": "no disposition entry"
+          }
+        ]
+      },
+      "report": "sirix-core-part-1-mutations.xml.gz",
+      "xml_sha256": "789b5cc388d029bd96673950f38de8cb82f9c85ccc13fdc2dca7d1a14180d8db",
+      "selection": {
+        "sources": [
+          "src/main/java/io/sirix/access/DatabaseHandle.java",
+          "src/main/java/io/sirix/access/DatabaseManager.java",
+          "src/main/java/io/sirix/access/DatabaseManagerFactory.java",
+          "src/main/java/io/sirix/access/DatabaseNotifications.java",
+          "src/main/java/io/sirix/access/Databases.java",
+          "src/main/java/io/sirix/access/LocalDatabase.java",
+          "src/main/java/io/sirix/access/MutationGate.java",
+          "src/main/java/io/sirix/access/ResourceStore.java",
+          "src/main/java/io/sirix/access/ResourceStoreImpl.java",
+          "src/main/java/io/sirix/access/trx/TransactionImpl.java",
+          "src/main/java/io/sirix/access/trx/node/AbstractNodeReadOnlyTrx.java",
+          "src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java"
+        ],
+        "targets": [
+          "io.sirix.access.DatabaseHandle",
+          "io.sirix.access.DatabaseManager",
+          "io.sirix.access.DatabaseManagerFactory",
+          "io.sirix.access.DatabaseManagerFactory$DatabaseManagerImpl",
+          "io.sirix.access.DatabaseNotifications",
+          "io.sirix.access.DatabaseNotifications$CallbackScope",
+          "io.sirix.access.DatabaseNotifications$Notification",
+          "io.sirix.access.DatabaseNotifications$Retirement",
+          "io.sirix.access.DatabaseNotifications$RetirementInProgressException",
+          "io.sirix.access.Databases",
+          "io.sirix.access.Databases$OpenDatabase",
+          "io.sirix.access.LocalDatabase",
+          "io.sirix.access.LocalDatabase$CleanupProof",
+          "io.sirix.access.LocalDatabase$OpenedSession",
+          "io.sirix.access.MutationGate",
+          "io.sirix.access.MutationGate$Entry",
+          "io.sirix.access.MutationGate$Handle",
+          "io.sirix.access.ResourceStore",
+          "io.sirix.access.ResourceStoreImpl",
+          "io.sirix.access.trx.TransactionImpl",
+          "io.sirix.access.trx.node.AbstractNodeReadOnlyTrx",
+          "io.sirix.access.trx.node.AbstractNodeReadOnlyTrx$1",
+          "io.sirix.access.trx.node.AbstractNodeTrxImpl",
+          "io.sirix.access.trx.node.AbstractNodeTrxImpl$State"
+        ],
+        "tests": [
+          "io.sirix.access.DatabaseCloseStrandingTest*",
+          "io.sirix.access.DatabaseNotificationLifecycleTest*",
+          "io.sirix.access.DatabaseOwnershipTest*",
+          "io.sirix.access.DatabasesInMemoryLifetimeTest*",
+          "io.sirix.access.LocalDatabaseInMemoryLifetimeTest*",
+          "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest*",
+          "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest*",
+          "io.sirix.access.trx.node.SharedCallbackLifetimeTest*",
+          "io.sirix.access.trx.page.AsyncFlushFailurePathTest*",
+          "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest*"
+        ],
+        "mutants_per_class": 4
+      }
+    },
+    {
+      "module": "sirix-core",
+      "partition": 2,
+      "state": "complete",
+      "raw": {
+        "KILLED": 12,
+        "SURVIVED": 22,
+        "NO_COVERAGE": 17,
+        "TIMED_OUT": 2
+      },
+      "changed": {
+        "total": 2,
+        "killed": 1,
+        "survived": 0,
+        "no_coverage": 0,
+        "detected": 2,
+        "survivors": [],
+        "failing": []
+      },
+      "report": "sirix-core-part-2-mutations.xml.gz",
+      "xml_sha256": "0e410b7420e8b5cee081c60214fd03a6a490c7dca405200f154d8f37f853aa64",
+      "selection": {
+        "sources": [
+          "src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java",
+          "src/main/java/io/sirix/access/trx/node/InternalNodeTrx.java",
+          "src/main/java/io/sirix/access/trx/node/InternalResourceSession.java",
+          "src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java",
+          "src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java",
+          "src/main/java/io/sirix/access/trx/node/json/JsonResourceSessionImpl.java",
+          "src/main/java/io/sirix/access/trx/node/xml/XmlNodeTrxImpl.java",
+          "src/main/java/io/sirix/access/trx/node/xml/XmlResourceSessionImpl.java",
+          "src/main/java/io/sirix/access/trx/page/NodeStorageEngineReader.java",
+          "src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java",
+          "src/main/java/io/sirix/api/Axis.java",
+          "src/main/java/io/sirix/api/Database.java"
+        ],
+        "targets": [
+          "io.sirix.access.trx.node.AbstractResourceSession",
+          "io.sirix.access.trx.node.AbstractResourceSession$CatalogueRevisions",
+          "io.sirix.access.trx.node.AbstractResourceSession$PendingRevisionRoot",
+          "io.sirix.access.trx.node.AbstractResourceSession$RecoveryIdentity",
+          "io.sirix.access.trx.node.AbstractResourceSession$RevisionInfoKey",
+          "io.sirix.access.trx.node.InternalNodeTrx",
+          "io.sirix.access.trx.node.InternalResourceSession",
+          "io.sirix.access.trx.node.InternalResourceSession$Abort",
+          "io.sirix.access.trx.node.TransactionExecutionLock",
+          "io.sirix.access.trx.node.json.JsonNodeTrxImpl",
+          "io.sirix.access.trx.node.json.JsonNodeTrxImpl$1",
+          "io.sirix.access.trx.node.json.JsonNodeTrxImpl$InputShape",
+          "io.sirix.access.trx.node.json.JsonNodeTrxImpl$InputValidator",
+          "io.sirix.access.trx.node.json.JsonNodeTrxImpl$JsonNodeTrxThreadFactory",
+          "io.sirix.access.trx.node.json.JsonNodeTrxImpl$MovePosition",
+          "io.sirix.access.trx.node.json.JsonNodeTrxImpl$ObjectNameQNmCache",
+          "io.sirix.access.trx.node.json.JsonNodeTrxImpl$PrimitiveNodeType",
+          "io.sirix.access.trx.node.json.JsonNodeTrxImpl$ShredderExecutor",
+          "io.sirix.access.trx.node.json.JsonResourceSessionImpl",
+          "io.sirix.access.trx.node.xml.XmlNodeTrxImpl",
+          "io.sirix.access.trx.node.xml.XmlNodeTrxImpl$1",
+          "io.sirix.access.trx.node.xml.XmlNodeTrxImpl$PositionKeys",
+          "io.sirix.access.trx.node.xml.XmlResourceSessionImpl",
+          "io.sirix.access.trx.page.NodeStorageEngineReader",
+          "io.sirix.access.trx.page.NodeStorageEngineReader$1",
+          "io.sirix.access.trx.page.NodeStorageEngineReader$PageFragmentsResult",
+          "io.sirix.access.trx.page.NodeStorageEngineReader$PageReferenceToPage",
+          "io.sirix.access.trx.page.NodeStorageEngineReader$RecordPage",
+          "io.sirix.access.trx.page.NodeStorageEngineReader$SlotLocation",
+          "io.sirix.access.trx.page.NodeStorageEngineReader$SlotOrCachedResult",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$1",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$2",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$AdmittedSnapshotAppendTask",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$AsyncSnapshotWriteTask",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$DocumentRecordLocationCache",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$FsstSamples",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$IndexLogKeyToPageContainer",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$LeakDetectorState",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$ReadPageResolution",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$SidePageBatch",
+          "io.sirix.access.trx.page.NodeStorageEngineWriter$SnapshotAppendExecutor",
+          "io.sirix.api.Axis",
+          "io.sirix.api.Database"
+        ],
+        "tests": [
+          "io.sirix.access.DatabaseCloseStrandingTest*",
+          "io.sirix.access.DatabaseNotificationLifecycleTest*",
+          "io.sirix.access.DatabaseOwnershipTest*",
+          "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest*",
+          "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest*",
+          "io.sirix.access.trx.node.SharedCallbackLifetimeTest*",
+          "io.sirix.access.trx.node.TransactionExecutionLockTest*",
+          "io.sirix.access.trx.page.AsyncFlushFailurePathTest*",
+          "io.sirix.access.trx.page.NodeStorageEngineReaderTest*",
+          "io.sirix.access.trx.page.NodeStorageEngineWriterTruncateToRevisionIntegrationTest*",
+          "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest*",
+          "io.sirix.axis.concurrent.ConcurrentAxisLifecycleTest*"
+        ],
+        "mutants_per_class": 4
+      }
+    },
+    {
+      "module": "sirix-core",
+      "partition": 3,
+      "state": "complete",
+      "raw": {
+        "NO_COVERAGE": 16,
+        "KILLED": 6,
+        "SURVIVED": 13
+      },
+      "changed": {
+        "total": 2,
+        "killed": 2,
+        "survived": 0,
+        "no_coverage": 0,
+        "detected": 2,
+        "survivors": [],
+        "failing": []
+      },
+      "report": "sirix-core-part-3-mutations.xml.gz",
+      "xml_sha256": "8b8a504411ea26abe256afd2a7fc3554255947a4e99bc14eec76d05da1b0e986",
+      "selection": {
+        "sources": [
+          "src/main/java/io/sirix/api/NodeTrx.java",
+          "src/main/java/io/sirix/api/PostCommitHook.java",
+          "src/main/java/io/sirix/api/PreCommitHook.java",
+          "src/main/java/io/sirix/api/ResourceSession.java",
+          "src/main/java/io/sirix/api/xml/XmlNodeTrx.java",
+          "src/main/java/io/sirix/axis/ForAxis.java",
+          "src/main/java/io/sirix/axis/NestedAxis.java",
+          "src/main/java/io/sirix/axis/NonStructuralWrapperAxis.java",
+          "src/main/java/io/sirix/axis/concurrent/ConcurrentAxis.java",
+          "src/main/java/io/sirix/axis/concurrent/ConcurrentAxisHelper.java",
+          "src/main/java/io/sirix/axis/concurrent/ConcurrentExceptAxis.java",
+          "src/main/java/io/sirix/axis/concurrent/ConcurrentIntersectAxis.java"
+        ],
+        "targets": [
+          "io.sirix.api.NodeTrx",
+          "io.sirix.api.PostCommitHook",
+          "io.sirix.api.PreCommitHook",
+          "io.sirix.api.ResourceSession",
+          "io.sirix.api.xml.XmlNodeTrx",
+          "io.sirix.api.xml.XmlNodeTrx$Commit",
+          "io.sirix.axis.ForAxis",
+          "io.sirix.axis.NestedAxis",
+          "io.sirix.axis.NonStructuralWrapperAxis",
+          "io.sirix.axis.concurrent.ConcurrentAxis",
+          "io.sirix.axis.concurrent.ConcurrentAxisHelper",
+          "io.sirix.axis.concurrent.ConcurrentExceptAxis",
+          "io.sirix.axis.concurrent.ConcurrentIntersectAxis"
+        ],
+        "tests": [
+          "io.sirix.access.DatabaseCloseStrandingTest*",
+          "io.sirix.access.DatabaseNotificationLifecycleTest*",
+          "io.sirix.access.DatabaseOwnershipTest*",
+          "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest*",
+          "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest*",
+          "io.sirix.access.trx.node.SharedCallbackLifetimeTest*",
+          "io.sirix.access.trx.page.AsyncFlushFailurePathTest*",
+          "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest*",
+          "io.sirix.axis.concurrent.ConcurrentAxisLifecycleTest*"
+        ],
+        "mutants_per_class": 4
+      }
+    },
+    {
+      "module": "sirix-core",
+      "partition": 4,
+      "state": "complete",
+      "raw": {
+        "KILLED": 13,
+        "NO_COVERAGE": 29,
+        "SURVIVED": 4
+      },
+      "changed": {
+        "total": 3,
+        "killed": 3,
+        "survived": 0,
+        "no_coverage": 0,
+        "detected": 3,
+        "survivors": [],
+        "failing": []
+      },
+      "report": "sirix-core-part-4-mutations.xml.gz",
+      "xml_sha256": "4d2f3d1d0576e13a07c761cf6f121abf05c612c85125bb4c23204c9f83259f02",
+      "selection": {
+        "sources": [
+          "src/main/java/io/sirix/axis/concurrent/ConcurrentUnionAxis.java",
+          "src/main/java/io/sirix/axis/filter/FilterAxis.java",
+          "src/main/java/io/sirix/axis/filter/PredicateFilterAxis.java",
+          "src/main/java/io/sirix/cache/BufferManagerImpl.java",
+          "src/main/java/io/sirix/index/projection/ProjectionIndexHOTStorage.java",
+          "src/main/java/io/sirix/service/json/shredder/ParallelJsonShredder.java",
+          "src/main/java/io/sirix/utils/WorkerTermination.java"
+        ],
+        "targets": [
+          "io.sirix.axis.concurrent.ConcurrentUnionAxis",
+          "io.sirix.axis.filter.FilterAxis",
+          "io.sirix.axis.filter.PredicateFilterAxis",
+          "io.sirix.cache.BufferManagerImpl",
+          "io.sirix.cache.BufferManagerImpl$HotLookupSize",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$1",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$1$1",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$2",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$2$1",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$BlobLocatorCapture",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$BlobLocators",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$ColumnPatchResult",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$ColumnSegmentSlotRowGroupAccum",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$DirectorySlotBuffer",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$DirectoryWalk",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$DirectoryWalkWorker",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$ParallelWalkReaders",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$PendingSegRef",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$RawBlobSlot",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$RowGroupDirectory",
+          "io.sirix.index.projection.ProjectionIndexHOTStorage$SlotCapture",
+          "io.sirix.service.json.shredder.ParallelJsonShredder",
+          "io.sirix.service.json.shredder.ParallelJsonShredder$Outcome",
+          "io.sirix.service.json.shredder.ParallelJsonShredder$ShutdownOutcome",
+          "io.sirix.utils.WorkerTermination"
+        ],
+        "tests": [
+          "io.sirix.access.BufferManagerTest*",
+          "io.sirix.axis.concurrent.ConcurrentAxisLifecycleTest*",
+          "io.sirix.cache.BufferManagerTeardownTest*",
+          "io.sirix.index.projection.ProjectionParallelDirectoryWalkTest*",
+          "io.sirix.service.json.shredder.ParallelJsonShredderTest*",
+          "io.sirix.utils.WorkerTerminationTest*"
+        ],
+        "mutants_per_class": 4
+      }
+    },
+    {
+      "module": "sirix-query",
+      "partition": null,
+      "state": "complete",
+      "raw": {
+        "KILLED": 36,
+        "TIMED_OUT": 1,
+        "SURVIVED": 5,
+        "NO_COVERAGE": 57
+      },
+      "changed": {
+        "total": 8,
+        "killed": 8,
+        "survived": 0,
+        "no_coverage": 0,
+        "detected": 8,
+        "survivors": [],
+        "failing": []
+      },
+      "report": "sirix-query-mutations.xml.gz",
+      "xml_sha256": "026ee99be83eb2fc6a75eacd7ba5da063bc3890d74738d0f43c284cd831b2736",
+      "selection": {
+        "sources": [
+          "src/main/java/io/sirix/query/compiler/translator/DerefDescendantExpr.java",
+          "src/main/java/io/sirix/query/compiler/translator/OrderedUnionAxis.java",
+          "src/main/java/io/sirix/query/compiler/translator/SirixLazySequence.java",
+          "src/main/java/io/sirix/query/scan/DirectPageScanner.java",
+          "src/main/java/io/sirix/query/stream/json/SirixJsonStream.java",
+          "src/main/java/io/sirix/query/stream/node/SirixNodeStream.java"
+        ],
+        "targets": [
+          "io.sirix.query.compiler.translator.DerefDescendantExpr",
+          "io.sirix.query.compiler.translator.DerefDescendantExpr$1",
+          "io.sirix.query.compiler.translator.DerefDescendantExpr$1$1",
+          "io.sirix.query.compiler.translator.DerefDescendantExpr$PathData",
+          "io.sirix.query.compiler.translator.DerefDescendantExpr$PathSegment",
+          "io.sirix.query.compiler.translator.OrderedUnionAxis",
+          "io.sirix.query.compiler.translator.SirixJsonLazySequence",
+          "io.sirix.query.compiler.translator.SirixJsonLazySequence$1",
+          "io.sirix.query.scan.DirectPageScanner",
+          "io.sirix.query.scan.DirectPageScanner$ChunkTask",
+          "io.sirix.query.stream.json.SirixJsonStream",
+          "io.sirix.query.stream.node.SirixNodeStream"
+        ],
+        "tests": [
+          "io.sirix.query.compiler.translator.OrderedUnionAxisTest*",
+          "io.sirix.query.compiler.translator.TraversalCloseOwnershipTest*",
+          "io.sirix.query.scan.DirectPageScannerLifecycleTest*"
+        ],
+        "mutants_per_class": 25
+      }
+    },
+    {
+      "module": "sirix-rest-api",
+      "partition": null,
+      "state": "complete",
+      "raw": {
+        "KILLED": 21
+      },
+      "changed": {
+        "total": 14,
+        "killed": 14,
+        "survived": 0,
+        "no_coverage": 0,
+        "detected": 14,
+        "survivors": [],
+        "failing": []
+      },
+      "report": "sirix-rest-api-mutations.xml.gz",
+      "xml_sha256": "df68a201b448b791632143ca958fa8eb956b454d6e5577a75d2089a9e5e47a81",
+      "selection": {
+        "sources": [
+          "src/main/kotlin/io/sirix/rest/crud/QuerySerializer.kt"
+        ],
+        "targets": [
+          "io.sirix.rest.crud.QuerySerializer",
+          "io.sirix.rest.crud.QuerySerializer$Companion"
+        ],
+        "tests": [
+          "io.sirix.rest.crud.QuerySerializerLifecycleTest*"
+        ],
+        "mutants_per_class": 40
+      }
+    }
+  ],
+  "qualification": "Raw statuses retained; two survivors retain accepted scoped functional/downstream-redundancy qualifications, not universal cost equivalence. Two changed timeouts map to decisions063/079 controls; not raw KILLED. Hosted CI scheduling and outer publication/readiness remain separate.",
+  "accepted_scope_source_checks": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseNotifications.java": {
+      "unchanged_since_b19": true,
+      "sha256": "23a6bee60f001c15d3f5d1385d39cfee6516e5de2df908d8630feae1ff0f7591"
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java": {
+      "unchanged_since_b19": true,
+      "sha256": "04628081894924e759d92b95d54da22906309e9c086dfb29d99badeaf32b1388"
+    },
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java": {
+      "unchanged_since_b19": true,
+      "sha256": "12970a804b92322a8da31520ca9714ba92688a6d09ddca4d75d35af255e7e1f7"
+    }
+  }
+}

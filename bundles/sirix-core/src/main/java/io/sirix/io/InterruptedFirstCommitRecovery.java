@@ -3,6 +3,7 @@ package io.sirix.io;
 import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.sirix.access.InMemoryResources;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.exception.SirixIOException;
@@ -188,7 +189,7 @@ public final class InterruptedFirstCommitRecovery {
     }
     try (final DirectoryStream<Path> paths = Files.newDirectoryStream(resources)) {
       for (final Path path : paths) {
-        if (!Files.isDirectory(path)) {
+        if (!Files.isDirectory(path) || InMemoryResources.isRetiredResourceName(path.getFileName().toString())) {
           continue;
         }
         probeFeatures(ResourceConfiguration.deserialize(path)).requireToolCompatible();
@@ -366,12 +367,12 @@ public final class InterruptedFirstCommitRecovery {
         }
         record.flip();
         final long revisionRootOffset = record.getLong();
-        final long timestampMillis = record.getLong();
+        final long timestampMicros = record.getLong();
         final long storedChecksum = record.getLong();
         // Both live records and retention tombstones prove that this is not an interrupted
         // first commit. Never reinitialize a resource with a checksum-valid tombstone.
         final long pageHash = record.getLong();
-        if (storedChecksum == IOStorage.expectedRevisionRecordChecksum(revisionRootOffset, timestampMillis, pageHash)) {
+        if (storedChecksum == IOStorage.expectedRevisionRecordChecksum(revisionRootOffset, timestampMicros, pageHash)) {
           return false;
         }
       }

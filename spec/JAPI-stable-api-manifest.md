@@ -1,7 +1,7 @@
 # JAPI — Classified Java API manifest
 
 Target: 1.0.0. **Draft declaration inventory with the decided three-tier boundary**,
-governed by JAPI-101, JAPI-109 and JAPI-110. Source baseline:
+governed by JAPI-101, JAPI-109 and JAPI-110. Initial source baseline:
 `13f65148b117b9c8e1858a7f1510d2f65501bad9`. Classification below records the intended
 1.0 compatibility surface; compiled signatures and transitive-type closure still need
 verification before freezing the release artifact.
@@ -52,13 +52,13 @@ individual members below may be weaker. This is not a compiled API artifact.
 | `io.sirix.api.JsonDiff` | stable | [JsonDiff.java](../bundles/sirix-core/src/main/java/io/sirix/api/JsonDiff.java) | `a792593b27516d93217f3dba5565de52e057fafbab604c0ec362d3cbd660fda2` |
 | `io.sirix.api.Movement` | stable | [Movement.java](../bundles/sirix-core/src/main/java/io/sirix/api/Movement.java) | `390d33db6a09cb19c94c83563dcfc9eeef5eeafffe25e598cc847dd6375db92c` |
 | `io.sirix.api.NodeCursor` | stable | [NodeCursor.java](../bundles/sirix-core/src/main/java/io/sirix/api/NodeCursor.java) | `e1936bfb304cbf6aa933959a11abfda8b508e00a2ac0b115626bb563dc7a1805` |
-| `io.sirix.api.NodeReadOnlyTrx` | stable | [NodeReadOnlyTrx.java](../bundles/sirix-core/src/main/java/io/sirix/api/NodeReadOnlyTrx.java) | `aad01e6a8cd4c80e1206369f9a9d5a66d0db4f93da469737eac6b21e092a2f53` |
+| `io.sirix.api.NodeReadOnlyTrx` | stable | [NodeReadOnlyTrx.java](../bundles/sirix-core/src/main/java/io/sirix/api/NodeReadOnlyTrx.java) | `ef03e9eb5265e128ebe92570077d150d632b9aa5b8762350de05469ecf2ba626` |
 | `io.sirix.api.NodeTrx` | stable | [NodeTrx.java](../bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java) | `df74accc678b7d190c1c4ba7aa6ba1c0726b26cbbab83682a1a8e1c2bf2d99b4` |
 | `io.sirix.api.PostCommitHook` | expert | [PostCommitHook.java](../bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java) | `56a830e10ceeaaff9466af87be1d404632b16653dcbd00bf2ce55cdc7f072e30` |
 | `io.sirix.api.PreCommitHook` | expert | [PreCommitHook.java](../bundles/sirix-core/src/main/java/io/sirix/api/PreCommitHook.java) | `f439321ae821118266704dfa807bc293b5f15e0c3bb29cb8e5c64d3e61210a8f` |
 | `io.sirix.api.RecordHistoryVisitor` | expert | [RecordHistoryVisitor.java](../bundles/sirix-core/src/main/java/io/sirix/api/RecordHistoryVisitor.java) | `cb1bb9de1c97472f3871a99a2d24f9b6cfcfeec213aa4b83a88925a05f468d26` |
 | `io.sirix.api.RecordRunVisitor` | expert | [RecordRunVisitor.java](../bundles/sirix-core/src/main/java/io/sirix/api/RecordRunVisitor.java) | `df3e035a2bee35a8aac3a2dcc9bfda74bfa271fc059bcdc4b3f1b0c3c333d870` |
-| `io.sirix.api.ResourceSession` | stable | [ResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java) | `abc6509338f967d0eef9e05bc513fabacf6252345bd9c9ac05b6e9932ff5dcc2` |
+| `io.sirix.api.ResourceSession` | stable | [ResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java) | `3bf40edf1bbbf923379e1292cf963d2119118b39abcb4bc7d97274de73947111` |
 | `io.sirix.api.RevisionInfo` | stable | [RevisionInfo.java](../bundles/sirix-core/src/main/java/io/sirix/api/RevisionInfo.java) | `99730608dfa0c9f220695d1857aa314ca715d8bb66a1faca138a217bbe26beaa` |
 | `io.sirix.api.SirixAxis` | expert | [SirixAxis.java](../bundles/sirix-core/src/main/java/io/sirix/api/SirixAxis.java) | `31c7981411ab28a693c301d86d0adef2ead62f6233d93aaf5e7e1a6c7801c38f` |
 | `io.sirix.api.StorageEngineReader` | internal | [StorageEngineReader.java](../bundles/sirix-core/src/main/java/io/sirix/api/StorageEngineReader.java) | `8ab08eb98512b7153f8e603aae7009729eccd75af302b7bedcdd3ddc1777c2d2` |
@@ -359,8 +359,8 @@ Source: [ResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/api/
 [stable] List<RevisionInfo> getHistory();
 [stable] List<RevisionInfo> getHistory(int revisions);
 [stable] List<RevisionInfo> getHistory(int fromRevision, int toRevision);
-[stable] long[] getHistoryTimestamps();
-[stable] long[] getHistoryTimestamps(int fromRevision, int toRevision);
+[stable] long[] getHistoryTimestampsMicros();
+[stable] long[] getHistoryTimestampsMicros(int fromRevision, int toRevision);
 [stable] int[] getRecordChangeRevisions(long nodeKey);
 [expert] void scanRecordHistory(long nodeKey, RecordHistoryVisitor visitor);
 [expert] void scanValueRuns(long nodeKey, RecordRunVisitor visitor);
@@ -1721,9 +1721,9 @@ Source: [DiffDepth.java](../bundles/sirix-core/src/main/java/io/sirix/diff/DiffD
 ## Required API additions not present at this baseline
 
 JAPI-106 requires a normal revision-N success receipt, CommitOutcomeUnknownException
-for uncertain durability, and the recovered N-present/N-absent result. TXN-805 and
-JAPI-201 require resume-after-revision registration and HistoryLostException. These
-are decided behavior/name requirements, not existing compiled declarations. The
+for uncertain durability, and the recovered N-present/N-absent result. These
+are decided behavior/name requirements, not existing compiled declarations. Listener
+resume/replay APIs are deferred under [TXN-805](TXN-transactions-durability.md#txn-805--revision-token-replay-and-bounded-queue). The
 current writer-returning commit signatures below must be reconciled with the receipt
 contract before freezing. Exact fields/method descriptors remain implementation work.
 FMT-402/VER-205 also require queryable original timestamp metadata for adjusted imported

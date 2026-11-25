@@ -40,10 +40,10 @@ session.beginNodeReadOnlyTrx(Instant.parse("2024-01-15T03:00:00Z"))
 // Both open readable snapshots of committed revisions
 ```
 
-This works because SirixDB uses **structural sharing with sub-page versioning**. Unchanged pages are shared between revisions via copy-on-write — and versioning continues *below* the page: a commit writes page fragments containing only the changed records, and the sliding-snapshot algorithm guarantees any page is reconstructible from at most N fragments. Block-level COW (ZFS-style) copies a whole page when one byte in it changes; delta-based systems make reads replay ever-growing diff chains. SirixDB pays neither cost. Revision 1000 doesn't store 1000 copies—it stores the current state plus pointers to shared history.
+This works because SirixDB uses **structural sharing with sub-page versioning**. Unchanged pages are shared between revisions via copy-on-write — and versioning continues *below* the page: under the default sliding-snapshot strategy, a commit writes page fragments containing the changed records and the few that must be carried forward to keep reads bounded, and any page is reconstructible from at most N fragments. Above the fragments, a commit rewrites the copy-on-write path up to the new revision root. Block-level COW (ZFS-style) copies a whole page when one byte in it changes; delta-based systems make reads replay ever-growing diff chains. SirixDB pays neither cost. Revision 1000 doesn't store 1000 copies—it stores the current state plus pointers to shared history.
 
 **The result:**
-- Storage: O(changed records per revision), not O(total size × revisions) — and not O(changed pages) either
+- Storage under the default sliding-snapshot strategy grows with changed and carried-forward records and the height of the rewritten path, never with the size of the data
 - Read any page from any revision: O(N) page fragment reads, where N is the configurable snapshot window (default 3)
 - No event replay, no log scanning—direct page access
 
@@ -139,16 +139,16 @@ How page versions are stored is configurable per resource:
 | DIFFERENTIAL | 2 | diffs grow between snapshots | bounded reads, uneven writes |
 | **SLIDING_SNAPSHOT** (default) | ≤ N (default 3) | small diffs, out-of-window records rescued into the newest fragment | no full-snapshot spikes, best balance |
 
-Modifying data copies only the affected pages (copy-on-write); unchanged pages are referenced
-from the new revision, and the old revision remains intact and queryable. **Storage cost** is
-O(changed records) per revision. **Read cost**: opening a revision is O(1) by number, O(log R)
+With the default sliding-snapshot strategy, writes use the [page fragments and copy-on-write paths described above](#the-solution);
+unchanged pages are referenced from the new revision, and the old revision remains intact and queryable.
+**Read cost**: opening a revision is O(1) by number, O(log R)
 by timestamp; each page read combines at most N fragments. The full strategy walkthrough is in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#mvcc--versioning).
 
 ## Quick Start
 
-> **Platform support:** Linux, macOS, and Windows are CI-tested on every pull request.
-> Linux additionally gets native binaries and the Docker images; known limitations are
+> **Platform support:** Linux (x86-64 and arm64), macOS, and Windows are CI-tested on every pull request.
+> Linux x86-64 additionally gets native binaries and the Docker images; known limitations are
 > listed in [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md).
 
 ### Using Docker and the REST API
@@ -194,10 +194,10 @@ SirixDB provides two CLI tools, both available as instant-startup native binarie
 | `sirix-cli` | sirix-kotlin-cli | Full-featured CLI for database operations |
 | `sirix-shell` | sirix-query | Interactive JSONiq/XQuery shell |
 
-Build native binaries with GraalVM:
+Build native binaries with the [GraalVM toolchain documented here](docs/NATIVE_IMAGE.md#toolchain):
 
 ```bash
-# Build both CLIs as native binaries (requires GraalVM with native-image)
+# Build both CLIs as native binaries
 ./gradlew :sirix-kotlin-cli:nativeCompile  # produces: sirix-cli
 ./gradlew :sirix-query:nativeCompile -Pnative.mainClass=io.sirix.query.Main -Pnative.imageName=sirix-shell
 
@@ -216,10 +216,21 @@ sirix-cli -l /tmp/mydb resource-history myresource
 ```
 
 `sirix-shell` is a JSONiq/XQuery REPL over the same data (`jn:store(...)`, `jn:doc(...)` —
-multi-line queries, empty line executes, Control-D exits).
+multi-line queries, an empty line executes accumulated input, Control-D or Control-C exits).
+An empty submission keeps the session open. A runtime query failure reports an error,
+discards that query's pending updates and returns to the prompt.
 Its terminal presentation adds syntax highlighting, formatted results and a revision
 indicator. See the [shell presentation reference](docs/shell-presentation.md) for colour
-controls, plain-output compatibility and the supported revision/diff inference forms.
+controls, error reporting, plain-output compatibility and the supported revision/diff inference forms.
+
+Run a query script with `sirix-shell -iqf queries.xq`, or pipe it into
+`sirix-shell -iqf -`. Empty lines and lines containing only spaces or tabs separate queries;
+repeated separators are skipped, and the final query needs no trailing separator. LF and
+CRLF line endings are accepted and joined with LF within each query, preserving indentation;
+other characters remain query content. Queries run in order in one session without prompts.
+A failed query uses the same failure boundary as the REPL, and later queries still run.
+The shell returns status 0 if all queries succeed and -1 if any fails. An unreadable script
+reports `I/O Error` and returns -1.
 
 JSONiq array access uses zero-based positions. Negative positions count from the end of
 each containing array: `jn:doc('mydb','myresource').numbers[-1].v` reads the last
@@ -240,11 +251,28 @@ xn:store('names', (), <root>
 </root>)
 ```
 
+`xn:store($coll, $res, $nodes, $create-new)` and the sibling `jn:store`, `jn:load` and
+`xn:load` functions create a database only when it is missing; they never drop an existing
+database. A single input uses `$res`, including singleton sorted
+or lazy sequences. A free resource name is added beside existing resources. A name that is already
+taken raises `SIRIXDBF0006` and writes nothing, whatever `$create-new` says: these functions never
+replace a resource in place. Every other resource keeps its content, revisions and indexes. Use
+`jn:import`/`xn:import` below to update a resource while preserving its history, drop the resource
+first to put unrelated content under its name, and see the [migration notes](CHANGELOG.md) for
+whole-database replacement.
+
+Several inputs use new automatic `resourceN` names regardless of `$res` or `$create-new`.
+Automatic naming skips names already in use, including names claimed by concurrent callers.
+With `$res = ()`, `xn:store` uses `resource1` for a single node in a new database and `resource`
+in an existing database, so storing a second unnamed single node into the same database is refused
+until that resource is dropped; `xn:load` uses automatic names in either case.
+
 For embedded Java/CLI queries, `xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
 `xn:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
-documents to an existing collection, or creates it if absent. An empty resource-name argument
-assigns names starting at `resource` followed by the current document count plus one. A failed
-addition reports the import error without replacing the collection or its existing documents.
+documents to an existing collection, or creates it if absent. Loads acquire every source before
+preparing targets or writing, so an unavailable source leaves existing content and revisions
+unchanged. A later parsing or write failure can leave earlier imports committed; a load is not
+a transaction across resources.
 
 `jn:import($database, $resource, $new-version)` is the JSON counterpart of
 `xn:import`: it compares a full new document against the latest stored revision with FMSE,
@@ -273,9 +301,10 @@ stored URI `https://example.test/ns?a=1&b=2` is written as
 query results also carry inherited namespace bindings, including unused and attribute-only
 prefixes; nearer declarations take precedence, including default-namespace undeclarations.
 
-When creating a collection from a sequence, `xn:store` and `xn:load` import documents
-concurrently and return successfully only after every import has committed and closed its write
-transaction. The query context can then be closed immediately. Import or stream failures reach
+When creating a collection from several nodes with `xn:store`, or from a URI sequence with
+`xn:load`, the functions import documents concurrently and return successfully only after every
+import has committed and closed its write transaction. The query context can then be closed
+immediately. Import or stream failures reach
 the caller after submitted workers finish; interruption interrupts and drains the workers and
 preserves the caller's interrupt flag. Failed creation does not roll back imports that already
 committed. These semantics also apply to `BasicXmlDBStore.create(String, Stream<NodeSubtreeParser>)`.
@@ -332,9 +361,11 @@ For XML collections, the `sirix-query` module provides
 [`BasicXmlDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/node/BasicXmlDBStore.java).
 Its builder's resource settings, including `versioningType(...)`, apply to direct imports and
 resources added to collections returned by `create` or `lookup` — through `collection.add(...)`,
-`xn:store(..., false())`, or `xn:load(..., false())`. Reopening a collection with different store
+`xn:store(...)`, or `xn:load(...)`. Reopening a collection with different store
 settings affects future additions; existing resources retain their persisted configuration.
-The `numberOfNodesBeforeAutoCommit(...)` threshold applies only to direct store imports.
+The `numberOfNodesBeforeAutoCommit(...)` threshold applies to direct store imports and query
+store/load imports into existing databases. Ordinary `collection.add(...)` calls retain their
+unbounded write transactions.
 
 The single-argument `create(name)` overload of the XML store and
 [`BasicJsonDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/json/BasicJsonDBStore.java)
@@ -356,8 +387,9 @@ Count-based and scheduled auto-commits cannot publish an XML list partway throug
 application. Adjacent text nodes are merged and empty text nodes removed after all
 operations have run, before publication. `CommitStrategy.AUTO` commits and closes each
 affected XML writer after successful application; `EXPLICIT` ends application without
-committing. A failed list marks every participating XML writer rollback-only; roll back
-before making further changes or committing. The publication-scope API contract is in
+committing. For application failures in either JSON or XML, see the
+[`SirixQueryContext.applyUpdates()` cleanup and writer-ownership contract](bundles/sirix-query/src/main/java/io/sirix/query/SirixQueryContext.java).
+The publication-scope API contract, including rollback-only writer restrictions, is in
 [`XmlNodeTrx`](bundles/sirix-core/src/main/java/io/sirix/api/xml/XmlNodeTrx.java).
 
 XQuery `insert nodes` preserves the source sequence order at every insertion position:
@@ -679,7 +711,7 @@ cd sirix
 --add-opens=java.base/java.util=ALL-UNNAMED
 ```
 
-**Build native binaries** (requires GraalVM):
+**Build native binaries**:
 
 For the CLI build commands, see [Using the CLI (Native Binaries)](#using-the-cli-native-binaries).
 For benchmark image builds and their options, see

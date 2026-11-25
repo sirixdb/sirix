@@ -1,5 +1,6 @@
 package io.sirix.utils;
 
+import io.sirix.index.IndexType;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -11,6 +12,7 @@ import java.util.concurrent.atomic.LongAdder;
 public final class ReplayWorkDiagnostics {
   public static final boolean ENABLED = Boolean.getBoolean("sirix.replay.workDiag");
   private static final LongAdder RECORD_VISITS = new LongAdder();
+  private static final LongAdder DOCUMENT_VISITS = new LongAdder();
   private static final LongAdder PATH_STEPS = new LongAdder();
   private static final LongAdder CREATED_IDENTITIES = new LongAdder();
   private static final LongAdder STAGED_RECORDS = new LongAdder();
@@ -26,9 +28,26 @@ public final class ReplayWorkDiagnostics {
 
   private ReplayWorkDiagnostics() {}
 
+  /** A document cursor move or a storage event already specialized to DOCUMENT. */
   public static void recordVisited() {
-    if (ENABLED)
+    if (ENABLED) {
       RECORD_VISITS.increment();
+      DOCUMENT_VISITS.increment();
+    }
+  }
+
+  /** Index-aware storage event; no type check survives when diagnostics are disabled. */
+  public static void recordVisited(final IndexType indexType) {
+    if (ENABLED) {
+      RECORD_VISITS.increment();
+      if (indexType == IndexType.DOCUMENT) {
+        DOCUMENT_VISITS.increment();
+      }
+    }
+  }
+
+  public static long documentVisits() {
+    return DOCUMENT_VISITS.sum();
   }
 
   public static void pathStep() {

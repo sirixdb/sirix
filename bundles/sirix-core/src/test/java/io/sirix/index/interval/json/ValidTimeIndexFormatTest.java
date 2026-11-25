@@ -87,11 +87,11 @@ final class ValidTimeIndexFormatTest {
     Databases.clearGlobalCaches();
     try (var database = Databases.openJsonDatabase(databasePath); var session = database.beginResourceSession("rows")) {
       final byte[] catalogueBytes = Files.readAllBytes(catalogue);
-      final long[] history = session.getHistoryTimestamps();
+      final long[] history = session.getHistoryTimestampsMicros();
       assertTrue(session.getRtxIndexController(1).getIndexes().getIndexDefs().isEmpty());
       assertThrows(UnsupportedOperationException.class, session::beginNodeTrx);
       assertEquals(1, session.getMostRecentRevisionNumber());
-      assertArrayEquals(history, session.getHistoryTimestamps());
+      assertArrayEquals(history, session.getHistoryTimestampsMicros());
       assertArrayEquals(catalogueBytes, Files.readAllBytes(catalogue));
     }
     Databases.clearGlobalCaches();

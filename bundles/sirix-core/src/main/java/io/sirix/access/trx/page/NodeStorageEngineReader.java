@@ -568,7 +568,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   @SuppressWarnings("unchecked")
   public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType, final int index) {
-    ReplayWorkDiagnostics.recordVisited();
+    ReplayWorkDiagnostics.recordVisited(indexType);
     requireNonNull(indexType);
     assertNotClosed();
     validateKeyedTrieRoute(this, indexType, index);
@@ -1723,8 +1723,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public RevisionRootPage loadRevRoot(final int revisionKey) {
     // Pipelined async commit: revision N's root exists canonically in memory after phase 1 but
     // is neither published (lastCommittedUberPage) nor recorded in the revisions file until the
-    // background hardening completes. Serve it from the session's pending slot.
-    final RevisionRootPage pendingRevisionRoot = resourceSession.getPendingRevisionRoot(revisionKey);
+    // background hardening completes. Only writer readers with intent logs may use the pending
+    // slot; ordinary readers, including callback views, must resolve a durable root.
+    final RevisionRootPage pendingRevisionRoot = trxIntentLog == null
+        ? null
+        : resourceSession.getPendingRevisionRoot(revisionKey);
     if (pendingRevisionRoot != null) {
       return pendingRevisionRoot;
     }

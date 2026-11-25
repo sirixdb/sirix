@@ -615,8 +615,11 @@ public final class BufferManagerImpl implements BufferManager {
       // It is why a run that replaces the global manager (reinitializeBufferManagerForTesting) ended
       // with dozens of unguarded, uncached, unclosed pages in the -Dsirix.debug.memory.leaks census.
       // Sweepers are stopped first so none is mid-eviction while the maps are torn down.
-      clearAllCaches();
-      isShutdown = true;
+      try {
+        clearAllCaches();
+      } finally {
+        isShutdown = true;
+      }
     }
   }
 
@@ -627,21 +630,59 @@ public final class BufferManagerImpl implements BufferManager {
    * handle future evictions as new pages are loaded).
    */
   @Override
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   public void clearAllCaches() {
     Throwable failure = null;
     try {
       pageCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
       recordPageCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
       recordPageFragmentCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
       revisionRootPageCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
       namesCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
       globalVerdictCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
       segmentVerdictCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
       globalDictionaryRecordCache.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
       globalDictionaryWarmMarkers.clear();
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    try {
       pathSummaryCache.clear();
     } catch (final RuntimeException | Error e) {
-      failure = e;
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
     }
     try {
       hotLeafPageCache.clear();

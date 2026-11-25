@@ -52,6 +52,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.sirix.utils.CommitTimestamps;
 import java.util.concurrent.atomic.LongAdder;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -1293,7 +1294,7 @@ public final class FileChannelReader extends AbstractReader {
       }
       final long recordOffset = IOStorage.revisionsFileOffset(revision);
       final long offset = ringRecord.offset();
-      final long timestampMillis = ringRecord.timestamp().toEpochMilli();
+      final long timestampMicros = CommitTimestamps.toEpochMicros(ringRecord.timestamp());
       final long pageHash = ringRecord.pageHash();
       final ByteBuffer current =
           ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
@@ -1315,7 +1316,7 @@ public final class FileChannelReader extends AbstractReader {
         }
         final boolean nowValid = current.getLong(16) == IOStorage.expectedRevisionRecordChecksum(current.getLong(0),
             current.getLong(8), current.getLong(24));
-        if (nowValid && (current.getLong(0) != offset || current.getLong(8) != timestampMillis
+        if (nowValid && (current.getLong(0) != offset || current.getLong(8) != timestampMicros
             || current.getLong(24) != pageHash)) {
           LOGGER.warn("Skipping heal of revision record {} — a concurrent writer rewrote the slot "
               + "with a different valid record", revision);
@@ -1325,8 +1326,8 @@ public final class FileChannelReader extends AbstractReader {
       final ByteBuffer record =
           ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
       record.putLong(offset);
-      record.putLong(timestampMillis);
-      record.putLong(IOStorage.expectedRevisionRecordChecksum(offset, timestampMillis, pageHash));
+      record.putLong(timestampMicros);
+      record.putLong(IOStorage.expectedRevisionRecordChecksum(offset, timestampMicros, pageHash));
       record.putLong(pageHash);
       record.flip();
       while (record.hasRemaining()) {

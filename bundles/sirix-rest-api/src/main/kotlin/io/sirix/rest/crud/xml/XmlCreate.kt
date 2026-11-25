@@ -2,17 +2,16 @@ package io.sirix.rest.crud.xml
 
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.file.OpenOptions
+import io.vertx.ext.auth.User as VertxUser
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
-import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.Databases
 import io.sirix.access.ResourceConfiguration
-import io.sirix.access.User
 import io.sirix.access.trx.node.HashType
-import io.sirix.api.Database
 import io.sirix.api.xml.XmlNodeTrx
 import io.sirix.api.xml.XmlResourceSession
 import io.sirix.rest.crud.AbstractCreateHandler
@@ -24,55 +23,38 @@ import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.*
+import java.util.UUID
 
 
 class XmlCreate(
-    location: Path,
-    createMultipleResources: Boolean = false
-) : AbstractCreateHandler<XmlResourceSession>(location, createMultipleResources) {
+    location: Path
+) : AbstractCreateHandler<XmlResourceSession>(location) {
     override suspend fun insertResource(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
     ) {
-        val dispatcher = ctx.vertx().dispatcher()
         ctx.request().pause()
-
         val tempFilePath = withContext(Dispatchers.IO) {
             Files.createTempFile(UUID.randomUUID().toString(), null)
         }
-
-        val file = ctx.vertx().fileSystem().open(
-            tempFilePath.toString(),
-            OpenOptions()
-        ).coAwait()
-        ctx.request().resume()
-        ctx.request().pipeTo(file).coAwait()
-
-        withContext(Dispatchers.IO) {
-            var body: Buffer? = null
-            val sirixDBUser = SirixDBUser.create(ctx)
-            val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
-
-            database.use {
-                val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
-                val useDeweyIDs = ctx.queryParam("useDeweyIDs").getOrNull(0)?.toBoolean() ?: false
-                val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
-                val resConfig =
-                    ResourceConfiguration.Builder(resPathName).hashKind(
-                        HashType.valueOf(hashType.uppercase())
-                    )
+        try {
+            val file = ctx.vertx().fileSystem().open(tempFilePath.toString(), OpenOptions()).coAwait()
+            // pipeTo installs the consumer before it resumes buffered request data.
+            ctx.request().pipeTo(file).coAwait()
+            withContext(Dispatchers.IO) {
+                var body: Buffer? = null
+                val sirixDBUser = SirixDBUser.create(ctx)
+                Databases.openXmlDatabase(dbFile, sirixDBUser).use { database ->
+                    val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
+                    val useDeweyIDs = ctx.queryParam("useDeweyIDs").getOrNull(0)?.toBoolean() ?: false
+                    val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
+                    val resConfig = ResourceConfiguration.Builder(resPathName)
+                        .hashKind(HashType.valueOf(hashType.uppercase()))
                         .useDeweyIDs(useDeweyIDs)
                         .customCommitTimestamps(commitTimestampAsString != null).build()
-                createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
-                try {
-                    withCleanupOnFailedShred(database, resPathName, dispatcher) {
-                        val manager = database.beginResourceSession(resPathName)
-
-                        manager.use {
-                            val maxNodeKey =
-                                insertResourceSubtreeAsFirstChild(manager, tempFilePath.toAbsolutePath(), ctx)
-
+                    createAndWriteResource(database, resConfig, resPathName, ctx.get<VertxUser>("user")!!, ctx.pathParam("database")!!) {
+                        database.beginResourceSession(resPathName).use { manager ->
+                            val maxNodeKey = insertResourceSubtreeAsFirstChild(manager, tempFilePath, ctx)
                             if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
                                 body = serializeResource(manager, ctx)
                             } else {
@@ -80,20 +62,16 @@ class XmlCreate(
                             }
                         }
                     }
-                } finally {
-                    // Delete the temp upload file on success AND failure (previously success-only,
-                    // leaking a temp file per failed upload).
-                    try {
-                        ctx.vertx().fileSystem().delete(tempFilePath.toString()).coAwait()
-                    } catch (ignored: Exception) {
-                    }
+                }
+                if (body != null) {
+                    ctx.response().end(body)
+                } else {
+                    ctx.response().end()
                 }
             }
-
-            if (body != null) {
-                ctx.response().end(body)
-            } else {
-                ctx.response().end()
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) {
+                Files.deleteIfExists(tempFilePath)
             }
         }
     }
@@ -113,7 +91,7 @@ class XmlCreate(
     }
 
 
-    override fun insertResourceSubtreeAsFirstChild(
+    fun insertResourceSubtreeAsFirstChild(
         manager: XmlResourceSession,
         filePath: Path,
         ctx: RoutingContext
@@ -137,10 +115,6 @@ class XmlCreate(
                 wtx.maxNodeKey
             }
         }
-    }
-
-    override suspend fun openDatabase(dbFile: Path, sirixDBUser: User): Database<XmlResourceSession> {
-        return Databases.openXmlDatabase(dbFile, sirixDBUser)
     }
 
     override fun createDatabase(dbConfig: DatabaseConfiguration?) {

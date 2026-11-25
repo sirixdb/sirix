@@ -8,7 +8,6 @@ import io.sirix.page.interfaces.Page;
 import org.junit.Test;
 
 import java.io.InputStream;
-import java.time.Instant;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertNotNull;
@@ -41,9 +40,8 @@ public final class LegacyEnvelopeImagesTest {
       System.arraycopy(original, 3, extended, 6, original.length - 3);
       try (
           final Page decoded = persister.deserializePage(config, Bytes.wrapForRead(extended), SerializationType.DATA)) {
-        if (decoded instanceof RevisionRootPage root) {
-          root.setCommitTimestamp(Instant.ofEpochMilli(root.getRevisionTimestamp()));
-        }
+        // A deserialized revision root keeps its stored commit timestamp, so the rewrite below is
+        // byte-identical without pinning it.
         final BytesOut<?> rewritten = Bytes.elasticHeapByteBuffer();
         persister.serializePage(config, rewritten, decoded, SerializationType.DATA);
         assertArrayEquals("Unknown entry survived rewrite of kind " + kind, original, rewritten.toByteArray());

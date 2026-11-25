@@ -33,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -152,7 +153,7 @@ final class DurableBatchReadFailureReleaseTest {
   }
 
   @Test
-  void anInMemoryStoreKeepsItsPagesWhenASideMapReferenceDangles() {
+  void anInMemoryStoreKeepsItsCommittedPagesWhenASideMapReferenceDangles() {
     final ResourceConfiguration ramConfig = new ResourceConfiguration.Builder("durable-batch-release-ram").build();
     ramConfig.resourcePath = Path.of("durable-batch-release-ram");
     final RAMStorage ram = new RAMStorage(ramConfig);
@@ -174,11 +175,18 @@ final class DurableBatchReadFailureReleaseTest {
       overRam.close();
     }
 
-    final HOTLeafPage reread = assertInstanceOf(HOTLeafPage.class, ram.createReader().read(leafReference, ramConfig));
-    assertSame(stored, reread);
-    assertFalse(reread.isClosed(), "the only copy of an in-memory store's page must survive a failed read");
-    assertEquals(0, releases.get());
-    assertArrayEquals(VALUE, reread.copyStoredValue(reread.findEntry(KEY)));
+    try {
+      // The store keeps the page's encoding, not the writer's instance: the pages the failed reads
+      // decoded were the caller's to release, and the committed page decodes again intact.
+      final HOTLeafPage reread = assertInstanceOf(HOTLeafPage.class, ram.createReader().read(leafReference, ramConfig));
+      assertNotSame(stored, reread);
+      assertFalse(reread.isClosed(), "an in-memory store's committed page must survive a failed read");
+      assertFalse(stored.isClosed(), "a failed read must not release the writer's own instance");
+      assertEquals(0, releases.get());
+      assertArrayEquals(VALUE, reread.copyStoredValue(reread.findEntry(KEY)));
+    } finally {
+      RAMStorage.discardUnder(ramConfig.resourcePath);
+    }
   }
 
   private NodeStorageEngineReader readerOver(final Reader backend) {

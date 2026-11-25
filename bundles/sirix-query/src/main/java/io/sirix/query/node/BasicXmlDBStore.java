@@ -79,11 +79,6 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private final Path location;
 
   /**
-   * Number of inserted nodes before an auto-commit during a direct import.
-   */
-  private final int numberOfNodesBeforeAutoCommit;
-
-  /**
    * Get a new builder instance.
    */
   public static Builder newBuilder() {
@@ -276,7 +271,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
     XmlResourceOptions resourceOptions() {
       return new XmlResourceOptions(storageType, buildPathSummary, buildPathStatistics, storeDeweyIds, hashType,
-          versioningType, storeNodeHistory);
+          versioningType, storeNodeHistory, numberOfNodesBeforeAutoCommit);
     }
   }
 
@@ -290,7 +285,6 @@ public final class BasicXmlDBStore implements XmlDBStore {
     collections = new ConcurrentHashMap<>();
     resourceOptions = builder.resourceOptions();
     location = builder.location;
-    numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
   }
 
   /**
@@ -387,7 +381,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       collections.put(database, collection);
 
       try (final XmlResourceSession resourceSession = database.beginResourceSession(resName);
-          final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+          final XmlNodeTrx wtx = resourceOptions.beginImportTrx(resourceSession)) {
         parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
         wtx.commit(commitMessage, commitTimestamp);
       }
@@ -428,7 +422,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
           }
           imports.add(importPool.submit(() -> {
             try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
-                final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+                final XmlNodeTrx wtx = resourceOptions.beginImportTrx(resourceSession)) {
               nextParser.parse(
                   new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
               wtx.commit();

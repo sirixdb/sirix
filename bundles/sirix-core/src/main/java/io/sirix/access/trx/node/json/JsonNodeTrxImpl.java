@@ -128,7 +128,7 @@ import io.sirix.index.interval.json.JsonValidTimeIndexListener;
 import io.sirix.service.json.replay.JsonReplayTransitionValidator;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.locks.Lock;
+import io.sirix.access.trx.node.TransactionExecutionLock;
 
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
@@ -312,8 +312,8 @@ final class JsonNodeTrxImpl extends
       final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceSession,
       final InternalJsonNodeReadOnlyTrx nodeReadTrx,
       @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, final int maxNodeCount,
-      @Nullable final Lock transactionLock, final Duration afterCommitDelay, final JsonNodeHashing nodeHashing,
-      final JsonNodeFactory nodeFactory, final AfterCommitState afterCommitState,
+      @Nullable final TransactionExecutionLock transactionLock, final Duration afterCommitDelay,
+      final JsonNodeHashing nodeHashing, final JsonNodeFactory nodeFactory, final AfterCommitState afterCommitState,
       final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting) {
     super(new JsonNodeTrxThreadFactory(), resourceSession.getResourceConfig().hashType, nodeReadTrx, nodeReadTrx,
         resourceSession, afterCommitState, nodeHashing, pathSummaryWriter, nodeFactory, nodeToRevisionsIndex,
@@ -4548,25 +4548,17 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
-  public synchronized JsonNodeTrx rollback() {
-    runLocked(() -> {
-      super.rollback();
-      beforeBulkInsertionRevisionNumber = -1;
-      suppressUpdateDiffs = false;
-    });
-    return this;
+  protected void afterRollback() {
+    beforeBulkInsertionRevisionNumber = -1;
+    suppressUpdateDiffs = false;
   }
 
   @Override
-  public JsonNodeTrx revertTo(final int revision) {
-    runLocked(() -> {
-      super.revertTo(revision);
-      replaySourceResource = null;
-      replaySourceIdentity = null;
-      beforeBulkInsertionRevisionNumber = -1;
-      suppressUpdateDiffs = resourceSession.getResourceConfig().storeDiffs();
-    });
-    return this;
+  protected void afterRevert() {
+    replaySourceResource = null;
+    replaySourceIdentity = null;
+    beforeBulkInsertionRevisionNumber = -1;
+    suppressUpdateDiffs = resourceSession.getResourceConfig().storeDiffs();
   }
 
   @Override

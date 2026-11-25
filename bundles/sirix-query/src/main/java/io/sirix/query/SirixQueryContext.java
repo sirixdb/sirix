@@ -34,6 +34,7 @@ import io.sirix.query.compiler.optimizer.PlanCache;
 import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.JsonDBObject;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBNode;
@@ -53,6 +54,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
@@ -231,6 +233,16 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
     queryContextDelegate.setDefaultNodeCollection(defaultNodeCollection);
   }
 
+  /**
+   * Applies pending updates using this context's commit strategy. If operation application fails,
+   * writers opened by the apply are rolled back and closed; caller-held writers remain open under
+   * caller ownership. JSON object targets of rolled-back sessions discard memoized values so retained
+   * items read their original committed snapshot. Caller-held XML writers remain rollback-only and
+   * must be rolled back before reuse. A runtime release failure is suppressed on the original apply
+   * failure. This cleanup does not cover failures during the subsequent automatic commit or clear the
+   * pending update list; a caller reusing the context must discard the failed query's pending
+   * updates.
+   */
   @Override
   public void applyUpdates() {
     final UpdateList pending = queryContextDelegate.getUpdateList();
@@ -245,12 +257,26 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
         break;
       }
     }
+    // A failed apply must not leave behind a JSON writer it opened: a later query would reuse that
+    // writer and commit this query's partial changes. Writers held before the apply stay open.
+    final Set<JsonResourceSession> jsonSessionsWithoutWriter = jsonSessionsWithoutWriter(pending.list());
     final List<XmlNodeTrx> xmlWriters;
-    if (hasXmlTargets) {
-      xmlWriters = applyXmlUpdates(pending.list());
-    } else {
-      queryContextDelegate.applyUpdates();
-      xmlWriters = Collections.emptyList();
+    try {
+      if (hasXmlTargets) {
+        xmlWriters = applyXmlUpdates(pending.list());
+      } else {
+        queryContextDelegate.applyUpdates();
+        xmlWriters = Collections.emptyList();
+      }
+    } catch (final RuntimeException | Error failure) {
+      for (final JsonResourceSession session : jsonSessionsWithoutWriter) {
+        final Optional<JsonNodeTrx> opened = session.getNodeTrx();
+        if (opened.isPresent()) {
+          release(opened.get(), failure);
+        }
+      }
+      clearRolledBackJsonTargets(pending.list(), jsonSessionsWithoutWriter);
+      throw failure;
     }
 
     if (commitStrategy == CommitStrategy.AUTO) {
@@ -269,61 +295,132 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   /** Hold every XML writer through operation application and final text normalization. */
   private List<XmlNodeTrx> applyXmlUpdates(final List<UpdateOp> operations) {
     final List<XmlNodeTrx> writers = new ArrayList<>(1);
+    final List<XmlNodeTrx> createdWriters = new ArrayList<>(1);
+    Throwable failed = null;
     final Map<XmlResourceId, XmlNodeTrx> suppliedWriters = HashMap.newHashMap(1);
     final Map<XmlResourceId, XmlNodeTrx> writersByResource = HashMap.newHashMap(1);
     final List<UpdateOp> originals = new ArrayList<>(operations);
     try {
-      for (final UpdateOp operation : originals) {
-        if (operation.getTarget() instanceof XmlDBNode source) {
-          final XmlNodeReadOnlyTrx reader = source.getTrx();
-          final XmlNodeTrx writer = reader.getResourceSession().getNodeTrx().orElse(null);
-          if (writer != null) {
-            suppliedWriters.putIfAbsent(XmlResourceId.of(reader), writer);
-          }
-        }
-      }
-      for (final UpdateOp operation : originals) {
-        if (operation.getTarget() instanceof XmlDBNode source) {
-          final XmlNodeReadOnlyTrx reader = source.getTrx();
-          final XmlResourceSession session = reader.getResourceSession();
-          final XmlResourceId resource = XmlResourceId.of(reader);
-          if (!writersByResource.containsKey(resource)) {
-            final XmlNodeTrx supplied = suppliedWriters.get(resource);
-            final boolean created = supplied == null;
-            final XmlNodeTrx writer = supplied == null
-                ? session.beginNodeTrx()
-                : supplied;
-            writer.beginAtomicOperation();
-            writers.add(writer);
-            writersByResource.put(resource, writer);
-            if (created && reader.getRevisionNumber() < session.getMostRecentRevisionNumber()) {
-              writer.revertTo(reader.getRevisionNumber());
-            }
-          }
-        }
-      }
-      for (int i = 0; i < originals.size(); i++) {
-        final UpdateOp operation = originals.get(i);
-        if (operation.getTarget() instanceof XmlDBNode source) {
-          final XmlNodeTrx writer = requireNonNull(writersByResource.get(XmlResourceId.of(source.getTrx())));
-          operations.set(i, new XmlNodeUpdate(operation, source.writerView(writer)));
-        }
-      }
+      collectSuppliedXmlWriters(originals, suppliedWriters);
+      beginXmlWriters(originals, suppliedWriters, writersByResource, writers, createdWriters);
+      bindXmlUpdateTargets(originals, operations, writersByResource);
       queryContextDelegate.applyUpdates();
     } catch (final RuntimeException | Error failure) {
       for (final XmlNodeTrx writer : writers) {
         writer.markRollbackOnly(failure);
       }
+      failed = failure;
       throw failure;
     } finally {
-      // Keep original snapshot identities and targets available to the caller after application.
-      operations.clear();
-      operations.addAll(originals);
-      for (int i = writers.size() - 1; i >= 0; i--) {
-        writers.get(i).endAtomicOperation();
-      }
+      finishXmlUpdates(operations, originals, writers, createdWriters, failed);
     }
     return writers;
+  }
+
+  private static void collectSuppliedXmlWriters(final List<UpdateOp> originals,
+      final Map<XmlResourceId, XmlNodeTrx> suppliedWriters) {
+    for (final UpdateOp operation : originals) {
+      if (operation.getTarget() instanceof XmlDBNode source) {
+        final XmlNodeReadOnlyTrx reader = source.getTrx();
+        final XmlNodeTrx writer = reader.getResourceSession().getNodeTrx().orElse(null);
+        if (writer != null) {
+          suppliedWriters.putIfAbsent(XmlResourceId.of(reader), writer);
+        }
+      }
+    }
+  }
+
+  private static void beginXmlWriters(final List<UpdateOp> originals,
+      final Map<XmlResourceId, XmlNodeTrx> suppliedWriters, final Map<XmlResourceId, XmlNodeTrx> writersByResource,
+      final List<XmlNodeTrx> writers, final List<XmlNodeTrx> createdWriters) {
+    for (final UpdateOp operation : originals) {
+      if (operation.getTarget() instanceof XmlDBNode source) {
+        final XmlNodeReadOnlyTrx reader = source.getTrx();
+        final XmlResourceSession session = reader.getResourceSession();
+        final XmlResourceId resource = XmlResourceId.of(reader);
+        if (!writersByResource.containsKey(resource)) {
+          final XmlNodeTrx supplied = suppliedWriters.get(resource);
+          final boolean created = supplied == null;
+          final XmlNodeTrx writer = supplied == null
+              ? session.beginNodeTrx()
+              : supplied;
+          if (created) {
+            createdWriters.add(writer);
+          }
+          writer.beginAtomicOperation();
+          writers.add(writer);
+          writersByResource.put(resource, writer);
+          if (created && reader.getRevisionNumber() < session.getMostRecentRevisionNumber()) {
+            writer.revertTo(reader.getRevisionNumber());
+          }
+        }
+      }
+    }
+  }
+
+  private static void bindXmlUpdateTargets(final List<UpdateOp> originals, final List<UpdateOp> operations,
+      final Map<XmlResourceId, XmlNodeTrx> writersByResource) {
+    for (int i = 0; i < originals.size(); i++) {
+      final UpdateOp operation = originals.get(i);
+      if (operation.getTarget() instanceof XmlDBNode source) {
+        final XmlNodeTrx writer = requireNonNull(writersByResource.get(XmlResourceId.of(source.getTrx())));
+        operations.set(i, new XmlNodeUpdate(operation, source.writerView(writer)));
+      }
+    }
+  }
+
+  private static void finishXmlUpdates(final List<UpdateOp> operations, final List<UpdateOp> originals,
+      final List<XmlNodeTrx> writers, final List<XmlNodeTrx> createdWriters, final @Nullable Throwable failed) {
+    // Keep original snapshot identities and targets available to the caller after application.
+    operations.clear();
+    operations.addAll(originals);
+    for (int i = writers.size() - 1; i >= 0; i--) {
+      writers.get(i).endAtomicOperation();
+    }
+    // A rollback-only writer left on the session would refuse every later update of the
+    // resource. Release the writers this apply opened; supplied writers stay with their owner.
+    if (failed != null) {
+      for (final XmlNodeTrx writer : createdWriters) {
+        release(writer, failed);
+      }
+    }
+  }
+
+  /**
+   * Rolls back and closes a writer opened by a failed update application. A failure to release is
+   * attached to the original failure, which stays the one reported.
+   */
+  private static void release(final NodeTrx writer, final Throwable failure) {
+    try {
+      writer.rollback();
+      writer.close();
+    } catch (final RuntimeException releaseFailure) {
+      failure.addSuppressed(releaseFailure);
+    }
+  }
+
+  /** The distinct sessions of JSON update targets that hold no writer before the updates apply. */
+  private static Set<JsonResourceSession> jsonSessionsWithoutWriter(final List<UpdateOp> operations) {
+    // Identity set: one entry per session however many operations target it.
+    final Set<JsonResourceSession> sessions = Collections.newSetFromMap(new IdentityHashMap<>(2));
+    for (final UpdateOp operation : operations) {
+      if (operation.getTarget() instanceof JsonDBItem item) {
+        final JsonResourceSession session = item.getTrx().getResourceSession();
+        if (session.getNodeTrx().isEmpty()) {
+          sessions.add(session);
+        }
+      }
+    }
+    return sessions;
+  }
+
+  private static void clearRolledBackJsonTargets(final List<UpdateOp> operations,
+      final Set<JsonResourceSession> sessions) {
+    for (final UpdateOp operation : operations) {
+      if (operation.getTarget() instanceof JsonDBObject target && sessions.contains(target.getResourceSession())) {
+        target.clearMemo();
+      }
+    }
   }
 
   private record XmlResourceId(long databaseId, long resourceId) {

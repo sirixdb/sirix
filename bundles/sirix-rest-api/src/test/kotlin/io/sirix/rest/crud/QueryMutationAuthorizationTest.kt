@@ -300,7 +300,9 @@ class QueryMutationAuthorizationTest {
      * Both the store decorator and [PermissionCheckingQuery]'s updating-expression check refuse
      * mutations with [HttpException] 403. A query validation error is not an authorization refusal.
      */
-    private fun assertRefused(query: String, body: () -> Unit) {
+    private fun assertRefused(query: String, body: () -> Unit) = assertRefused(query, 403, body)
+
+    private fun assertRefused(query: String, status: Int, body: () -> Unit) {
         val thrown = assertThrows(RuntimeException::class.java, body)
         val routing = Mockito.mock(RoutingContext::class.java)
         val response = Mockito.mock(HttpServerResponse::class.java, Mockito.RETURNS_SELF)
@@ -309,7 +311,7 @@ class QueryMutationAuthorizationTest {
         Mockito.`when`(routing.request()).thenReturn(Mockito.mock(HttpServerRequest::class.java))
         Mockito.`when`(routing.response()).thenReturn(response)
         routerFailureHandler().handle(routing)
-        Mockito.verify(response, Mockito.description(query)).setStatusCode(403)
+        Mockito.verify(response, Mockito.description(query)).setStatusCode(status)
     }
 
     /** Everything a refused mutation could have touched, captured as comparable bytes. */
@@ -405,11 +407,10 @@ class QueryMutationAuthorizationTest {
      * the resource sessions they registered, which would close the session the assertions read.
      */
     /**
-     * Writing into a resource that already exists is a modification, so CREATE alone must not reach
-     * it. Both functions previously ended at the store's and collection's CREATE-checked entry
-     * points only, which let a caller holding CREATE but not MODIFY overwrite existing data — the
-     * create-new flag does not decide this, because the create path shreds into a resource that is
-     * already there instead of refusing it.
+     * CREATE alone must never change a resource that already exists. A name that is taken is refused
+     * as a client error before anything is written (400, `SIRIXDBF0006`), whatever $create-new says:
+     * the query functions never replace a resource in place (#1384). The resource and its writer
+     * state are untouched.
      */
     @ParameterizedTest
     @CsvSource("store,true", "store,false", "load,true", "load,false")
@@ -423,27 +424,52 @@ class QueryMutationAuthorizationTest {
         withRoles("auth-view", "create") { fixture ->
             fixture.store.lookup("auth")!!.database.beginResourceSession("records1").use { session ->
                 val before = witness(session)
-                assertRefused(query) { run(fixture, query, keycloak) }
+                assertRefused(query, 400) { run(fixture, query, keycloak) }
                 assertTrue(session.nodeTrx.isEmpty, "A refused store/load must leave no write transaction open")
                 assertWitnessUnchanged(before, witness(session), query)
             }
         }
     }
 
+    /**
+     * Storing into an existing database adds resources and never drops the database (#1384), so
+     * CREATE suffices and every existing resource keeps its content and history.
+     */
     @ParameterizedTest
     @CsvSource(
-        "store,named", "store,existing", "store,generated", "store,multiple",
-        "load,named", "load,existing", "load,generated", "load,multiple"
+        "store,named,fresh", "store,generated,resource", "store,multiple,resource1|resource2",
+        "load,named,fresh", "load,generated,resource", "load,multiple,resource1|resource2"
     )
-    fun createRoleCannotReplaceAnExistingDatabase(function: String, target: String) {
+    fun createRoleAddsResourcesWithoutTouchingTheOthers(function: String, target: String, added: String) {
         createDatabase()
         val before = databaseWitness()
         val query = replacementQuery(function, target)
         withRoles("auth-view", "create") { fixture ->
-            assertRefused(query) { run(fixture, query, Mockito.mock(OAuth2Auth::class.java)) }
+            run(fixture, query, Mockito.mock(OAuth2Auth::class.java))
         }
         val after = databaseWitness()
-        assertEquals(before.first, after.first, "A refused replacement changed the database resources")
+        assertEquals(before.first + added.split('|'), after.first, query)
+        assertWitnessUnchanged(before.second, after.second, query)
+    }
+
+    /**
+     * A name that is taken is refused however many roles the caller holds: the query functions never
+     * replace a resource in place, so no role combination turns the refusal into a write (#1384).
+     */
+    @ParameterizedTest
+    @CsvSource(
+        "store,create", "store,create|modify", "store,create|delete", "store,create|modify|delete",
+        "load,create", "load,create|modify", "load,create|delete", "load,create|modify|delete"
+    )
+    fun anExistingNameIsRefusedWhateverRolesAreHeld(function: String, roles: String) {
+        createDatabase()
+        val before = databaseWitness()
+        val query = replacementQuery(function, "existing")
+        withRoles("auth-view", *roles.split('|').toTypedArray()) { fixture ->
+            assertRefused(query, 400) { run(fixture, query, Mockito.mock(OAuth2Auth::class.java)) }
+        }
+        val after = databaseWitness()
+        assertEquals(before.first, after.first, "A refused store/load changed the database resources")
         assertWitnessUnchanged(before.second, after.second, query)
     }
 
@@ -513,32 +539,46 @@ class QueryMutationAuthorizationTest {
         }
     }
 
+    /**
+     * Holding MODIFY and DELETE besides CREATE adds resources beside the existing ones and still
+     * never replaces or drops anything: the extra roles buy no in-place replacement (#1384).
+     */
     @ParameterizedTest
     @CsvSource(
-        "store,named", "store,existing", "store,generated", "store,multiple",
-        "load,named", "load,existing", "load,generated", "load,multiple"
+        "store,named", "store,generated", "store,multiple",
+        "load,named", "load,generated", "load,multiple"
     )
-    fun createAndDeleteRolesCanReplaceAnExistingDatabase(function: String, target: String) {
+    fun createModifyAndDeleteRolesOnlyAddResources(function: String, target: String) {
         createDatabase()
-        withRoles("auth-view", "create", "delete") { fixture ->
+        withRoles("auth-view", "create", "modify", "delete") { fixture ->
             run(fixture, replacementQuery(function, target), Mockito.mock(OAuth2Auth::class.java))
         }
         Databases.clearGlobalCaches()
         Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
             val expected = when (target) {
-                "named" -> setOf("fresh")
-                "existing" -> setOf("records")
-                "generated" -> setOf("resource")
-                "multiple" -> setOf("resource1", "resource2")
+                "named" -> setOf("records", "fresh")
+                "generated" -> setOf("records", "resource")
+                "multiple" -> setOf("records", "resource1", "resource2")
                 else -> error(target)
             }
             assertEquals(expected, database.listResources().map { it.fileName.toString() }.toSet())
+            database.beginResourceSession("records").use { session ->
+                session.beginNodeReadOnlyTrx().use { reader ->
+                    assertEquals(Instant.parse("2024-01-15T00:00:00Z"), reader.revisionTimestamp,
+                        "The existing resource must keep its original commit")
+                }
+            }
         }
     }
 
+    /**
+     * Generated names are always new (#1478): a batch append skips every existing name, including
+     * those the former naming resolved to (resource21, resource41), so CREATE suffices and no
+     * existing resource is written into.
+     */
     @ParameterizedTest
     @CsvSource("store,0", "store,1", "load,0", "load,1")
-    fun generatedAppendCannotOverwriteAnyResolvedTarget(function: String, position: Int) {
+    fun generatedAppendNeverReachesAnExistingResource(function: String, position: Int) {
         val target = if (position == 0) "resource21" else "resource41"
         createDatabase(resourceName = target)
         Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
@@ -547,26 +587,16 @@ class QueryMutationAuthorizationTest {
                 database.createResource(ResourceConfiguration.newBuilder("resource4").storageType(StorageType.FILE_CHANNEL).build())
             }
         }
+        val before = databaseWitness(target)
         val input = "'{}'"
         val query = "jn:$function('auth','fresh',($input,$input),false())"
         withRoles("auth-view", "create") { fixture ->
-            val database = fixture.store.lookup("auth")!!.database
-            val resources = database.listResources().toSet()
-            database.beginResourceSession(target).use { session ->
-                val before = witness(session)
-                assertRefused(query) { run(fixture, query, Mockito.mock(OAuth2Auth::class.java)) }
-                assertEquals(resources, database.listResources().toSet(), "An earlier batch input must not create a resource")
-                assertWitnessUnchanged(before, witness(session), query)
-            }
+            run(fixture, query, Mockito.mock(OAuth2Auth::class.java))
         }
-        withRoles("auth-view", "create", "modify") { fixture ->
-            val database = fixture.store.lookup("auth")!!.database
-            database.beginResourceSession(target).use { session ->
-                val revision = session.mostRecentRevisionNumber
-                run(fixture, query, Mockito.mock(OAuth2Auth::class.java))
-                assertEquals(revision + 1, session.mostRecentRevisionNumber)
-            }
-        }
+        val after = databaseWitness(target)
+        assertEquals(2, (after.first - before.first).size, "Both inputs must be added as new resources: ${after.first}")
+        assertTrue(after.first.containsAll(before.first), "No existing resource may disappear")
+        assertWitnessUnchanged(before.second, after.second, query)
     }
 
     private fun replacementQuery(function: String, target: String): String {
@@ -623,6 +653,50 @@ class QueryMutationAuthorizationTest {
             run(fixture, storeOrLoad(function, "fresh", createNew), keycloak)
         }
         assertTrue(resourceExists("fresh"), "An authorized store/load must create the resource")
+    }
+
+    /**
+     * xn:store needs CREATE on every path. The REST store and collection decorators enforce it, and
+     * the query function asks the context's authorizer too; this pins the REST outcome on its own.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = [
+        "xn:store('fresh','r',<a/>)",
+        "xn:store('existing','added',<a/>,false())",
+        "xn:store('existing','resource1',<a/>,false())",
+        "xn:store('sequence',(),(<a/>,<b/>))"
+    ])
+    fun xmlStoreWithoutCreateRoleIsRefused(query: String) {
+        withXmlRoles("view", "modify") { context, chain ->
+            val before = xmlStoreState()
+            assertRefused(query) { Query(chain, query).execute(context) }
+            assertEquals(before, xmlStoreState(), "A refused xn:store must not change the store: $query")
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource("xn:store('fresh'|'r'|<a/>),fresh,r", "xn:store('existing'|'added'|<a/>|false()),existing,added")
+    fun xmlStoreWithCreateRoleStores(query: String, database: String, resource: String) {
+        val xquery = query.replace('|', ',')
+        withXmlRoles("view", "create", "modify") { context, chain -> Query(chain, xquery).execute(context) }
+        assertTrue(Files.isDirectory(directory.resolve(database).resolve("resources").resolve(resource)), xquery)
+    }
+
+    /** An XML fixture with database `existing` (resource `resource1`); the caller holds exactly [roles]. */
+    private fun withXmlRoles(vararg roles: String, body: (SirixQueryContext, SirixCompileChain) -> Unit) {
+        val user = userWith(*roles)
+        BasicXmlDBStore.newBuilder().location(directory).build().use { store ->
+            store.create("existing", DocumentParser("<root/>"))
+            val guarded = XmlSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authorizations())
+            SirixQueryContext.createWithNodeStore(guarded).use { context ->
+                SirixCompileChain.createWithNodeStore(guarded).use { chain -> body(context, chain) }
+            }
+        }
+    }
+
+    private fun xmlStoreState(): Pair<List<String>, List<String>> {
+        fun names(path: Path) = Files.list(path).use { entries -> entries.map { it.fileName.toString() }.sorted().toList() }
+        return names(directory) to names(directory.resolve("existing").resolve("resources"))
     }
 
     /** Both REST functions take inline content; local URI loading is tested in sirix-query. */

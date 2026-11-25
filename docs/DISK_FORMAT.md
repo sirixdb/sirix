@@ -158,9 +158,12 @@ and [`NodeStorageEngineWriter.truncateTo`](../bundles/sirix-core/src/main/java/i
 0      : SUPERBLOCK (64 B, role = revisions; slot-size field = 32, the record stride —
          persisted geometry, validated at open against this build's record size)
 64     : reserved (sparse zeros) up to 4096
-4096 + 32*revision : [u64 rootOffsetOrPrunedSentinel][u64 epochMillis]
+4096 + 32*revision : [u64 rootOffsetOrPrunedSentinel][i64 timestamp]
                      [u64 recordChecksum][u64 pageHashOrPrunedTag]      (little-endian)
 ```
+
+The timestamp unit, precision and conversion rules are defined by
+[VER-201](../spec/VER-versioning-bitemporal.md#ver-201--timestamp-precision-and-persistence).
 
 This file is **load-bearing**: the UberPage carries no revision-root offsets, so every
 RevisionRootPage lookup goes through a slot here — which is why every record now carries a
@@ -178,7 +181,7 @@ hash-or-tag). Zero hashes and old 16-byte-checksum records are not supported. An
 payload hash is remapped to a nonzero sentinel before storage.
 
 Retention preserves a dense original revision timeline. A pruned revision's slot stores
-`[Long.MIN_VALUE][original epochMillis][recordChecksum][0x5052554E45440001]`. The last word is a
+`[Long.MIN_VALUE][retained effective timestamp][recordChecksum][0x5052554E45440001]`. The last word is a
 record-type tag, not a root hash. Both the sentinel/tag pair and the checksum must match; invalid
 offsets, tags, checksums, zero holes, and partial slots are corruption. A live offset with this
 hash remains a live record. `IOStorage.decodeRevisionRecord` is the shared decoding boundary;

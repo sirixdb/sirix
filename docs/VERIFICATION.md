@@ -62,18 +62,30 @@ They are the first of two layers, not the whole of performance regression testin
 sees a change in the amount of counted work; it is blind to anything that makes the same work
 slower, such as a slower call path or a native-image build setting, which is how two benchmark
 queries once lost 150 ms each with every counter unchanged. That is the job of a separate, timed
-baseline harness run on one known machine under the benchmark campaign's protocol (ClickBench's 43
+baseline harness run on one known machine under the
+[benchmark protocol](DEVELOPMENT.md#the-benchmark-protocol) (ClickBench's 43
 queries, the 100M JSONBench numbers, later the bitemporal benchmark), which is deliberately not part
-of these suites. A green budget suite means the engine did not start doing more work on the guarded
-paths; it does not mean nothing got slower.
+of these suites. That harness judges a change by a paired difference that must exceed both a 4%
+floor and the benchmark's own measured noise threshold, reports a benchmark too noisy to judge as
+unstable, and writes every run to a results ledger
+([CONV-302](../spec/CONV-conventions.md#conv-302--timed-acceptance-verdict),
+[CONV-303](../spec/CONV-conventions.md#conv-303--results-ledger-and-conditions-record)); a nightly
+trend tier reports slow drift
+([CONV-304](../spec/CONV-conventions.md#conv-304--nightly-trend-tier)). The analysis that decides
+those verdicts is itself tested in the main workflow, with the kit scripts driven by stub engines;
+[its README](../bundles/sirix-query/bench/common/README.md) says how to run a gate. A green budget
+suite means the engine did not start doing more work on the guarded paths; it does not mean nothing
+got slower.
 
 **Mutation testing** guards the tests themselves. AI-generated tests tend to assert too little —
 they run the code and check something trivially true. PIT mutates the production code and reports
 which mutants the tests fail to kill. The weekly core task's scope is deliberately curated (see
 the `pitest` block in `bundles/sirix-core/build.gradle`); a whole-module run would take hours.
-The separate [PR lane](#pr-mutation-testing) selects changed sources. Both tasks' `targetTests` must
-contain only DETERMINISTIC tests: PIT requires a suite that is green without mutation, and a
-randomly-seeded run (jqwik defaults, `JsonModelBasedOracleRandomTest`) can legitimately fail by
+The separate [PR lane](#pr-mutation-testing) and its
+[scheduled full-scope report](#scheduled-full-scope-mutation-report) select changed sources.
+Every task's `targetTests` must contain only DETERMINISTIC tests: PIT requires a suite that is
+green without mutation, and a randomly-seeded run (jqwik defaults,
+`JsonModelBasedOracleRandomTest`) can legitimately fail by
 discovering a real, previously unknown bug — which aborts the whole mutation analysis. When a
 random run finds a failing seed, add it to the fixed-seed regression list and PIT inherits the
 coverage.
@@ -81,13 +93,15 @@ coverage.
 **Error Prone** rejects bug patterns at compile time (bad equals/format strings/self-assignment
 and ~500 more); **NullAway** checks nullness contracts against the JSpecify annotations already
 used in the codebase. Local builds opt in with `-PerrorProne`. The main PR/push CI workflow sets
-`ORG_GRADLE_PROJECT_errorProne=true` only on its `Compile and package` job, which compiles all
-main, test and JMH benchmark source sets. The release workflow runs the same gated compile
-before importing signing credentials or publishing, covering tag pushes, release branches and
-manually selected refs. The stress workflow enables the gate on its core test compile, including
+`ORG_GRADLE_PROJECT_errorProne=true` on its `Compile and package` job, which compiles all
+main, test and JMH benchmark source sets, and on `MutationTesting` so its compiler inputs match
+the cached producer output (see [compilation reuse below](#pr-mutation-testing)). The release
+workflow runs the same gated compile before importing signing credentials or publishing, covering
+tag pushes, release branches and manually selected refs. The stress workflow enables the gate on
+its core test compile, including
 manual runs against refs outside main CI's branch filters. Deep verification gates its dedicated
-core and MCP compile with `-PerrorProne`. Each of these four workflows runs one gated compile;
-other jobs, including Sonar, avoid repeating static analysis. Error Prone errors fail compilation;
+core and MCP compile with `-PerrorProne`. The mutation consumer retains the gate when compilation
+is needed; other jobs, including Sonar, do not enable it. Error Prone errors fail compilation;
 NullAway also runs at `ERROR`, with `NullAway:OnlyNullMarked=true`. Every MCP main/test package
 and the query shell's main/test packages have a JSpecify `@NullMarked` package default.
 Legacy unmarked core and query packages are outside NullAway checking, even where individual
@@ -109,7 +123,7 @@ Error Prone 2.51.0 ([upstream bug](https://github.com/google/error-prone/issues/
 ## SonarCloud analysis
 
 The `Run Sonarqube` job in [`gradle.yml`](../.github/workflows/gradle.yml) runs on pushes to
-`main` and eligible pull requests targeting `main`, after both Linux core lanes and the query/Kotlin
+`main` and eligible pull requests targeting `main`, after all Linux x86 core lanes and the query/Kotlin
 lane succeed. The core lanes upload raw JaCoCo probes and test results; the query/Kotlin lane uploads
 reports and test results. The scanner restores the same run's compiled modules and reports and never
 reruns tests. The checkout matches the producing
@@ -125,10 +139,14 @@ and the additional MCP/offline REST tests run only for Sonar-eligible events, us
 `Build` job's `sonar-enabled` output. The REST integration suite remains outside the
 coverage handoff. The query lane also runs the MCP tests and the offline REST authorization tests
 that the former serial Sonar build ran; offline REST needs neither Docker nor Keycloak, and its
-JaCoCo execution data feeds both the REST and query reports. The analyzed module set is unchanged.
+JaCoCo execution data feeds both the REST and query reports. The query lane also generates the
+PIT plugin's JaCoCo XML and uploads it as `coverage-pit-tooling`. Sonar restores it to
+`tools/pit-changed-lines/build/reports/jacoco/test/jacocoTestReport.xml`, the module's default
+import location, and requires it alongside the engine reports before analysis.
 
-The independent `Python mutation tooling` job runs the script's adversarial and CLI tests with
-branch coverage (85% minimum) and uploads `coverage-python`. Sonar requires this lane, downloads
+The independent `Python mutation tooling` job discovers all `test_*.py` suites under
+`.github/scripts/tests/`, covering mutation tooling and changelog/lesson fragments, with branch
+coverage (85% minimum) and uploads `coverage-python`. Sonar requires this lane, downloads
 its XML to `build/reports/python/python-coverage.xml`, verifies the report exists, and imports it
 through `sonar.python.coverage.reportPaths`. The root Python test directory is explicitly
 classified with `sonar.tests` and test-inclusion patterns that also preserve module Java/Kotlin
@@ -136,9 +154,9 @@ tests. Python production source remains in analysis; tests are analyzed as tests
 toward production coverage. This small Python lane does not change the existing test lanes'
 dependencies or run a local JVM.
 
-The core XML report merges both lanes' raw execution data, including the isolated test forks,
+The core XML report merges all core lanes' raw execution data, including the isolated test forks,
 using `:sirix-core:jacocoMergedReport`. Merging probes before generating XML preserves the union of
-branch coverage when both lanes visit the same method. Missing lane/fork data or module reports fails
+branch coverage when multiple lanes visit the same method. Missing lane/fork data or module reports fails
 the job instead of silently reducing coverage. The isolated forks' agent-handling
 safety invariant is documented beside the fork-option copy in
 [`bundles/sirix-core/build.gradle`](../bundles/sirix-core/build.gradle).
@@ -168,9 +186,25 @@ Its **30-minute job limit** is below the Linux query test lane (45 minutes); PIT
 room for setup and report upload. Each module may use all the time still left except a
 `MIN_MODULE_SECONDS` floor for every module after it. Modules run in name order; a module that
 finishes early donates its remainder to those that follow. If the remaining budget cannot
-provide that floor for every pending module, it is divided equally among them. A deadline kills
-the process group, preserves partial reports and explicitly reports incomplete analysis. A large diff may need
-follow-up focused runs; timeouts and missing evidence are never a clean score.
+provide that floor for every pending module, it is divided equally among them. A deadline kills the
+launcher's process group and detached descendants, then waits for their termination before
+artifact reads or the next module. Every invocation uses `--no-daemon`: its fresh, single-use
+Gradle daemon is a descendant of that invocation's launcher. Daemon reuse was tried and dropped
+because a reused daemon could perform work outside the terminating launcher's ownership, including
+before publishing its identity during startup. The statuses of every class analysed before the kill
+survive: the lane's controlling-JVM agent drains PIT 1.25.5 analysis units in completion order,
+then its `STREAM` listener flushes each delivered class. Without that adapter, PIT waits for
+earlier submitted units before invoking any result listener, even when later units have finished.
+Result interceptors and listeners still run serially on the reporting thread; the module remains
+incomplete analysis. The real-PIT `StreamingDeadlineTest` holds the leading unit open and verifies
+that a later killed mutant reaches disk before terminating the run. A stream the reporter cannot
+read leaves the deadline as the module's state
+and is reported beside it, rather than replacing it. A large diff may need
+follow-up focused runs; timeouts and missing evidence are never a clean score. Preserved statuses
+still contradict equivalent claims and supersede out-of-lane claims when a test detected the
+mutant. A preserved `SURVIVED` status from an unfinished run cannot authorize a disposition:
+added matches are reported as not judged and contribute to neither dispositioned count,
+including when valid XML was written before a failed or timed-out run ended.
 
 Scope comes from `git diff --diff-filter=ACMRT <base>...<head>`: added, modified and renamed
 main Java/Kotlin sources only, excluding deleted files, tests, docs and package/module descriptors.
@@ -203,7 +237,10 @@ these individually in the PR. New Gradle modules need an entry in `MODULES` in
 Test selection is resolved **per changed source** and is never widened to the module suite.
 PIT's coverage phase has to execute every class in `targetTests`, and Sirix test classes open
 databases during JUnit 5 discovery, so whole-module coverage collection can exhaust the budget
-before mutation analysis starts. Test identities come from declared top-level Java/Kotlin type
+before mutation analysis starts. Explicit `LIFECYCLE_TESTS` associations select dedicated ownership,
+worker-fence and callback regressions instead of unrelated package histories.
+
+Test identities come from declared top-level Java/Kotlin type
 names and packages, not source
 filenames or directories. Discovery does not require compiled test classes. For a source `Foo`
 in package `p` the first matching step wins:
@@ -220,25 +257,46 @@ in package `p` the first matching step wins:
 To select an existing behaviour test that the name-based rules miss, add an association in
 [`.github/mutation-test-associations.toml`](../.github/mutation-test-associations.toml).
 [CONV-204](../spec/CONV-conventions.md#conv-204--lane-test-associations) owns the schema,
-declared-class ownership rules, validation, module cap and PIT baseline exclusions. The file
-also owns the current association inventory, including the release-contract tests formerly
-selected by `CONTRACT_TESTS`.
+declared-class ownership rules, validation, test-cap rules and PIT baseline exclusions. The file
+also owns the reviewed association inventory. The runner augments selection with its
+`CONTRACT_TESTS` release-contract mappings; those mappings count toward the same selection cap.
 
-PIT samples at most `MUTANT_BUDGET / changed classes` mutants per class, clamped to
-`[MIN_MUTANTS_PER_CLASS, MAX_MUTANTS_PER_CLASS]`, so a module's work scales with the size of the
-diff: one changed class gets every mutant the cap allows, while a 57-class diff samples a few
-per class. This is what keeps a large diff inside the budget once the test scope is correct - a
-mutant whose covering test hangs costs a whole minion restart, and those restarts, not the
-mutant count, are the dominant cost. The limit is PIT's `CLASSLIMIT` feature, which distributes
-the sample evenly across each class rather than taking the first mutants; it does not guarantee
-that every changed method is exercised. The job summary records the per-class limit per module.
-For every mutant of a class, omit `prMutationMaxMutations` in a focused Gradle rerun using the
-artifact's `targets.txt`, as in the example below.
+Mutants are generated **only on the PR's own lines**. The lane writes each module's changed-line
+map and activates `+CHANGEDLINES(file[...])`, the interceptor in
+[`tools/pit-changed-lines`](../tools/pit-changed-lines) on PIT's tool classpath, which removes
+every mutant of the analysed classes whose source file and line that map does not list. The
+feature takes that one parameter: PIT 1.25.5's parser reads a feature's first parameter and
+silently ignores the rest, so the census location is derived (`census.jsonl`, beside the map)
+rather than configured, and a test pins the parser behaviour that forced it. It runs
+before any sampling - PIT sorts a compound interceptor pipeline by `InterceptorType` and runs its
+`CLASSLIMIT` limit as a `FILTER`, and a test asserts that ordering against the pinned release - and
+the lane configures no per-class limit at all, so every mutant on a changed line is analysed and
+the changed-line counts are a complete measurement rather than a sample.
+[CONV-205](../spec/CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) owns these rules.
+
+The interceptor records what it removed in `census.jsonl`, beside the map - identity, class,
+source file and line, never a status. A record the reporter cannot read names the field at fault
+and fails the module, because the interceptor wrote it. The reporter re-derives each census entry's attribution from its own changed-line
+index and **fails the run** when one of them is on a changed line, so a defect in the interceptor
+cannot silently drop a mutant the verdict reads. Dispositions entries are matched against the
+census as well as the report, which keeps existence, staleness and re-identification after a
+refactor judgeable without running a single unchanged-line mutant (CONV-202).
+
+This replaced per-class sampling, which cost almost the whole budget on mutants no verdict reads:
+on [PR 1353](https://github.com/sirixdb/sirix/pull/1353) 1,098 of 1,132 test-case executions served
+unchanged-line mutants, and three surviving return-value mutants on unchanged `commit()` default
+methods took 959 of them, while a killed mutant costs about 1.3 test cases. To obtain every mutant
+of a class, including those on unchanged lines, omit `-PprMutationChangedLinesFile` from a
+focused Gradle rerun using the artifact's `targets.txt`, as in the example below; `prMutationMaxMutations` still
+limits such a rerun per class if you ask for it.
 
 A source that resolves to nothing never changes the scope chosen for the other changed sources;
-the union is capped at `MODULE_TEST_LIMIT` distinct declared test names. Named matches are
-admitted before related matches, then package fallbacks; any source whose full candidate set
-would exceed the cap is marked `over-limit`, including a named match. Selected names receive a
+the union of their per-source selections is not truncated. Each source keeps the named, then
+related, then package-fallback resolution rules; `PACKAGE_TEST_LIMIT` bounds package fallback,
+and a source whose own candidate set exceeds `SOURCE_TEST_LIMIT` is marked `over-limit`,
+including named matches and associated tests. The former union cap is removed so collecting
+coverage once preserves the tests selected by the former partitions; it no longer bounds coverage
+at the cost of dropping another source's tests. Selected names receive a
 trailing `*` to include nested classes; other classes sharing that prefix can also match.
 When any tests are selected, all changed classes remain in `targetClasses`; mutants without
 coverage from those tests report `NO_COVERAGE`. A source without its own mapping may still be
@@ -257,13 +315,16 @@ The job summary shows, per module, the state, the number of mutated classes and 
 unmapped sources, the changed-line counts that decide the outcome (changed lines, mutants on them,
 killed, survived, no coverage), the whole-report killed/total separately from PIT's detected/total
 score (which includes timed-out mutants), status counts, up to 100 failing changed-line mutants
-and - separately, marked advisory - the unchanged-line totals with the classes carrying the most
-undetected mutants; the artifact retains the full list. `results.json` holds `modules` (one
+and - separately and never as a score - how many mutants the restriction removed, with a pointer to
+the [scheduled full-scope report](#scheduled-full-scope-mutation-report) that measures them; the
+artifact retains the full census. `results.json` holds `modules` (one
 result per module, with that split under `changed` and `unchanged`), `dispositions` and
 `associations`; each module's `changed` lists its `failing`, `dispositioned_equivalent` and
 `dispositioned_out_of_lane` mutants. Each module's `unattributed` counts mutants whose source file
 never mapped to a changed source (normally zero, since `targetClasses` holds only changed classes).
-Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
+Setup failures, malformed XML, timeouts and unexplained empty or missing reports are incomplete,
+not 100%; the census-explained empty-scope exception is defined by
+[CONV-205](../spec/CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope).
 
 ### Blocking criterion: the PR's own lines
 
@@ -276,28 +337,57 @@ anonymous and extra top-level classes and Kotlin file facades are therefore attr
 file they were compiled from. Use the [disposition helpers below](#reviewed-dispositions) to
 inspect claims alongside a local report.
 
-Mutants on **unchanged** lines of the same classes are advisory: the summary and `results.json`
-report their counts and the classes carrying the most of them. This debt alone never fails the
-job; disposition validation still applies to entries matching these mutants (CONV-202). They
-are pre-existing test debt the PR did not introduce. On
+Mutants on **unchanged** lines of the same classes are no longer analysed here: they are generated,
+listed in the census and removed before any test runs. They were always advisory - pre-existing
+test debt the PR did not introduce, never a reason to fail the job - and they were also where the
+budget went, because an undetected mutant has to run every covering test to the end. On
 [PR 1354](https://github.com/sirixdb/sirix/pull/1354) all 17 changed-line mutants were killed
 while 348 survivors and 2,828 uncovered mutants sat on unchanged lines of the same classes; a
-whole-class criterion leaves every larger PR red however completely its own change is tested.
-Reduce that debt in dedicated work rather than by widening a PR.
+whole-class criterion leaves every larger PR red however completely its own change is tested. That
+debt is now measured by the [scheduled full-scope report](#scheduled-full-scope-mutation-report)
+and reduced in dedicated work, never by widening a PR. Disposition validation still applies to
+entries matching censused mutants (CONV-202).
 
 Incomplete analysis still fails on its own, independently of any line: a module that timed out,
 errored, mapped to no test (`unmapped`), produced zero mutations, or attributed none of its
 mutants to a changed source is never clean - an empty attribution judges nothing and must not
-read as a pass. The Gradle `mutationThreshold`/`coverageThreshold` stay at 0, so PIT itself never
+read as a pass. One case is not incomplete: a run that executed, generated mutants for its target
+classes and had **none of them on a changed line**. Its census proves that, so the module is
+complete with zero mutants judged and claims nothing - the case of a diff that touches only
+comments, declarations or lines PIT does not mutate. Zero mutants with an empty census is still a
+broken run. The Gradle `mutationThreshold`/`coverageThreshold` stay at 0, so PIT itself never
 decides the outcome.
 
-**Known limitation.** Per-class mutant sampling is chosen before the line map is applied and,
-when the `CLASSLIMIT` limit binds, spreads its sample evenly over each class, so a large diff in a
-large class can leave zero mutants on changed lines - nothing to judge, and the job stays green.
-The summary always prints a module's changed-line count beside its changed-line mutant count,
-so `0` mutants judged out of many changed lines is visible rather than silent; a focused rerun
-without `prMutationMaxMutations` (below) includes every PIT-generated mutant of the changed
-classes, including those on unchanged lines.
+**Known limitation.** Sampling can no longer hide a changed line, since the lane applies no
+per-class limit and judges every mutant it generates on one. What remains is that PIT generates no
+mutant at all for some changed lines - a declaration, a line its own equivalence filters remove -
+so a module can still report `0` mutants judged out of many changed lines. The summary prints a
+module's changed-line count beside its changed-line mutant count and its census count, so that
+case stays visible rather than silent. Mutant-level staleness of an entry whose mutant sits on an
+unchanged line is also outside this lane's reach: the census proves the mutant still exists, and
+whether it still survives is answered by a focused rerun omitting
+`-PprMutationChangedLinesFile` or by the scheduled full-scope report.
+
+### Scheduled full-scope mutation report
+
+The debt the PR lane stopped analysing is measured once a week instead, by
+`PIT full-scope unchanged-line report` in
+[verification.yml](../.github/workflows/verification.yml) - the deep-verification workflow, whose
+only triggers are its Sunday 04:00 UTC cron and a manual dispatch. It never runs for a pull
+request and never decides an outcome;
+[CONV-206](../spec/CONV-conventions.md#conv-206--scheduled-full-scope-mutation-report) owns the
+rules.
+
+It reuses the lane's selection and reporting with the changed-line restriction disabled and no
+per-class limit: its base is the last first-parent commit on the default branch before the window
+(`--window-days`, 7 by default), its head is `HEAD`, so its scope is the sources the branch changed
+in that window, resolved by exactly the rules above. Its budget is its own and the PR lane's limits
+are untouched. The job summary and the `full-scope-mutation` artifact carry, per class, the mutants
+no test detected, and - advisory only - the dispositions entries this complete report proves stale,
+which the PR lane's restricted scope cannot judge. A run that did not finish says so; an incomplete
+report is not a clean debt report. The weekly curated `:sirix-core:pitest` job in the same workflow
+is a different measurement (three correctness-critical classes against their own suites) and is
+unchanged.
 
 ### Reviewed dispositions
 
@@ -305,9 +395,7 @@ Resolve mutants under [CONV-103](../spec/CONV-conventions.md#conv-103--specifica
 For a reviewed disposition, edit
 [`.github/mutation-dispositions.toml`](../.github/mutation-dispositions.toml), which includes an
 example entry. [CONV-201](../spec/CONV-conventions.md#conv-201--mutation-disposition-record)
-owns the schema, equivalence standard (a cost-only mutant is never equivalent, except one that
-differs only at a single boundary input by at most one extra constant-time step) and
-counterfactual evidence requirements;
+owns the schema, equivalence standard and counterfactual evidence requirements;
 [CONV-202](../spec/CONV-conventions.md#conv-202--pr-mutation-verdict-with-dispositions)
 owns the acceptance and re-confirmation rules. Review each added claim in the job summary under
 [CONV-203](../spec/CONV-conventions.md#conv-203--disposition-review-abuse-limits-and-refactoring).
@@ -321,7 +409,8 @@ dispositions file.
 ```bash
 # Judge entries against local PIT reports as the lane would (stale, re-confirmation, unconfirmed).
 python3 .github/scripts/pr_mutation.py dispositions --check --base "$(git rev-parse origin/main)" \
-  --report /tmp/pr-mutation/sirix-core/report/mutations.xml
+  --report /tmp/pr-mutation/sirix-core/report/mutations.xml \
+  --census /tmp/pr-mutation/sirix-core/census.jsonl
 # Propose new identities for entries a rename, move or edit left stale; review before using.
 python3 .github/scripts/pr_mutation.py dispositions --remap \
   --report /tmp/pr-mutation/sirix-core/report/mutations.xml
@@ -331,7 +420,37 @@ python3 .github/scripts/pr_mutation.py counterfactual --patch mutant.patch -- \
   ./gradlew :sirix-core:test --tests 'io.sirix.SomeAllocationBudgetTest'
 ```
 
-Pass `--sampled` to `--check` when the reports came from a run with a per-class limit.
+Pass `--sampled` to `--check` when the reports came from a rerun with a per-class limit, and
+`--census /tmp/pr-mutation/sirix-core/census.jsonl` to judge entries whose mutants the lane
+removed off the diff exactly as the lane judges them. Census validation failures are printed and
+fail the checker; invalid evidence never proves a complete generated set. Valid census-only classes
+are included when checking staleness.
+
+Keep the lane artifact layout intact when checking its reports: `results.json` at the output
+root, `<module>/report/mutations.xml`, and `<module>/census.jsonl`. The shared evidence loader
+reads the matching module's completion and sampling state from that existing manifest. Failed,
+timed-out, partial or unknown runs cannot authorize a disposition, and cannot prove a complete
+generated set. Standalone XML without matching completion metadata is reported as unknown and
+fails the check; its detected statuses still contradict or supersede entries, and remap can
+still propose identities. A per-class mutant limit withholds completion-based judgements, including survivor
+acceptance and absence-based staleness. Target membership is loaded together
+with completeness from each module's saved `targets`, including classes that emitted no mutant;
+it is never reconstructed from XML or census identities alone.
+
+Run completion and loaded-evidence completeness are distinct. The helper keeps one module
+value recording supplied reports/censuses, whether each was read completely and validly,
+and recorded census failures. Report and census paths are resolved against the working
+directory before deduplication and grouping, so mixed absolute/relative spellings share one
+module value. Its named rejection facts control acceptance, both dispositioned counts, staleness,
+empty-scope eligibility and status provenance for rule 1. Census violations reject all
+those claims even when PIT exited zero; rule 4 still uses preserved statuses. A restricted run's nonempty report and census must both be supplied;
+report-only or census-only input cannot prove an absent identity stale. A missing helper path
+is not a supplied empty artifact. The lane can record a known zero count because it clears
+artifacts before running; that saved zero count attests that a component contributes no missing
+identities. Otherwise omitted components remain unproven. Recorded census failures still fail
+the checker even when its census argument is omitted. Missing evidence alone leaves an unmatched
+existing entry not judged, without failing it; a changed-line survivor still cannot be accepted
+from incomplete evidence. `--sampled` withholds completion-based judgements as well.
 
 Measured churn of pure refactors (PIT 1.25.5 on a four-method sample class whose six surviving
 mutants were taken as reviewed entries): a line shift, an extract-method and a method reorder
@@ -382,9 +501,32 @@ For a broader deterministic test selection, reuse the artifact's `targets.txt` a
   -PprMutationReportDir=/tmp/pr-mutation-expanded
 ```
 
+That rerun passes no `-PprMutationChangedLinesFile`, so it mutates every line of its targets.
+Omitting the map is the sole control for unrestricted analysis. Add
+`-PprMutationMaxMutations=<n>` to sample such a rerun per class; the lane itself passes the map
+and applies no per-class limit.
+
 The opt-in [Gradle configuration](../gradle/pr-mutation.gradle) uses the existing
-[Gradle PIT plugin](https://gradle-pitest-plugin.solidsoft.info/) and versions. Its absence from
-normal task graphs preserves existing test-lane timing.
+[Gradle PIT plugin](https://gradle-pitest-plugin.solidsoft.info/) and versions, and adds
+`tools/pit-changed-lines` to PIT's own `pitest` tool classpath. The existing query/Kotlin CI job
+executes `:sirix-pit-changed-lines:test`, including its adversarial tests and ordering proof
+against the pinned PIT release, without allocating another runner.
+
+Each module is analysed by exactly one PIT invocation, so its slow test scope is covered once per
+run. The single-use daemon described [above](#pr-mutation-testing) has a bounded heap
+(`-Dorg.gradle.jvmargs=-Xmx3g`), rather than the workstation-sized heap in `gradle.properties`.
+The PR mutation job uses the Build job's Error Prone compiler
+inputs and restores its compiled output plus project-local Gradle task history. The existing
+output cache remains shared as before; a separate PR-only history archive supplies `.gradle`
+and `**/.gradle` only to the mutation consumer, so the other restores remain unchanged. Matching
+inputs and history keep compilation up to date; this pull request's own CI task outcomes provide
+the evidence of reuse and its effect, with no measured saving claimed here.
+
+Follow-up outside this change: the core/query test, Sonar and REST output-cache consumers still
+omit the producer's Error Prone setting, so their compiler inputs differ. Their restores and
+compiler policy are unchanged. Platform lanes also keep their existing compiler/cache policy;
+they currently compile cold rather than restore the Linux output archive. The scheduled mutation
+job compiles its own output with matching inputs in the same job and restores no Build archive.
 
 Minions reuse each module's final `test` task `opens`/`exports` and system properties, including
 late native-image properties and values containing commas or whitespace. The
@@ -512,6 +654,10 @@ adds one exploratory seed. The identity suite inherits the JVM hash default, so 
 ./gradlew :sirix-mcp:test --tests 'io.sirix.mcp.*WorkBudgetTest' \
                           --tests 'io.sirix.mcp.BoundedSerializationAllocationBudgetTest'
 
+# Timed acceptance verdict, results ledger, nightly trend and the kits' run record (CONV-302 to
+# CONV-304). Standard-library Python, nothing timed; the `Benchmark protocol tooling` CI job runs it.
+(cd bundles/sirix-query/bench/common && python3 -B -m unittest discover -p 'test_*.py')
+
 # Mutation testing (report: bundles/sirix-core/build/reports/pitest/index.html)
 ./gradlew :sirix-core:pitest
 
@@ -565,5 +711,8 @@ soak weekly and on demand.
    are decorative.
 5. If it touches a read, load or query path — run the work-budget tests, and treat a broken budget
    as a regression until shown otherwise. A bound changes only with the evidence its README asks for.
-6. Never accept a green build as proof when the same author (human or model) wrote both the code
-   and its tests — the oracle/property layers exist precisely because they are independent.
+6. A green build is weak evidence when one author (human or model) wrote both the code and its
+   tests: check that every test traces to a requirement and would fail on a plausible wrong
+   implementation. The oracle and property layers exist precisely because they are independent of
+   that author. See the
+   [development strategy](DEVELOPMENT.md#independence-without-mandatory-separate-authorship).

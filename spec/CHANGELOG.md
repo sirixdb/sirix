@@ -10,9 +10,93 @@
 - Add FMT-215 for same-frame value aliases to earlier inline owners.
 - Add FMT-216 for kind-9 projection flags, codec assignments and bounded frame validation.
 - Add FMT-217 for writer conformance, with separate selection and inclusive 20% compression acceptance.
-- Amend CONV-201: a cost-only mutant may be `equivalent` when it gives the same result for every
-  admitted input and differs only at a single boundary input by at most one extra constant-time
-  step (captain's decision, 2026-11-21); fast paths stay excluded.
+- Record the structural validator as evidence for
+  [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from
+  reporting the index malformed because a leaf was evicted, and the validation that follows a published
+  splice now has its own conformance case: `HOTStructuralValidatorLeafRetentionTest` retires every leaf
+  nobody holds at the publication boundary and evicts again at every engine call, with released frames
+  poisoned. No requirement text changes.
+
+- Require allocation legs to run with escape analysis off, the Graal JIT disabled (HotSpot C2),
+  a non-collecting collector and a fixed batch in
+  [CONV-302](CONV-conventions.md#conv-302--timed-acceptance-verdict): their whole-byte figure
+  must be identical in every process; the importer refuses other legs.
+  The allocation acceptance rule is unchanged.
+- Make the PR mutation lane's unit of work its blocking criterion. New
+  [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant
+  generation to the PR's own lines through a repository interceptor on PIT's tool classpath,
+  applied before any sampling, forbids a per-class mutant limit, requires a census of what the
+  restriction removed and a verdict that fails when a censused mutant is on a changed line, and
+  bounds coverage collection to once per module. New
+  [CONV-206](CONV-conventions.md#conv-206--scheduled-full-scope-mutation-report) moves the
+  advisory report on unchanged lines to a scheduled full-scope run that never runs for a pull
+  request and never decides an outcome.
+  [CONV-202](CONV-conventions.md#conv-202--pr-mutation-verdict-with-dispositions) judges entries
+  against the census as well as the report, retires its per-class sampling caveat, requires a
+  module killed by its deadline to report every status it had already recorded, and makes a report
+  with no mutant complete when the census explains it: the run generated mutants and none was on a
+  changed line, which is nothing to judge rather than nothing to measure. Commands, the
+  measured cost this replaces and the scheduled report are in
+  [Verification](../docs/VERIFICATION.md#pr-mutation-testing).
+
+- Amend [REST-210](REST-api.md#rest-210--resource-creation-and-query-import-boundaries) twice. A PUT
+  that creates a resource requires CREATE, and one that replaces an existing resource additionally
+  requires MODIFY and DELETE, checked before the resource is removed; a refusal returns 403 and
+  preserves content and revisions. The query functions `jn:store`, `jn:load`, `xn:store` and
+  `xn:load` instead never replace a resource: they add a free name without dropping the database or
+  touching any other resource, and refuse a name that is already taken with `SIRIXDBF0006` before
+  anything is written, whatever `$create-new` says. Replacing a resource from a query is reserved
+  for a future atomic replace operation. Imports into existing databases retain configured bounded
+  transactions and release discarded results, while singleton empty JSON stores preserve their
+  empty-resource and configured-index contract.
+
+- Store the commit timestamp as signed epoch microseconds instead of epoch milliseconds.
+  VER-201 fixes the unit in the unchanged 64-bit timestamp field, requires truncation toward
+  the past and explicit rejection of an out-of-range instant, and requires the public API to
+  expose every stored microsecond; VER-202/203 compare point-in-time lookups at that
+  resolution, VER-205 reports history timestamps in it through the renamed
+  `getHistoryTimestampsMicros` accessor (the millisecond name is gone, so callers break
+  loudly instead of silently reinterpreting the unit), FMT-104/106 define the directory and
+  tail-log timestamp words in it, and TXN-310's one-microsecond increment becomes
+  representable. NATIVE-203 compares transaction timestamps at microseconds, and REST
+  timestamp selection and history responses resolve at microseconds. The field width and slot
+  geometry are unchanged, so no numeric layout version changes; 1.0 has exactly one format, so
+  no millisecond store is read and no conversion path exists. The unit is format-visible and
+  must land before the freeze.
+- Align [TXN-801–806](TXN-transactions-durability.md#txn-801--pre-commit-hooks) with the
+  lifecycle implementation: revision-pinned asynchronous callbacks, bounded best-effort
+  notification retention and retryable close ownership. The later bounded-queue decision
+  defers replay to follow-up work.
+  [CONF-201](CONF-configuration.md#conf-201--dispatcher-queue-and-close-defaults) owns current
+  defaults and configuration, and JAPI-201 points to the hook contract.
+
+- Replace the fixed timed acceptance bar (paired point estimate at most +1%, lower 95% bound at
+  most 0) with [CONV-302](CONV-conventions.md#conv-302--timed-acceptance-verdict): a regression is
+  a paired difference above the 4% floor and above the benchmark's own noise threshold, measured by
+  randomizing the run's pairs; a benchmark too noisy to judge is reported as unstable; a run stops
+  on the precision it reached (10 to 20 pairs, 3%) and never on its result. The allocation rule is
+  unchanged. [CONV-303](CONV-conventions.md#conv-303--results-ledger-and-conditions-record) adds
+  the results ledger, the per-run environment capture and the dated conditions record, and
+  [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier) the nightly trend tier that reports
+  cumulative drift above 2%. The development strategy states the reasons in
+  [The benchmark protocol](../docs/DEVELOPMENT.md#the-benchmark-protocol).
+
+- Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
+  [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).
+
+- Allow one narrow exception to [CONV-201](CONV-conventions.md#conv-201--mutation-disposition-record)'s
+  cost rule: a mutant that produces the same result and differs only at a single boundary input, by
+  at most one extra constant-time step, may be recorded as equivalent with that reason. Every other
+  cost-only mutant still needs an allocation, work-budget or latency kill, `killed-out-of-lane`
+  counterfactual evidence, or removal of the code. The development strategy states the same
+  exception in [Development](../docs/DEVELOPMENT.md#4-mutation-testing-as-a-complement).
+
+- Add [TXN-615](TXN-transactions-durability.md#txn-615--in-memory-state-lives-with-the-open-database)
+  for IN_MEMORY lifetime, cleanup, reserved retirement names and backup exclusions; FMT-101
+  references it. Implementation status and remaining token work are recorded there.
+  [JAPI-104](JAPI-java-api.md#japi-104--transaction-threading-boundary) clarifies shared handles
+  and sessions with independent transactions.
+
 - Add reviewed mutation dispositions, test associations and local refactoring helpers for the
   PR mutation lane in [CONV-201 to CONV-204](CONV-conventions.md#conv-201--mutation-disposition-record).
   [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) defines the revised
@@ -54,9 +138,7 @@
 
 - Apply the final review decisions: known durable cleanup failures return success;
   unknown durability stops writes and throws CommitOutcomeUnknownException without
-  fsync retry. Add revision-token notification replay, queue default 10,000 and close
-  default 5 seconds, callback-scoped views and no retry of listener exceptions.
-  Reject beta stores with history-preserving export/import guidance; require an
+  fsync retry. Reject beta stores with history-preserving export/import guidance; require an
   immutable 1.0 corpus in CI. Truncate fails fast for affected open readers. Backups
   pin startup resource/revision membership; dropping a pinned resource fails fast.
 

@@ -1057,7 +1057,7 @@ Reads: 1 warm-up + 3 timed, **median** reported.
 |---|---|---|
 | PostgreSQL 16 (`ORDER BY valid_from`, server-side) | ~2.2 ms | — |
 | SirixDB `getHistory()` (full `RevisionInfo`, optimized warm path) | ~2.4–2.8 ms | ~on par |
-| **SirixDB `getHistoryTimestamps()` (new bulk API)** | **~0.05 ms** | **~40× faster** |
+| **SirixDB `getHistoryTimestampsMicros()` (new bulk API)** | **~0.05 ms** | **~40× faster** |
 
 The new timestamp-only API serves the whole history from the resident in-memory `RevisionIndex`
 (`long[]` + one `arraycopy`), with no page reads, no per-revision transactions, and no async
@@ -1115,6 +1115,6 @@ pg_ctl -D $PGDATA -o "-c shared_buffers=1GB -c synchronous_commit=on -c fsync=on
 # W4: SELECT count(c),sum(c) FROM (SELECT (doc->>'counter')::bigint c FROM doc_history ORDER BY valid_from) s;
 
 # SirixDB (embedded): build 5,001 versions, then time
-#   session.getHistory() / session.getHistoryTimestamps()                        (W3)
+#   session.getHistory() / session.getHistoryTimestampsMicros()                  (W3)
 #   per-revision loop  vs  session.scanRecordHistory(k,..) / scanValueRuns(k,..)  (W4)
 ```

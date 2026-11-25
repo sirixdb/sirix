@@ -42,8 +42,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * no-op;</li>
  * <li>a holder may be initialized early only while it holds nothing but the call signature; a
  * library handle or a symbol address in it would be baked into the image heap;</li>
- * <li>listing a holder in a shared {@code native-image.properties} fails the build on the LTS
- * toolchain CI uses, which is how the setting came to be moved in the first place.</li>
+ * <li>listing a holder in a shared {@code native-image.properties} fails the build on the GraalVM
+ * 25.0.x LTS line with a {@code linkToNative} error, so the smoke-test image keeps the portable
+ * run-time configuration on every toolchain.</li>
  * </ul>
  *
  * <p>
@@ -110,8 +111,8 @@ final class NativeImageDowncallConfigTest {
   @Test
   void theSmokeTestImageNeverInitializesAHolderEarly() {
     assertEquals(List.of(), holdersCoveredBy(buildTimeEntries(evaluatedByTheBuild(SMOKE_TEST_IMAGE_ARGS))),
-        "the smoke-test image is what CI builds on the LTS toolchain, opt-in or not; a build-time downcall holder "
-            + "fails it with a linkToNative error");
+        "the smoke-test image must keep the portable run-time configuration on every toolchain, opt-in or not; "
+            + "a build-time downcall holder fails on the GraalVM 25.0.x LTS line with a linkToNative error");
   }
 
   @Test

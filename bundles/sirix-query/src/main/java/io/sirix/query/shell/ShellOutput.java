@@ -87,15 +87,23 @@ public final class ShellOutput {
   }
 
   public void error(final QueryException exception) {
+    final String report;
     if (palette.enabled()) {
       final String prefix = exception.getCode() + ": ";
       final String description = exception.getDescription();
       final String message = description.startsWith(prefix)
           ? description.substring(prefix.length())
           : description;
-      err.println(palette.red() + "Error [" + exception.getCode() + "]: " + message + palette.reset());
+      report = palette.red() + "Error [" + exception.getCode() + "]: " + message + palette.reset();
     } else
-      err.println("Error: " + exception.getMessage());
+      report = "Error: " + exception.getMessage();
+    err.println(report.replace("\r", "\\r")
+                      .replace("\n", "\\n")
+                      .replace("\u000b", "\\u000b")
+                      .replace("\f", "\\f")
+                      .replace("\u0085", "\\u0085")
+                      .replace("\u2028", "\\u2028")
+                      .replace("\u2029", "\\u2029"));
     err.flush();
   }
 }
