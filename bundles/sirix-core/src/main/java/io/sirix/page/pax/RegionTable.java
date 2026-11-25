@@ -439,7 +439,8 @@ public final class RegionTable implements AutoCloseable {
   }
 
   // Not a try-with-resources resource by design: the returned arena becomes this table's #arena
-  // field and is released by close()/closeLastOwnership() through SharedArenas.close(Arena).
+  // field. closeConfinedWriterTable() owns confined arenas; closeLastOwnership() owns shared ones.
+  // Keep the confined close independent of shared-arena strategy (see SharedArenas.close(Arena)).
   @SuppressWarnings("MustBeClosedChecker")
   private Arena newPayloadArena() {
     if (closed) {

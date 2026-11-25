@@ -87,6 +87,27 @@ remap/teardown; closing a shared arena in a native image requires
 lifecycle passes in a native image — see `NativeWriteSmokeMain` (`:sirix-query:writeSmoke`
 on the JVM, or build natively with `-Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain`).
 
+The ownership restriction on `SharedArenas.close(Arena)` is documented on
+[`SharedArenas.close`](../bundles/sirix-core/src/main/java/io/sirix/io/SharedArenas.java).
+`ConfinedWriterArenaStrategyTest` runs in the `sharedArenaSharedStrategyTest`,
+`sharedArenaAutoStrategyTest`, `sharedArenaDiagnosticGlobalTest` and `sharedArenaDiagnosticSkipTest`
+forks, asserting the selected strategy and deterministic confined-arena release in every fork.
+
+Run the bounded native-image-policy lifetime harness without building another image:
+
+```bash
+./gradlew :sirix-core:confinedWriterArenaLeakCheck
+```
+
+The task sets `-Dsirix.arena.strategy=auto`, the native-image default, and a 128–256 MiB JVM heap.
+`ConfinedWriterArenaLeakHarness` rejects other policies. It creates and releases 4096
+serializer-local confined writer tables, each containing a 64 KiB native payload. It retains every
+payload handle, asserts that each scope is closed immediately after release, and checks zero live
+payload bytes after all cycles. Its output reports cumulative allocated bytes and retained payload
+bytes for the pull request. This checks the arena ownership contract directly, without relying on
+GC or noisy RSS measurements;
+it exercises the native-image arena policy on the JVM, rather than claiming an image execution.
+
 See [Cache budgets](operations.md#4-cache-budgets) for startup lifetime policy and the
 restrictions on diagnostic overrides. The native-image `auto` default remains supported.
 

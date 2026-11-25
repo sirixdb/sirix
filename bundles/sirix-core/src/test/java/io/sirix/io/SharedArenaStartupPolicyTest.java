@@ -18,6 +18,16 @@ final class SharedArenaStartupPolicyTest {
   @Test
   void launcherPolicyHonorsDiagnosticOptInAndRejectsUnsafeProductionSettings() {
     final String mode = System.getProperty("sirix.test.arenaPolicy");
+    if ("shared-strategy".equals(mode)) {
+      assertEquals(SharedArenas.Strategy.SHARED, SharedArenas.strategy());
+      assertFalse(SharedArenas.skipArenaClose());
+      assertTrue(SharedArenas.supportsDeterministicClose());
+      final Arena arena = SharedArenas.newSharedArena();
+      final MemorySegment data = arena.allocate(ValueLayout.JAVA_LONG);
+      SharedArenas.close(arena);
+      assertFalse(data.scope().isAlive());
+      return;
+    }
     if ("diagnostic-global".equals(mode)) {
       assertEquals(SharedArenas.Strategy.GLOBAL, SharedArenas.strategy());
       assertFalse(SharedArenas.skipArenaClose());
@@ -34,6 +44,18 @@ final class SharedArenaStartupPolicyTest {
     if ("diagnostic-skip".equals(mode)) {
       assertEquals(SharedArenas.Strategy.SHARED, SharedArenas.strategy());
       assertTrue(SharedArenas.skipArenaClose());
+      return;
+    }
+    if ("auto-strategy".equals(mode)) {
+      assertEquals(SharedArenas.Strategy.AUTO, SharedArenas.strategy());
+      assertFalse(SharedArenas.skipArenaClose());
+      assertFalse(SharedArenas.supportsDeterministicClose());
+      final Arena arena = SharedArenas.newSharedArena();
+      final MemorySegment data = arena.allocate(ValueLayout.JAVA_LONG);
+      data.set(ValueLayout.JAVA_LONG, 0, 23L);
+      SharedArenas.close(arena);
+      assertTrue(data.scope().isAlive(), "an auto arena is GC-reclaimed, so close(Arena) must release nothing");
+      assertEquals(23L, data.get(ValueLayout.JAVA_LONG, 0));
       return;
     }
     assertTrue("reject-global".equals(mode) || "reject-skip".equals(mode),

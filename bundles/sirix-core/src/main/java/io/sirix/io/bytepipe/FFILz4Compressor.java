@@ -582,6 +582,8 @@ public final class FFILz4Compressor implements ByteHandler {
 
     int decompressedSize = sizeHeader;
 
+    // Keep the output-frame acquisition adjacent to try and heap staging inside it: allocation or
+    // copy failure must reach the finally that releases every resource still owned by this call.
     ScratchLease inputLease = null;
     boolean ownershipTransferred = false;
     Throwable failure = null;
