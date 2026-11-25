@@ -84,7 +84,8 @@
     resource-lifetime oracle, without changing production logic in the delivered change.
 - Read latency (#1407's fourth acceptance item): nothing on the read path changed — the only edits
   to `FFILz4Compressor` are a comment — so the success path's instruction sequence is unchanged by
-  construction and there is no candidate to measure against a control.
+  construction. Measurement waived by the maintainer: no production code change, so no latency
+  effect; the 4% rule still applies to code changes.
 - Native-image configuration (#1408's second acceptance item): the bounded
   `confinedWriterArenaLeakCheck` harness must run with `-Dsirix.arena.strategy=auto`. It retains
   payload handles across 4096 serializer-local table create-and-release cycles, allocating 64 KiB
