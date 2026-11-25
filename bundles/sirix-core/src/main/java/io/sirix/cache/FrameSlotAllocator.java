@@ -205,6 +205,18 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private final AtomicReference<VirtualMemory> slabMemory = new AtomicReference<>(VM);
 
   /**
+   * The compact-image pool holding permanent slabs of THIS allocator, or none. Instance-scoped on
+   * purpose: a test allocator with its own budget must reclaim its own pool, never the process-wide
+   * one, whose slabs belong to another budget entirely.
+   */
+  private final AtomicReference<CompactImageStore> compactImages = new AtomicReference<>();
+
+  /** Called by a pool that draws its permanent slabs from this allocator. */
+  void registerCompactImages(final CompactImageStore store) {
+    compactImages.set(Objects.requireNonNull(store));
+  }
+
+  /**
    * Fixed, eagerly materialized chunks for per-slot optimistic versions.
    *
    * <p>
@@ -1316,7 +1328,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return false;
     }
     long waitedNanos = 0L;
-    firePressure();
+    firePressure(bytes);
     long parkNanos = INITIAL_PARK_NANOS;
     while (waitedNanos < MAX_WAIT_NANOS) {
       if (reserveScratchCommittedBytes(bytes)) {
@@ -1325,7 +1337,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       LockSupport.parkNanos(parkNanos);
       waitedNanos += parkNanos;
       parkNanos = Math.min(parkNanos * 2, MAX_PARK_NANOS);
-      firePressure();
+      firePressure(bytes);
     }
     if (reserveScratchCommittedBytes(bytes)) {
       return true;
@@ -1360,7 +1372,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       // First shot at relief before parking: the cache is the most likely
       // owner of the bytes we need, so ask it to evict synchronously. Skips
       // the 500 ms ClockSweeper cadence in the common hot-scan case.
-      firePressure();
+      firePressure(c.slotSize);
       slotIdx = acquireSlot(c);
     }
     if (slotIdx < 0) {
@@ -1372,7 +1384,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         parkNanos = Math.min(parkNanos * 2, MAX_PARK_NANOS);
         slotIdx = acquireSlot(c);
         if (slotIdx < 0) {
-          firePressure();
+          firePressure(c.slotSize);
           slotIdx = acquireSlot(c);
         }
       }
@@ -1501,11 +1513,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         // path allocates and releases on the same thread; a cross-thread caller fails loudly with
         // WrongThreadException rather than leaking or deferring reclaim to GC.
         if (!reserveCommittedBytes(size)) {
-          firePressure();
-          // The retry can only observe relief from concurrent OVERSIZED releases (their bytes
-          // return to committedBytes on close). Page eviction returns frame SLOTS, and
-          // slab-region commitments never leave committedBytes before shutdown — report the
-          // split so a post-peak OOM here is diagnosable as slab pressure, not a leak.
+          firePressure(size);
+          // The retry can observe relief from concurrent OVERSIZED releases (their bytes return to
+          // committedBytes on close) and from compact-image slabs the pressure path reclaimed after
+          // the caches evicted. A page-cache eviction on its own returns frame SLOTS, not budget —
+          // report the split so a post-peak OOM here is diagnosable as slab pressure, not a leak.
           if (!reserveCommittedBytes(size)) {
             throw new OutOfMemoryError("FrameSlotAllocator: oversized allocation of " + size + " bytes exceeds the "
                 + budgetBytes + "-byte physical budget (committed=" + committedBytes.get()
@@ -1701,13 +1713,35 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     System.err.flush();
   }
 
-  private static void firePressure() {
+  /**
+   * Ask for relief, then let the caller's own retry observe it.
+   *
+   * <p>
+   * The listener evicts the page caches synchronously, which is what closes cached compact images
+   * and returns their blocks to {@link CompactImageStore}. Only then can a compact slab be idle, so
+   * the store is asked to reclaim <em>after</em> the listener rather than before it, and only up to
+   * what this caller is short of. Whatever a release parks among the recycled slabs is drained by
+   * the retried reservation itself.
+   * </p>
+   *
+   * @param wantedBytes the bytes the refused caller is trying to satisfy
+   */
+  private void firePressure(final long wantedBytes) {
     final PressureListener l = pressureListener;
     if (l != null) {
       try {
         l.onPressure();
       } catch (final Throwable t) {
         LOGGER.debug("PressureListener threw: {}", t.getMessage());
+      }
+    }
+    final CompactImageStore pool = compactImages.get();
+    if (pool != null) {
+      try {
+        pool.reclaimIdleSlabs(wantedBytes);
+      } catch (final RuntimeException | Error failure) {
+        // Relief is best effort: the caller's retry reports the shortage if this could not help.
+        LOGGER.debug("Compact-image reclamation threw: {}", failure.toString());
       }
     }
   }
@@ -2074,8 +2108,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       closeOversizedAllocations();
     } catch (final RuntimeException | Error failure) {
       terminated.set(false);
-      if (this == INSTANCE) {
-        CompactImageStore.getInstance().resumeAfterRejectedShutdown();
+      final CompactImageStore pool = compactImages.get();
+      if (pool != null) {
+        pool.resumeAfterRejectedShutdown();
       }
       throw failure;
     }
@@ -2133,10 +2168,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       throw new IllegalStateException("FrameSlotAllocator shutdown raced " + pendingSlabOperations
           + " slab operation(s); retry after admission completes");
     }
-    // The compact-image blocks are slabs of this allocator held by one process-wide store. Idle
-    // ones are read by nobody, so give them back before the live-slab check below. Refuse shutdown
-    // while the store still has a lease or acquisition, before any pool slab can be unmapped.
-    if (this == INSTANCE && !CompactImageStore.getInstance().releaseIdleSlabs()) {
+    // The compact-image blocks are slabs of THIS allocator, held by the pool registered with it —
+    // the process-wide store in production, a test's own pool otherwise. Idle ones are read by
+    // nobody, so give them back before the live-slab check below. Refuse shutdown while that store
+    // still has a lease or acquisition, before any pool slab can be unmapped.
+    final CompactImageStore pool = compactImages.get();
+    if (pool != null && !pool.releaseIdleSlabs()) {
       throw new IllegalStateException(
           "FrameSlotAllocator shutdown with compact-image leases or acquisitions in flight");
     }

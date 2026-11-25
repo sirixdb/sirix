@@ -284,3 +284,49 @@ performance measurement and mutation gates remain owned by the outer pipeline.
   defaults, lease operations or their allocation and work budgets.
 - Lesson: withdraw reusable ownership before native teardown, and make teardown resets independent
   of heap availability; see the compact-image fragment collected into docs/LESSONS.md.
+
+### CI/review: the pool's own budget, and why idle slabs are reclaimed
+
+- Symptom: review of the atomic-holder commit reported that permanent compact slabs can starve
+  ordinary page frames. With a supported 64 MiB native budget, retained compact images can fill the
+  permanent allowance (about 52 MiB) before any 64 KiB frame exists; the first scan to want one
+  fails, and closing every compact image cannot recover, because a released block returns to the
+  pool's free list and not its bytes to the budget.
+- Root cause, and that it is the fix's own: the first version took slabs from `allocateSlab`, which
+  admits against the *reclaimable* ceiling and so would have eaten the oversized headroom that keeps
+  large-value buffers allocatable — review round 1 (R2) rejected that correctly. Moving them to
+  `reserveSlabCommittedBytes` put them in the allowance page frames commit from, which is permanent
+  by design. Both admission choices are wrong in different directions: the pool needed a way to give
+  bytes back.
+- Correction: idle slabs are reclaimed. The allocator's pressure path first lets its listener evict
+  the page caches — which closes cached compact images and returns their blocks — then asks the pool
+  to release idle slabs up to the refused caller's shortfall; the caller's existing retry loop
+  observes the relief. A slab is idle only when every block carved from it is free, derived during
+  the pass by draining the free stack and tallying per slab, so the lease path keeps no counter for
+  it. A selected slab's directory entries are nulled and its blocks are off the stack before it is
+  unmapped, and its indices are never reused. A pass is skipped when free blocks are fewer than the
+  smallest slab's block count, or when a hand-out is in flight. The strategy, its alternatives and
+  the agreed fallback are in `firstmate/data/sirix-compact-decode-arena/reclaim-strategy.md`.
+- The refund is not immediate: `releaseSlab` may park the region among the allocator's recycled
+  slabs and keep its commitment until a reservation drains it, which the retried reservation does.
+  The regression test therefore asserts committed bytes after the retry.
+
+#### Allocation audit of the per-read sites this change touches
+
+| Per-read site | Allocation |
+|---|---|
+| `CompactImageStore.acquire` → class `take` → free-stack `pop` | none: one compare-and-set pop, one atomic increment, no object |
+| `Block.run` → `give` → `push` | none: one compare-and-set push, one atomic decrement |
+| `Block.segment()` handed to the decoder | none: the block's own segment object, created once when its slab was carved |
+| `PageKind` compact branch | the page's own objects only; the storage acquisition adds nothing (it used to add one `Arena`, its session and a `Cleaner` registration) |
+| reclaim pass (`reclaimIdleSlabs`) | two small arrays per pass — cold path, under pressure only, never per read |
+
+Bounded by `CompactImageStorageAllocationBudgetTest`: a warmed lease/release cycle allocates 0 bytes
+over 100,000 rounds, and a cycle measured after a reclamation pass still allocates 0, which is what
+would catch per-lease bookkeeping added for a reclaim pass's benefit. The automatic arena is kept as
+the positive control.
+
+- Reviewed disposition, recorded rather than tested artificially: the directory check in `give()`
+  that refuses a block whose slab was reclaimed is unreachable by construction — a leased block
+  keeps its slab mapped, so a reclaimed slab's block cannot be held by any page — and it is kept as
+  a loud guard against a double release. A mutant removing it is expected to survive.

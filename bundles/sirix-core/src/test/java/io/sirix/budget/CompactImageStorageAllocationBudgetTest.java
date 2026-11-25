@@ -88,6 +88,32 @@ final class CompactImageStorageAllocationBudgetTest {
   }
 
   @Test
+  @DisplayName("a reclamation cycle leaves the per-lease allocation at zero")
+  void reclamationDoesNotChangeThePerLeaseAllocation() {
+    final ThreadMXBean bean = allocationBean();
+    final CompactImageStore store = CompactImageStore.getInstance();
+    assumeTrue(leaseCycle(store, 1) == 1, "the pool serves this machine's allocator budget");
+    leaseCycle(store, WARMUP_ROUNDS);
+
+    // Reclamation returns idle slabs, so the next leases grow the class again: the measurement
+    // after a pass is the one that would catch per-lease bookkeeping added for a reclaim pass's
+    // benefit (a per-slab live counter, for instance, which this design deliberately does without).
+    store.reclaimIdleSlabs(Long.MAX_VALUE / 2);
+    leaseCycle(store, WARMUP_ROUNDS);
+
+    final long[] legs = new long[3];
+    for (int leg = 0; leg < legs.length; leg++) {
+      final long before = bean.getCurrentThreadAllocatedBytes();
+      final int leased = leaseCycle(store, MEASURED_ROUNDS);
+      legs[leg] = bean.getCurrentThreadAllocatedBytes() - before;
+      assertEquals(MEASURED_ROUNDS, leased, "every round leased a block");
+    }
+    assertEquals(0L, Math.min(legs[0], Math.min(legs[1], legs[2])),
+        "a lease after a reclamation cycle must still allocate no heap; " + MEASURED_ROUNDS
+            + " rounds allocated " + Arrays.toString(legs) + " bytes");
+  }
+
+  @Test
   @DisplayName("the automatic arena this replaced does allocate, so the zero bound means something")
   void theAutomaticArenaControlAllocates() {
     final ThreadMXBean bean = allocationBean();
