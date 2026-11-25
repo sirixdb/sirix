@@ -34,9 +34,8 @@ final class JsonRecordSubtreeScopeTest {
       database.createResource(ResourceConfiguration.newBuilder("res").build());
       try (final var session = database.beginResourceSession("res")) {
         try (final var writer = session.beginNodeTrx()) {
-          writer.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("[{\"a\":\"first\",\"c\":\"continued\"},{\"b\":\"second\"},\"primitive\"]"),
-              JsonNodeTrx.Commit.NO);
+          writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+              "[{\"a\":\"first\",\"c\":\"continued\"},{\"b\":\"second\"},\"primitive\"]"), JsonNodeTrx.Commit.NO);
           writer.commit();
         }
         try (final var cursor = session.beginNodeReadOnlyTrx()) {
@@ -67,12 +66,8 @@ final class JsonRecordSubtreeScopeTest {
   void namedRecordRootsRetainNamesInPlainAndMetadataOutput(final boolean bytes) {
     final String fixture = "{\"arr\":[1,2,3],\"obj\":{\"a\":1,\"b\":2,\"c\":3},"
         + "\"scalar\":\"first\",\"emptyArray\":[],\"emptyObject\":{},\"q\\\"\\\\\\n水\":[1,2,3]}";
-    final Map<String, String> expectedPages = Map.of(
-        "arr", "{\"arr\":[1,2]}",
-        "obj", "{\"obj\":{\"a\":1,\"b\":2}}",
-        "scalar", "{\"scalar\":\"first\"}",
-        "emptyArray", "{\"emptyArray\":[]}",
-        "emptyObject", "{\"emptyObject\":{}}",
+    final Map<String, String> expectedPages = Map.of("arr", "{\"arr\":[1,2]}", "obj", "{\"obj\":{\"a\":1,\"b\":2}}",
+        "scalar", "{\"scalar\":\"first\"}", "emptyArray", "{\"emptyArray\":[]}", "emptyObject", "{\"emptyObject\":{}}",
         "q\"\\\n水", "{\"q\\\"\\\\\\n水\":[1,2]}");
     final Path databasePath = directory.resolve("named-records");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
@@ -95,8 +90,8 @@ final class JsonRecordSubtreeScopeTest {
               default -> 0;
             };
             for (int metadata = 0; metadata <= 3; metadata++) {
-              final var page = JsonParser.parseString(serializeNamedPage(session, bytes, root, 0, metadata, 1))
-                                         .getAsJsonObject();
+              final var page =
+                  JsonParser.parseString(serializeNamedPage(session, bytes, root, 0, metadata, 1)).getAsJsonObject();
               if (metadata == 0) {
                 assertEquals(JsonParser.parseString(expectedPages.get(name)), page);
               } else {
@@ -106,7 +101,11 @@ final class JsonRecordSubtreeScopeTest {
                   assertEquals(childCount, page.getAsJsonObject("metadata").get("childCount").getAsInt());
                 }
                 final var values = page.getAsJsonArray("value");
-                assertEquals(childCount == 0 ? (name.equals("scalar") ? 1 : 0) : 2, values.size());
+                assertEquals(childCount == 0
+                    ? (name.equals("scalar")
+                        ? 1
+                        : 0)
+                    : 2, values.size());
                 if (childCount > 0) {
                   assertEquals(1, values.get(0).getAsJsonObject().get("value").getAsInt());
                   assertEquals(2, values.get(1).getAsJsonObject().get("value").getAsInt());
@@ -115,7 +114,8 @@ final class JsonRecordSubtreeScopeTest {
                 }
               }
               final var history = JsonParser.parseString(serializeNamedPage(session, bytes, root, 0, metadata, 1, 2))
-                                            .getAsJsonObject().getAsJsonArray("sirix");
+                                            .getAsJsonObject()
+                                            .getAsJsonArray("sirix");
               assertEquals(2, history.size());
               assertEquals(page, history.get(0).getAsJsonObject().get("revision"));
               assertEquals(page, history.get(1).getAsJsonObject().get("revision"));
@@ -123,8 +123,9 @@ final class JsonRecordSubtreeScopeTest {
                 assertTrue(cursor.moveToFirstChild());
                 final long lastLoaded = cursor.getNodeKey();
                 assertTrue(cursor.moveTo(root));
-                final var continued = JsonParser.parseString(
-                    serializeNamedPage(session, bytes, root, lastLoaded, metadata, 1)).getAsJsonObject();
+                final var continued =
+                    JsonParser.parseString(serializeNamedPage(session, bytes, root, lastLoaded, metadata, 1))
+                              .getAsJsonObject();
                 assertEquals(name, continued.get("key").getAsString());
                 assertEquals(root, continued.getAsJsonObject("metadata").get("nodeKey").getAsLong());
                 assertEquals(2, continued.getAsJsonArray("value").size());
@@ -150,10 +151,13 @@ final class JsonRecordSubtreeScopeTest {
       case 1 -> builder.withNodeKeyMetaData(true);
       case 2 -> builder.withNodeKeyAndChildCountMetaData(true);
       case 3 -> builder.withMetaData(true);
-      default -> { }
+      default -> {
+      }
     }
     builder.build().call();
-    return bytes ? stream.toString(StandardCharsets.UTF_8) : writer.toString();
+    return bytes
+        ? stream.toString(StandardCharsets.UTF_8)
+        : writer.toString();
   }
 
   private static void assertPayload(final JsonResourceSession session, final boolean bytes, final long root,
@@ -164,7 +168,9 @@ final class JsonRecordSubtreeScopeTest {
         ? JsonRecordSerializer.newBuilder(session, 2, stream)
         : JsonRecordSerializer.newBuilder(session, 2, writer);
     builder.rootNodeKey(root).startNodeKey(cursor).build().call();
-    final String actual = bytes ? stream.toString(StandardCharsets.UTF_8) : writer.toString();
+    final String actual = bytes
+        ? stream.toString(StandardCharsets.UTF_8)
+        : writer.toString();
     assertEquals(JsonParser.parseString(expected), JsonParser.parseString(actual));
   }
 }

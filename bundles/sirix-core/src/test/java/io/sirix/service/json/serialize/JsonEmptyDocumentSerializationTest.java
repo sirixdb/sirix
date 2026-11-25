@@ -53,7 +53,8 @@ final class JsonEmptyDocumentSerializationTest {
             final String empty = serialize(session, bytes, metadata, mode, 2);
             assertEquals("null", empty.trim(), "metadata=" + metadata + ", mode=" + mode);
             final var history = JsonParser.parseString(serialize(session, bytes, metadata, mode, 1, 2, 3))
-                                          .getAsJsonObject().getAsJsonArray("sirix");
+                                          .getAsJsonObject()
+                                          .getAsJsonArray("sirix");
             assertEquals(3, history.size());
             for (int index = 0; index < 3; index++) {
               assertEquals(index + 1, history.get(index).getAsJsonObject().get("revisionNumber").getAsInt());
@@ -72,8 +73,12 @@ final class JsonEmptyDocumentSerializationTest {
         assertEquals(2, item.get("revisionNumber").getAsInt());
         assertTrue(item.get("revision").isJsonNull());
         final var directLimited = new StringWriter();
-        JsonLimitedSerializer.newBuilder(session, directLimited, 2).startNodeKey(0).maxLevel(1)
-                             .isXQueryResultSequence().build().call();
+        JsonLimitedSerializer.newBuilder(session, directLimited, 2)
+                             .startNodeKey(0)
+                             .maxLevel(1)
+                             .isXQueryResultSequence()
+                             .build()
+                             .call();
         assertEquals(item, JsonParser.parseString(directLimited.toString()));
       }
     }
@@ -88,13 +93,16 @@ final class JsonEmptyDocumentSerializationTest {
           ? JsonRecordSerializer.newBuilder(session, 2, stream, revisions)
           : JsonRecordSerializer.newBuilder(session, 2, writer, revisions);
       builder.rootNodeKey(0);
-      if (mode == 5) builder.maxLevel(2);
-      if (mode == 6) builder.maxChildren(1).numberOfNodes(10);
+      if (mode == 5)
+        builder.maxLevel(2);
+      if (mode == 6)
+        builder.maxChildren(1).numberOfNodes(10);
       switch (metadata) {
         case 1 -> builder.withNodeKeyMetaData(true);
         case 2 -> builder.withNodeKeyAndChildCountMetaData(true);
         case 3 -> builder.withMetaData(true);
-        default -> { }
+        default -> {
+        }
       }
       builder.build().call();
     } else {
@@ -106,16 +114,20 @@ final class JsonEmptyDocumentSerializationTest {
         case 1 -> builder.maxLevel(2);
         case 2 -> builder.maxChildren(1);
         case 3 -> builder.numberOfNodes(10);
-        default -> { }
+        default -> {
+        }
       }
       switch (metadata) {
         case 1 -> builder.withNodeKeyMetaData(true);
         case 2 -> builder.withNodeKeyAndChildCountMetaData(true);
         case 3 -> builder.withMetaData(true);
-        default -> { }
+        default -> {
+        }
       }
       builder.build().call();
     }
-    return bytes ? stream.toString(StandardCharsets.UTF_8) : writer.toString();
+    return bytes
+        ? stream.toString(StandardCharsets.UTF_8)
+        : writer.toString();
   }
 }
