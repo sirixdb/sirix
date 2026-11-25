@@ -32,8 +32,12 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -44,23 +48,19 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static io.brackit.query.util.path.Path.parse;
-import static org.mockito.AdditionalAnswers.delegatesTo;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.withSettings;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -251,43 +251,60 @@ final class BackupDerivedResourceTest {
   }
 
   @Test
-  @DisplayName("TXN-613: interrupted quiescence preserves interruption and releases the source writer")
-  void interruptedBackupPreservesInterruptionAndCanBeRetried() {
+  @DisplayName("TXN-613: interrupted quiescence closes real lifetimes and releases database ownership")
+  void interruptedBackupPreservesInterruptionAndCanBeRetried() throws Exception {
     final Path backupDir = tempDir.resolve("interrupted-backup");
-    try (final Database<JsonResourceSession> realDatabase = Databases.openJsonDatabase(sourceDb);
-        final JsonResourceSession realSession = realDatabase.beginResourceSession(RESOURCE)) {
-      final Database<?> database = mock(Database.class);
-      // The public session boundary delegates to a real session without borrowing its ownership.
-      final AbstractResourceSession<?, ?> delegated = mock(AbstractResourceSession.class,
-          withSettings().extraInterfaces(JsonResourceSession.class).defaultAnswer(delegatesTo(realSession)));
-      final JsonResourceSession session = (JsonResourceSession) delegated;
-      doNothing().when(delegated).close();
-      when(database.listResources()).thenReturn(List.of(sourceDb.resolve("resources").resolve(RESOURCE)));
-      when(database.beginResourceSession(RESOURCE)).thenAnswer(invocation -> session);
-      doAnswer(invocation -> {
-        final JsonNodeTrx writer = realSession.beginNodeTrx();
-        // Interruption starts after writer admission and its I/O have completed.
-        Thread.currentThread().interrupt();
-        return writer;
-      }).when(session).beginNodeTrx();
-      try (final var databases = mockStatic(Databases.class, invocation -> {
-        if (invocation.getMethod().getName().equals("openJsonDatabase")) {
-          return database;
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(sourceDb);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final ExecutorService executor = Executors.newSingleThreadExecutor()) {
+      final DerivedIndexMaintainer.Resource resource =
+          Objects.requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource());
+      DerivedIndexTestSupport.await(session);
+      resource.pause();
+      resource.lockHistory();
+      try {
+        final CompletableFuture<Thread> caller = new CompletableFuture<>();
+        final Future<Boolean> cancelled = executor.submit(() -> {
+          caller.complete(Thread.currentThread());
+          try {
+            final SirixIOException failure =
+                assertThrows(SirixIOException.class, () -> BackupManager.backupDatabase(sourceDb, backupDir));
+            assertTrue(failure.getMessage().contains(DERIVED));
+            return Thread.currentThread().isInterrupted();
+          } finally {
+            Thread.interrupted();
+          }
+        });
+        final Thread backupThread = caller.get(30, TimeUnit.SECONDS);
+        final ThreadMXBean threads = ManagementFactory.getThreadMXBean();
+        ThreadInfo state = threads.getThreadInfo(backupThread.threadId());
+        while ((state == null || state.getLockOwnerId() != Thread.currentThread().threadId()) && !cancelled.isDone()) {
+          Thread.onSpinWait();
+          state = threads.getThreadInfo(backupThread.threadId());
         }
-        return invocation.callRealMethod();
-      })) {
-        try {
-          final SirixIOException failure =
-              assertThrows(SirixIOException.class, () -> BackupManager.backupDatabase(sourceDb, backupDir));
-          assertTrue(failure.getMessage().contains(DERIVED));
-          assertTrue(Thread.currentThread().isInterrupted(), "backup cleanup must preserve interruption");
-        } finally {
-          Thread.interrupted(); // Do not leak the simulated caller interruption into the test runner.
+        if (cancelled.isDone()) {
+          cancelled.get(30, TimeUnit.SECONDS);
         }
+        assertNotNull(state);
+        assertEquals(Thread.currentThread().threadId(), state.getLockOwnerId(),
+            "interrupt only after the backup is waiting on the held derived history lock");
+        backupThread.interrupt();
+        assertTrue(cancelled.get(30, TimeUnit.SECONDS), "the cancelled caller must observe its interrupt status");
+        assertFalse(Files.exists(backupDir), "an interrupted backup must remove its partial target");
+      } finally {
+        resource.unlockHistory();
+        resource.resume();
       }
-      assertFalse(Files.exists(backupDir), "an interrupted backup must leave no partial target");
+    }
+    try (final FileChannel channel = FileChannel.open(sourceDb.resolve(".lock"), StandardOpenOption.WRITE);
+        final FileLock ownership = channel.tryLock(0, 1, false)) {
+      assertNotNull(ownership, "closing the application handles must release actual database ownership");
+    }
+    try (final Database<JsonResourceSession> reopened = Databases.openJsonDatabase(sourceDb);
+        final JsonResourceSession session = reopened.beginResourceSession(RESOURCE)) {
+      assertEquals(REVISIONS, session.getMostRecentRevisionNumber());
       assertEquals(1, BackupManager.backupDatabase(sourceDb, backupDir).derivedResourcesCopied(),
-          "cleanup must preserve live channels and permit another backup of the same resource");
+          "the database must reopen and support a fresh backup after cancellation");
     }
   }
 

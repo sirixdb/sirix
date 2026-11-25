@@ -89,6 +89,9 @@ state) under TXN-615, retirement tombstones, and the runtime files listed below.
 - If another transaction holds a resource's writer lock, the backup **fails fast** (after the
   ~5 s lock-acquisition timeout) rather than copy a moving target. Retry when the writer is
   done, or use shorter transactions.
+- An interrupted backup defers the interrupt status until its writers, sessions and database handle
+  are closed and its partial target is removed. It restores the caller's interrupt status at the
+  outer boundary, including on failure; cancellation does not retain database ownership.
 - If a derived resource's maintenance does not become quiescent within the same ~5 s, the backup is
   **refused** with a message naming that resource, rather than copying a store that is mid-build.
   Retry once its temporal-aggregate maintenance has caught up.

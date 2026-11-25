@@ -190,3 +190,28 @@ documented equivalent Kotlin assertions). The local selection omitted four sourc
 restored byte-for-byte to the PR base, matching the reduced diff the outer executor will commit.
 The full reports and failed-before/fixed-after logs are archived locally under
 `build/ci-pr1499/`; no mutation threshold, CI deadline or work bound was widened.
+
+## Cancellation across the complete backup lifetime
+
+- Symptom: cancelling a backup during derived quiescence can retain its database reference after
+  writer cleanup, preventing the application's last handle from releasing OS database ownership.
+- Trigger: hold the derived history lock, admit the backup's real source writer, interrupt its wait,
+  then close the application handles after the backup returns.
+- Root cause: writer cleanup restored interruption before the enclosing session and database
+  lifetimes closed. Their notification retirement rejects an interrupted caller. The test replaced
+  those lifetimes with a no-op close and a mocked database, hiding the leaked ownership.
+- Fix: one primitive flag owned by the outer backup records interruption. Lock-wait cancellation
+  and teardown defer it before closing each enclosing lifetime; the outermost finally cleans the
+  target and restores the flag once, including when teardown itself throws. No intermediate close
+  restores it, and writer close remains guaranteed if rollback throws.
+- Regression: `BackupDerivedResourceTest.interruptedBackupPreservesInterruptionAndCanBeRetried`
+  uses real source/session/database ownership. The JVM's lock-owner observation establishes the
+  cancellation boundary without sleeps. It checks the caller's restored interruption, absence of
+  a partial target, acquisition of the released OS ownership lock after application close, and
+  reopening and retrying a backup. TXN-613 supplies the independent cleanup and ownership oracle.
+  A leaked backup reference leaves the ownership lock held and fails the test. Focused execution
+  passed all 17 tests across `BackupDerivedResourceTest` and `BackupRestoreTest`, with only those
+  class filters on `:sirix-core:test` and all attached verification forks excluded. Mutation and
+  counterfactual validation remain with the outer phases.
+- Vision check: cancellation releases the engine lifetimes it acquired and preserves the caller's
+  cancellation signal without changing durable data or live read defaults.

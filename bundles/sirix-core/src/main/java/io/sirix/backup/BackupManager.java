@@ -217,6 +217,7 @@ public final class BackupManager {
     final List<String> notBackedUp = new ArrayList<>();
     long totalBytes = 0;
     boolean success = false;
+    final boolean[] interrupted = {false};
     try {
       try {
         Files.createDirectories(target);
@@ -227,46 +228,58 @@ public final class BackupManager {
       // Open the database FIRST: opening may mint or re-key the persisted database id (and
       // rewrite dbsetting.obj), so copying the config afterwards captures the final state.
       try (final Database<?> database = openDatabase(source, databaseType)) {
-        // Phase A — database-level files (dbsetting.obj, keyselector/, …); the resource
-        // subtrees are copied per-resource under the writer lock in phase B. dbsetting.obj is
-        // only ever replaced via an atomic temp-file move, so reading it concurrently is safe.
-        totalBytes += copyTree(source, target, rel -> rel.getName(0).toString().equals(RESOURCES_DIR.toString()),
-            BackupManager::isTransientDatabaseFile);
-
-        final Path targetResources = target.resolve(RESOURCES_DIR);
         try {
-          Files.createDirectories(targetResources);
-        } catch (final IOException e) {
-          throw new SirixIOException("Could not create " + targetResources + ".", e);
-        }
+          // Phase A — database-level files (dbsetting.obj, keyselector/, …); the resource
+          // subtrees are copied per-resource under the writer lock in phase B. dbsetting.obj is
+          // only ever replaced via an atomic temp-file move, so reading it concurrently is safe.
+          totalBytes += copyTree(source, target, rel -> rel.getName(0).toString().equals(RESOURCES_DIR.toString()),
+              BackupManager::isTransientDatabaseFile);
 
-        // Phase B — each resource, copied while holding ITS writer semaphore.
-        for (final Path resourcePath : database.listResources()) {
-          if (!Files.isDirectory(resourcePath)) {
-            continue; // stray non-directory entry below resources/ — not a resource
+          final Path targetResources = target.resolve(RESOURCES_DIR);
+          try {
+            Files.createDirectories(targetResources);
+          } catch (final IOException e) {
+            throw new SirixIOException("Could not create " + targetResources + ".", e);
           }
-          final String resourceName = resourcePath.getFileName().toString();
-          if (InMemoryResources.isInMemoryOwned(resourcePath)) {
-            // TXN-615 clause 10: an IN_MEMORY resource lives only in the open database.
-            notBackedUp.add(resourceName);
-            continue;
+
+          // Phase B — each resource, copied while holding ITS writer semaphore.
+          for (final Path resourcePath : database.listResources()) {
+            if (!Files.isDirectory(resourcePath)) {
+              continue; // stray non-directory entry below resources/ — not a resource
+            }
+            final String resourceName = resourcePath.getFileName().toString();
+            if (InMemoryResources.isInMemoryOwned(resourcePath)) {
+              // TXN-615 clause 10: an IN_MEMORY resource lives only in the open database.
+              notBackedUp.add(resourceName);
+              continue;
+            }
+            final CopiedResource copied = copyResource(database, resourcePath, targetResources, interrupted);
+            resourceSummaries.add(copied.resource());
+            final ResourceSummary derivedSummary = copied.derived();
+            if (derivedSummary != null) {
+              derivedSummaries.add(derivedSummary);
+            }
+            totalBytes += copied.totalBytesCopied();
           }
-          final CopiedResource copied = copyResource(database, resourcePath, targetResources);
-          resourceSummaries.add(copied.resource());
-          final ResourceSummary derivedSummary = copied.derived();
-          if (derivedSummary != null) {
-            derivedSummaries.add(derivedSummary);
-          }
-          totalBytes += copied.totalBytesCopied();
+          totalBytes += reconcileResourceIds(target);
+        } finally {
+          interrupted[0] |= Thread.interrupted();
         }
-        totalBytes += reconcileResourceIds(target);
       }
 
       success = true;
       return new BackupSummary(source, target, resourceSummaries, derivedSummaries, totalBytes, notBackedUp);
     } finally {
-      if (!success) {
-        cleanupTarget(target, targetExisted);
+      interrupted[0] |= Thread.interrupted();
+      try {
+        if (!success) {
+          cleanupTarget(target, targetExisted);
+        }
+      } finally {
+        interrupted[0] |= Thread.interrupted();
+        if (interrupted[0]) {
+          Thread.currentThread().interrupt();
+        }
       }
     }
   }
@@ -308,52 +321,50 @@ public final class BackupManager {
    * semaphore and, for the sibling, its maintainer's history lock.
    */
   private static CopiedResource copyResource(final Database<?> database, final Path resourcePath,
-      final Path targetResources) {
+      final Path targetResources, final boolean[] interrupted) {
     final String resourceName = resourcePath.getFileName().toString();
     try (final ResourceSession<?, ?> session = database.beginResourceSession(resourceName)) {
-      // Refuse before writer creation can run marker recovery; recheck under the lock below.
-      try (final NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
-        reader.getStorageEngineReader().getUberPage().getFeatures().requireToolCompatible();
-      }
-      // Acquire the resource's JVM-global writer semaphore (see class javadoc). This also runs
-      // leftover-.commit crash recovery before we copy. Fails fast (~5s) if another transaction is
-      // writing.
-      final NodeTrx lockHolder = session.beginNodeTrx();
       try {
-        lockHolder.getStorageEngineWriter().getUberPage().getFeatures().requireToolCompatible();
-        final int mostRecentRevision = session.getMostRecentRevisionNumber();
-        // The hidden derived sibling is quiesced before the source copy starts, so both halves of
-        // this resource are copied from one state the database never left.
-        final DerivedQuiescence derived = quiesceDerivedResource(session, resourcePath);
+        // Refuse before writer creation can run marker recovery; recheck under the lock below.
+        try (final NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+          reader.getStorageEngineReader().getUberPage().getFeatures().requireToolCompatible();
+        }
+        // Acquire the resource's JVM-global writer semaphore (see class javadoc). This also runs
+        // leftover-.commit crash recovery before we copy. Fails fast (~5s) if another transaction is
+        // writing.
+        final NodeTrx lockHolder = session.beginNodeTrx();
         try {
-          final long bytes = copyTree(resourcePath, targetResources.resolve(resourceName), rel -> false,
-              BackupManager::isTransientResourceFile);
-          final Path derivedPath = derived.derivedPath();
-          return new CopiedResource(new ResourceSummary(resourceName, mostRecentRevision, bytes), derivedPath == null
-              ? null
-              : copyDerivedResource(derivedPath, targetResources, mostRecentRevision));
+          lockHolder.getStorageEngineWriter().getUberPage().getFeatures().requireToolCompatible();
+          final int mostRecentRevision = session.getMostRecentRevisionNumber();
+          // The hidden derived sibling is quiesced before the source copy starts, so both halves of
+          // this resource are copied from one state the database never left.
+          final DerivedQuiescence derived = quiesceDerivedResource(session, resourcePath, interrupted);
+          try {
+            final long bytes = copyTree(resourcePath, targetResources.resolve(resourceName), rel -> false,
+                BackupManager::isTransientResourceFile);
+            final Path derivedPath = derived.derivedPath();
+            return new CopiedResource(new ResourceSummary(resourceName, mostRecentRevision, bytes), derivedPath == null
+                ? null
+                : copyDerivedResource(derivedPath, targetResources, mostRecentRevision));
+          } finally {
+            derived.release();
+          }
         } finally {
-          derived.release();
+          closeSourceWriter(lockHolder, interrupted);
         }
       } finally {
-        closeSourceWriter(lockHolder);
+        interrupted[0] |= Thread.interrupted();
       }
     }
   }
 
-  private static void closeSourceWriter(final NodeTrx writer) {
-    // Lifecycle locks and file I/O must finish before the caller's interruption is restored.
-    final boolean interrupted = Thread.interrupted();
+  private static void closeSourceWriter(final NodeTrx writer, final boolean[] interrupted) {
+    interrupted[0] |= Thread.interrupted();
     try {
-      try {
-        writer.rollback();
-      } finally {
-        writer.close();
-      }
+      writer.rollback();
     } finally {
-      if (interrupted) {
-        Thread.currentThread().interrupt();
-      }
+      interrupted[0] |= Thread.interrupted();
+      writer.close();
     }
   }
 
@@ -386,7 +397,7 @@ public final class BackupManager {
    *         be a partial copy of a store that is being written
    */
   private static DerivedQuiescence quiesceDerivedResource(final ResourceSession<?, ?> session,
-      final Path resourcePath) {
+      final Path resourcePath, final boolean[] interrupted) {
     final Path derivedPath = resourcePath.resolveSibling(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX);
     if (!Files.isDirectory(derivedPath)) {
       return new DerivedQuiescence(null, null);
@@ -397,11 +408,11 @@ public final class BackupManager {
     final boolean quiescent;
     try {
       quiescent = maintained.tryLockHistory(DERIVED_QUIESCENCE_TIMEOUT);
-    } catch (final InterruptedException interrupted) {
-      Thread.currentThread().interrupt();
+    } catch (final InterruptedException interruption) {
+      interrupted[0] = true;
       throw new SirixIOException(
           "Interrupted while waiting for the derived resource " + derivedPath.getFileName() + " to become quiescent.",
-          interrupted);
+          interruption);
     }
     if (!quiescent) {
       throw new SirixIOException("The derived resource " + derivedPath.getFileName()
