@@ -182,52 +182,75 @@ class ContentImportAuthorizationTest {
         }
     }
 
+    /**
+     * A load never writes into an existing resource (#1384): with create-new false an existing name
+     * is refused as a client error whatever the caller may do, and nothing is written. Writing into
+     * an existing resource is xn:import's job, which needs MODIFY.
+     */
     @Test
-    fun xmlLoadIntoExistingResourceRequiresModify() {
+    fun xmlLoadNeverWritesIntoAnExistingResource() {
         val query = "xn:load('auth','doc','<added/>',false())"
-        withStore(false, arrayOf("view", "create")) { fixture ->
-            assertStatus(403) { fixture.run(query) }
-            assertEquals(1, fixture.revision())
-            assertFalse(fixture.hasWriter())
+        for (roles in listOf(arrayOf("view", "create"), arrayOf("view", "create", "modify"))) {
+            withStore(false, roles) { fixture ->
+                assertStatus(400) { fixture.run(query) }
+                assertEquals(1, fixture.revision())
+                assertFalse(fixture.hasWriter())
+            }
         }
-        withStore(false, arrayOf("view", "create", "modify"), initialize = false) { fixture ->
-            fixture.run(query)
+        withStore(false, arrayOf("view", "create", "modify")) { fixture ->
+            fixture.run(call("xn:import", "doc", "<added/>"))
             assertEquals(2, fixture.revision())
         }
     }
 
     @Test
     fun repeatedXmlLoadInputsCloseEachWriter() {
-        withStore(false, arrayOf("view", "create", "modify")) { fixture ->
-            fixture.run("xn:load('auth','doc',('<a/>','<b/>'),false())")
-            assertEquals(3, fixture.revision())
-            assertFalse(fixture.hasWriter())
-            val names = fixture.run("string-join(for ${'$'}child in xn:doc('auth','doc')/* return local-name(${'$'}child),',')") as Str
-            assertEquals("b,a,root", names.stringValue())
+        withStore(false, arrayOf("view", "create")) { fixture ->
+            fixture.run("xn:load('auth','many',('<a/>','<b/>'),false())")
+            assertEquals(setOf("doc", "resource2", "resource3"), fixture.resources())
+            for ((resource, expected) in listOf("resource2" to "a", "resource3" to "b")) {
+                assertEquals(1, fixture.revision(resource))
+                assertFalse(fixture.hasWriter(resource))
+                val name = fixture.run("local-name(xn:doc('auth','$resource')/*)") as Str
+                assertEquals(expected, name.stringValue())
+            }
+            assertEquals(1, fixture.revision("doc"))
         }
     }
 
     @ParameterizedTest
     @ValueSource(strings = ["doc", "fresh"])
     fun xmlLoadThenImportCanReuseTheSameContext(resource: String) {
-        withStore(false, arrayOf("view", "create", "modify")) { fixture ->
-            fixture.run(call("xn:load", resource, "<loaded/>"))
+        withStore(false, arrayOf("view", "create", "modify", "delete")) { fixture ->
+            if (resource == "doc") {
+                assertStatus(400) { fixture.run("xn:load('auth','$resource','<loaded/>',true())") }
+                assertEquals(1, fixture.revision(resource))
+                assertFalse(fixture.hasWriter(resource))
+            } else {
+                fixture.run("xn:load('auth','$resource','<loaded/>',true())")
+            }
             fixture.run(call("xn:import", resource, "<imported/>"))
-            assertEquals(if (resource == "doc") 3 else 2, fixture.revision(resource))
+            assertEquals(2, fixture.revision(resource))
             val name = fixture.run("local-name(xn:doc('auth','$resource')/*)") as Str
             assertEquals("imported", name.stringValue())
-            assertFalse(fixture.hasWriter())
+            assertFalse(fixture.hasWriter(resource))
         }
     }
 
     @ParameterizedTest
     @ValueSource(strings = ["jn:load", "xn:load"])
-    fun replacingDatabaseRequiresDelete(function: String) {
+    /**
+     * A load into an existing database adds a free name; a taken name is refused without writes.
+     */
+    fun loadsRefuseTakenNamesAndAddingKeepsTheRest(function: String) {
         val json = function.startsWith("jn:")
         val content = if (json) "{}" else "<root/>"
         withStore(json, arrayOf("view", "create", "modify")) { fixture ->
-            assertStatus(403) { fixture.run("$function('auth','fresh','$content',true())") }
+            assertStatus(400) { fixture.run("$function('auth','doc','$content',true())") }
             assertEquals(setOf("doc"), fixture.resources())
+            assertEquals(1, fixture.revision())
+            fixture.run("$function('auth','fresh','$content',true())")
+            assertEquals(setOf("doc", "fresh"), fixture.resources())
             assertEquals(1, fixture.revision())
         }
     }
@@ -244,11 +267,11 @@ class ContentImportAuthorizationTest {
         val authz: AuthorizationProvider,
         val revision: (String) -> Int,
         val resources: () -> Set<String>,
-        val writer: () -> Boolean
+        val writer: (String) -> Boolean
     ) {
         fun run(query: String) = PermissionCheckingQuery(chain, query, Mockito.mock(OAuth2Auth::class.java), user, authz).evaluate(context)
         fun revision(resource: String = "doc") = revision.invoke(resource)
-        fun hasWriter() = writer()
+        fun hasWriter(resource: String = "doc") = writer(resource)
     }
 
     private fun withStore(json: Boolean, roles: Array<String>, initialize: Boolean = true, empty: Boolean = false, body: (Fixture) -> Unit) {
@@ -274,7 +297,7 @@ class ContentImportAuthorizationTest {
                         body(Fixture(context, chain, user, authz,
                             { name -> collection.database.beginResourceSession(name).mostRecentRevisionNumber },
                             { collection.database.listResources().map { it.fileName.toString() }.toSet() },
-                            { collection.database.beginResourceSession("doc").nodeTrx.isPresent }))
+                            { name -> collection.database.beginResourceSession(name).nodeTrx.isPresent }))
                     }
                 }
             }
@@ -295,7 +318,7 @@ class ContentImportAuthorizationTest {
                         body(Fixture(context, chain, user, authz,
                             { name -> collection.database.beginResourceSession(name).mostRecentRevisionNumber },
                             { collection.database.listResources().map { it.fileName.toString() }.toSet() },
-                            { collection.database.beginResourceSession("doc").nodeTrx.isPresent }))
+                            { name -> collection.database.beginResourceSession(name).nodeTrx.isPresent }))
                     }
                 }
             }

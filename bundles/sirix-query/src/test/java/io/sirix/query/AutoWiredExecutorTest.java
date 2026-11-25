@@ -49,8 +49,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * writing a test for.
  *
  * <p>
- * The two resources hold deliberately different sums, in two databases because {@code jn:store}
- * recreates the database it targets. An answer served from the wrong one cannot agree by accident.
+ * The two resources hold deliberately different sums in two databases. An answer served from the
+ * wrong one cannot agree by accident.
  *
  * @see StoreBoundExecutorCache
  */
@@ -192,6 +192,7 @@ public final class AutoWiredExecutorTest {
     }
 
     // The write above is part of the measurement, so put the resource back before repeating it.
+    JsonTestHelper.deleteEverything();
     query("jn:store('" + DB_A + "','" + RES_A + "','[{\"age\":10},{\"age\":20},{\"age\":30},{\"age\":40}]')");
 
     try (final BasicJsonDBStore store = newStore();

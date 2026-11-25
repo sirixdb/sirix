@@ -8,6 +8,7 @@ import io.brackit.query.jdm.json.Object;
 import io.sirix.access.MutationGate;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.json.JsonNodeTrx;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -108,6 +109,8 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
 
   @Override
   void close();
+
+  JsonNodeTrx beginImportTrx(JsonResourceSession resourceSession);
 
   Options options();
 }

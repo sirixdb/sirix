@@ -9,12 +9,14 @@ import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.MathContext;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -34,6 +36,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </ol>
  */
 public final class VectorizedAggregateExactnessTest {
+
+  @TempDir
+  Path directory;
 
   /** Values around 1.1e18: nine of them overflow a signed 64-bit accumulator. */
   private static final long[] BIG_IDS = {1152908451924884486L, 1141889425024884481L, 1052908451924884482L,
@@ -161,8 +166,8 @@ public final class VectorizedAggregateExactnessTest {
     }
   }
 
-  private static BasicJsonDBStore newStore() {
-    return BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+  private BasicJsonDBStore newStore() {
+    return BasicJsonDBStore.newBuilder().location(directory).build();
   }
 
   /** {@code [{"id": <big>, "day": "<iso>"}, ...]} — one record per big id. */

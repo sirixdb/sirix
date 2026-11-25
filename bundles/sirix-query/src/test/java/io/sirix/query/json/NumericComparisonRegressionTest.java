@@ -20,23 +20,26 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * numeric comparison promotes to the least common type, so these must compare — not throw
  * {@code err:XPTY0004 Cannot compare ...}.
  *
- * <p>The interesting case is an integer stored as a brackit {@code Int64} (how the REST JSON
- * shredder stores every integer — Jackson parses JSON ints as {@code long}) compared against an
+ * <p>
+ * The interesting case is an integer stored as a brackit {@code Int64} (how the REST JSON shredder
+ * stores every integer — Jackson parses JSON ints as {@code long}) compared against an
  * {@code xs:double}: brackit's {@code Int64.cmp} matches the {@code DblNumeric}/{@code FltNumeric}
  * operand by its CONCRETE {@code Dbl}/{@code Flt} class (it only checks the INTERFACE for
- * {@code DecNumeric}), so a document-sourced double — wrapped in {@link DblNumericJsonDBItem}, which
- * implements {@code DblNumeric} but is not the concrete {@code Dbl} — falls through to the throw.
- * {@link NumericJsonDBItem} therefore unwraps the other operand to its concrete brackit atomic
- * before delegating the comparison. (A small int parsed by {@code jn:store} is an {@code Int32},
- * whose {@code cmp} has a generic {@code Numeric} fallback, which is why this only bit the
- * REST-shredded demo.)
+ * {@code DecNumeric}), so a document-sourced double — wrapped in {@link DblNumericJsonDBItem},
+ * which implements {@code DblNumeric} but is not the concrete {@code Dbl} — falls through to the
+ * throw. {@link NumericJsonDBItem} therefore unwraps the other operand to its concrete brackit
+ * atomic before delegating the comparison. (A small int parsed by {@code jn:store} is an
+ * {@code Int32}, whose {@code cmp} has a generic {@code Numeric} fallback, which is why this only
+ * bit the REST-shredded demo.)
  */
 public final class NumericComparisonRegressionTest {
 
   private static final String DB = "json-path1";
   private static final String RES = "mydoc.jn";
 
-  /** A value &gt; 2^31 so brackit stores it as an Int64 (Long), like the REST shredder always does. */
+  /**
+   * A value &gt; 2^31 so brackit stores it as an Int64 (Long), like the REST shredder always does.
+   */
   private static final String BIG_INT = "5000000000";
 
   @BeforeEach
@@ -50,9 +53,10 @@ public final class NumericComparisonRegressionTest {
   }
 
   private static String run(final String data, final String query) {
+    JsonTestHelper.deleteEverything();
     try (final var store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).build();
-         final var ctx = SirixQueryContext.createWithJsonStore(store);
-         final var chain = SirixCompileChain.createWithJsonStore(store)) {
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + data + "')").evaluate(ctx);
       final var out = new ByteArrayOutputStream();
       try (final var pw = new PrintWriter(out, false, StandardCharsets.UTF_8)) {
@@ -68,8 +72,8 @@ public final class NumericComparisonRegressionTest {
 
   @Test
   public void orderByInt64AndDouble() {
-    assertEquals("3.7 5000000000", run("{\"vals\":[" + BIG_INT + ", 3.7e0]}",
-        "for $v in " + doc() + ".vals[] order by $v return $v"));
+    assertEquals("3.7 5000000000",
+        run("{\"vals\":[" + BIG_INT + ", 3.7e0]}", "for $v in " + doc() + ".vals[] order by $v return $v"));
   }
 
   @Test
@@ -93,7 +97,6 @@ public final class NumericComparisonRegressionTest {
   @Test
   public void arithmeticInt64AndDouble() {
     // int64 + xs:double must promote, not throw: 5000000000 + 1.5 = 5000000001.5 > 4.9e9.
-    assertEquals("true", run("{\"a\":" + BIG_INT + ",\"b\":1.5e0}",
-        "(" + doc() + ".a + " + doc() + ".b) gt 4.9e9"));
+    assertEquals("true", run("{\"a\":" + BIG_INT + ",\"b\":1.5e0}", "(" + doc() + ".a + " + doc() + ".b) gt 4.9e9"));
   }
 }

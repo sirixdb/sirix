@@ -1,0 +1,69 @@
+# Bug: storing a new resource into an existing database dropped the whole database
+
+- Fix / issue: [#1384](https://github.com/sirixdb/sirix/issues/1384).
+- Symptom: `jn:store('db','fresh',…)`, `jn:load`, `xn:store` and `xn:load` against an existing
+  database removed the whole database and recreated it with only the new resource. Every other
+  resource, its history and its indexes were destroyed by a call whose intent was to add one
+  resource. Reproduced: storing `added` into a database holding `first` and `other` left `[added]`.
+- Trigger: any of the four functions with `$create-new` true, which is the default, against an
+  existing database.
+- Root cause: `$create-new` chose the store's database `create` path whenever it was true, without
+  first asking whether the database existed. That path calls `removeIfExisting` on the database
+  before creating it. The flag documented "create a new collection", while the call site named a
+  resource, so the database-level meaning of the flag and the resource-level intent of the call
+  never met. With `$create-new` false, an existing name was written *into* the resource, so
+  store/load also overlapped with `jn:import`/`xn:import`.
+- Contract: see the [query usage guide](../../README.md#using-the-cli-native-binaries) and
+  [REST-210](../../spec/REST-api.md#rest-210--resource-creation-and-query-import-boundaries).
+  `FreeResourceName` states the rule the four functions apply to a named target: a free name is
+  added, a name that is taken is refused with `SIRIXDBF0006` and nothing is written, whatever
+  `$create-new` says. These functions never replace a resource in place. Replacing a resource from
+  a query is reserved for a future atomic replace operation, because a replacement that removes the
+  target before the write can lose the history when that write then fails; the maintainer decided
+  this narrower contract for 1.0.
+- Why tests missed it: tests stored into fresh locations, or asserted the replacement itself
+  (`createAndDeleteRolesCanReplaceAnExistingDatabase`, `StoreResourceNameTest`'s "recreating
+  replaces the database"). No test stored a second resource into a populated database and checked
+  the first one.
+- Regression tests:
+  - `function.jn.io.StoreIntoExistingDatabaseTest` and `function.xml.io.StoreIntoExistingDatabaseTest`
+    cover add and refuse for store and load under every `$create-new` spelling, plus several items
+    under new automatic names, including named multi-input `xn:load` calls. Each asserts that the other
+    resource's content, revision count and path index are unchanged. Verified by reverting each
+    production file to its pre-fix version with the tests unchanged: 18 of the 21 JSON cases and 16
+    of the 17 XML cases then fail, with storing `added` leaving `[added]`.
+  - The same suites cover more properties:
+    - A caller racing to create the missing database is seen, not wiped
+      (`aDatabaseCreatedByARacingCallerIsKept`). With the database hold removed, the racer's
+      resource was lost.
+    - `jn:load`/`xn:load` return the collection they loaded into.
+  - `LoadSourceAcquisitionTest.sourceAcquisitionFailurePreservesExistingData` caught a regression
+    during the fix. Routing multi-URI loads into an existing collection through
+    `JsonDBCollectionImpl.addAllFromUris` wrote each source as it was opened, so a failing later
+    source left a half-loaded database. That method now acquires every source first, as database
+    creation does. `acquiredSourcesAreReleasedWhenALaterSourceFails` (Linux, `/proc/self/fd`)
+    pins that sources acquired before the failure are released.
+  - The REST `QueryMutationAuthorizationTest` and `ContentImportAuthorizationTest` were translated
+    from database replacement to resource add and refuse, keeping their authorization intent: a
+    taken name is refused however many roles the caller holds, and MODIFY and DELETE buy no in-place
+    replacement on the query path.
+- Review follow-up root causes: XML parsers opened URIs only while writing, and JSON singleton
+  selection depended on the runtime sequence class rather than on cardinality. Inputs are now
+  acquired and retained before any target is touched, and actual cardinality selects the named
+  target. `LoadSourceAcquisitionTest` covers XML named/unnamed and existing/missing databases plus
+  the JSON single-source case; both store/load suites cover lazy singletons, XML self-reference and
+  named multi-input loads under all flag values.
+- Review follow-up import ownership: routing through collection additions had also bypassed bounded
+  import transactions, discarded JSON result readers without closing them, and rejected singleton
+  empty JSON strings after claiming a resource. These defects also affected free names and were not
+  removed by refusing replacement. Resource imports now reuse the configured import policy, close
+  discarded transactions, and preserve empty-resource options and indexes. Ordinary collection-add
+  results remain caller-owned. The JSON and XML `StoreIntoExistingDatabaseTest` suites assert
+  checkpoint revisions, complete imported content and zero retained import transactions; the JSON
+  suite additionally checks empty-string input, valid-time indexes and unchanged existing data.
+- Why these tests missed it: earlier checks used small nonempty imports and asserted content and
+  unrelated history, without checking configured checkpoint behavior or result transaction ownership.
+- Why the in-place replace path was dropped: removing a target before writing can destroy history
+  when the write fails, which is why query refusal is unconditional.
+- Lesson: see [Lessons](../LESSONS.md). A flag must act at the scope its call names: a function
+  given a resource name must not act on the whole database.

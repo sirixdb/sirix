@@ -77,18 +77,23 @@ final class ConstructedXmlNamespaceTest {
         "ELEMENT|urn:b|inner|", "ELEMENT|urn:a|item|p", "ELEMENT|urn:b|deep|", "ELEMENT|urn:b|item|p",
         "ELEMENT|urn:b|repeat|", "ELEMENT|urn:b|item|p", "ELEMENT|urn:a|item|p", "ELEMENT|urn:b|item|p",
         "ELEMENT|urn:a|item|p", "ELEMENT||item|");
-    for (final String input : List.of(XML, nested)) {
-      run(versioning, "xn:store('serialized',()," + input + ")");
+    final List<String> inputs = List.of(XML, nested);
+    for (int index = 0; index < inputs.size(); index++) {
+      final String input = inputs.get(index);
+      // Each input gets its own free name: storing into the existing database adds the resource and
+      // keeps the others, and a name already taken would be refused (#1384).
+      final String resource = "round-trip-" + index;
+      run(versioning, "xn:store('serialized','" + resource + "'," + input + ")");
       final List<String> expectedNames = input.equals(XML)
           ? EXPECTED_NAMES
           : nestedNames;
-      assertEquals(expectedNames, names(versioning, "serialized", "resource1"));
-      final String serialized = run(versioning, "xn:doc('serialized','resource1')");
+      assertEquals(expectedNames, names(versioning, "serialized", resource));
+      final String serialized = run(versioning, "xn:doc('serialized','" + resource + "')");
       try (final var store = store(versioning)) {
-        store.create("reparsed", "resource1", new DocumentParser(serialized));
+        store.create("reparsed", resource, new DocumentParser(serialized));
       }
-      assertEquals(expectedNames, names(versioning, "reparsed", "resource1"), serialized);
-      assertEquals(expectedNames, names(versioning, "serialized", "resource1"));
+      assertEquals(expectedNames, names(versioning, "reparsed", resource), serialized);
+      assertEquals(expectedNames, names(versioning, "serialized", resource));
     }
   }
 

@@ -45,6 +45,11 @@ class AuthCheckingJsonDBCollection(
         wrapped.remove(documentID)
     }
 
+    override fun importResource(resourceName: String, reader: JsonReader?, options: Object) {
+        Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
+        MutationAuthorization.where(mutationAuthorizer).run { wrapped.importResource(resourceName, reader, options) }
+    }
+
     override fun addAll(readers: List<JsonReader>, options: Object) {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
         MutationAuthorization.where(mutationAuthorizer).run { wrapped.addAll(readers, options) }

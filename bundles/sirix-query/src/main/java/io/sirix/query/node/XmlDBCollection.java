@@ -90,6 +90,8 @@ public interface XmlDBCollection extends TemporalNodeCollection<AbstractTemporal
   @Override
   XmlDBNode add(NodeSubtreeParser parser);
 
+  void importResource(String resourceName, NodeSubtreeParser parser, String commitMessage, Instant commitTimestamp);
+
   void addAll(List<NodeSubtreeParser> parsers);
 
   @Override

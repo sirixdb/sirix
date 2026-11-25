@@ -251,17 +251,28 @@ xn:store('names', (), <root>
 </root>)
 ```
 
-`xn:store($coll, $res, $nodes, $create-new)` stores a single node under `$res`, including
-singleton sorted or lazy sequences. This holds when creating or recreating a collection,
-creating a missing collection with `false()`, and appending with `false()`. With `$res = ()`,
-a single node uses an automatic `resourceN` name on creation and `resource` on append.
-Several nodes use automatic names regardless of `$res`.
+`xn:store($coll, $res, $nodes, $create-new)` and the sibling `jn:store`, `jn:load` and
+`xn:load` functions create a database only when it is missing; they never drop an existing
+database. A single input uses `$res`, including singleton sorted
+or lazy sequences. A free resource name is added beside existing resources. A name that is already
+taken raises `SIRIXDBF0006` and writes nothing, whatever `$create-new` says: these functions never
+replace a resource in place. Every other resource keeps its content, revisions and indexes. Use
+`jn:import`/`xn:import` below to update a resource while preserving its history, drop the resource
+first to put unrelated content under its name, and see the [migration notes](CHANGELOG.md) for
+whole-database replacement.
+
+Several inputs use new automatic `resourceN` names regardless of `$res` or `$create-new`.
+Automatic naming skips names already in use, including names claimed by concurrent callers.
+With `$res = ()`, `xn:store` uses `resource1` for a single node in a new database and `resource`
+in an existing database, so storing a second unnamed single node into the same database is refused
+until that resource is dropped; `xn:load` uses automatic names in either case.
 
 For embedded Java/CLI queries, `xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
 `xn:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
-documents to an existing collection, or creates it if absent. An empty resource-name argument
-assigns names starting at `resource` followed by the current document count plus one. A failed
-addition reports the import error without replacing the collection or its existing documents.
+documents to an existing collection, or creates it if absent. Loads acquire every source before
+preparing targets or writing, so an unavailable source leaves existing content and revisions
+unchanged. A later parsing or write failure can leave earlier imports committed; a load is not
+a transaction across resources.
 
 `jn:import($database, $resource, $new-version)` is the JSON counterpart of
 `xn:import`: it compares a full new document against the latest stored revision with FMSE,
@@ -350,9 +361,11 @@ For XML collections, the `sirix-query` module provides
 [`BasicXmlDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/node/BasicXmlDBStore.java).
 Its builder's resource settings, including `versioningType(...)`, apply to direct imports and
 resources added to collections returned by `create` or `lookup` — through `collection.add(...)`,
-`xn:store(..., false())`, or `xn:load(..., false())`. Reopening a collection with different store
+`xn:store(...)`, or `xn:load(...)`. Reopening a collection with different store
 settings affects future additions; existing resources retain their persisted configuration.
-The `numberOfNodesBeforeAutoCommit(...)` threshold applies only to direct store imports.
+The `numberOfNodesBeforeAutoCommit(...)` threshold applies to direct store imports and query
+store/load imports into existing databases. Ordinary `collection.add(...)` calls retain their
+unbounded write transactions.
 
 The single-argument `create(name)` overload of the XML store and
 [`BasicJsonDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/json/BasicJsonDBStore.java)

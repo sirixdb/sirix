@@ -1,6 +1,7 @@
 package io.sirix.query;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -53,7 +54,7 @@ final class AppendMutationBoundaryTest {
   Path directory;
 
   @Test
-  void batchRechecksPermissionWhenLaterTargetIsReplaced() throws Exception {
+  void batchNeverAppendsIntoAResourceAnotherCallerCreated() throws Exception {
     final Object options = new ArrayObject(new QNm[0], new Sequence[0]);
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build()) {
       final var collection = store.create("database", "keep", "{}");
@@ -80,21 +81,22 @@ final class AppendMutationBoundaryTest {
       };
       try (final JsonReader firstReader = new JsonReader(first);
           final JsonReader secondReader = new JsonReader(new StringReader("{}"))) {
-        final IllegalStateException refused = assertThrows(IllegalStateException.class,
-            () -> MutationAuthorization.where(CREATE_ONLY)
-                                       .run(() -> collection.addAll(List.of(firstReader, secondReader), options)));
-        assertEquals("MODIFY refused", refused.getMessage());
+        // An automatic name is claimed by creating it (#1478), so the batch only ever writes into a
+        // resource it created: it skips the name another caller took and needs only CREATE.
+        MutationAuthorization.where(CREATE_ONLY)
+                             .run(() -> collection.addAll(List.of(firstReader, secondReader), options));
       }
-      assertTrue(replaced.get());
+      assertTrue(replaced.get(), "the concurrent creator must have run");
       try (var database = Databases.openJsonDatabase(directory.resolve("database"));
           final JsonResourceSession session = database.beginResourceSession("resource2")) {
-        assertEquals(1, session.getMostRecentRevisionNumber(), "the replacement must receive no append commit");
+        assertEquals(1, session.getMostRecentRevisionNumber(),
+            "the resource another caller created must receive no append commit");
       }
     }
   }
 
   @Test
-  void xmlBatchRechecksPermissionWhenLaterTargetIsReplaced() throws Exception {
+  void xmlBatchNeverAppendsIntoAResourceAnotherCallerCreated() throws Exception {
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(directory).build()) {
       final var collection = store.create("database", new DocumentParser("<keep/>"));
       final NodeSubtreeParser first = handler -> {
@@ -111,19 +113,20 @@ final class AppendMutationBoundaryTest {
         }
         new DocumentParser("<first/>").parse(handler);
       };
-      final IllegalStateException refused = assertThrows(IllegalStateException.class,
-          () -> MutationAuthorization.where(CREATE_ONLY)
-                                     .run(() -> collection.addAll(List.of(first, new DocumentParser("<second/>")))));
-      assertEquals("MODIFY refused", refused.getMessage());
+      // As in JSON: the batch creates each automatic name, so it skips the one another caller took
+      // and needs only CREATE.
+      MutationAuthorization.where(CREATE_ONLY)
+                           .run(() -> collection.addAll(List.of(first, new DocumentParser("<second/>"))));
       try (var database = Databases.openXmlDatabase(directory.resolve("database"));
           final XmlResourceSession session = database.beginResourceSession("resource3")) {
-        assertEquals(1, session.getMostRecentRevisionNumber(), "the replacement must receive no append commit");
+        assertEquals(1, session.getMostRecentRevisionNumber(),
+            "the resource another caller created must receive no append commit");
       }
     }
   }
 
   @Test
-  void loadOpensLaterUriAfterEarlierResourceIsCommitted() throws Exception {
+  void loadAcquiresEverySourceBeforeWritingAny() throws Exception {
     final AtomicBoolean ordered = new AtomicBoolean();
     final HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext("/input", exchange -> {
@@ -149,7 +152,8 @@ final class AppendMutationBoundaryTest {
       store.create("database", "keep", "{}");
       final String uri = "http://127.0.0.1:" + server.getAddress().getPort() + "/input?";
       new Query(chain, "jn:load('database',(),('" + uri + "first','" + uri + "second'),false())").execute(context);
-      assertTrue(ordered.get(), "each source must be opened only when its resource is ready to be written");
+      assertFalse(ordered.get(), "every source must be acquired before any resource is written, so no earlier input is "
+          + "committed while a later source is still being opened");
       assertEquals(3, store.lookup("database").getDatabase().listResources().size());
     } finally {
       server.stop(0);

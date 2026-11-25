@@ -71,3 +71,269 @@ return u exactly without overflow. Null handling, truncation and range errors ar
 Only that boundary takes one extra constant-time compensation step under CONV-201,
 with no allocation or data-dependent work added.
 The hosted sampled report executed 600 tests and retained this exact boundary mutant."""
+
+# PR #1476: individually reviewed Kotlin bridge identities (REST-210).
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [63]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Vert.x RoutingContext.queryParam contract: the hashType lookup returns a non-null List, including an empty list when the parameter is absent. This compiler-generated platform-type assertion checks that List, not its optional first element. Removing it cannot change parsing, defaults, exceptions, persisted configuration or response data for any admitted request; it changes no allocation, IO, iteration or storage work. The HTTP lifecycle tests execute this lookup with present and absent options."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [81]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Vert.x RoutingContext.queryParam contract: the useDeweyIDs lookup returns a non-null List, including an empty list when the parameter is absent. This compiler-generated platform-type assertion checks that List, not its optional first element. Removing it cannot change parsing, defaults, exceptions, persisted configuration or response data for any admitted request; it changes no allocation, IO, iteration or storage work. The HTTP lifecycle tests execute this lookup with present and absent options."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [105]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Vert.x RoutingContext.queryParam contract: the commitTimestamp lookup returns a non-null List, including an empty list when the parameter is absent. This compiler-generated platform-type assertion checks that List, not its optional first element. Removing it cannot change parsing, defaults, exceptions, persisted configuration or response data for any admitted request; it changes no allocation, IO, iteration or storage work. The HTTP lifecycle tests execute this lookup with present and absent options."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [123]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / java.lang.String.toUpperCase(Locale.ROOT) contract: a non-null String returns a non-null String or throws; hashType is already resolved to the supplied String or NONE. This generated assertion checks the uppercase result. Invalid enum names still fail in HashType.valueOf and valid names produce the same configuration. The conversion remains executed exactly once, with identical allocations, IO and storage work; only an impossible null-result check is removed."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [152]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Databases.openXmlDatabase ownership contract: successful open produces a non-null XML database handle; failure throws before this site. The generated guard precedes passing that already-open handle to createAndWriteResource. A null factory result is not admitted. Removing the guard preserves authorization, gate ownership, exceptions, response and persistence, with no allocation, IO or traversal changed. Request-handle release is checked through the documented DatabasesInternals snapshot in PutResourceLifecycleTest."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [155]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / ResourceConfiguration.Builder.build contract: successful build returns a non-null configuration, or validation throws before this generated argument guard. The local value is not reassigned. Omitting this guard cannot admit another configuration or change creation, replacement, failures, allocations or storage work. The HTTP tests verify persisted Dewey-ID options on creation and replacement, in both formats."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [162]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 handler-entry invariant: Auth populates the request user before dispatch to resource creation. SirixDBUser.create has already dereferenced that same request-owned identity before this generated argument assertion; handlers do not replace it during a write. Missing or unauthorized identities do not reach this site as admitted requests. Removing this assertion preserves authorization failures and resource state, with no new allocation, IO or iteration."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [168]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 named-route invariant: resource PUT is registered as /:database/:resource, and AbstractCreateHandler.handle validates the non-null database parameter before insertResource. Database-only routes return earlier. The routing parameters remain fixed during this handler. This generated assertion cannot fail for an admitted resource request; removing it changes neither the authorization database name nor exceptions, response, persistence, allocations or IO."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate"
+method = "insertResource"
+descriptor = "(Ljava/nio/file/Path;Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [118]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Vert.x FileSystem.open contract: the method returns a non-null Future for successful and failed asynchronous opens. This generated assertion checks that Future before coAwait, not the AsyncFile completion value. Invalid opens still fail through coAwait. Omitting the assertion preserves transfer, failure classification, upload cleanup and persistence and changes no allocation, IO or traversal. Buffered-upload success, refusal and cancellation execute the actual filesystem boundary."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate"
+method = "insertResource"
+descriptor = "(Ljava/nio/file/Path;Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [181]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / ReadStream.pipeTo contract: pipeTo returns a non-null Future for transfer completion, including transfer failure. This generated assertion checks the Future, not its nullable Void completion value. coAwait and its error propagation still execute. Removing the assertion cannot change bytes, completion, cleanup, allocation, IO or traversal; the buffered-input regression checks actual file transfer and persisted XML."
+
+[[mutant]]
+class = "io.sirix.rest.crud.json.JsonCreate$insertResource$3"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [247]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Databases.openJsonDatabase ownership contract: successful open produces a non-null JSON database handle; failure throws before this site. The generated guard precedes passing that already-open handle to createAndWriteResource. A null factory result is not admitted. Removing the guard preserves authorization, gate ownership, exceptions, response and persistence, with no allocation, IO or traversal changed. Request-handle release is checked through the documented DatabasesInternals snapshot in PutResourceLifecycleTest."
+
+[[mutant]]
+class = "io.sirix.rest.crud.json.JsonCreate$insertResource$3"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [250]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / ResourceConfiguration.Builder.build contract: successful build returns a non-null configuration, or validation throws before this generated argument guard. The local value is not reassigned. Omitting this guard cannot admit another configuration or change creation, replacement, failures, allocations or storage work. The HTTP tests verify persisted Dewey-ID options on creation and replacement, in both formats."
+
+[[mutant]]
+class = "io.sirix.rest.crud.json.JsonCreate$insertResource$3"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [257]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 handler-entry invariant: Auth populates the request user before dispatch to resource creation. SirixDBUser.create has already dereferenced that same request-owned identity before this generated argument assertion; handlers do not replace it during a write. Missing or unauthorized identities do not reach this site as admitted requests. Removing this assertion preserves authorization failures and resource state, with no new allocation, IO or iteration."
+
+[[mutant]]
+class = "io.sirix.rest.crud.json.JsonCreate$insertResource$3"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [263]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 named-route invariant: resource PUT is registered as /:database/:resource, and AbstractCreateHandler.handle validates the non-null database parameter before insertResource. Database-only routes return earlier. The routing parameters remain fixed during this handler. This generated assertion cannot fail for an admitted resource request; removing it changes neither the authorization database name nor exceptions, response, persistence, allocations or IO."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2$1$1"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [12]
+description = "removed call to kotlin/ResultKt::throwOnFailure"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Kotlin suspend-block invocation contract: this private write callback is created and initially invoked by the fresh runBlocking scope in createAndWriteResource, with Unit as its initial result. It is not externally callable, has no inherited cancelled parent scope and exposes its CoroutineScope only after entry. This identity is the initial check, not a resumed-failure check. Removing it changes no admitted callback result, error, allocation or IO. Suspended failures remain checked; the out-of-range streamed commit test verifies the original client-error classification and partial-resource cleanup."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2$1$1"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [48]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Database.beginResourceSession contract: the newly claimed XML resource yields a non-null XmlResourceSession or throws before this generated guard. The scoped local session is unchanged before it is passed to the subtree writer. Null sessions are not an admitted database result. Removing the guard changes no writes, errors, resource ownership, allocations or IO; successful and failed HTTP writes exercise this boundary."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$2$1$1"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [51]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Files.createTempFile contract: successful creation returned a non-null Path, already used to open and complete the upload before this generated subtree-writer argument guard. The captured Path is immutable. Null cannot reach this site through the handler. Removing the guard does not change parsing, failures, file release, allocations or IO; buffered-upload tests assert persisted content and file deletion on success, refusal and cancellation."
+
+[[mutant]]
+class = "io.sirix.rest.crud.json.JsonCreate$insertResource$3$1$1"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [12]
+description = "removed call to kotlin/ResultKt::throwOnFailure"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Kotlin suspend-block invocation contract: this private write callback is created and initially invoked by the fresh runBlocking scope in createAndWriteResource, with Unit as its initial result. It is not externally callable, has no inherited cancelled parent scope and exposes its CoroutineScope only after entry. This identity is the initial check, not a resumed-failure check. Removing it changes no admitted callback result, error, allocation or IO. Suspended failures remain checked; the out-of-range streamed commit test verifies the original client-error classification and partial-resource cleanup."
+
+[[mutant]]
+class = "io.sirix.rest.SirixVerticle$createRouter$2$39"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [26]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Vert.x Route handler contract: JSON resource PUT receives a non-null RoutingContext. The coroutineHandler bridge has already called ctx.vertx() on this same immutable captured reference before invoking the route lambda. A null callback argument cannot reach this generated assertion even through the bridge. Removing it preserves all request handling and errors and changes no allocation, IO or traversal. The real-router HTTP tests execute the corresponding named and database-only routes."
+
+[[mutant]]
+class = "io.sirix.rest.SirixVerticle$createRouter$2$19"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [26]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Vert.x Route handler contract: database-only XML PUT receives a non-null RoutingContext. The coroutineHandler bridge has already called ctx.vertx() on this same immutable captured reference before invoking the route lambda. A null callback argument cannot reach this generated assertion even through the bridge. Removing it preserves all request handling and errors and changes no allocation, IO or traversal. The real-router HTTP tests execute the corresponding named and database-only routes."
+
+[[mutant]]
+class = "io.sirix.rest.SirixVerticle$createRouter$2$37"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [26]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Vert.x Route handler contract: XML resource PUT receives a non-null RoutingContext. The coroutineHandler bridge has already called ctx.vertx() on this same immutable captured reference before invoking the route lambda. A null callback argument cannot reach this generated assertion even through the bridge. Removing it preserves all request handling and errors and changes no allocation, IO or traversal. The real-router HTTP tests execute the corresponding named and database-only routes."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$3"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [12]
+description = "removed call to kotlin/ResultKt::throwOnFailure"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 upload cleanup runs in withContext(NonCancellable + Dispatchers.IO). That new cleanup block starts with Unit, and its NonCancellable Job cannot substitute a cancellation failure at entry. This generated initial-result assertion therefore has no failure arm. File-deletion exceptions still throw from the subsequent operation. Removing the assertion changes no error, file effect, allocation or IO. The cancelled-upload case exercises cleanup after parent cancellation."
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlCreate$insertResource$3"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator"
+indexes = [19]
+description = "replaced return value with null for io/sirix/rest/crud/xml/XmlCreate$insertResource$3::invokeSuspend"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 cleanup owns the delete effect; its successful withContext result is discarded by insertResource. This mutant changes only the generated return reference from Boolean to null: Files.deleteIfExists and Boolean.valueOf still execute. Both Boolean values are cached singleton objects, so neither version allocates a result. The caller only checks coroutine failure and does not consume this value. Deletion exceptions, file state, IO, traversal and response are unchanged for success, already-absent files and failures."
+
+[[mutant]]
+class = "io.sirix.rest.SirixVerticle$createRouter$2$21"
+method = "invokeSuspend"
+descriptor = "(Ljava/lang/Object;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [26]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
+justification = "REST-210 / Vert.x Route handler contract: database-only JSON PUT receives a non-null RoutingContext. The coroutineHandler bridge has already called ctx.vertx() on this same immutable captured reference before invoking the route lambda. A null callback argument cannot reach this generated assertion even through the bridge. Removing it preserves all request handling and errors and changes no allocation, IO or traversal. The real-router HTTP tests execute the corresponding named and database-only routes."

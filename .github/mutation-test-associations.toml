@@ -85,3 +85,72 @@ tests = ["io.sirix.rest.CommitTimestampOutputTest"]
 [[association]]
 class = "io.sirix.utils.ReplayWorkDiagnostics"
 tests = ["io.sirix.budget.LifecycleWorkBudgetTest"]
+
+# Store/load into an existing database (#1384): one contract for the four functions and the shared
+# target rule, specified in the two StoreIntoExistingDatabase
+# suites; the JSON collection's URI acquisition is specified by LoadSourceAcquisitionTest.
+[[association]]
+class = "io.sirix.query.function.jn.io.Load"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest", "io.sirix.query.LoadSourceAcquisitionTest"]
+
+[[association]]
+class = "io.sirix.query.function.xml.io.Load"
+tests = ["io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest", "io.sirix.query.node.XmlDBCollectionAutomaticNamesTest", "io.sirix.query.LoadSourceAcquisitionTest", "io.sirix.query.LoadSourceOwnershipTest"]
+
+[[association]]
+class = "io.sirix.query.function.FreeResourceName"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest", "io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest"]
+
+[[association]]
+class = "io.sirix.query.MutationAuthorization"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest"]
+
+[[association]]
+class = "io.sirix.query.json.JsonDBCollectionImpl"
+tests = ["io.sirix.query.LoadSourceAcquisitionTest", "io.sirix.query.LoadSourceOwnershipTest", "io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest"]
+
+# Automatic resource names (#1478): xn:load's unnamed inputs are specified with the collection API.
+[[association]]
+class = "io.sirix.query.node.XmlDBCollectionImpl"
+tests = ["io.sirix.query.node.XmlDBCollectionAutomaticNamesTest"]
+
+[[association]]
+class = "io.sirix.query.function.ImportInput"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest", "io.sirix.query.LoadSourceAcquisitionTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.AbstractCreateHandler"
+tests = ["io.sirix.rest.crud.CreateOrReplaceResourceAuthorizationTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.xml.XmlCreate"
+tests = ["io.sirix.rest.crud.XmlCreateUploadCleanupTest", "io.sirix.rest.crud.PutResourceLifecycleTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.json.JsonCreate"
+tests = ["io.sirix.rest.crud.PutResourceLifecycleTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.json.AuthCheckingJsonDBCollection"
+tests = ["io.sirix.rest.crud.CollectionImportAuthorizationTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.xml.AuthCheckingXmlDBCollection"
+tests = ["io.sirix.rest.crud.CollectionImportAuthorizationTest"]
+
+[[association]]
+class = "io.sirix.rest.SirixVerticle"
+tests = ["io.sirix.rest.crud.PutResourceLifecycleTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.CreateMultipleResources"
+tests = ["io.sirix.rest.crud.PutResourceLifecycleTest"]
+
+# Explicit REST-210 error-code evidence for both namespace definitions.
+[[association]]
+class = "io.sirix.query.function.jn.JNFun"
+tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest"]
+
+[[association]]
+class = "io.sirix.query.function.xml.XMLFun"
+tests = ["io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest"]

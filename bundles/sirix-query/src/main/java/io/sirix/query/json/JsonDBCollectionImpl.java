@@ -20,6 +20,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -28,8 +29,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.util.Objects.requireNonNull;
@@ -264,7 +263,16 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
           ? resourceName + "1"
           : resourceName;
     }
-    return createAndWriteResource(resolvedName, reader, resourceOptions);
+    return createAndWriteResource(resolvedName, reader, resourceOptions, false);
+  }
+
+  @Override
+  public void importResource(final String resourceName, final @Nullable JsonReader reader, final Object options) {
+    final Options resourceOptions = OptionsFactory.createOptions(requireNonNull(options), jsonDbStore.options());
+    final JsonDBItem result = createAndWriteResource(resourceName, reader, resourceOptions, true);
+    if (result != null) {
+      result.getTrx().close();
+    }
   }
 
   @Override
@@ -275,10 +283,7 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       requireNonNull(reader);
     }
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-    final String[] names = resolveResourceNames(readers.size());
-    for (int i = 0; i < names.length; i++) {
-      createAndWriteResource(names[i], readers.get(i), resourceOptions);
-    }
+    addUnderFreeNames(readers, resourceOptions);
   }
 
   @Override
@@ -289,42 +294,66 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       requireNonNull(uri);
     }
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-    final String[] names = resolveResourceNames(uris.size());
-    for (int i = 0; i < names.length; i++) {
-      try (final JsonReader reader = new JsonReader(new InputStreamReader(URIHandler.getInputStream(uris.get(i))))) {
-        createAndWriteResource(names[i], reader, resourceOptions);
-      } catch (final IOException e) {
-        throw new UncheckedIOException(e);
+    // Acquire every source before writing any, as creating a database from URIs does: a source that
+    // cannot be read must not leave the earlier ones half-loaded into the existing database.
+    final List<JsonReader> readers = new ArrayList<>(uris.size());
+    try {
+      for (final String uri : uris) {
+        readers.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(uri))));
+      }
+      addUnderFreeNames(readers, resourceOptions);
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    } finally {
+      for (final JsonReader reader : readers) {
+        try {
+          reader.close();
+        } catch (final IOException ignored) {
+          // Best-effort cleanup must release the remaining inputs and preserve the load failure.
+        }
       }
     }
   }
 
-  private String[] resolveResourceNames(final int count) {
-    final String[] names = new String[count];
-    synchronized (database.getDatabaseConfig()) {
-      final Set<String> resources = new HashSet<>();
-      for (final Path resource : database.listResources()) {
-        resources.add(resource.getFileName().toString());
-      }
-      final int initialSize = resources.size();
-      for (int i = 0; i < names.length; i++) {
-        final String requested = "resource" + (initialSize + i);
-        final String resolved = resources.contains(requested)
-            ? requested + "1"
-            : requested;
-        MutationAuthorization.requireStore(name, resolved, resources.contains(resolved));
-        names[i] = resolved;
-        resources.add(resolved);
+  /** Write each reader into a new resource under the next free automatic name (#1478). */
+  private void addUnderFreeNames(final List<JsonReader> readers, final Options resourceOptions) {
+    final int[] next = {database.listResources().size()};
+    for (final JsonReader reader : readers) {
+      final JsonDBItem result = writeUnderFreeName(next, reader, resourceOptions, true);
+      if (result != null) {
+        result.getTrx().close();
       }
     }
-    return names;
   }
 
-  private JsonDBItem createAndWriteResource(final String resourceName, final JsonReader reader,
-      final Options resourceOptions) {
+  /**
+   * Write {@code reader} into a new resource named {@code resource<n>} for the first free
+   * {@code n >= next[0]}, advancing {@code next[0]} past it (#1478). A name is claimed by creating
+   * it, which fails for a name that already exists - even one another caller created a moment ago -
+   * so an automatic name never writes into an existing resource. Claiming and writing happen under
+   * the name's resource hold, which orders them with a replacement.
+   */
+  private JsonDBItem writeUnderFreeName(final int[] next, final JsonReader reader, final Options resourceOptions,
+      final boolean bulkImport) {
+    while (true) {
+      final String candidate = "resource" + next[0]++;
+      try (var gate = MutationGate.acquireResource(databaseDirectory(), candidate)) {
+        MutationAuthorization.requireStore(name, candidate, false);
+        if (database.createResource(ResourceConfigurations.create(candidate, resourceOptions))) {
+          return writeResource(candidate, reader, resourceOptions, bulkImport);
+        }
+        if (!database.existsResource(candidate)) {
+          throw new DocumentException("Could not create resource '%s'", candidate);
+        }
+      }
+    }
+  }
+
+  private JsonDBItem createAndWriteResource(final String resourceName, final @Nullable JsonReader reader,
+      final Options resourceOptions, final boolean bulkImport) {
     try (var gate = MutationGate.acquireResource(databaseDirectory(), resourceName)) {
       prepareResource(resourceName, resourceOptions);
-      return writeResource(resourceName, reader, resourceOptions);
+      return writeResource(resourceName, reader, resourceOptions, bulkImport);
     }
   }
 
@@ -352,11 +381,16 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
     return database.getDatabaseConfig().getDatabaseFile();
   }
 
-  private JsonDBItem writeResource(final String resName, final JsonReader reader, final Options resourceOptions) {
+  private JsonDBItem writeResource(final String resName, final @Nullable JsonReader reader,
+      final Options resourceOptions, final boolean bulkImport) {
     try {
       final JsonResourceSession resourceSession = database.beginResourceSession(resName);
-      try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+      try (final JsonNodeTrx wtx = bulkImport
+          ? jsonDbStore.beginImportTrx(resourceSession)
+          : resourceSession.beginNodeTrx()) {
+        if (reader != null) {
+          wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+        }
         if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
           ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, name);
         }
@@ -441,12 +475,8 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
   }
 
   private JsonDBItem add(final JsonReader reader, final Object options) {
-    final String resourceName;
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-    synchronized (database.getDatabaseConfig()) {
-      resourceName = "resource" + (database.listResources().size() + 1);
-    }
-    return createAndWriteResource(resourceName, reader, resourceOptions);
+    return writeUnderFreeName(new int[] {database.listResources().size() + 1}, reader, resourceOptions, false);
   }
 
   @Override

@@ -31,6 +31,17 @@
   measured cost this replaces and the scheduled report are in
   [Verification](../docs/VERIFICATION.md#pr-mutation-testing).
 
+- Amend [REST-210](REST-api.md#rest-210--resource-creation-and-query-import-boundaries) twice. A PUT
+  that creates a resource requires CREATE, and one that replaces an existing resource additionally
+  requires MODIFY and DELETE, checked before the resource is removed; a refusal returns 403 and
+  preserves content and revisions. The query functions `jn:store`, `jn:load`, `xn:store` and
+  `xn:load` instead never replace a resource: they add a free name without dropping the database or
+  touching any other resource, and refuse a name that is already taken with `SIRIXDBF0006` before
+  anything is written, whatever `$create-new` says. Replacing a resource from a query is reserved
+  for a future atomic replace operation. Imports into existing databases retain configured bounded
+  transactions and release discarded results, while singleton empty JSON stores preserve their
+  empty-resource and configured-index contract.
+
 - Store the commit timestamp as signed epoch microseconds instead of epoch milliseconds.
   VER-201 fixes the unit in the unchanged 64-bit timestamp field, requires truncation toward
   the past and explicit rejection of an out-of-range instant, and requires the public API to
