@@ -58,7 +58,11 @@ state) under TXN-615, retirement tombstones, and the runtime files listed below.
   maintainer's *history lock* — the lock every derived publication, aggregate fold, summary fold and
   rewind takes — across both halves of the resource, so the source and its derived store are copied
   from one state the database never left. A derived store legitimately lags its source; the restored
-  copy resumes from its own durable frontier (TXN-612) and catches up.
+  copy resumes from its own durable frontier (TXN-612) and catches up. A pending truncation rewind
+  causes a refusal naming the derived resource. The durable frontier and mappings are checked against
+  the copied source head during backup and restore; a later mapping is rejected.
+- **Resource IDs.** The target metadata reserves every copied resource ID, including hidden siblings
+  created or rebuilt after the initial database metadata copy.
 - **Crash-recovered state.** Acquiring the writer lock first runs the engine's leftover-commit
   recovery (stale `.commit` marker truncation), so the backup never captures a torn in-flight
   commit.
@@ -100,7 +104,8 @@ restored to (must not exist yet or be empty). The restore:
 2. copies it to the target, excluding runtime files and IN_MEMORY leftovers under TXN-615,
 3. **verifies** the result. The hidden derived resources go first: a derived resource is internal and
    has no user session, so each one is opened through the tool storage path — strict feature
-   compatibility, the uber beacon, then the revision-root page of its most recent revision. They are
+   compatibility, directory structure, the uber beacon, the revision-root page and the durable
+   frontier/mapping metadata. Mappings beyond the copied source head are rejected. They are
    verified before the visible resources because opening a visible resource installs its derived
    maintainer, which rebuilds a derived store it cannot read — repairing exactly the damage this pass
    exists to report. Each visible resource is then opened with a read-only transaction at its most

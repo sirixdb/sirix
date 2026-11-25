@@ -5,24 +5,31 @@ import io.sirix.access.DatabaseType;
 import io.sirix.access.InMemoryResources;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.PathBasedPool;
+import io.sirix.access.ResourceStore;
+import io.sirix.access.ResourceStoreImpl;
+import io.sirix.access.trx.node.json.JsonResourceSessionImpl;
+import io.sirix.access.trx.page.StorageEngineWriterFactory;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.Database;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.cache.BufferManagerImpl;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.io.IOStorage;
 import io.sirix.io.InterruptedFirstCommitRecovery;
-import io.sirix.io.Reader;
-import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.utils.SirixFiles;
 
 import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,6 +40,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
@@ -258,6 +266,7 @@ public final class BackupManager {
           }
           totalBytes += copied.totalBytesCopied();
         }
+        totalBytes += reconcileResourceIds(target);
       }
 
       success = true;
@@ -266,6 +275,25 @@ public final class BackupManager {
       if (!success) {
         cleanupTarget(target, targetExisted);
       }
+    }
+  }
+
+  private static long reconcileResourceIds(final Path target) {
+    final DatabaseConfiguration config = DatabaseConfiguration.deserialize(target);
+    long nextId = config.getMaxResourceID();
+    try (final DirectoryStream<Path> resources = Files.newDirectoryStream(target.resolve(RESOURCES_DIR))) {
+      for (final Path resource : resources) {
+        if (Files.isDirectory(resource)) {
+          nextId = Math.max(nextId, Math.addExact(ResourceConfiguration.deserialize(resource).getID(), 1L));
+        }
+      }
+      final Path settings = target.resolve(DatabaseConfiguration.DatabasePaths.CONFIG_BINARY.getFile());
+      final long previousSize = Files.size(settings);
+      config.setMaximumResourceID(nextId);
+      DatabaseConfiguration.serialize(config);
+      return Files.size(settings) - previousSize;
+    } catch (final IOException failure) {
+      throw new SirixIOException("Could not reserve copied resource IDs in " + target + ".", failure);
     }
   }
 
@@ -310,7 +338,7 @@ public final class BackupManager {
           final Path derivedPath = derived.derivedPath();
           return new CopiedResource(new ResourceSummary(resourceName, mostRecentRevision, bytes), derivedPath == null
               ? null
-              : copyDerivedResource(derivedPath, targetResources));
+              : copyDerivedResource(derivedPath, targetResources, mostRecentRevision));
         } finally {
           derived.release();
         }
@@ -379,17 +407,24 @@ public final class BackupManager {
           + "s, and copying it now would make the backup partial. "
           + "Retry the backup once its temporal-aggregate maintenance has caught up.");
     }
+    if (maintained.hasPendingTruncate()) {
+      maintained.unlockHistory();
+      throw new SirixIOException("The derived resource " + derivedPath.getFileName()
+          + " has a pending history rewind. Retry the backup once its temporal-aggregate maintenance has caught up.");
+    }
     return new DerivedQuiescence(derivedPath, maintained);
   }
 
   /** Copies one quiesced derived resource; its revision is read from the on-disk uber beacon. */
-  private static ResourceSummary copyDerivedResource(final Path derivedPath, final Path targetResources) {
+  private static ResourceSummary copyDerivedResource(final Path derivedPath, final Path targetResources,
+      final int sourceHead) {
     final String derivedName = derivedPath.getFileName().toString();
     final UberPage uberPage =
         InterruptedFirstCommitRecovery.probeUberPage(ResourceConfiguration.deserialize(derivedPath));
     uberPage.getFeatures().requireToolCompatible();
     final long bytes = copyTree(derivedPath, targetResources.resolve(derivedName), rel -> false,
         BackupManager::isTransientResourceFile);
+    verifyDerivedResource(targetResources.resolve(derivedName), sourceHead);
     return new ResourceSummary(derivedName, uberPage.getRevisionNumber(), bytes);
   }
 
@@ -495,7 +530,10 @@ public final class BackupManager {
         final Path derivedPath =
             resourcePath.resolveSibling(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX);
         if (Files.isDirectory(derivedPath)) {
-          derivedSummaries.add(verifyRestoredDerivedResource(derivedPath));
+          final int sourceHead =
+              InterruptedFirstCommitRecovery.probeUberPage(ResourceConfiguration.deserialize(resourcePath))
+                                            .getRevisionNumber();
+          derivedSummaries.add(verifyDerivedResource(derivedPath, sourceHead));
         }
       }
       for (final Path resourcePath : resourcePaths) {
@@ -521,29 +559,43 @@ public final class BackupManager {
    * page of its most recent revision, which exercises the checksummed revision slot and the
    * page-checksum chain exactly as the read-only transaction on a visible resource does.
    */
-  private static ResourceSummary verifyRestoredDerivedResource(final Path derivedPath) {
+  private static ResourceSummary verifyDerivedResource(final Path derivedPath, final int sourceHead) {
     final String derivedName = derivedPath.getFileName().toString();
     try {
+      if (ResourceConfiguration.ResourcePaths.compareStructure(derivedPath) != 0) {
+        throw new SirixIOException("Incomplete derived resource: " + derivedName);
+      }
       final ResourceConfiguration config = ResourceConfiguration.deserialize(derivedPath);
-      final InterruptedFirstCommitRecovery.StorageAndUberPage opened =
-          InterruptedFirstCommitRecovery.openStorageForTool(config);
-      final IOStorage storage = opened.storage();
-      try {
-        final int mostRecentRevision = opened.uberPage().getRevisionNumber();
-        try (final Reader reader = storage.createReader()) {
-          final RevisionRootPage root = reader.readRevisionRootPage(mostRecentRevision, config);
-          if (root.getRevision() != mostRecentRevision) {
-            throw new SirixIOException("Restored derived resource " + derivedName + " holds revision "
-                + root.getRevision() + " instead of the most recent revision " + mostRecentRevision + ".");
+      final AtomicReference<ResourceStore<JsonResourceSession>> storeReference = new AtomicReference<>();
+      final ResourceStore<JsonResourceSession> store = new ResourceStoreImpl<>(new PathBasedPool<>(),
+          (resourceConfig, buffers, path) -> {
+            final InterruptedFirstCommitRecovery.StorageAndUberPage opened =
+                InterruptedFirstCommitRecovery.openStorageForTool(resourceConfig);
+            final IOStorage storage = opened.storage();
+            try {
+              return new JsonResourceSessionImpl(requireNonNull(storeReference.get()), resourceConfig, buffers, storage,
+                  opened.uberPage(), new Semaphore(1), null, derivedPath.getParent().getParent().getFileName().toString(),
+                  new StorageEngineWriterFactory(DatabaseType.JSON));
+            } catch (final RuntimeException | Error failure) {
+              storage.close();
+              throw failure;
+            }
+          });
+      storeReference.set(store);
+      try (final BufferManagerImpl buffers = new BufferManagerImpl(1 << 20, 1 << 20, 1 << 20, 16, 16, 16);
+          final var notifications = store.getNotifications(); store) {
+        final JsonResourceSession session = store.beginResourceSession(config, buffers, derivedPath);
+        final int mostRecentRevision = session.getMostRecentRevisionNumber();
+        try (final StorageEngineReader reader = session.createStorageEngineReader()) {
+          if (reader.getActualRevisionRootPage().getRevision() != mostRecentRevision) {
+            throw new SirixIOException("Derived resource " + derivedName + " holds an unexpected revision.");
           }
+          DerivedIndexMaintainer.validateBackupSnapshot(reader, sourceHead);
         }
         return new ResourceSummary(derivedName, mostRecentRevision, directorySize(derivedPath));
-      } finally {
-        storage.close();
       }
     } catch (final RuntimeException e) {
-      throw new SirixIOException("Verification of restored derived resource '" + derivedName + "' failed — "
-          + "the restore has been rolled back: " + e.getMessage(), e);
+      throw new SirixIOException("Verification of derived resource '" + derivedName + "' failed: " + e.getMessage(), e);
     }
   }
 

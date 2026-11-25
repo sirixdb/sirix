@@ -2,3 +2,4 @@
 kind: row
 ---
 | A copier enumerated the files to copy with the API that hides internal resources from callers, so a whole hidden resource stayed out of every backup. | Never derive "what is on disk" from a listing whose contract is "what callers may see"; copy from the directory, and let a visibility filter only decide what to *report*. | [Backups omit derived resources](postmortems/backup-omits-derived-resources.md), `BackupDerivedResourceTest`, `BackupRestoreTemporalAggregateTest` |
+| A copied allocation counter, a held lock and a readable root each proved less than the backup contract needed. | Reconcile copied identity metadata after copying resources, validate durable frontiers under the locks, and verify restart metadata through a non-rebuilding reader before opening owners that can repair it. | [Backup boundary follow-up](postmortems/backup-omits-derived-resources.md#copy-boundary-and-restore-verification-follow-up), `BackupDerivedResourceTest` |

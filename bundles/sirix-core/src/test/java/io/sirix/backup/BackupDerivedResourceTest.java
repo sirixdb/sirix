@@ -16,6 +16,11 @@ import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.index.aggregate.DerivedIndexTestSupport;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
 import io.sirix.io.StorageType;
+import io.sirix.io.InterruptedFirstCommitRecovery;
+import io.sirix.io.IOStorage;
+import io.sirix.io.Reader;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.utils.SirixFiles;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -24,10 +29,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -191,6 +198,141 @@ final class BackupDerivedResourceTest {
       }
     }
     assertFalse(Files.exists(backupDir), "a refused backup must leave no partial target");
+  }
+
+  @Test
+  @DisplayName("TXN-613: a rebuilt hidden sibling cannot collide with the next restored resource")
+  void backupReservesIdsForRebuiltDerivedResources() {
+    SirixFiles.recursiveRemove(derivedDir(sourceDb));
+    final Path backupDir = tempDir.resolve("backup");
+    final Path restoredDir = tempDir.resolve("restored-db");
+    BackupManager.backupDatabase(sourceDb, backupDir);
+    final long derivedId = ResourceConfiguration.deserialize(derivedDir(backupDir)).getID();
+    assertTrue(DatabaseConfiguration.deserialize(backupDir).getMaxResourceID() > derivedId,
+        "the backup's persisted allocation counter must reserve the rebuilt sibling's ID");
+    BackupManager.restoreDatabase(backupDir, restoredDir);
+    try (final Database<JsonResourceSession> restored = Databases.openJsonDatabase(restoredDir)) {
+      assertTrue(restored.createResource(ResourceConfiguration.newBuilder("next").build()));
+      final long nextId = ResourceConfiguration.deserialize(restoredDir.resolve("resources/next")).getID();
+      assertTrue(nextId > derivedId, "a new resource must not reuse the copied hidden resource's ID");
+      try (final JsonResourceSession next = restored.beginResourceSession("next");
+          final JsonNodeTrx writer = next.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[99]"));
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("TXN-613: a pending rewind is refused while source and derived history are locked")
+  void backupRefusesAPendingDerivedRewind() {
+    final Path backupDir = tempDir.resolve("backup");
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(sourceDb);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      final DerivedIndexMaintainer.Resource resource =
+          Objects.requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource());
+      DerivedIndexTestSupport.await(session);
+      resource.pause();
+      try {
+        try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+          writer.truncateTo(2);
+        }
+        assertEquals(2, session.getMostRecentRevisionNumber());
+        final SirixIOException failure = assertThrows(SirixIOException.class,
+            () -> BackupManager.backupDatabase(sourceDb, backupDir));
+        assertTrue(failure.getMessage().contains(DERIVED));
+        assertFalse(Files.exists(backupDir), "a refused backup must leave no target");
+      } finally {
+        resource.resume();
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("TXN-613: restore refuses a cold pair whose derived mappings exceed the source head")
+  void restoreRefusesDerivedMappingsBeyondTheSourceHead() throws IOException {
+    final Path backupDir = tempDir.resolve("backup");
+    BackupManager.backupDatabase(sourceDb, backupDir);
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(sourceDb);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      final DerivedIndexMaintainer.Resource resource =
+          Objects.requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource());
+      resource.pause();
+      try {
+        try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+          writer.truncateTo(2);
+        }
+        final Path sourceResource = sourceDb.resolve("resources").resolve(RESOURCE);
+        final Path backupResource = backupDir.resolve("resources").resolve(RESOURCE);
+        try (final Stream<Path> paths = Files.walk(sourceResource)) {
+          for (final Path path : paths.toList()) {
+            final Path target = backupResource.resolve(sourceResource.relativize(path));
+            if (Files.isDirectory(path)) {
+              Files.createDirectories(target);
+            } else {
+              Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+          }
+        }
+      } finally {
+        resource.resume();
+      }
+    }
+    final Path restoredDir = tempDir.resolve("restored-db");
+    final SirixIOException failure = assertThrows(SirixIOException.class,
+        () -> BackupManager.restoreDatabase(backupDir, restoredDir));
+    assertTrue(failure.getMessage().contains(DERIVED));
+    assertFalse(Files.exists(restoredDir));
+  }
+
+  @Test
+  @DisplayName("TXN-613: restore rejects damaged restart metadata below an intact derived revision root")
+  void restoreRefusesDamagedDerivedRestartMetadata() throws IOException {
+    final Path backupDir = tempDir.resolve("backup");
+    BackupManager.backupDatabase(sourceDb, backupDir);
+    final ResourceConfiguration config = ResourceConfiguration.deserialize(derivedDir(backupDir));
+    final InterruptedFirstCommitRecovery.StorageAndUberPage opened =
+        InterruptedFirstCommitRecovery.openStorageForTool(config);
+    final long metadataOffset;
+    final int revision = opened.uberPage().getRevisionNumber();
+    try (final Reader reader = opened.storage().createReader()) {
+      final RevisionRootPage root = reader.readRevisionRootPage(revision, config);
+      metadataOffset = root.getTemporalAggregateIndexPageReference().getKey();
+    } finally {
+      opened.storage().close();
+    }
+    assertTrue(metadataOffset >= IOStorage.DATA_REGION_START);
+    try (final FileChannel channel = FileChannel.open(derivedFile(backupDir, "sirix.data"), StandardOpenOption.WRITE)) {
+      final ByteBuffer damage = ByteBuffer.allocate(16);
+      while (damage.hasRemaining()) {
+        channel.write(damage, metadataOffset + damage.position());
+      }
+    }
+    final InterruptedFirstCommitRecovery.StorageAndUberPage damaged =
+        InterruptedFirstCommitRecovery.openStorageForTool(config);
+    try (final Reader reader = damaged.storage().createReader()) {
+      assertEquals(revision, reader.readRevisionRootPage(revision, config).getRevision(),
+          "the revision root remains readable; only its referenced metadata is damaged");
+    } finally {
+      damaged.storage().close();
+    }
+    final Path restoredDir = tempDir.resolve("restored-db");
+    final SirixIOException failure = assertThrows(SirixIOException.class,
+        () -> BackupManager.restoreDatabase(backupDir, restoredDir));
+    assertTrue(failure.getMessage().contains(DERIVED));
+    assertFalse(Files.exists(restoredDir));
+  }
+
+  @Test
+  @DisplayName("TXN-613: restore refuses incomplete derived structure before a source can rebuild it")
+  void restoreRefusesIncompleteDerivedStructure() throws IOException {
+    final Path backupDir = tempDir.resolve("backup");
+    BackupManager.backupDatabase(sourceDb, backupDir);
+    SirixFiles.recursiveRemove(derivedDir(backupDir).resolve("indexes"));
+    final Path restoredDir = tempDir.resolve("restored-db");
+    final SirixIOException failure = assertThrows(SirixIOException.class,
+        () -> BackupManager.restoreDatabase(backupDir, restoredDir));
+    assertTrue(failure.getMessage().contains(DERIVED));
+    assertFalse(Files.exists(restoredDir));
   }
 
   private static BackupManager.ResourceSummary onlyDerived(final BackupManager.BackupSummary summary) {

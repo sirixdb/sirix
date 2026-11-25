@@ -64,9 +64,29 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
   /** Validate the restart marker before a database installs an existing derived resource. */
   public static void validateSnapshot(final JsonResourceSession derived) {
     try (StorageEngineReader reader = derived.createStorageEngineReader()) {
-      final int frontier = DerivedRevisionMapping.frontier(reader);
-      if (frontier > 0 && DerivedRevisionMapping.read(reader, frontier) == null) {
-        throw new IllegalStateException("Derived frontier has no durable mapping");
+      validateSnapshot(reader);
+    }
+  }
+
+  private static int validateSnapshot(final StorageEngineReader reader) {
+    final int frontier = DerivedRevisionMapping.frontier(reader);
+    if (frontier > 0 && DerivedRevisionMapping.read(reader, frontier) == null) {
+      throw new IllegalStateException("Derived frontier has no durable mapping");
+    }
+    return frontier;
+  }
+
+  public static void validateBackupSnapshot(final StorageEngineReader reader, final int sourceHead) {
+    Objects.requireNonNull(reader);
+    if (sourceHead < 0) {
+      throw new IllegalArgumentException("Source head must be nonnegative");
+    }
+    if (validateSnapshot(reader) > sourceHead) {
+      throw new IllegalStateException("Derived frontier exceeds the copied source head " + sourceHead);
+    }
+    for (final DerivedRevisionMapping mapping : DerivedRevisionMapping.readAll(reader)) {
+      if (mapping.sourceRevision() > sourceHead) {
+        throw new IllegalStateException("Derived mapping exceeds the copied source head " + sourceHead);
       }
     }
   }
@@ -286,6 +306,13 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
         throw new IllegalArgumentException("Quiescence timeout exceeds the supported nanosecond range", overflow);
       }
       return historyLock.tryLock(budget, TimeUnit.NANOSECONDS);
+    }
+
+    public boolean hasPendingTruncate() {
+      if (!historyLock.isHeldByCurrentThread()) {
+        throw new IllegalStateException("Backup validation must hold the derived history lock");
+      }
+      return truncatePending;
     }
 
     public void unlockHistory() {
