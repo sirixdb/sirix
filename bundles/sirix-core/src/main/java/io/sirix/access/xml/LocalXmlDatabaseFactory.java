@@ -75,10 +75,7 @@ public final class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlRe
       public XmlResourceSession create(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
           final Path resourceFile, final @Nullable Proof compatibility) {
 
-        // Resource-session-scoped dependencies (previously in ResourceSessionModule). The
-        // open helper decides bootstrap-vs-load and conservatively auto-heals a provably
-        // interrupted FIRST commit (non-empty data file without any committed superblock/
-        // beacon/revision-record state).
+        // The shared open helper owns interrupted-first-commit recovery and its FMT-401 gate.
         final var storageAndUberPage =
             InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(resourceConfig, compatibility);
         final IOStorage storage = storageAndUberPage.storage();

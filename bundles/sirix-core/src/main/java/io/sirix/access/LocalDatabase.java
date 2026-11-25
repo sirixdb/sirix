@@ -282,9 +282,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     /**
      * A resource is being opened and may carry derived indexes from an earlier session. Installing them
-     * is opportunistic: every query retains the exact fallback, so an unusable derived store must not
-     * stop the resource from opening. Only the named failures of {@link #enableDerivedIndexes} are
-     * absorbed here.
+     * is opportunistic: every query retains the exact fallback, so the named availability failures of
+     * {@link #enableDerivedIndexes} are absorbed. Format-version refusals still stop the open under
+     * FMT-401 in {@code spec/FMT-disk-format.md}.
      */
     OPPORTUNISTIC
   }
