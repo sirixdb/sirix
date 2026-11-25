@@ -187,8 +187,9 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         nodeId: Long?,
         ctx: RoutingContext
     ): Buffer {
+        rejectRetiredPaginationParameter(ctx)
         val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
-        val startNodeKey = ctx.queryParam("startNodeKey").getOrNull(0)?.toLong()
+        val startNodeKey = ctx.queryParam(START_NODE_KEY_PARAM).getOrNull(0)?.toLong()
 
         if (nodeId != null && startNodeKey != null) {
             requireCursorInSubtree(manager, revisions, nodeId, startNodeKey)

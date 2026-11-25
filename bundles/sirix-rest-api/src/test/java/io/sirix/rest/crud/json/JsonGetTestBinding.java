@@ -5,6 +5,8 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.JsonDBCollection;
+import io.vertx.core.buffer.Buffer;
+import io.vertx.ext.web.RoutingContext;
 import kotlin.coroutines.Continuation;
 import org.jspecify.annotations.Nullable;
 
@@ -19,5 +21,10 @@ final class JsonGetTestBinding {
   static void bind(final JsonGet handler, final JsonNodeReadOnlyTrx reader, final JsonDBCollection collection,
       final SirixQueryContext context, final JsonSessionDBStore store) {
     handler.handleQueryExtra(reader, collection, context, store);
+  }
+
+  static Buffer serializedBody(final JsonGet handler, final JsonResourceSession session, final int[] revisions,
+      final @Nullable Long nodeId, final RoutingContext context) {
+    return handler.getSerializedBody(session, revisions, nodeId, context);
   }
 }
