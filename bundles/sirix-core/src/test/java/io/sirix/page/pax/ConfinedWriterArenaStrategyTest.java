@@ -17,15 +17,14 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Serializer-local confined arenas under the arena strategy a GraalVM native image runs with.
+ * Serializer-local confined arenas across startup arena policies.
  *
  * <p>
- * Runs in its own JVM (Gradle task {@code sharedArenaAutoStrategyTest}) because
+ * Runs in the shared-arena policy forks because
  * {@link SharedArenas} reads its strategy once at class initialization. Under {@code auto} — the
  * native-image default — {@link SharedArenas#close(Arena)} releases nothing, so a confined arena
  * handed to that path would live for the whole process. The owner that created it must close it
- * itself, and that is what this lane pins; the same assertions under the JVM default strategy pass
- * either way and therefore prove nothing about a native image.
+ * itself under every strategy.
  */
 final class ConfinedWriterArenaStrategyTest {
 
@@ -33,18 +32,23 @@ final class ConfinedWriterArenaStrategyTest {
   private static final int CYCLES = 256;
 
   @Test
-  @DisplayName("a serializer's confined arena is closed by its creator under the native-image arena strategy")
-  void confinedWriterTablesCloseTheirOwnArenaUnderTheAutomaticStrategy() {
-    assertEquals(SharedArenas.Strategy.AUTO, SharedArenas.strategy(),
-        "this lane must run the arena strategy a native image uses");
-    assertFalse(SharedArenas.supportsDeterministicClose());
+  @DisplayName("a serializer's confined arena is closed by its creator under every arena strategy")
+  void confinedWriterTablesCloseTheirOwnArenaUnderTheSelectedStrategy() {
+    final String mode = System.getProperty("sirix.test.arenaPolicy");
+    final SharedArenas.Strategy expected = switch (mode) {
+      case "shared-strategy", "diagnostic-skip" -> SharedArenas.Strategy.SHARED;
+      case "auto-strategy" -> SharedArenas.Strategy.AUTO;
+      case "diagnostic-global" -> SharedArenas.Strategy.GLOBAL;
+      default -> throw new AssertionError("unexpected arena-policy fork: " + mode);
+    };
+    assertEquals(expected, SharedArenas.strategy());
+    assertEquals(expected == SharedArenas.Strategy.SHARED, SharedArenas.supportsDeterministicClose());
+    assertEquals("diagnostic-skip".equals(mode), SharedArenas.skipArenaClose());
 
-    // The hazard: under this strategy the shared-arena close path is a no-op by design.
     final Arena shared = SharedArenas.newSharedArena();
     final MemorySegment sharedPayload = shared.allocate(64L);
     SharedArenas.close(shared);
-    assertTrue(sharedPayload.scope().isAlive(),
-        "the shared-arena close path must stay a no-op here, so a confined arena may never use it");
+    assertEquals(expected != SharedArenas.Strategy.SHARED, sharedPayload.scope().isAlive());
 
     final byte[] payloadBytes = {1, 2, 3, 4, 5, 6, 7, 8};
     final MemorySegment[] payloads = new MemorySegment[CYCLES];

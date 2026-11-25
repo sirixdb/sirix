@@ -18,6 +18,16 @@ final class SharedArenaStartupPolicyTest {
   @Test
   void launcherPolicyHonorsDiagnosticOptInAndRejectsUnsafeProductionSettings() {
     final String mode = System.getProperty("sirix.test.arenaPolicy");
+    if ("shared-strategy".equals(mode)) {
+      assertEquals(SharedArenas.Strategy.SHARED, SharedArenas.strategy());
+      assertFalse(SharedArenas.skipArenaClose());
+      assertTrue(SharedArenas.supportsDeterministicClose());
+      final Arena arena = SharedArenas.newSharedArena();
+      final MemorySegment data = arena.allocate(ValueLayout.JAVA_LONG);
+      SharedArenas.close(arena);
+      assertFalse(data.scope().isAlive());
+      return;
+    }
     if ("diagnostic-global".equals(mode)) {
       assertEquals(SharedArenas.Strategy.GLOBAL, SharedArenas.strategy());
       assertFalse(SharedArenas.skipArenaClose());

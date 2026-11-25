@@ -89,13 +89,23 @@ on the JVM, or build natively with `-Pnative.mainClass=io.sirix.query.bench.Nati
 
 Because `close()` is a no-op under that strategy, an arena that is *not* shared must not be
 released through `SharedArenas.close(Arena)`: a confined arena handed to it is never reclaimed in a
-native image. The JVM side of that invariant runs in `:sirix-core:sharedArenaAutoStrategyTest`
-(`ConfinedWriterArenaStrategyTest`, forked with `-Dsirix.arena.strategy=auto`, the strategy an image
-resolves at startup). To confirm it in the image itself, build the write smoke
-(`-Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain`) and watch its resident set across
-repeated commit rounds: every disposable page serialization creates one serializer-local confined
-arena, so a leak there grows RSS without bound, and a refused close would surface as an
-`UnsupportedOperationException` or `WrongThreadException` out of `RegionTable.close`.
+native image. `ConfinedWriterArenaStrategyTest` runs in the `sharedArenaSharedStrategyTest`,
+`sharedArenaAutoStrategyTest`, `sharedArenaDiagnosticGlobalTest` and `sharedArenaDiagnosticSkipTest`
+forks, asserting the selected strategy and deterministic confined-arena release in every fork.
+
+Run the bounded native-image-policy lifetime harness without building another image:
+
+```bash
+./gradlew :sirix-core:confinedWriterArenaLeakCheck -PtestHeapMin=512m -PtestHeapMax=2g
+```
+
+`ConfinedWriterArenaLeakHarness` explicitly requires `-Dsirix.arena.strategy=auto`, the strategy an
+image resolves at startup. It creates and releases 4096 serializer-local confined writer tables,
+each containing a 64 KiB native payload. It retains every payload handle, asserts that each scope
+is closed immediately after release, and checks zero live payload bytes after all cycles. Its
+output reports cumulative allocated bytes and retained payload bytes for the pull request. This
+checks the arena ownership contract directly, without relying on GC or noisy RSS measurements;
+it exercises the native-image arena policy on the JVM, rather than claiming an image execution.
 
 See [Cache budgets](operations.md#4-cache-budgets) for startup lifetime policy and the
 restrictions on diagnostic overrides. The native-image `auto` default remains supported.

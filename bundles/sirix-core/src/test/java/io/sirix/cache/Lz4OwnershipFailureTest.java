@@ -5,7 +5,9 @@ import io.sirix.io.bytepipe.FFILz4Compressor;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.ByteOrder;
 import java.util.Arrays;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -37,6 +39,46 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 final class Lz4OwnershipFailureTest {
   /** Failures injected per leak check: one call cannot show accumulation, a run of them can. */
   private static final int INJECTED_FAILURES = 64;
+  private static final long BUDGET_BYTES = 16L * 1024 * 1024;
+
+  @BeforeAll
+  static void initializeBoundedAllocator() {
+    final String mode = System.getProperty("sirix.test.lz4Mode");
+    assertTrue("safe".equals(mode) || "fast".equals(mode), "run in an LZ4 ownership test fork");
+    assertEquals("fast".equals(mode), Boolean.getBoolean("sirix.lz4.fast.decompress"));
+    final FrameSlotAllocator allocator = assertInstanceOf(FrameSlotAllocator.class, Allocators.getInstance());
+    allocator.init(BUDGET_BYTES);
+    assertEquals(BUDGET_BYTES, allocator.budgetBytes(), "the fork must start with a bounded allocator");
+  }
+
+  @Test
+  void stagingAllocationFailureReturnsTheOutputFrameWithoutRetainingNativeMemory() {
+    assumeTrue(FFILz4Compressor.isNativeAvailable());
+    final FrameSlotAllocator allocator = assertInstanceOf(FrameSlotAllocator.class, Allocators.getInstance());
+    final FFILz4Compressor codec = new FFILz4Compressor();
+    final byte[] raw = compressiblePayload();
+    final MemorySegment valid = MemorySegment.ofArray(encode(codec, raw));
+    assertRoundTrip(codec, valid, raw);
+
+    final MemorySegment oversized = MemorySegment.ofArray(new byte[Math.toIntExact(BUDGET_BYTES + 1)]);
+    oversized.set(ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN), 0, raw.length);
+    final int frameClass = FrameSlotAllocator.indexForSize(raw.length);
+    final Ownership before = Ownership.of(allocator, frameClass);
+
+    for (int attempt = 0; attempt < INJECTED_FAILURES; attempt++) {
+      final OutOfMemoryError failure = assertThrows(OutOfMemoryError.class, () -> codec.decompressScoped(oversized));
+      assertTrue(failure.getMessage().contains("scratch buffer"), "the staging allocation must be refused");
+      assertEquals(before.live(), allocator.liveSlotCount(frameClass), "a refused staging borrow must return its frame");
+      assertEquals(before.active(), allocator.getActiveMemoryBytes(), "failed staging must retain no active bytes");
+      assertEquals(before.committed(), allocator.getPhysicalMemoryBytes(), "failed staging must commit no extra bytes");
+    }
+
+    assertEverythingWentBack(allocator, frameClass, before, 0L);
+    assertRoundTrip(codec, valid, raw);
+    assertEquals(before.live(), allocator.liveSlotCount(frameClass));
+    assertEquals(before.active(), allocator.getActiveMemoryBytes());
+    assertEquals(before.committed(), allocator.getPhysicalMemoryBytes());
+  }
 
   @Test
   void failedInputReturnDoesNotPublishOrAbandonTheOutputFrame() {

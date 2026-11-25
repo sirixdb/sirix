@@ -32,15 +32,26 @@
   by close()/closeLastOwnership() through SharedArenas.close(Arena)" — the misreading #1408's third
   acceptance item asks to remove — and the absence of any lane that runs the invariant under the
   arena strategy a native image uses.
-- Why tests missed it: #1407's leaking window has no injectable seam (three JDK calls), and the
-  issue's own constraint forbids adding one on the success path; what *was* untested is the release
-  that makes the enclosing `finally` correct — dropping the staging-lease close from it leaves 64
-  staging buffers lent after 64 recoverable failures and no test noticed. #1408 was invisible by
+- Why tests missed it: #1407's tests injected decoder failures only after staging succeeded, leaving
+  staging-allocation failure untested. A fresh process with a bounded allocator can reject an
+  oversized heap-staging request after the output frame has been allocated, without adding a seam
+  to the read path. In both decoder modes, 64 such failures must return 64 output frames exactly
+  once, leave scratch ownership and committed/active bytes unchanged, and permit a following valid
+  read. The existing post-staging decode failures additionally require every acquired staging lease
+  to return exactly once. #1408 was invisible by
   construction: `RegionTableTest.confinedWriterTableClosesNativePayloads` passes with the confined
   arena routed through the shared-arena path, because the JVM default strategy closes shared arenas
   for real. Only the strategy a native image resolves at startup can tell the two apart, and no CI
   lane ran it.
 - Regression test:
+  - `io.sirix.cache.Lz4OwnershipFailureTest.stagingAllocationFailureReturnsTheOutputFrameWithoutRetainingNativeMemory`
+    — a positive 50000-byte output size and a heap input larger than the fork's 16 MiB allocator
+    budget force the staging allocation itself to throw. Both `lz4OwnershipSafeTest` and
+    `lz4OwnershipFastTest` run 64 failures with unchanged native memory, zero staging acquisitions
+    and exactly-once output-frame returns, followed by a valid round trip. The counterfactual for
+    each arm removes `ALLOCATOR.release(buffer)` from `decompressScoped`'s compressed-path
+    `finally` (line 640). Both arms rejected that missing release on the first failure:
+    `a refused staging borrow must return its frame ==> expected: <0> but was: <1>`.
   - `io.sirix.cache.Lz4OwnershipFailureTest.decodeFailureAfterHeapStagingReturnsTheStagingBufferAndTheOutputFrame`
     — heap input (the decoder's source being native proves the staging path ran), 64 injected decode
     failures, then exactly-once accounting: one staging borrow per call, nothing left lent, no stale
@@ -50,23 +61,37 @@
   - `io.sirix.cache.Lz4OwnershipFailureTest.decodeFailureWithoutHeapStagingReturnsTheOutputFrame`
     — the same accounting for a native input, which borrows no staging buffer at all: the window
     before any staging buffer exists.
-  - `io.sirix.page.pax.ConfinedWriterArenaStrategyTest` in the new `sharedArenaAutoStrategyTest`
-    JVM — asserts the lane really runs `AUTO`, that `SharedArenas.close` leaves a shared arena alive
-    there (so the hazard is real), and that 256 create-and-release cycles of a confined writer table
-    each reclaim their arena synchronously and retain nothing. With `closeConfinedWriterTable()`
+  - `io.sirix.page.pax.ConfinedWriterArenaStrategyTest` in the SHARED, AUTO, diagnostic GLOBAL and
+    diagnostic skip-close JVMs — asserts each lane's strategy, that `SharedArenas.close` leaves a
+    shared arena alive under AUTO and GLOBAL, and that 256 create-and-release cycles of a confined
+    writer table each reclaim their arena synchronously and retain nothing. With `closeConfinedWriterTable()`
     reverted to `SharedArenas.close(local)` it fails at `cycle 0: close must reclaim the confined
     arena`, while the whole of `RegionTableTest` still passes 12/12 under the default strategy.
-  - `io.sirix.io.SharedArenaStartupPolicyTest` gains the `auto-strategy` case: strategy, both
-    diagnostic flags, and that `close(Arena)` leaves an auto arena alive and readable.
-  - Commands: `./gradlew :sirix-core:sharedArenaAutoStrategyTest` and
-    `./gradlew :sirix-core:test --tests 'io.sirix.cache.Lz4OwnershipFailureTest'`.
+  - `io.sirix.io.SharedArenaStartupPolicyTest` covers SHARED and AUTO startup, including both
+    diagnostic flags and observable shared-arena closure (or continued readability under AUTO).
+  - Commands: `./gradlew :sirix-core:lz4OwnershipSafeTest :sirix-core:lz4OwnershipFastTest
+    :sirix-core:sharedArenaSharedStrategyTest :sirix-core:sharedArenaAutoStrategyTest
+    :sirix-core:sharedArenaDiagnosticGlobalTest :sirix-core:sharedArenaDiagnosticSkipTest
+    :sirix-core:confinedWriterArenaLeakCheck -PtestHeapMin=512m -PtestHeapMax=2g --max-workers=1
+    --no-daemon --console=plain -Dorg.gradle.jvmargs=-Xmx2g --continue`.
+  - Focused run (2026-11-25): 17 tests passed, two existing strategy-specific generation tests
+    skipped; no ownership test skipped. Both LZ4 forks passed all four tests. The AUTO harness
+    reported `cycles=4096 payloadBytesPerCycle=65536 allocatedBytes=268697600
+    retainedPayloadBytes=0`. The missing-frame-release control failed in both decoder modes;
+    routing the confined close through `SharedArenas.close(local)` failed in AUTO and GLOBAL at
+    cycle 0, and the harness rejected it with `cycle 0: confined arena retained after release`.
+    Each control exited 1; the restored-source focused run exited 0. These controls verify the
+    resource-lifetime oracle, without changing production logic in the delivered change.
 - Read latency (#1407's fourth acceptance item): nothing on the read path changed — the only edits
   to `FFILz4Compressor` are a comment — so the success path's instruction sequence is unchanged by
   construction and there is no candidate to measure against a control.
-- Native-image confirmation (#1408's second acceptance item): the new lane covers the JVM path a
-  native image takes, because `SharedArenas` resolves `AUTO` from the image's own marker property.
-  `docs/NATIVE_IMAGE.md` records how to confirm it in the image itself with the existing write
-  smoke.
+- Native-image configuration (#1408's second acceptance item): the bounded
+  `confinedWriterArenaLeakCheck` harness must run with `-Dsirix.arena.strategy=auto`. It retains
+  payload handles across 4096 serializer-local table create-and-release cycles, allocating 64 KiB
+  per cycle, and requires every scope to be closed and zero payload bytes to remain live after
+  every release and at the end. This is exact arena-lifetime accounting, independent of GC and RSS
+  noise. The same close invariant must hold in the SHARED, AUTO, diagnostic GLOBAL and diagnostic
+  skip-close policy forks; each fork must assert its startup strategy before exercising it.
 - Lesson: a resource whose release goes through a strategy may be released by nothing; prove the
   owner in a lane that runs the strategy that releases least. See `../lessons.d/`
   (the [fragment convention](../../changelog.d/README.md)).
