@@ -417,13 +417,13 @@ class SirixVerticle : CoroutineVerticle() {
                 Auth(keycloak, authz, AuthRole.CREATE).handle(it)
                 it.next()
             }.coroutineHandler {
-                XmlCreate(location, false).handle(it)
+                XmlCreate(location).handle(it)
             }
         put("/:database").consumes("application/json").coroutineHandler {
             Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.coroutineHandler {
-            JsonCreate(location, true).handle(it)
+            JsonCreate(location).handle(it)
         }
 
         delete("/:database").coroutineHandler {
@@ -489,13 +489,13 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.coroutineHandler {
-            XmlCreate(location, false).handle(it)
+            XmlCreate(location).handle(it)
         }
         put("/:database/:resource").consumes("application/json").coroutineHandler {
             Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.coroutineHandler {
-            JsonCreate(location, false).handle(it)
+            JsonCreate(location).handle(it)
         }
 
         delete("/:database/:resource").coroutineHandler {

@@ -236,7 +236,6 @@ public final class Load extends AbstractFunction {
           }
         }
       }
-      sources.clear();
       if (failure != null) {
         throw new DocumentException(failure);
       }

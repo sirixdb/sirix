@@ -5,16 +5,12 @@ import io.vertx.core.buffer.Buffer
 import io.vertx.ext.auth.User as VertxUser
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.coroutines.coAwait
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import io.sirix.access.MutationGate
 import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.ResourceConfiguration
-import io.sirix.access.User
-import io.sirix.access.trx.node.HashType
 import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.ResourceSession
@@ -24,8 +20,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
-    private val location: Path,
-    private val createMultipleResources: Boolean = false
+    private val location: Path
 ) : Handler {
     companion object {
         protected const val MAX_NODES_TO_SERIALIZE = 5000
@@ -41,7 +36,7 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
             resPathName: String,
             user: VertxUser,
             databaseName: String,
-            block: suspend () -> R
+            block: suspend CoroutineScope.() -> R
         ): R {
             MutationGate.acquireResource(database.databaseConfig.databaseFile, resPathName).use {
                 if (!database.createResource(resConfig)) {
@@ -52,7 +47,7 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
                     check(database.createResource(resConfig)) { "Could not create resource '$resPathName'" }
                 }
                 try {
-                    return runBlocking { block() }
+                    return runBlocking(block = block)
                 } catch (failure: Exception) {
                     try {
                         database.removeResource(resPathName)
@@ -77,13 +72,7 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         }
 
         if (resource == null) {
-            // Plain database creation (PUT /:database, no :resource). NOTE: this early return
-            // also makes the createMultipleResources branch below unreachable on the current
-            // routes — multipart bulk upload is served by the dedicated CreateMultipleResources
-            // handler on POST /:database (which has a route-level BodyHandler). The branch is
-            // kept for the flag's API surface but must NOT run for body-less database creation:
-            // createMultipleResources() invokes BodyHandler mid-handler, which fails with
-            // "BodyHandler invoked after the request has ended" on routes without one.
+            // A database-only route creates the database without consuming a resource body.
             val dbFile = location.resolve(databaseName)
             val vertxContext = ctx.vertx().orCreateContext
             createDatabaseIfNotExists(dbFile, vertxContext)
@@ -94,10 +83,6 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         if (databaseName == null) {
             throw IllegalArgumentException("Database name and resource data to store not given.")
         } else {
-            if (createMultipleResources) {
-                createMultipleResources(databaseName, ctx)
-                return ctx.currentRoute()!!
-            }
             shredder(databaseName, resource, ctx)
             return ctx.currentRoute()!!
         }
@@ -128,35 +113,6 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         insertResource(dbFile, resPathName, ctx)
     }
 
-    private suspend fun createMultipleResources(databaseName: String, ctx: RoutingContext) {
-        val dbFile = location.resolve(databaseName)
-        val context = ctx.vertx().orCreateContext
-        val sirixDBUser = SirixDBUser.create(ctx)
-
-        createDatabaseIfNotExists(dbFile, context)
-
-        withContext(Dispatchers.IO) {
-            val database = openDatabase(dbFile, sirixDBUser)
-            database.use {
-                BodyHandler.create().handle(ctx)
-                val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
-                val useDeweyIDs = ctx.queryParam("useDeweyIDs").getOrNull(0)?.toBoolean() ?: false
-                ctx.fileUploads().forEach { fileUpload ->
-                    val fileName = fileUpload.fileName()
-                    val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(useDeweyIDs)
-                        .hashKind(HashType.valueOf(hashType.uppercase())).build()
-                    createAndWriteResource(database, resConfig, fileName, ctx.get<VertxUser>("user")!!, databaseName) {
-                        database.beginResourceSession(fileName).use { manager ->
-                            insertResourceSubtreeAsFirstChild(manager, Path.of(fileUpload.uploadedFileName()), ctx)
-                        }
-                    }
-                }
-
-            }
-            ctx.response().setStatusCode(201).end()
-        }
-    }
-
     private suspend fun createDatabaseIfNotExists(
         dbFile: Path,
         context: Context
@@ -171,8 +127,6 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
     }
 
     abstract suspend fun insertResource(dbFile: Path?, resPathName: String, ctx: RoutingContext)
-    abstract fun insertResourceSubtreeAsFirstChild(manager: T, filePath: Path, ctx: RoutingContext): Long
-    abstract suspend fun openDatabase(dbFile: Path, sirixDBUser: User): Database<T>
     abstract fun serializeResource(manager: T, routingContext: RoutingContext): Buffer
     abstract fun createDatabase(dbConfig: DatabaseConfiguration?)
 }

@@ -11,10 +11,8 @@ import kotlinx.coroutines.withContext
 import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.Databases
 import io.sirix.access.ResourceConfiguration
-import io.sirix.access.User
 import io.sirix.access.ValidTimeConfig
 import io.sirix.access.trx.node.HashType
-import io.sirix.api.Database
 import io.sirix.api.json.JsonResourceSession
 import io.sirix.query.json.ValidTimeIndexes
 import io.sirix.rest.KotlinJsonStreamingShredder
@@ -22,7 +20,6 @@ import io.sirix.rest.crud.AbstractCreateHandler
 import io.sirix.rest.crud.Revisions
 import io.sirix.rest.crud.SirixDBUser
 import io.sirix.service.json.serialize.JsonSerializer
-import io.sirix.service.json.shredder.JsonShredder
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Path
@@ -30,9 +27,8 @@ import java.nio.file.Path
 
 
 class JsonCreate(
-    location: Path,
-    createMultipleResources: Boolean = false
-) : AbstractCreateHandler<JsonResourceSession>(location, createMultipleResources) {
+    location: Path
+) : AbstractCreateHandler<JsonResourceSession>(location) {
     
     companion object {
         /**
@@ -101,7 +97,7 @@ class JsonCreate(
 
                 val resConfig = resConfigBuilder.build()
 
-                createAndWriteResource(database, resConfig, resPathName, ctx.get<VertxUser>("user")!!, ctx.pathParam("database")) {
+                createAndWriteResource(database, resConfig, resPathName, ctx.get<VertxUser>("user")!!, ctx.pathParam("database")!!) {
                     val manager = database.beginResourceSession(resPathName)
 
                     manager.use {
@@ -194,25 +190,6 @@ class JsonCreate(
             wtx.commit(commitMessage, commitTimestamp)
             return@use wtx.maxNodeKey
         }
-    }
-
-    override fun insertResourceSubtreeAsFirstChild(
-        manager: JsonResourceSession,
-        filePath: Path,
-        ctx: RoutingContext
-    ): Long {
-        val wtx = manager.beginNodeTrx()
-        return wtx.use {
-            val eventReader = JsonShredder.createFileReader(filePath)
-            eventReader.use {
-                wtx.insertSubtreeAsFirstChild(eventReader)
-            }
-            wtx.maxNodeKey
-        }
-    }
-
-    override suspend fun openDatabase(dbFile: Path, sirixDBUser: User): Database<JsonResourceSession> {
-        return Databases.openJsonDatabase(dbFile, sirixDBUser)
     }
 
     override fun createDatabase(dbConfig: DatabaseConfiguration?) {

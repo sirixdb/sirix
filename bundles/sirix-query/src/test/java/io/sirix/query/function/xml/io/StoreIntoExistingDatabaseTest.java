@@ -77,6 +77,7 @@ final class StoreIntoExistingDatabaseTest {
         final QueryException refused = assertThrows(QueryException.class,
             () -> run(chain, context, call(function, "first", flag)), function + flag);
         assertEquals(XMLFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
+        assertEquals("SIRIXDBF0006", refused.getCode().getLocalName());
         assertEquals(List.of("first", "other"), resources(store), function + flag);
         assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"), function + flag);
         assertEquals(2, revisions(store, "first"), function + flag);

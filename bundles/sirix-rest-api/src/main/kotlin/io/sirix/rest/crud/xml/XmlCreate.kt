@@ -11,9 +11,7 @@ import kotlinx.coroutines.withContext
 import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.Databases
 import io.sirix.access.ResourceConfiguration
-import io.sirix.access.User
 import io.sirix.access.trx.node.HashType
-import io.sirix.api.Database
 import io.sirix.api.xml.XmlNodeTrx
 import io.sirix.api.xml.XmlResourceSession
 import io.sirix.rest.crud.AbstractCreateHandler
@@ -29,9 +27,8 @@ import java.util.UUID
 
 
 class XmlCreate(
-    location: Path,
-    createMultipleResources: Boolean = false
-) : AbstractCreateHandler<XmlResourceSession>(location, createMultipleResources) {
+    location: Path
+) : AbstractCreateHandler<XmlResourceSession>(location) {
     override suspend fun insertResource(
         dbFile: Path?, resPathName: String,
         ctx: RoutingContext
@@ -42,7 +39,7 @@ class XmlCreate(
         }
         try {
             val file = ctx.vertx().fileSystem().open(tempFilePath.toString(), OpenOptions()).coAwait()
-            ctx.request().resume()
+            // pipeTo installs the consumer before it resumes buffered request data.
             ctx.request().pipeTo(file).coAwait()
             withContext(Dispatchers.IO) {
                 var body: Buffer? = null
@@ -55,7 +52,7 @@ class XmlCreate(
                         .hashKind(HashType.valueOf(hashType.uppercase()))
                         .useDeweyIDs(useDeweyIDs)
                         .customCommitTimestamps(commitTimestampAsString != null).build()
-                    createAndWriteResource(database, resConfig, resPathName, ctx.get<VertxUser>("user")!!, ctx.pathParam("database")) {
+                    createAndWriteResource(database, resConfig, resPathName, ctx.get<VertxUser>("user")!!, ctx.pathParam("database")!!) {
                         database.beginResourceSession(resPathName).use { manager ->
                             val maxNodeKey = insertResourceSubtreeAsFirstChild(manager, tempFilePath, ctx)
                             if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
@@ -94,7 +91,7 @@ class XmlCreate(
     }
 
 
-    override fun insertResourceSubtreeAsFirstChild(
+    fun insertResourceSubtreeAsFirstChild(
         manager: XmlResourceSession,
         filePath: Path,
         ctx: RoutingContext
@@ -118,10 +115,6 @@ class XmlCreate(
                 wtx.maxNodeKey
             }
         }
-    }
-
-    override suspend fun openDatabase(dbFile: Path, sirixDBUser: User): Database<XmlResourceSession> {
-        return Databases.openXmlDatabase(dbFile, sirixDBUser)
     }
 
     override fun createDatabase(dbConfig: DatabaseConfiguration?) {

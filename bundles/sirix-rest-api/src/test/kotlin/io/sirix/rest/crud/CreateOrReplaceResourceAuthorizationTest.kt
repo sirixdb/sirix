@@ -1,5 +1,9 @@
 package io.sirix.rest.crud
 
+import io.sirix.access.MutationGate
+import kotlinx.coroutines.yield
+import org.mockito.Mockito
+import org.junit.jupiter.api.Assertions.assertSame
 import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.Databases
 import io.sirix.access.ResourceConfiguration
@@ -147,6 +151,61 @@ class CreateOrReplaceResourceAuthorizationTest {
             assertEquals(setOf("doc"), resources(database))
             assertEquals(2, revisions(database, "doc"))
         }
+    }
+
+    /** REST-210: the gated write returns its result, propagates failure and releases the hold. */
+    @Test
+    fun gatedWriteReturnsItsValueAndReleasesTheGateOnBothOutcomes() {
+        withDatabase { database ->
+            val result = AbstractCreateHandler.createAndWriteResource(database, config("fresh"), "fresh", userWith("create"), "auth") {
+                withContext(Dispatchers.Default) { yield() }
+                "committed"
+            }
+            assertEquals("committed", result)
+            assertGateReleased(database, "fresh")
+            val failure = IllegalArgumentException("invalid body")
+            val thrown = assertThrows(IllegalArgumentException::class.java) {
+                AbstractCreateHandler.createAndWriteResource(database, config("failed"), "failed", userWith("create"), "auth") {
+                    withContext(Dispatchers.Default) { yield(); throw failure }
+                }
+            }
+            assertEquals("invalid body", thrown.message)
+            // Coroutine stack recovery may copy the exception while retaining its original cause.
+            assertTrue(generateSequence<Throwable>(thrown) { it.cause }.any { it === failure })
+            assertGateReleased(database, "failed")
+            assertEquals(setOf("doc", "fresh"), resources(database))
+        }
+    }
+
+    @Test
+    fun writeFailureRetainsItsCauseWhenCleanupAlsoFails() {
+        withDatabase { database ->
+            val unavailable = IllegalStateException("storage unavailable during cleanup")
+            val boundary = Mockito.spy(database)
+            Mockito.doThrow(unavailable).`when`(boundary).removeResource("fresh")
+            val invalid = IllegalArgumentException("invalid body")
+            val thrown = assertThrows(IllegalArgumentException::class.java) {
+                AbstractCreateHandler.createAndWriteResource(boundary, config("fresh"), "fresh", userWith("create"), "auth") {
+                    throw invalid
+                }
+            }
+            assertSame(invalid, thrown)
+            assertEquals(listOf(unavailable), thrown.suppressed.toList())
+            assertGateReleased(database, "fresh")
+            database.removeResource("fresh")
+        }
+    }
+
+    private fun assertGateReleased(database: Database<*>, name: String) {
+        val completed = CompletableFuture<Boolean>()
+        Thread.ofVirtual().start {
+            try {
+                completed.complete(MutationGate.acquireResource(database.databaseConfig.databaseFile, name).use { true })
+            } catch (failure: Throwable) {
+                completed.completeExceptionally(failure)
+            }
+        }
+        assertTrue(completed.get(5, TimeUnit.SECONDS))
     }
 
     private fun writeValue(database: Database<*>, name: String, value: String) {

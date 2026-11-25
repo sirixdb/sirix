@@ -308,8 +308,8 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       for (final JsonReader reader : readers) {
         try {
           reader.close();
-        } catch (final IOException closeFailure) {
-          LOG_WRAPPER.debug("closing load input failed", closeFailure);
+        } catch (final IOException ignored) {
+          // Best-effort cleanup must release the remaining inputs and preserve the load failure.
         }
       }
     }

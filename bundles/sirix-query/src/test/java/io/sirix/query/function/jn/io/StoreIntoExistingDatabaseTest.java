@@ -71,6 +71,7 @@ final class StoreIntoExistingDatabaseTest {
         final QueryException refused = assertThrows(QueryException.class,
             () -> run(chain, context, "jn:" + function + "('db','first'," + input + flag + ")"), flag);
         assertEquals(JNFun.ERR_RESOURCE_EXISTS, refused.getCode(), flag);
+        assertEquals("SIRIXDBF0006", refused.getCode().getLocalName());
         assertEquals(2, revisions(store, "first"), flag);
         assertEquals(List.of("first", "other"), resources(store), flag);
       }
