@@ -69,7 +69,7 @@ final class HOTIndirectLevelSplitTest {
 
       // Every key reaches its own leaf, which is what the reduced extraction position broke.
       for (int index = 0; index < leaves.size(); index++) {
-        final byte[] key = key(UNNAMEABLE_BYTE, index);
+        final byte[] key = key(EARLY_BYTE, UNNAMEABLE_BYTE, index);
         assertSame(leaves.get(index), descend(root, key), "key " + index + " must reach its own leaf");
         assertTrue(descend(root, key).findEntry(key, key.length) >= 0);
       }
@@ -89,7 +89,7 @@ final class HOTIndirectLevelSplitTest {
       assertEquals(4, root.getNumChildren(), "no level was inserted");
       assertEquals(1, root.getHeight());
       for (int index = 0; index < leaves.size(); index++) {
-        final byte[] key = key(NAMEABLE_BYTE, index);
+        final byte[] key = key(EARLY_BYTE, NAMEABLE_BYTE, index);
         assertSame(leaves.get(index), descend(root, key), "key " + index + " must reach its own leaf");
       }
     } finally {
@@ -107,6 +107,10 @@ final class HOTIndirectLevelSplitTest {
         () -> HOTBulkBuilder.assembleIndirect(new int[] {EARLY_BYTE * Byte.SIZE, UNNAMEABLE_BYTE * Byte.SIZE},
             new int[] {0, 1}, children, 1, 1, IndexType.NAME, pageKeys::getAndIncrement));
     assertTrue(refusal.getMessage().contains("branch no child"), refusal.getMessage());
+    assertTrue(refusal.getMessage().contains("key byte " + UNNAMEABLE_BYTE),
+        "the refusal names the byte no layout could express: " + refusal.getMessage());
+    assertTrue(refusal.getMessage().contains("base byte " + EARLY_BYTE), refusal.getMessage());
+    assertTrue(refusal.getMessage().contains("leading 1 of 2 bits"), refusal.getMessage());
     assertEquals(1, pageKeys.get(), "a refused assembly must not draw a page key");
   }
 
@@ -131,23 +135,26 @@ final class HOTIndirectLevelSplitTest {
   void eachLevelOfANestCarriesExactlyItsOwnBranchingBits() {
     final AtomicLong pageKeys = new AtomicLong(1);
     final List<HOTLeafPage> leaves = new ArrayList<>();
-    // Column weights over [b80, b81, b2400, b2408] are 8, 4, 2, 1.
-    final int[] partials = {0b0000, 0b0010, 0b0100, 0b0111};
+    // Column weights over [b80, b81, b2400, b2408] are 8, 4, 2, 1. The first group agrees on the
+    // FIRST of its two suffix columns, with the bit set: a group that kept a column it agrees on
+    // would pack that bit into the position its own branching column belongs in, and both of its
+    // children would carry the same partial.
+    final int[] partials = {0b0010, 0b0011, 0b0100, 0b0111};
     try (final HOTIndirectPage root = assembleWide(partials, leaves, pageKeys)) {
       assertEquals(2, root.getNumChildren(), "the top level branches on the early byte alone");
-      assertArrayEquals(new int[] {EARLY_BYTE * Byte.SIZE, EARLY_BYTE * Byte.SIZE + 1},
-          root.getDiscriminativeBits(), "the top level keeps the bits it can name and no others");
+      assertArrayEquals(new int[] {EARLY_BYTE * Byte.SIZE, EARLY_BYTE * Byte.SIZE + 1}, root.getDiscriminativeBits(),
+          "the top level keeps the bits it can name and no others");
       assertEquals(2, root.getHeight());
 
-      final HOTIndirectPage agreeing = assertInstanceOf(HOTIndirectPage.class,
-          root.getChildReference(0).getPage(), "first group");
-      assertArrayEquals(new int[] {LATE_BYTE * Byte.SIZE}, agreeing.getDiscriminativeBits(),
+      final HOTIndirectPage agreeing =
+          assertInstanceOf(HOTIndirectPage.class, root.getChildReference(0).getPage(), "first group");
+      assertArrayEquals(new int[] {(LATE_BYTE + 1) * Byte.SIZE}, agreeing.getDiscriminativeBits(),
           "a bit the whole group agrees on branches nothing there, so the group must not test it");
       assertEquals(2, agreeing.getNumChildren());
       assertEquals(1, agreeing.getHeight());
 
-      final HOTIndirectPage differing = assertInstanceOf(HOTIndirectPage.class,
-          root.getChildReference(1).getPage(), "second group");
+      final HOTIndirectPage differing =
+          assertInstanceOf(HOTIndirectPage.class, root.getChildReference(1).getPage(), "second group");
       assertArrayEquals(new int[] {LATE_BYTE * Byte.SIZE, (LATE_BYTE + 1) * Byte.SIZE},
           differing.getDiscriminativeBits(), "this group branches on both remaining bits");
       assertEquals(2, differing.getNumChildren());
@@ -176,7 +183,9 @@ final class HOTIndirectLevelSplitTest {
     final PageReference[] children = new PageReference[3];
     for (int index = 0; index < 2; index++) {
       final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.NAME);
-      assertTrue(leaf.put(wideKey(index == 0 ? 0b0000 : 0b0010), VALUE));
+      assertTrue(leaf.put(wideKey(index == 0
+          ? 0b0000
+          : 0b0010), VALUE));
       leaves.add(leaf);
       children[index] = new PageReference();
       children[index].setPage(leaf);
@@ -196,12 +205,12 @@ final class HOTIndirectLevelSplitTest {
   }
 
   /**
-   * A refused group leaves nothing of the nest behind. The second group's children carry the same
-   * partial, which no canonical encoding produces, so assembly refuses after the first group's node
-   * was already built; the children the caller handed in are not the nest's to release.
+   * A refusal leaves the caller's children open. The second group's children carry the same partial,
+   * which no canonical encoding produces, so assembly refuses after the first group's node was
+   * already built — and the leaves below that nest are the caller's, never the nest's to release.
    */
   @Test
-  void aRefusedGroupReleasesOnlyTheNodesTheNestBuilt() {
+  void aRefusedGroupLeavesTheCallersChildrenOpen() {
     final AtomicLong pageKeys = new AtomicLong(1);
     final List<HOTLeafPage> leaves = new ArrayList<>();
     final int[] partials = {0b0000, 0b0010, 0b0100, 0b0100};
@@ -214,16 +223,121 @@ final class HOTIndirectLevelSplitTest {
       children[index].setPage(leaf);
     }
     try {
-      final IllegalArgumentException refusal = assertThrows(IllegalArgumentException.class,
-          () -> HOTBulkBuilder.assembleIndirect(wideBits(), partials, children, 1, 1, IndexType.NAME,
-              pageKeys::getAndIncrement));
+      final IllegalArgumentException refusal =
+          assertThrows(IllegalArgumentException.class, () -> HOTBulkBuilder.assembleIndirect(wideBits(), partials,
+              children, 1, 1, IndexType.NAME, pageKeys::getAndIncrement));
       assertTrue(refusal.getMessage().contains("identical partials"), refusal.getMessage());
+      assertTrue(refusal.getMessage().contains("left 2 children"),
+          "the refusal names the run it could not split: " + refusal.getMessage());
       for (int index = 0; index < leaves.size(); index++) {
         assertFalse(leaves.get(index).isClosed(), "the caller's child " + index + " is not the nest's to release");
       }
     } finally {
       close(leaves);
     }
+  }
+
+  /**
+   * The span is measured in key bytes, not in bit indexes. These bits start at byte forty and end
+   * past the extraction range, so a span measured against the bit index would look like a narrow
+   * window and leave the node routing on a reduced extraction position.
+   */
+  @Test
+  void aSpanIsMeasuredInKeyBytesEvenWhenItStartsFarIntoTheKey() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final List<HOTLeafPage> leaves = new ArrayList<>();
+    final int earlyByte = 40;
+    try (final HOTIndirectPage root = assemble(earlyByte, UNNAMEABLE_BYTE, leaves, pageKeys)) {
+      assertEquals(2, root.getNumChildren(), "the early bit alone branches the top level");
+      assertEquals(earlyByte * Byte.SIZE, root.getMostSignificantBitIndex());
+      assertEquals(2, root.getHeight());
+      for (int side = 0; side < 2; side++) {
+        final HOTIndirectPage inner = assertInstanceOf(HOTIndirectPage.class, root.getChildReference(side).getPage(),
+            "side " + side + " is a level of its own");
+        assertEquals(UNNAMEABLE_BYTE * Byte.SIZE, inner.getMostSignificantBitIndex());
+      }
+      for (int index = 0; index < leaves.size(); index++) {
+        final byte[] key = key(earlyByte, UNNAMEABLE_BYTE, index);
+        assertSame(leaves.get(index), descend(root, key), "key " + index + " must reach its own leaf");
+      }
+    } finally {
+      close(leaves);
+    }
+  }
+
+  /** The nameable prefix of a bit set, which decides how much one node of a nest may take. */
+  @Test
+  void theNameablePrefixIsTheLongestRunOfBitsOneLayoutCanName() {
+    assertEquals(1, HOTIndirectPage.nameableLeadingBits(new int[] {80}), "a single bit is always nameable");
+    assertEquals(3, HOTIndirectPage.nameableLeadingBits(new int[] {80, 88, 136}),
+        "a set inside one eight-byte window is taken whole");
+    assertEquals(4, HOTIndirectPage.nameableLeadingBits(new int[] {80, 88, 1600, 2040}),
+        "a wide span of bytes inside the extraction range is taken whole");
+    assertEquals(2, HOTIndirectPage.nameableLeadingBits(new int[] {80, 88, 2400, 2408}),
+        "the prefix stops at the first bit whose byte no layout can reach from the first");
+    assertEquals(4, HOTIndirectPage.nameableLeadingBits(new int[] {2400, 2401, 2408, 2456}),
+        "a narrow window is nameable wherever it sits");
+  }
+
+  /**
+   * Each node of a nest is as tall as the children it was given, not as tall as the whole block. A
+   * group holding an already-built branch node stands one above it; a group holding a reference that
+   * is not resident stands one above the height the caller stated for its tallest child.
+   */
+  @Test
+  void eachGroupIsAsTallAsItsOwnChildren() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final List<HOTLeafPage> leaves = new ArrayList<>();
+    final int[] partials = {0b0001, 0b0011, 0b0100, 0b0111};
+    final PageReference[] children = new PageReference[partials.length];
+    for (int index = 0; index < partials.length; index++) {
+      children[index] = new PageReference();
+      if (index == 2) {
+        continue; // left unresolved on purpose: a persisted subtree only the caller can measure
+      }
+      final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.NAME);
+      assertTrue(leaf.put(wideKey(partials[index]), VALUE));
+      leaves.add(leaf);
+      children[index] = new PageReference();
+      children[index].setPage(leaf);
+    }
+    // The first group's first child is a branch node of its own, built over a byte the fixture's
+    // bits do not use, so the group above it must stand at two.
+    children[0].setPage(subBranch(partials[0], leaves, pageKeys));
+    final int statedHeight = 3;
+    try (final HOTIndirectPage root = HOTBulkBuilder.assembleIndirect(wideBits(), partials, children, statedHeight, 1,
+        IndexType.NAME, pageKeys::getAndIncrement)) {
+      final HOTIndirectPage overBranch =
+          assertInstanceOf(HOTIndirectPage.class, root.getChildReference(0).getPage(), "first group");
+      assertEquals(2, overBranch.getHeight(), "one above the branch node it was given");
+      final HOTIndirectPage overUnresolved =
+          assertInstanceOf(HOTIndirectPage.class, root.getChildReference(1).getPage(), "second group");
+      assertEquals(statedHeight, overUnresolved.getHeight(),
+          "one above the tallest child the caller said this block had");
+      assertEquals(statedHeight + 1, root.getHeight(), "the top level stands above the tallest group");
+    } finally {
+      close(leaves);
+    }
+  }
+
+  /** A branch node over two keys of {@code partial} that differ one byte before the late bits. */
+  private static HOTIndirectPage subBranch(final int partial, final List<HOTLeafPage> leaves,
+      final AtomicLong pageKeys) {
+    final int bitByte = LATE_BYTE - 1;
+    final PageReference[] children = new PageReference[2];
+    for (int side = 0; side < 2; side++) {
+      final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.NAME);
+      final byte[] key = wideKey(partial);
+      key[bitByte] = side == 0
+          ? 0x00
+          : (byte) 0x80;
+      assertTrue(leaf.put(key, VALUE));
+      leaves.add(leaf);
+      children[side] = new PageReference();
+      children[side].setPage(leaf);
+    }
+    return HOTBulkBuilder.assembleIndirect(new int[] {bitByte * Byte.SIZE}, new int[] {0, 1}, children, 1, 1,
+        IndexType.NAME, pageKeys::getAndIncrement);
   }
 
   /** The four discriminative bits of the wide fixture, ascending. */
@@ -250,34 +364,48 @@ final class HOTIndirectLevelSplitTest {
   private static byte[] wideKey(final int partial) {
     final byte[] key = new byte[LATE_BYTE + 2];
     Arrays.fill(key, (byte) 'x');
-    key[EARLY_BYTE] = (byte) (((partial & 0b1000) != 0 ? 0x80 : 0) | ((partial & 0b0100) != 0 ? 0x40 : 0));
-    key[LATE_BYTE] = (partial & 0b0010) != 0 ? (byte) 0x80 : 0x00;
-    key[LATE_BYTE + 1] = (partial & 0b0001) != 0 ? (byte) 0x80 : 0x00;
+    key[EARLY_BYTE] = (byte) (((partial & 0b1000) != 0
+        ? 0x80
+        : 0)
+        | ((partial & 0b0100) != 0
+            ? 0x40
+            : 0));
+    key[LATE_BYTE] = (partial & 0b0010) != 0
+        ? (byte) 0x80
+        : 0x00;
+    key[LATE_BYTE + 1] = (partial & 0b0001) != 0
+        ? (byte) 0x80
+        : 0x00;
     return key;
   }
 
   private static HOTIndirectPage assemble(final int lateByte, final List<HOTLeafPage> leaves,
       final AtomicLong pageKeys) {
+    return assemble(EARLY_BYTE, lateByte, leaves, pageKeys);
+  }
+
+  private static HOTIndirectPage assemble(final int earlyByte, final int lateByte, final List<HOTLeafPage> leaves,
+      final AtomicLong pageKeys) {
     final PageReference[] children = new PageReference[4];
     for (int index = 0; index < children.length; index++) {
       final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.NAME);
-      final byte[] key = key(lateByte, index);
+      final byte[] key = key(earlyByte, lateByte, index);
       assertTrue(leaf.put(key, VALUE));
       leaves.add(leaf);
       children[index] = new PageReference();
       children[index].setPage(leaf);
     }
-    return HOTBulkBuilder.assembleIndirect(new int[] {EARLY_BYTE * Byte.SIZE, lateByte * Byte.SIZE},
+    return HOTBulkBuilder.assembleIndirect(new int[] {earlyByte * Byte.SIZE, lateByte * Byte.SIZE},
         new int[] {0, 1, 2, 3}, children, 1, 1, IndexType.NAME, pageKeys::getAndIncrement);
   }
 
   /**
-   * Key {@code index} of the fixture: bit two selects {@link #EARLY_BYTE}, bit one {@code lateByte}.
+   * Key {@code index} of the fixture: bit two selects {@code earlyByte}, bit one {@code lateByte}.
    */
-  private static byte[] key(final int lateByte, final int index) {
+  private static byte[] key(final int earlyByte, final int lateByte, final int index) {
     final byte[] key = new byte[lateByte + 1];
     Arrays.fill(key, (byte) 'x');
-    key[EARLY_BYTE] = (index & 2) == 0
+    key[earlyByte] = (index & 2) == 0
         ? 0x00
         : (byte) 0x80;
     key[lateByte] = (index & 1) == 0

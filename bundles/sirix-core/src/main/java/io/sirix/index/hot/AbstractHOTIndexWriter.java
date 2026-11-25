@@ -4053,9 +4053,12 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Whether every node a branch insert of {@code beta} could extend — the route from the root down to
    * the node just below {@code d*} — could still name its discriminative key bytes afterwards.
+   *
+   * <p>
+   * Package private by design: production callers are the branch handlers of this class, and the
+   * window this walks is asserted directly from a hand-built route.
    */
-  private static boolean routeCanNameBranchBit(final LeafNavigationResult navResult, final int insertDepth,
-      final int beta) {
+  static boolean routeCanNameBranchBit(final LeafNavigationResult navResult, final int insertDepth, final int beta) {
     final int deepest = Math.min(insertDepth + 1, navResult.pathDepth() - 1);
     for (int depth = 0; depth <= deepest; depth++) {
       if (!nodeCanNameBit(navResult.pathNodes()[depth], beta)) {
@@ -7591,21 +7594,24 @@ public abstract class AbstractHOTIndexWriter<K> {
    * reference — rather than some other child. One step for a block assembled as a single node, one
    * step per level for one assembled over levels; a route that leaves the freshly assembled nodes
    * without reaching the part is not the part's route.
+   *
+   * <p>
+   * Package private by design: the only production caller is {@link #joinOrderedParts}, and each arm
+   * of the walk is asserted directly from a hand-built block.
    */
-  private static boolean blockRoutesToPart(final HOTIndirectPage block, final byte[] key,
-      final PageReference expected) {
+  static boolean blockRoutesToPart(final HOTIndirectPage block, final byte[] key, final PageReference expected) {
     HOTIndirectPage node = block;
     for (int level = 0; level < MAX_PATH_DEPTH; level++) {
       final int slot = node.findChildIndex(key);
       if (slot < 0) {
-        return false;
+        break; // no child's partial subsumes the key: this block does not route it at all
       }
       final PageReference child = node.getChildReference(slot);
       if (child == expected) {
         return true;
       }
       if (child == null || !(child.getPage() instanceof HOTIndirectPage inner)) {
-        return false;
+        break; // the route ended at another part, or at a reference this walk cannot follow
       }
       node = inner;
     }

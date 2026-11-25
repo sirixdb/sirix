@@ -8,7 +8,6 @@ import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
-import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.List;
@@ -681,12 +680,8 @@ public final class HOTBulkBuilder {
       final LongSupplier pageKeyAllocator) {
     final int columns = discBits.length;
     final int firstByte = discBits[0] >>> 3;
-    int prefix = 1;
-    while (prefix < columns && HOTIndirectPage.canNameDiscriminativeBytes(firstByte, discBits[prefix] >>> 3)) {
-      prefix++;
-    }
+    final int prefix = HOTIndirectPage.nameableLeadingBits(discBits);
     final int suffixColumns = columns - prefix;
-    final int suffixMask = (1 << suffixColumns) - 1;
 
     // Plan the split before allocating anything: group boundaries first, then the pages. A caller
     // whose bits are not the block's branching bits gets the refusal with no page drawn, which is
@@ -713,38 +708,28 @@ public final class HOTBulkBuilder {
               + firstByte + ", and its leading " + prefix + " of " + columns + " bits branch no child");
     }
 
+    // A refusal has nothing to release here, so there is no cleanup arm: every node this method
+    // builds is an indirect node, whose close is a no-op — which is why closeFreshPage walks past
+    // indirect pages as well — and the leaves below them are the caller's children.
     final PageReference[] topChildren = new PageReference[groups];
-    int built = 0;
     int maxGroupHeight = 0;
-    try {
-      for (int group = 0; group < groups; group++) {
-        final int start = groupStart[group];
-        final int end = groupStart[group + 1];
-        if (end - start == 1) {
-          topChildren[group] = children[start];
-          maxGroupHeight = Math.max(maxGroupHeight, heightOfChild(children[start], height - 1));
-        } else {
-          final HOTIndirectPage nested = assembleGroup(discBits, partials, children, prefix, suffixMask, start, end,
-              height, revision, indexType, pageKeyAllocator);
-          final PageReference reference = new PageReference();
-          reference.setPage(nested);
-          topChildren[group] = reference;
-          maxGroupHeight = Math.max(maxGroupHeight, nested.getHeight());
-        }
-        built = group + 1;
+    for (int group = 0; group < groups; group++) {
+      final int start = groupStart[group];
+      final int end = groupStart[group + 1];
+      if (end - start == 1) {
+        topChildren[group] = children[start];
+        maxGroupHeight = Math.max(maxGroupHeight, heightOfChild(children[start], height - 1));
+      } else {
+        final HOTIndirectPage nested = assembleGroup(discBits, partials, children, prefix, start, end, height, revision,
+            indexType, pageKeyAllocator);
+        final PageReference reference = new PageReference();
+        reference.setPage(nested);
+        topChildren[group] = reference;
+        maxGroupHeight = Math.max(maxGroupHeight, nested.getHeight());
       }
-      return assembleRoutableIndirect(Arrays.copyOf(discBits, prefix), Arrays.copyOf(topPartials, groups), topChildren,
-          maxGroupHeight + 1, revision, pageKeyAllocator);
-    } catch (final RuntimeException | Error failure) {
-      // Only the nodes built here are this method's to release. Their children are the caller's
-      // children, so this closes each nest node itself and never walks into them.
-      for (int group = 0; group < built; group++) {
-        if (groupStart[group + 1] - groupStart[group] > 1) {
-          closeNestNode(topChildren[group].getPage(), failure);
-        }
-      }
-      throw failure;
     }
+    return assembleRoutableIndirect(Arrays.copyOf(discBits, prefix), Arrays.copyOf(topPartials, groups), topChildren,
+        maxGroupHeight + 1, revision, pageKeyAllocator);
   }
 
   /**
@@ -754,12 +739,14 @@ public final class HOTBulkBuilder {
    * exactly its own branching bits.
    */
   private static HOTIndirectPage assembleGroup(final int[] discBits, final int[] partials,
-      final PageReference[] children, final int prefix, final int suffixMask, final int from, final int to,
-      final int height, final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
+      final PageReference[] children, final int prefix, final int from, final int to, final int height,
+      final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
     final int suffixColumns = discBits.length - prefix;
+    // The run agrees on every prefix column — that is what made it a run — so the difference of two
+    // of its partials carries suffix columns only and needs no mask to stay inside them.
     int varying = 0;
     for (int i = from + 1; i < to; i++) {
-      varying |= (partials[i] ^ partials[from]) & suffixMask;
+      varying |= partials[i] ^ partials[from];
     }
     if (varying == 0) {
       throw new IllegalArgumentException("HOT level split left " + (to - from)
@@ -767,18 +754,22 @@ public final class HOTBulkBuilder {
     }
     final int groupColumns = Integer.bitCount(varying);
     final int[] groupBits = new int[groupColumns];
+    // Column zero of the suffix is its most significant bit, so the walk starts at that weight and
+    // shifts down; one weight, one column, for both the bits and the partials below.
+    final int firstWeight = 1 << suffixColumns - 1;
     int next = 0;
-    for (int column = 0; column < suffixColumns; column++) {
-      if ((varying & 1 << suffixColumns - 1 - column) != 0) {
+    int column = 0;
+    for (int weight = firstWeight; weight != 0; weight >>>= 1) {
+      if ((varying & weight) != 0) {
         groupBits[next++] = discBits[prefix + column];
       }
+      column++;
     }
     final int[] groupPartials = new int[to - from];
     for (int i = from; i < to; i++) {
       int packed = 0;
       int target = groupColumns - 1;
-      for (int column = 0; column < suffixColumns; column++) {
-        final int weight = 1 << suffixColumns - 1 - column;
+      for (int weight = firstWeight; weight != 0; weight >>>= 1) {
         if ((varying & weight) == 0) {
           continue;
         }
@@ -797,21 +788,6 @@ public final class HOTBulkBuilder {
     }
     return assembleIndirect(groupBits, groupPartials, Arrays.copyOfRange(children, from, to), groupHeight, revision,
         indexType, pageKeyAllocator);
-  }
-
-  /**
-   * Close one node {@link #assembleOverLevels} built, without walking into its children: those are
-   * the caller's references and the caller releases them.
-   */
-  private static void closeNestNode(final @Nullable Page page, final Throwable failure) {
-    if (page == null) {
-      return;
-    }
-    try {
-      page.close();
-    } catch (final RuntimeException | Error cleanupFailure) {
-      addSuppressedSafely(failure, cleanupFailure);
-    }
   }
 
   /**

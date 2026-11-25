@@ -208,3 +208,51 @@
 - Verification: focused routing, integration, serializer, NAME re-check and allocation checks run
   after the fix round. Counterfactual and mutation validation remain with the outer executor's
   dedicated validation phases.
+
+## Mutation follow-up: judged by the tests that exercise it
+
+- Finding: the blocking PR mutation lane reported 73 undetected mutants on the changed lines while
+  every behaviour test of this change passed. The lane maps a changed source to tests by name, and
+  no test of this change carries the name of the class it drives — the level split is reached from
+  the key geometry, the key bound from the names that cross it — so `HOTIndirectLevelSplitTest`,
+  `NameKeySerializerRoutableBoundTest` and the NAME routing tests were never selected for
+  `HOTBulkBuilder`, `NameKeySerializer` or `AbstractHOTIndexWriter`, and `HOTIndexReader` and
+  `HOTKeySerializer` had no mapped test at all. CONV-204 exists for exactly this case: the
+  association file now names, per changed class, the behaviour tests that cover it, which took the
+  lane from nine test patterns with two unresolved sources to twelve with none.
+- The second round, measured locally on the full lane, left 44 undetected mutants. Each one named a
+  real gap in the oracles rather than a defect in the fix:
+  - The nest fixture's two groups agreed on a column whose bit was *clear*, so a group that wrongly
+    kept a column it agrees on packed nothing for it and routed identically. The fixture now agrees
+    on a column whose bit is *set*.
+  - Every nest child was a resident leaf or an unresolved reference below a one-child group, so the
+    height of a group holding an already-built branch node, and the fallback height of a group
+    holding an unresolved reference, were never asserted. Each group's own height is now asserted.
+  - The span of a bit set was only ever tested from an early first byte, where measuring it against
+    the bit index instead of the key byte gives the same verdict. A set from byte forty to byte
+    three hundred tells the two apart.
+  - The serializer was tested with a NUL inside a namespace but never with one in its first
+    position, never with one past the cut, never with one that tips the bound by its escape alone,
+    never beside a local name long enough to spend the budget an escape had consumed, and never with
+    a character whose UTF-8 lead byte is exactly `0xE0` — the boundary between the two- and
+    three-byte width classes.
+  - `blockRoutesToPart` was only ever asked about a block of one node whose route reached the part:
+    the multi-level walk this change added, and all three ways a route can fail to reach a part,
+    were unmeasured. `routeCanNameBranchBit` was never asked about a route whose only unnameable
+    node sits at the far edge of the window it checks.
+- The round also removed code the measurement proved dead. `assembleOverLevels` carried a cleanup arm
+  that closed the nest nodes it had built: `HOTIndirectPage` does not override `Page.close`, so that
+  arm closed nothing — which is why `closeFreshPage` walks past indirect pages as well — and the
+  leaves below a nest are the caller's children. The prefix scan moved to
+  `HOTIndirectPage.nameableLeadingBits`, where a set it can name whole is an ordinary input instead
+  of an unreachable loop bound, and the group's column walk is now driven by the column weight, so a
+  wrong starting weight or a wrong shift direction changes the bits a group names.
+- Verification: the lane's whole selected test set green locally (148 tests), and the lane itself
+  run locally over the changed lines: 243 mutants, 232 killed, 5 timed out, 6 undetected. Each of
+  the six is a reviewed `equivalent` disposition, and each argument was checked by applying the
+  mutant to a source copy and running the behaviour tests — a cycle-guard loop bound no block can
+  reach, a fast-path boundary whose two arms return the same prefix, a loop bound its only caller
+  makes unreachable, a range check that only decides which `IndexOutOfBoundsException` an undersized
+  buffer raises, `utf8Width(0x80)` for a byte that cannot lead a UTF-8 character, and the dispatch
+  shift that can only send a nameable bit set through a level split which rebuilds the same node.
+

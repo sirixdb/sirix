@@ -215,6 +215,25 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
+   * How many leading bits of {@code discBits} one node can name together: all of them when the whole
+   * set is nameable, and otherwise the longest prefix that is (FMT-305). Never less than one, since a
+   * node naming a single key byte is always possible.
+   *
+   * @param discBits discriminative bits as sorted ascending absolute bit positions
+   * @return the number of leading bits a single node may take, between one and
+   *         {@code discBits.length}
+   */
+  public static int nameableLeadingBits(final int[] discBits) {
+    Objects.requireNonNull(discBits, "discBits");
+    final int firstByte = discBits[0] >>> 3;
+    int prefix = 1;
+    while (prefix < discBits.length && canNameDiscriminativeBytes(firstByte, discBits[prefix] >>> 3)) {
+      prefix++;
+    }
+    return prefix;
+  }
+
+  /**
    * Compute the most significant discriminative bit index from a {@code bitMask} and
    * {@code initialBytePos}. The MSB is the bit closest to the start of the key (smallest absolute
    * MSB-first bit position).

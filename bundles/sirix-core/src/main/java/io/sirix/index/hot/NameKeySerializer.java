@@ -108,9 +108,7 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
           ? 1
           : utf8Width(localBytes[0] & 0xFF);
       final int uriBudget = budget - NAMESPACE_FRAMING_BYTES - firstLocalWidth;
-      final int uriPrefix = (long) uriLength + uriZeros <= uriBudget
-          ? uriLength
-          : prefixWithinBudget(uri, uriBytes, uriLength, uriBudget, true);
+      final int uriPrefix = prefixOrWhole(uri, uriBytes, uriLength, (long) uriLength + uriZeros, uriBudget, true);
       dest[pos++] = NAMESPACE_SENTINEL;
       final int start = pos;
       writeEncodedPrefix(uri, uriBytes, uriPrefix, dest, start);
@@ -139,9 +137,7 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
       dest[pos++] = 0;
       budget -= NAMESPACE_FRAMING_BYTES + uriPrefix + uriZeros;
     }
-    final int localPrefix = localLength <= budget
-        ? localLength
-        : prefixWithinBudget(localName, localBytes, localLength, budget, false);
+    final int localPrefix = prefixOrWhole(localName, localBytes, localLength, localLength, budget, false);
     writeEncodedPrefix(localName, localBytes, localPrefix, dest, pos);
     pos += localPrefix;
     if (truncated) {
@@ -154,6 +150,19 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     requireNonNull(bytes, "Bytes cannot be null");
     checkFromIndexSize(offset, length, bytes.length);
     return length > 0 && bytes[offset + length - 1] == TRUNCATION_MARKER;
+  }
+
+  /**
+   * The prefix of {@code value} this key stores: the whole of it when the {@code stored} bytes it
+   * would occupy fit {@code budget}, and otherwise the longest whole-character prefix that does. One
+   * decision for both components, so that a name inside the bound pays a comparison rather than a
+   * walk over its characters.
+   */
+  private static int prefixOrWhole(final String value, final byte @Nullable [] encoded, final int length,
+      final long stored, final int budget, final boolean escapeZeros) {
+    return stored <= budget
+        ? length
+        : prefixWithinBudget(value, encoded, length, budget, escapeZeros);
   }
 
   private static int prefixWithinBudget(final String value, final byte @Nullable [] encoded, final int length,

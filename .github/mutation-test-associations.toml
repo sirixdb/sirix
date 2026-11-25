@@ -168,7 +168,7 @@ tests = ["io.sirix.index.hot.HOTIndirectLevelSplitTest"]
 
 [[association]]
 class = "io.sirix.index.hot.AbstractHOTIndexWriter"
-tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
+tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest", "io.sirix.index.hot.HOTBranchRouteGuardTest"]
 
 [[association]]
 class = "io.sirix.index.hot.NameKeySerializer"

@@ -105,6 +105,53 @@ final class NameKeySerializerRoutableBoundTest {
     final byte[] stored = serialize(name);
     assertEquals(12, stored.length, "sentinel, four escaped URI bytes, terminator and five local bytes");
     assertEquals(name.getNamespaceURI(), SERIALIZER.deserialize(stored, 0, stored.length).getNamespaceURI());
+
+    // A NUL in the very first position is escaped like any other, or the URI reads back as a
+    // different URI — and the terminator would be the one byte the escape did not spend.
+    final QNm leading = new QNm("\u0000ab", "p", "local");
+    final byte[] storedLeading = serialize(leading);
+    assertEquals(12, storedLeading.length, "the first character's escape is counted too");
+    assertEquals(leading.getNamespaceURI(),
+        SERIALIZER.deserialize(storedLeading, 0, storedLeading.length).getNamespaceURI());
+  }
+
+  @Test
+  void anEmptyKeyRegionIsNotATruncatedKey() {
+    // Reading the byte before the region would answer from a neighbour's bytes.
+    assertFalse(NameKeySerializer.isTruncated(new byte[] {(byte) 0xFF}, 1, 0), "nothing was stored, nothing was cut");
+    assertFalse(NameKeySerializer.isTruncated(new byte[0], 0, 0));
+  }
+
+  /**
+   * The escape a NUL costs decides the bound on its own. This name is one stored byte over it only
+   * because of that escape: counted with the wrong sign, or weighed against the namespace budget with
+   * the wrong sign, the key is judged to fit and is written past the bound unmarked.
+   */
+  @Test
+  void aNamespaceOneEscapeOverTheBoundIsCut() {
+    final QNm name = new QNm("\u0000" + "u".repeat(BOUND - 5), "p", "a");
+    final byte[] stored = serialize(name);
+    assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length),
+        "three framing bytes, the escaped NUL, the plain characters and one local byte are one over");
+    assertEquals(BOUND, stored.length, "a cut key fills the bound exactly");
+    final QNm read = SERIALIZER.deserialize(stored, 0, stored.length);
+    assertEquals("\u0000" + "u".repeat(BOUND - 7), read.getNamespaceURI(), "the escape is read back as one NUL");
+    assertEquals("a", read.getLocalName());
+  }
+
+  /**
+   * A NUL past the cut is not in the stored key, so it buys no escape. Counting the whole URI's NULs
+   * instead of the surviving prefix's shifts the stored bytes apart and writes past the bound.
+   */
+  @Test
+  void aNulPastTheCutCostsNothing() {
+    final QNm name = new QNm("u".repeat(BOUND) + "\u0000\u0000", "p", "a");
+    final byte[] stored = serialize(name);
+    assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length));
+    assertEquals(BOUND, stored.length, "the surviving prefix holds no NUL, so nothing is escaped");
+    final QNm read = SERIALIZER.deserialize(stored, 0, stored.length);
+    assertEquals("u".repeat(BOUND - 5), read.getNamespaceURI());
+    assertEquals("a", read.getLocalName());
   }
 
   @Test
@@ -131,7 +178,7 @@ final class NameKeySerializerRoutableBoundTest {
 
   @Test
   void namespacesReserveOnlyTheFirstLocalCharactersEncodedWidth() {
-    for (final String local : new String[] {"a", "é", "中", "😀"}) {
+    for (final String local : new String[] {"a", "é", "\u0800", "中", "😀"}) {
       final int width = local.getBytes(StandardCharsets.UTF_8).length;
       for (int difference = -1; difference <= 1; difference++) {
         final QNm name = new QNm("u".repeat(BOUND - 3 - width + difference), "p", local);
@@ -140,6 +187,13 @@ final class NameKeySerializerRoutableBoundTest {
         if (difference <= 0) {
           assertEquals(name, SERIALIZER.deserialize(stored, 0, stored.length));
           assertEquals(BOUND + difference, stored.length);
+        } else {
+          // The namespace gave up exactly the first local character's own width, no more and no
+          // less: one byte fewer and the character could not be written whole, one more and the
+          // stored key stops short of the bound.
+          assertEquals(BOUND, stored.length, "a cut namespace fills the bound exactly");
+          assertEquals(local, SERIALIZER.deserialize(stored, 0, stored.length).getLocalName(),
+              "the first character of the local name survives whole, whatever its width");
         }
       }
     }
@@ -192,7 +246,7 @@ final class NameKeySerializerRoutableBoundTest {
    */
   @Test
   void anOverLongNameStoresTheLongestWholeCharacterPrefixThatFitsForEveryCharacterWidth() {
-    for (final String character : new String[] {"a", "é", "中", "😀"}) {
+    for (final String character : new String[] {"a", "é", "\u0800", "中", "😀"}) {
       final int width = character.getBytes(StandardCharsets.UTF_8).length;
       final int fitting = (BOUND - 1) / width;
       final QNm name = new QNm(character.repeat(fitting + 8));
@@ -215,16 +269,18 @@ final class NameKeySerializerRoutableBoundTest {
 
   /**
    * A NUL in the namespace costs two stored bytes, so a namespace cut at the bound keeps one
-   * character fewer for every NUL inside the part that survives. The surviving URI is what the
-   * stored key decodes to, which is the only way to see that the escape was counted on both the
-   * budget and the rewrite.
+   * character fewer for every NUL inside the part that survives. The surviving URI is what the stored
+   * key decodes to, which is the only way to see that the escape was counted on both the budget and
+   * the rewrite.
    */
   @Test
   void anEscapedNulInsideACutNamespaceCostsTwoStoredBytes() {
     final String head = "u".repeat(BOUND);
     for (final int nuls : new int[] {1, 2, 3}) {
       final String uri = "\u0000".repeat(nuls) + head;
-      final QNm name = new QNm(uri, "p", "a");
+      // A local name long enough to spend whatever budget the namespace left: the escaped NULs must
+      // not be handed back to it, or the stored key runs past the bound.
+      final QNm name = new QNm(uri, "p", "abcdefgh");
       final byte[] stored = serialize(name);
       assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length), "the namespace is cut");
       final QNm read = SERIALIZER.deserialize(stored, 0, stored.length);
@@ -234,7 +290,8 @@ final class NameKeySerializerRoutableBoundTest {
       // Framing, the escaped NULs, the plain characters, one local-name byte and the marker.
       assertEquals(BOUND, 3 + survivingUri.length() + nuls + 1 + 1,
           "each NUL spends one stored byte more than the character it is");
-      assertEquals("a", read.getLocalName());
+      assertEquals("a", read.getLocalName(), "one local byte is all the cut namespace left");
+      assertEquals(BOUND, stored.length, "a cut key fills the bound exactly, never more");
     }
   }
 
