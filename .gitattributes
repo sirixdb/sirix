@@ -18,3 +18,11 @@
 # ...except the Windows launchers, which cmd.exe expects with CRLF.
 *.bat text eol=crlf
 *.cmd text eol=crlf
+
+# The specification changelog is extended by many concurrent pull requests, each prepending an
+# independent paragraph at the same spot: keep both on a local merge or rebase instead of
+# stopping on a conflict (docs/DEVELOPMENT.md, "Shared append-only files"). Only prose logs whose
+# entries are independent and order-insensitive belong here. CHANGELOG.md and docs/LESSONS.md take
+# fragments instead (changelog.d/, docs/lessons.d/); the TOML registries under .github/ must stay
+# out, because the union keeps a repeated `[[table]]` header once and fuses two entries into one.
+spec/CHANGELOG.md merge=union

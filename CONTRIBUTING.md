@@ -102,6 +102,10 @@ change. What it asks of every pull request:
   files. Two pull requests then never touch the same lines, so merging one no longer forces the
   others to rebase and revalidate. A pull-request check enforces this; the convention, the collector
   and what the check allows are documented in [`changelog.d/README.md`](changelog.d/README.md).
+- `spec/CHANGELOG.md` is the one shared log that takes entries directly; `.gitattributes` unions it,
+  so a local rebase keeps both sides' entries. GitHub may still show a conflict there until you
+  rebase locally, and a union can drop the blank line between two entries. See
+  [Shared append-only files](docs/DEVELOPMENT.md#shared-append-only-files).
 
 ## Code Style
 
