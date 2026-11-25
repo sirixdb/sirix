@@ -1008,8 +1008,8 @@ final class FormatRepairBoundaryTest {
         final byte[] revisionsBefore = Files.readAllBytes(file(resource, "revisions"));
         Databases.clearGlobalCaches();
         try (final var opened = Databases.openJsonDatabase(database)) {
-          final UnsupportedFormatVersionException refusal = assertThrows(UnsupportedFormatVersionException.class,
-              () -> opened.beginResourceSession("fixture"));
+          final UnsupportedFormatVersionException refusal =
+              assertThrows(UnsupportedFormatVersionException.class, () -> opened.beginResourceSession("fixture"));
           assertTrue(messageChain(refusal).contains("unsupported format version 1"), messageChain(refusal));
         }
         try (final FileChannel data = FileChannel.open(file(resource, "data"), StandardOpenOption.READ);
