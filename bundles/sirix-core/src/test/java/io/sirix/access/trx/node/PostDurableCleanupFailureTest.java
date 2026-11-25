@@ -254,7 +254,9 @@ final class PostDurableCleanupFailureTest {
       final JsonNodeTrx writer = session.beginNodeTrx();
       writer.insertArrayAsFirstChild();
       final FaultInjectingWriter injector = FaultInjectingStorage.lastWriter();
-      final Point point = failure.equals("close-before") ? Point.BEFORE_CLOSE : Point.AFTER_CLOSE;
+      final Point point = failure.equals("close-before")
+          ? Point.BEFORE_CLOSE
+          : Point.AFTER_CLOSE;
       if (failure.equals("open")) {
         FaultInjectingStorage.failNextWriterCreation();
       } else {
@@ -277,7 +279,9 @@ final class PostDurableCleanupFailureTest {
   @ParameterizedTest
   @ValueSource(strings = {"after-publication", "before-diff-publication"})
   void synchronousPublicationFailurePreservesDurableSuccess(final String failingStage) {
-    final int expectedRevision = failingStage.equals("before-diff-publication") ? 2 : 1;
+    final int expectedRevision = failingStage.equals("before-diff-publication")
+        ? 2
+        : 1;
     final Path databasePath = createDatabase(true);
     final AtomicBoolean fired = new AtomicBoolean();
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
@@ -333,7 +337,9 @@ final class PostDurableCleanupFailureTest {
   @ValueSource(strings = {"after-publication", "before-pending-root-cleanup", "before-catalogue-acknowledgement",
       "before-diff-publication", "spill", "close-before", "close-after"})
   void asynchronousPostDurableFailureIsNotReportedAsHardeningFailure(final String failingStage) {
-    final int expectedRevision = failingStage.equals("before-diff-publication") ? 2 : 1;
+    final int expectedRevision = failingStage.equals("before-diff-publication")
+        ? 2
+        : 1;
     final Path databasePath = createDatabase(failingStage.equals("before-diff-publication"));
     final AtomicBoolean fired = new AtomicBoolean();
     final CountDownLatch release = new CountDownLatch(1);
@@ -386,10 +392,9 @@ final class PostDurableCleanupFailureTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"KEEP_OPEN,spill,true", "KEEP_OPEN,spill,false",
-      "KEEP_OPEN,marker,true", "KEEP_OPEN,marker,false", "KEEP_OPEN,debug,true", "KEEP_OPEN,debug,false",
-      "KEEP_OPEN_ASYNC_COMMIT,spill,true", "KEEP_OPEN_ASYNC_COMMIT,spill,false",
-      "KEEP_OPEN_ASYNC_COMMIT,marker,true", "KEEP_OPEN_ASYNC_COMMIT,marker,false",
+  @CsvSource({"KEEP_OPEN,spill,true", "KEEP_OPEN,spill,false", "KEEP_OPEN,marker,true", "KEEP_OPEN,marker,false",
+      "KEEP_OPEN,debug,true", "KEEP_OPEN,debug,false", "KEEP_OPEN_ASYNC_COMMIT,spill,true",
+      "KEEP_OPEN_ASYNC_COMMIT,spill,false", "KEEP_OPEN_ASYNC_COMMIT,marker,true", "KEEP_OPEN_ASYNC_COMMIT,marker,false",
       "KEEP_OPEN_ASYNC_COMMIT,debug,true", "KEEP_OPEN_ASYNC_COMMIT,debug,false"})
   void postBeaconReportingFailurePreservesDurableSuccess(final AfterCommitState mode, final String site,
       final boolean outOfMemory) throws IOException {
@@ -398,7 +403,9 @@ final class PostDurableCleanupFailureTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       final boolean asynchronous = mode == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT;
-      final JsonNodeTrx writer = asynchronous ? session.beginNodeTrx(1, mode) : session.beginNodeTrx();
+      final JsonNodeTrx writer = asynchronous
+          ? session.beginNodeTrx(1, mode)
+          : session.beginNodeTrx();
       writer.insertArrayAsFirstChild();
       final StorageEngineWriter predecessor = writer.getStorageEngineWriter();
       final Logger storageLogger = (Logger) LoggerFactory.getLogger(predecessor.getClass());
@@ -426,7 +433,9 @@ final class PostDurableCleanupFailureTest {
       };
       filter.start();
       loggerContext.addTurboFilter(filter);
-      storageLogger.setLevel(site.equals("debug") ? Level.DEBUG : Level.ERROR);
+      storageLogger.setLevel(site.equals("debug")
+          ? Level.DEBUG
+          : Level.ERROR);
       try {
         final FaultInjectingWriter injector = FaultInjectingStorage.lastWriter();
         final Path marker = ((InternalResourceSession<?, ?>) session).getCommitFile();
@@ -497,8 +506,9 @@ final class PostDurableCleanupFailureTest {
       writer.insertArrayAsFirstChild();
       writer.insertStringValueAsFirstChild("next");
       writer.commit();
-      assertEquals(mode == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH ? 1 : 2,
-          session.getMostRecentRevisionNumber());
+      assertEquals(mode == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+          ? 1
+          : 2, session.getMostRecentRevisionNumber());
       writer.moveToDocumentRoot();
       writer.moveToFirstChild();
       assertEquals(1, writer.getChildCount());
@@ -545,8 +555,10 @@ final class PostDurableCleanupFailureTest {
     final Path databasePath = workRoot.resolve("db");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(
-          ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).storeDiffs(storeDiffs).build());
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .storeDiffs(storeDiffs)
+                                                   .build());
     }
     return databasePath;
   }
