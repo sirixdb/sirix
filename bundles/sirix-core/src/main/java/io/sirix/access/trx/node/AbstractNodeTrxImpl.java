@@ -732,6 +732,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       } catch (final RuntimeException | Error cleanupFailure) {
         failure = ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
       }
+      if (durable && failure != null) {
+        completeCommitAfterPostDurableCleanupFailure(pendingUberPage.getRevisionNumber(), failure);
+        return;
+      }
       ShardedPageCache.rethrowCleanupFailure(failure);
     } catch (final RuntimeException | Error failure) {
       if (durable) {

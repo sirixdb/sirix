@@ -10,6 +10,10 @@
   durable revision with an irreversible terminal condition instead of rethrowing into the pre-durability
   classification. Publication, sidecar publication, successor rebinding and retirement failures follow
   the same rule; speculative successor edits remain uncommitted and are discarded only by internal abort.
+  Post-beacon diagnostics are best-effort: marker errors are retained without wrappers, cleanup keeps
+  the first failure without suppressed-exception allocation, and debug/error logging cannot change
+  known success. Async orchestration consumes recorded durable causes directly, including checked
+  marker errors. Reporting-failure cases cover runtime exceptions and out-of-memory errors in both modes.
   Lifecycle and rotation regression tests extend the mapped evidence; the requirement moves to `partial` with an executed conformance case. The
   [TXN-305](TXN-transactions-durability.md#txn-305--known-pre-commit-point-failure) note loses the
   half of its gap that TXN-307 now owns and records a measured one in its place: after a storage

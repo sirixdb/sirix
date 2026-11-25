@@ -63,3 +63,30 @@ implements TXN-307 without adding a public API.
 Review-round result: the focused command passed all 179 selected cases (30 durability, 147
 abort-lifecycle, one async ordering and one async sidecar case). Gradle's required isolated
 startup/storage prerequisites also passed. No whole-repository test or lint suite was run.
+
+A further review identified reporting as another escape from storage hardening: an error logger,
+the marker-error wrapper allocation, repair-error logging or the phase-two debug logger could
+throw after the beacon returned. The synchronous caller would restore running/dirty accounting;
+the async caller would never reach its durable flag. Marker errors now keep their original exception,
+post-beacon catches keep only the first cause by reference, repair precedes guarded error logging,
+and the redundant secondary repair log is removed. Debug reporting has the same non-throwing boundary.
+
+`postBeaconReportingFailurePreservesDurableSuccess` uses the real logger's filter boundary to throw
+preallocated runtime or out-of-memory failures during cleanup-error, marker-deletion and phase-two
+debug reporting, synchronously and asynchronously. Its independent oracle is TXN-307: the injection
+must fire, the committed revision must be published, further lifecycle work must be rejected, repair
+responsibility must remain, and reopening must recover exactly the committed empty array. These new
+cases have not been executed before the fix; no counterfactual execution is claimed.
+
+Focused execution exposed a related consumer assumption: async orchestration synthetically rethrew
+the recorded cleanup cause into an unchecked-only catch. Keeping the original marker IOException
+made that assumption visible. Known durable causes are now reported directly before retirement;
+the synthetic rethrow remains only for pre-point failures. The marker cases exercise this boundary
+in both commit modes, including the existing JSON/XML lifecycle regression.
+
+Reporting-round result: the focused command passed all 189 selected cases (42 durability and 147
+abort-lifecycle), including all 12 reporting-failure cases. Its initial run reproduced the checked-cause
+escape in the two new async marker cases and both existing JSON/XML marker-deletion cases; those
+same four cases passed after the direct-consumption correction. Gradle's required startup/storage
+prerequisites also passed. The reporting guards themselves were not tested counterfactually against
+the preceding commit, and mutation evidence remains with the outer pipeline.

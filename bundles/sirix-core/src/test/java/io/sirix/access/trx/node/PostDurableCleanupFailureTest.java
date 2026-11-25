@@ -6,7 +6,13 @@ package io.sirix.access.trx.node;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.turbo.TurboFilter;
+import ch.qos.logback.core.spi.FilterReply;
 import io.sirix.api.Database;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixUsageException;
@@ -24,6 +30,9 @@ import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.slf4j.LoggerFactory;
+import org.slf4j.Marker;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -37,6 +46,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -373,6 +383,108 @@ final class PostDurableCleanupFailureTest {
       release.countDown();
     }
     assertReopenedArray(databasePath, expectedRevision);
+  }
+
+  @ParameterizedTest
+  @CsvSource({"KEEP_OPEN,spill,true", "KEEP_OPEN,spill,false",
+      "KEEP_OPEN,marker,true", "KEEP_OPEN,marker,false", "KEEP_OPEN,debug,true", "KEEP_OPEN,debug,false",
+      "KEEP_OPEN_ASYNC_COMMIT,spill,true", "KEEP_OPEN_ASYNC_COMMIT,spill,false",
+      "KEEP_OPEN_ASYNC_COMMIT,marker,true", "KEEP_OPEN_ASYNC_COMMIT,marker,false",
+      "KEEP_OPEN_ASYNC_COMMIT,debug,true", "KEEP_OPEN_ASYNC_COMMIT,debug,false"})
+  void postBeaconReportingFailurePreservesDurableSuccess(final AfterCommitState mode, final String site,
+      final boolean outOfMemory) throws IOException {
+    final Path databasePath = createDatabase();
+    final CountDownLatch release = new CountDownLatch(1);
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      final boolean asynchronous = mode == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT;
+      final JsonNodeTrx writer = asynchronous ? session.beginNodeTrx(1, mode) : session.beginNodeTrx();
+      writer.insertArrayAsFirstChild();
+      final StorageEngineWriter predecessor = writer.getStorageEngineWriter();
+      final Logger storageLogger = (Logger) LoggerFactory.getLogger(predecessor.getClass());
+      final LoggerContext loggerContext = storageLogger.getLoggerContext();
+      final Level originalLevel = storageLogger.getLevel();
+      final AtomicBoolean reportingFired = new AtomicBoolean();
+      final Throwable diagnosticFailure = outOfMemory
+          ? new OutOfMemoryError("post-beacon diagnostic failure")
+          : new IllegalStateException("post-beacon diagnostic failure");
+      final TurboFilter filter = new TurboFilter() {
+        @Override
+        public FilterReply decide(final Marker marker, final Logger logger, final Level level, final String format,
+            final Object[] arguments, final Throwable cause) {
+          final boolean target = site.equals("debug")
+              ? Level.DEBUG.equals(level) && format != null && format.startsWith("Commit phase 2 r")
+              : Level.ERROR.equals(level);
+          if (storageLogger.equals(logger) && target && reportingFired.compareAndSet(false, true)) {
+            if (diagnosticFailure instanceof Error error) {
+              throw error;
+            }
+            throw (RuntimeException) diagnosticFailure;
+          }
+          return FilterReply.NEUTRAL;
+        }
+      };
+      filter.start();
+      loggerContext.addTurboFilter(filter);
+      storageLogger.setLevel(site.equals("debug") ? Level.DEBUG : Level.ERROR);
+      try {
+        final FaultInjectingWriter injector = FaultInjectingStorage.lastWriter();
+        final Path marker = ((InternalResourceSession<?, ?>) session).getCommitFile();
+        if (site.equals("spill")) {
+          injector.injectAt(Point.BEFORE_DISCARD_SPILLED_WRITES, 1);
+        }
+        if (asynchronous) {
+          AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+            if (stage.equals("before-harden")) {
+              await(release);
+            }
+          };
+          writer.insertStringValueAsFirstChild("speculative");
+        }
+        try {
+          if (site.equals("marker")) {
+            Files.deleteIfExists(marker);
+            Files.createDirectory(marker);
+            Files.createFile(marker.resolve("blocker"));
+          }
+        } finally {
+          release.countDown();
+        }
+        if (asynchronous) {
+          assertDoesNotThrow(writer::awaitPendingAsyncCommit);
+        } else {
+          assertSame(writer, writer.commit());
+        }
+        assertTrue(reportingFired.get(), "the post-beacon reporting failure must actually fire");
+        if (site.equals("spill")) {
+          assertFalse(injector.isArmedFor(Point.BEFORE_DISCARD_SPILLED_WRITES));
+          assertInstanceOf(SimulatedCrashException.class, predecessor.postCommitCleanupFailure());
+        } else if (site.equals("marker")) {
+          assertInstanceOf(IOException.class, predecessor.postCommitCleanupFailure());
+        } else {
+          assertSame(diagnosticFailure, predecessor.postCommitCleanupFailure());
+        }
+        assertEquals(1, session.getMostRecentRevisionNumber());
+        assertTerminal(writer);
+        assertTrue(Files.exists(marker), "the known durable failure must retain repair responsibility");
+        if (site.equals("marker")) {
+          Files.delete(marker.resolve("blocker"));
+          Files.delete(marker);
+        }
+        if (asynchronous) {
+          assertThrows(SirixUsageException.class, writer::close);
+          assertDoesNotThrow(((InternalNodeTrx<?>) writer)::abort);
+        } else {
+          assertDoesNotThrow(writer::close);
+        }
+      } finally {
+        release.countDown();
+        loggerContext.getTurboFilterList().remove(filter);
+        filter.stop();
+        storageLogger.setLevel(originalLevel);
+      }
+    }
+    assertReopenedArray(databasePath);
   }
 
   @ParameterizedTest

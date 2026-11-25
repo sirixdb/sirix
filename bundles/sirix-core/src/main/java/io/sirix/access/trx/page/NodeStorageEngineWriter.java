@@ -4555,17 +4555,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       try {
         clearRecordSnapshot();
       } catch (final RuntimeException | Error failure) {
-        cleanupFailure = retainFirstFailure(cleanupFailure, failure);
+        if (cleanupFailure == null) {
+          cleanupFailure = failure;
+        }
       }
       try {
         storagePageReaderWriter.discardSpilledWrites();
       } catch (final RuntimeException | Error failure) {
-        cleanupFailure = retainFirstFailure(cleanupFailure, failure);
+        if (cleanupFailure == null) {
+          cleanupFailure = failure;
+        }
       }
       try {
         closeDurableReadPages();
       } catch (final RuntimeException | Error failure) {
-        cleanupFailure = retainFirstFailure(cleanupFailure, failure);
+        if (cleanupFailure == null) {
+          cleanupFailure = failure;
+        }
       }
 
       final long t4 = timing
@@ -4578,7 +4584,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       try {
         storageEngineReader.closeCurrentPageGuard();
       } catch (final RuntimeException | Error failure) {
-        cleanupFailure = retainFirstFailure(cleanupFailure, failure);
+        if (cleanupFailure == null) {
+          cleanupFailure = failure;
+        }
       }
 
       // Clear TransactionIntentLog - closes all modified pages. clear() drains the WHOLE log
@@ -4593,7 +4601,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           clearLocalContainerCaches();
         }
       } catch (final RuntimeException | Error failure) {
-        cleanupFailure = retainFirstFailure(cleanupFailure, failure);
+        if (cleanupFailure == null) {
+          cleanupFailure = failure;
+        }
       }
 
       final long t5 = timing
@@ -4603,20 +4613,25 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
         deleteIfExists(commitFile);
-      } catch (final IOException e) {
-        cleanupFailure = retainFirstFailure(cleanupFailure,
-            new SirixIOException("Commit file could not be deleted: " + commitFile, e));
-      } catch (final RuntimeException | Error failure) {
-        cleanupFailure = retainFirstFailure(cleanupFailure, failure);
+      } catch (final IOException | RuntimeException | Error failure) {
+        if (cleanupFailure == null) {
+          cleanupFailure = failure;
+        }
+      }
+
+      if (timing) {
+        try {
+          LOGGER.debug("Commit phase 2 r{}: indexDefs={}ms uberWrite={}ms tilClear={}ms total={}ms", revision,
+              ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t2));
+        } catch (final RuntimeException | Error failure) {
+          if (cleanupFailure == null) {
+            cleanupFailure = failure;
+          }
+        }
       }
 
       if (cleanupFailure != null) {
         recordPostDurableCleanupFailure(revision, cleanupFailure);
-      }
-
-      if (timing) {
-        LOGGER.debug("Commit phase 2 r{}: indexDefs={}ms uberWrite={}ms tilClear={}ms total={}ms", revision,
-            ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t2));
       }
     }
   }
@@ -5249,14 +5264,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @SuppressWarnings("java:S1181")
   private void recordPostDurableCleanupFailure(final int revision, final Throwable failure) {
     postCommitCleanupFailure = failure;
-    LOGGER.error("Revision {} is durably committed, but cleanup after the commit point failed. The commit stands, "
-        + "the writer is terminal and the resource is flagged for repair.", revision, failure);
     try {
       storageEngineReader.resourceSession.requireCommitRecovery();
-    } catch (final RuntimeException | Error markerFailure) {
-      retainFirstFailure(failure, markerFailure);
-      LOGGER.error("Cannot flag the resource for repair after revision {} committed with a cleanup failure.", revision,
-          markerFailure);
+    } catch (final RuntimeException | Error ignored) {
+    }
+    try {
+      LOGGER.error("Revision {} is durably committed, but cleanup after the commit point failed. The commit stands, "
+          + "the writer is terminal and the resource is flagged for repair.", revision, failure);
+    } catch (final RuntimeException | Error ignored) {
     }
   }
 
