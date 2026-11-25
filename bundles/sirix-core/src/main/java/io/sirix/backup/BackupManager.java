@@ -582,7 +582,7 @@ public final class BackupManager {
             }
           });
       storeReference.set(store);
-      try (final BufferManagerImpl buffers = new BufferManagerImpl(1 << 20, 1 << 20, 1 << 20, 16, 16, 16);
+      try (final BufferManagerImpl buffers = BufferManagerImpl.forVerification();
           final var notifications = store.getNotifications(); store) {
         final JsonResourceSession session = store.beginResourceSession(config, buffers, derivedPath);
         final int mostRecentRevision = session.getMostRecentRevisionNumber();

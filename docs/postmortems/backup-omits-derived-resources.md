@@ -59,3 +59,27 @@
   allocation, storage-epoch and disabled-cache test tasks excluded.
 - Vision check: preserves durable historical derived state and refuses unverifiable copies, matching
   “History is the data model” and “A fast answer is the same answer”; introduces no new default.
+
+## Verification cache pressure ownership
+
+- Symptom: an online backup or restore leaves allocator pressure evicting closed verification
+  caches instead of the live manager's caches, risking allocation stalls or exhaustion.
+- Trigger: verify a copied derived resource while another buffer manager owns the process-wide
+  allocator pressure handler, then request pressure eviction after the verifier closes.
+- Root cause: `BufferManagerImpl` construction combined private cache creation with implicit global
+  handler registration. The short-lived verifier needed the caches but did not own that registration.
+- Fix: the verification factory constructs isolated caches without registering a pressure handler;
+  the shared backup/restore verifier uses that factory. Ordinary constructors retain their existing
+  registration behavior, and verification never swaps or restores global handlers.
+- Why tests missed it: backup tests checked copied bytes and corruption refusals, but never exercised
+  the live cache's pressure eviction after verification or while its temporary caches remained open.
+- Regression: `BackupPressureHandlerTest` checks real live metadata cache eviction through the
+  installed pressure callback after backup, successful restore and failed restore, plus while
+  verification caches remain open and after they close. Its independent oracle is TXN-613's live
+  cache ownership invariant; the wrong handler leaves the live page cached. No timing bound is used.
+  Focused execution passed all 4 cases plus the existing 8 `BackupDerivedResourceTest` cases in
+  `:sirix-core:test`, with only those two classes selected and attached startup, allocation,
+  storage-epoch and disabled-cache tasks excluded. Counterfactual and mutation runs belong to the
+  outer verification phases.
+- Vision check: preserves the existing allocation-pressure path and private verification caches,
+  supporting “Speed is part of correctness” without changing live-manager defaults.

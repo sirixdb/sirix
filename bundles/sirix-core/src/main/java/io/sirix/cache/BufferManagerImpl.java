@@ -274,6 +274,17 @@ public final class BufferManagerImpl implements BufferManager {
   public BufferManagerImpl(final long maxPageCacheWeight, final long maxRecordPageCacheWeight,
       final long maxRecordPageFragmentCacheWeight, final int maxRevisionRootPageCache, final int maxNamesCacheSize,
       final int maxPathSummaryCacheSize, final HeapCacheBudget heapBudget) {
+    this(maxPageCacheWeight, maxRecordPageCacheWeight, maxRecordPageFragmentCacheWeight, maxRevisionRootPageCache,
+        maxNamesCacheSize, maxPathSummaryCacheSize, heapBudget, true);
+  }
+
+  public static BufferManagerImpl forVerification() {
+    return new BufferManagerImpl(1 << 20, 1 << 20, 1 << 20, 16, 16, 16, HeapCacheBudget.global(), false);
+  }
+
+  private BufferManagerImpl(final long maxPageCacheWeight, final long maxRecordPageCacheWeight,
+      final long maxRecordPageFragmentCacheWeight, final int maxRevisionRootPageCache, final int maxNamesCacheSize,
+      final int maxPathSummaryCacheSize, final HeapCacheBudget heapBudget, final boolean registerPressureListener) {
     // Use simplified ShardedPageCache (single HashMap) for KeyValueLeafPage caches
     // ShardedPageCache uses long for maxWeightBytes - supports > 2GB caches
     recordPageCache = new ShardedPageCache<>(maxRecordPageCacheWeight);
@@ -357,7 +368,9 @@ public final class BufferManagerImpl implements BufferManager {
       projectionBlobCache.clear();
       pageCache.clear();
     };
-    FrameSlotAllocator.setPressureListener(pressureListener);
+    if (registerPressureListener) {
+      FrameSlotAllocator.setPressureListener(pressureListener);
+    }
 
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     final String configuredHotLookupEntries = System.getProperty(HOT_LOOKUP_CACHE_ENTRIES_PROPERTY);
