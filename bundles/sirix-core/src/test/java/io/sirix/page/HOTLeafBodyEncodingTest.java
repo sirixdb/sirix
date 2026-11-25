@@ -858,7 +858,10 @@ final class HOTLeafBodyEncodingTest {
     }
   }
 
-  /** The body-mode flag needs the narrow directory: every reader refuses it alone, with or without entries. */
+  /**
+   * The body-mode flag needs the narrow directory: every reader refuses it alone, with or without
+   * entries.
+   */
   @Test
   void bodyModeWithoutTheNarrowDirectoryIsRefusedByEveryReader() {
     final byte[] entries = NARROW_LENGTHS.clone();
@@ -877,9 +880,9 @@ final class HOTLeafBodyEncodingTest {
   }
 
   /**
-   * A packed leaf finds every key it holds, including a key that equals its whole 8-byte common prefix
-   * (an empty key tail) among longer keys. Above the routing index's 32 entries every lookup is a
-   * binary search over the packed body.
+   * A packed leaf finds every key it holds, including a key that equals its whole 8-byte common
+   * prefix (an empty key tail) among longer keys. Above the routing index's 32 entries every lookup
+   * is a binary search over the packed body.
    */
   @Test
   void packedLeafFindsTheKeyThatEqualsItsEightBytePrefix() throws Exception {
@@ -915,9 +918,10 @@ final class HOTLeafBodyEncodingTest {
   }
 
   /**
-   * A key tail is the group prefix and the suffix together. In a leaf with group prefixes, a one-byte key
-   * that equals some entry's one-byte suffix is not that entry's key; selection on heap and native frames
-   * and through an uncached image must report it absent and still find every stored key.
+   * A key tail is the group prefix and the suffix together. In a leaf with group prefixes, a one-byte
+   * key that equals some entry's one-byte suffix is not that entry's key; selection on heap and
+   * native frames and through an uncached image must report it absent and still find every stored
+   * key.
    */
   @Test
   void oneByteProbeDoesNotMatchASuffixBehindAGroupPrefix() throws Exception {
@@ -930,14 +934,16 @@ final class HOTLeafBodyEncodingTest {
       final byte[] encoded = write(FULL, leaf, false);
       assertTrue((encoded[3] & HOTLeafBody.GROUP_PREFIXES) != 0, "the body groups key prefixes");
       try (Arena arena = Arena.ofConfined()) {
-        final BytesIn<?>[] sources =
-            {new ByteArrayBytesIn(encoded), new MemorySegmentBytesIn(arena.allocateFrom(ValueLayout.JAVA_BYTE, encoded))};
+        final BytesIn<?>[] sources = {new ByteArrayBytesIn(encoded),
+            new MemorySegmentBytesIn(arena.allocateFrom(ValueLayout.JAVA_BYTE, encoded))};
         for (final BytesIn<?> source : sources) {
           for (int i = 0; i < keys.length; i++) {
             source.position(1);
-            assertArrayEquals(new byte[] {(byte) i, 9}, PageKind.deserializeHOTProjectionEntry(source, keys[i], 0).value());
+            assertArrayEquals(new byte[] {(byte) i, 9},
+                PageKind.deserializeHOTProjectionEntry(source, keys[i], 0).value());
             source.position(1);
-            assertNull(PageKind.deserializeHOTProjectionEntry(source, new byte[] {keys[i][6]}, 0), "one-byte probe " + i);
+            assertNull(PageKind.deserializeHOTProjectionEntry(source, new byte[] {keys[i][6]}, 0),
+                "one-byte probe " + i);
           }
         }
       }
@@ -977,9 +983,9 @@ final class HOTLeafBodyEncodingTest {
         () -> HOTLeafBody.selectBorrowed(new ByteArrayBytesIn(twoByteShare), 7, 2, 10, new byte[] {9}, 0, true));
 
     // Entry 2 shares entry 4's value, a later entry, whose directory offset aliases slot 0.
-    final byte[] laterOwner =
-        HexFormat.of().parseHex("000007000e00130000000700" + "04" + "01050401020304" + "0107040a0b0c0d" + "0109040800"
-            + "010b0133");
+    final byte[] laterOwner = HexFormat.of()
+                                       .parseHex("000007000e00130000000700" + "04" + "01050401020304" + "0107040a0b0c0d"
+                                           + "0109040800" + "010b0133");
     assertThrows(IllegalStateException.class,
         () -> HOTLeafBody.selectBorrowed(new ByteArrayBytesIn(laterOwner), 7, 6, 23, new byte[] {9}, 0, true));
 

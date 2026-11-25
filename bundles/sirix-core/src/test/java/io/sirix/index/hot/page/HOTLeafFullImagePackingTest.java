@@ -189,8 +189,9 @@ final class HOTLeafFullImagePackingTest {
       for (int i = 0; i < stored.length; i++) {
         probes[i] = Arrays.copyOf(stored[i], Long.BYTES);
       }
-      assertLookupWork(Arrays.stream(stored).map(key -> Arrays.copyOfRange(key, prefix, key.length))
-                             .toArray(byte[][]::new), probes, prefix);
+      assertLookupWork(
+          Arrays.stream(stored).map(key -> Arrays.copyOfRange(key, prefix, key.length)).toArray(byte[][]::new), probes,
+          prefix);
     }
   }
 
@@ -257,8 +258,8 @@ final class HOTLeafFullImagePackingTest {
   }
 
   private static void assertLookupWork(final byte[][] suffixes, final byte[][] keys, final int prefix) {
-    final HOTLeafBody body = HOTLeafBody.read(new ByteArrayBytesIn(frame(suffixes)), MODE, suffixes.length,
-        used(suffixes));
+    final HOTLeafBody body =
+        HOTLeafBody.read(new ByteArrayBytesIn(frame(suffixes)), MODE, suffixes.length, used(suffixes));
     body.validate(prefix, IndexType.PROJECTION);
     for (final byte[] key : keys) {
       for (final byte[] probe : new byte[][] {key, successor(key)}) {

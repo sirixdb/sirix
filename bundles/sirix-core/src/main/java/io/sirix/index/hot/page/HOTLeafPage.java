@@ -1251,7 +1251,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     return -(low + 1);
   }
 
-  /** {@link #compareSuffixWithKey} for a packed body: key tail against the key's bytes after the prefix. */
+  /**
+   * {@link #compareSuffixWithKey} for a packed body: key tail against the key's bytes after the
+   * prefix.
+   */
   private int packedCompareSuffixWithKey(final int index, final byte[] key, final int keyLen) {
     final int tailLength = packedBody.keyTailLength(index);
     final int probeLength = keyLen - commonPrefixLen;

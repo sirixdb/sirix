@@ -43,8 +43,9 @@ final class HOTLeafRefusalAllocationTest {
     final ResourceConfiguration config =
         new ResourceConfiguration.Builder("hot-refusal").versioningApproach(VersioningType.FULL).build();
 
-    final long slotRegion = refusalBytes(config, truncatedSlotRegion(HOTLeafPage.MAX_ENTRIES, HOTLeafPage.DEFAULT_SIZE),
-        bean, thread) - refusalBytes(config, truncatedSlotRegion(1, 2 * Short.BYTES), bean, thread);
+    final long slotRegion =
+        refusalBytes(config, truncatedSlotRegion(HOTLeafPage.MAX_ENTRIES, HOTLeafPage.DEFAULT_SIZE), bean, thread)
+            - refusalBytes(config, truncatedSlotRegion(1, 2 * Short.BYTES), bean, thread);
     final long prefix = refusalBytes(config, truncatedPrefix(0xFFFF), bean, thread)
         - refusalBytes(config, truncatedPrefix(1), bean, thread);
     System.out.printf("refusalAllocation slotRegion=%d prefix=%d bytes per refusal%n", slotRegion, prefix);
@@ -70,8 +71,13 @@ final class HOTLeafRefusalAllocationTest {
   /** Kind, version, flags, page key 7, revision 3, projection index and the prefix length. */
   private static ByteBuffer frameHeader(final byte flags, final int prefixLength, final int bodyBytes) {
     final ByteBuffer frame = ByteBuffer.allocate(11 + bodyBytes).order(ByteOrder.LITTLE_ENDIAN);
-    frame.put(PageKind.HOT_LEAF_PAGE.getID()).put((byte) 0).put(flags).put((byte) 7).putInt(3)
-         .put(IndexType.PROJECTION.getID()).putShort((short) prefixLength);
+    frame.put(PageKind.HOT_LEAF_PAGE.getID())
+         .put((byte) 0)
+         .put(flags)
+         .put((byte) 7)
+         .putInt(3)
+         .put(IndexType.PROJECTION.getID())
+         .putShort((short) prefixLength);
     return frame;
   }
 
