@@ -337,3 +337,109 @@ description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpre
 kind = "equivalent"
 checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
 justification = "REST-210 / Vert.x Route handler contract: database-only JSON PUT receives a non-null RoutingContext. The coroutineHandler bridge has already called ctx.vertx() on this same immutable captured reference before invoking the route lambda. A null callback argument cannot reach this generated assertion even through the bridge. Removing it preserves all request handling and errors and changes no allocation, IO or traversal. The real-router HTTP tests execute the corresponding named and database-only routes."
+
+# FMT-305: six boundaries and shifts the level split, the NAME key bound and the frontier route
+# walk make unreachable or answer identically. Each argument was checked by applying the mutant to a
+# source copy and running the behaviour tests, not by reading the code alone.
+[[mutant]]
+class = "io.sirix.index.hot.HOTBulkBuilder"
+method = "assembleIndirect"
+descriptor = "([I[I[Lio/sirix/page/PageReference;IILio/sirix/index/IndexType;Ljava/util/function/LongSupplier;)Lio/sirix/index/hot/page/HOTIndirectPage;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.MathMutator"
+indexes = [21]
+description = "Replaced Unsigned Shift Right with Shift Left"
+kind = "equivalent"
+checked_at = "1cc911a0c28814ac59defcb5f847f5ef7d04338a"
+justification = """FMT-305's dispatch between one node and a nest. The mutant shifts the last
+discriminative bit left instead of right, so it can only judge a bit set that one node CAN name
+unnameable; a set that is genuinely unnameable stays unnameable, because shifting that bit left only
+raises it. For a nameable set assembleOverLevels reproduces the node the direct arm would have
+built: nameableLeadingBits returns the whole set, so every group holds one child, no nest node is
+drawn, and the same bits, partials, children and height reach assembleRoutableIndirect — heightOfChild
+answers each child's own height, or the caller's stated maximum for a reference that is not resident,
+and that maximum plus one is the height the direct arm is handed for any input meeting this method's
+contract (height == 1 + max child height). Result, persisted bytes, page keys drawn and work are
+unchanged. Measured: with the mutant applied, 70 tests of the routing, level-split, bulk-build and
+NAME families pass."""
+
+[[mutant]]
+class = "io.sirix.index.hot.AbstractHOTIndexWriter"
+method = "blockRoutesToPart"
+descriptor = "(Lio/sirix/index/hot/page/HOTIndirectPage;[BLio/sirix/page/PageReference;)Z"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [13]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "1cc911a0c28814ac59defcb5f847f5ef7d04338a"
+justification = """The loop bound is a cycle guard, not a decision. The walk takes one step per
+level of the block it was handed: it returns at the part's own reference and breaks at the first
+child that is not an indirect page, so it cannot take more steps than the block has levels — the
+level split builds at most a root over one nest node over the parts. MAX_PATH_DEPTH is 64, so one
+extra permitted step changes no answer for any block a frontier join can assemble, and a structure
+that really reached that depth would have been refused long before this question is asked."""
+
+[[mutant]]
+class = "io.sirix.index.hot.NameKeySerializer"
+method = "prefixOrWhole"
+descriptor = "(Ljava/lang/String;[BIJIZ)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [7]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "1cc911a0c28814ac59defcb5f847f5ef7d04338a"
+justification = """Both arms answer the same at the boundary. When the stored width equals the
+budget exactly, prefixWithinBudget walks the same value with the same budget and breaks only when the
+next character's stored width would exceed it, so it returns the whole length — the value the fast
+arm returns directly. The comparison exists for cost, not for a different answer: a name inside the
+bound pays one comparison instead of a character walk, which is the cost FMT-305 promises and the
+re-check work budget pins. The mutant only moves an exactly-fitting component from the comparison to
+the walk; stored bytes, truncation marker and returned length are identical."""
+
+[[mutant]]
+class = "io.sirix.index.hot.NameKeySerializer"
+method = "prefixWithinBudget"
+descriptor = "(Ljava/lang/String;[BIIZ)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [14]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "1cc911a0c28814ac59defcb5f847f5ef7d04338a"
+justification = """The boundary is unreachable from the only call site. prefixOrWhole calls this
+method only for a component whose stored width exceeds the budget, so the walk always breaks on a
+character before `prefix` reaches `length`; the loop bound is this method's own guard for a budget
+that fits everything, which no caller asks for. For every input the caller admits, the mutated bound
+is never tested, so the prefix returned, the stored bytes and the cost are unchanged."""
+
+[[mutant]]
+class = "io.sirix.index.hot.NameKeySerializer"
+method = "serialize"
+descriptor = "(Lio/brackit/query/atomic/QNm;[BI)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.MathMutator"
+indexes = [311]
+description = "Replaced integer addition with subtraction"
+kind = "equivalent"
+checked_at = "1cc911a0c28814ac59defcb5f847f5ef7d04338a"
+justification = """The range check in front of the escape rewrite only decides which
+IndexOutOfBoundsException an undersized destination buffer raises. The rewrite stores from
+`pos + uriZeros - 1` downwards, so for every buffer the weakened check lets through, the first store
+is already past the array and throws ArrayIndexOutOfBoundsException — an IndexOutOfBoundsException
+too — before any byte of the shifted region is written; for every buffer large enough to hold the
+escaped URI, both forms pass. The serializer's own callers size their buffer from
+maxSerializedLength, which is at least the escaped length. No admitted input changes result, stored
+bytes, state or cost."""
+
+[[mutant]]
+class = "io.sirix.index.hot.NameKeySerializer"
+method = "utf8Width"
+descriptor = "(I)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [5]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "1cc911a0c28814ac59defcb5f847f5ef7d04338a"
+justification = """0x80 is the only argument whose answer the mutant changes, and it never arrives.
+This method is asked for the width of a UTF-8 LEAD byte: callers pass `encoded[prefix] & 0xFF` where
+prefix advances by whole character widths, `encoded[0] & 0xFF`, or a char of a string
+AsciiKeyBytes.isAsciiPrefix accepted, which is below 0x80. 0x80 is a continuation byte and cannot
+lead a character of well-formed UTF-8, which is what String.getBytes(UTF_8) produces. Every other
+byte takes the same branch under both forms."""
