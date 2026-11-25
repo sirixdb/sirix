@@ -848,17 +848,15 @@ public final class ResourceConfiguration {
       expectField(jsonReader, JSONNAMES[16], configFile);
       final boolean storeChildCount = jsonReader.nextBoolean();
 
-      // Optional settings are dispatched by name, so an omitted legacy field cannot desynchronize
-      // the reader. Unknown names are refused; only the extensions object is safe to skip.
+      // Tail fields use names so omissions cannot shift decoding; CONF-102 owns required members
+      // and read defaults. Unknown names are refused; only the extensions object is safe to skip.
       StringCompressionType stringCompressionType = StringCompressionType.NONE;
       int deweyIdSiblingDistance = 16;
       boolean verifyChecksumsOnRead = true;
       HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3;
       String name;
 
-      // Valid time configuration (optional for backward compatibility with older configs)
       ValidTimeConfig validTimeConfig = null;
-      // Path statistics flag (optional for backward compatibility with older configs)
       boolean pathStatistics = false;
       boolean repairBulkInsertHashes = false;
       UUID resourceUuid = null;
