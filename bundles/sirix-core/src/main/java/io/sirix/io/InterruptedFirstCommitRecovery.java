@@ -155,6 +155,10 @@ public final class InterruptedFirstCommitRecovery {
    * session opens, this cannot repair or rebuild the store being verified. The caller must close the
    * returned reader.
    */
+  // Ownership transfers to the returned reader: the nested finally blocks close each acquired
+  // channel until reader construction, then close the reader unless initialization completes.
+  // ToolReaderOwnershipTest checks real OS handles on every acquisition/initialization failure.
+  @SuppressWarnings("java:S2095")
   public static ReaderAndUberPage openReaderForTool(final ResourceConfiguration config) {
     // Keep disk-engine beacon, feature, superblock/UUID and revision-index checks with private
     // metadata.

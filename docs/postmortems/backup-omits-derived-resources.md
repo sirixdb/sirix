@@ -215,3 +215,56 @@ The full reports and failed-before/fixed-after logs are archived locally under
   counterfactual validation remain with the outer phases.
 - Vision check: cancellation releases the engine lifetimes it acquired and preserves the caller's
   cancellation signal without changing durable data or live read defaults.
+
+
+## CI cancellation-path follow-up
+
+The next hosted PIT run completed analysis, but cancellation coverage left the outer restoration's
+success and cleanup-error paths unobserved. It also showed that explicit writer rollback/close was
+redundant: the owning resource session already aborts and closes every transaction on teardown.
+Keeping two cleanup owners obscured which lifetime actually released the writer semaphore.
+
+TXN-613 already requires release of all backup-owned lifetimes and restoration of interruption even
+when cleanup fails. The missing cases now execute the public backup API with filesystem-boundary
+faults: an interrupted resource copy, failed target deletion (runtime exception or error), and an
+interrupt arriving after successful metadata publication. Their independent oracles are the caller's
+interrupt flag, the preserved copy error, a usable source and backup, writer admission, and actual
+OS database ownership after application handles close. These extend the original real-lifetime
+quiescence-cancellation test; no test examines implementation source or private state.
+
+The copier now lets its session own writer teardown, captures interruption before closing that
+session and the database, and restores the deferred flag through one shared outer-boundary helper.
+Keeping target cleanup and restoration in that helper also avoids javac duplicating a cleanup-error
+handler into the successful-return path, where cleanup is skipped and that handler is unreachable.
+The final restoration does not need to clear an interrupt already left by target cleanup: leaving
+that flag set already preserves it. The failure sequence therefore releases the derived history
+lock, aborts/closes the session-owned writer, closes the database, attempts target cleanup, and only
+then restores the deferred signal. Normal successful copying uses those same session/database
+lifetimes and keeps the copied revisions unchanged.
+
+Both Sonar reliability reports are analyzer limitations at deliberate ownership boundaries, rather
+than leaks or swallowed interruption. S2142 cannot follow the deferred flag to the outer backup
+boundary; immediately re-interrupting the catch would reinstate the reviewed cleanup bug. S2095
+cannot follow conditional channel transfer into the returned reader. Narrow method-level
+suppressions explain these contracts. The existing real-handle tool-reader tests cover each failed
+acquisition, handler initialization, revision validation and successful caller-owned close; the
+same tool open serves both backup and restore verification. Other Sonar rules remain enabled.
+
+Vision check: this removes duplicate cleanup while preserving immutable source history and copied
+derived data; it changes no engine default or query/read hot path.
+
+
+Local verification of this follow-up passed 34 focused tests across `BackupDerivedResourceTest`,
+`BackupRestoreTest`, `BackupManagerInMemoryResourcesTest`, `ToolReaderOwnershipTest` and
+`BackupPressureHandlerTest`. The final complete changed-source PIT reports detected all 113 core
+mutants (109 killed, two timed out, two runtime errors) and accepted the CLI's four existing
+per-mutant equivalence records beside five killed mutants. Neither module has an uncovered or
+undispositioned surviving mutant. Test associations are valid.
+
+The full local runner initially returned failure only because the global disposition checker
+could not find the unrelated REST classes in this worktree. After `:sirix-rest-api:classes` built
+those inputs, `pr_mutation.py dispositions --check` passed against both saved complete reports and
+censuses, with the original PR base; no registry entry was changed. Java formatting and
+`git diff --check` passed. Evidence is under `build/ci-pr1499-followup/`, including the raw runner
+result and the final successful disposition check. Authenticated SonarCloud reanalysis is left to
+the outer executor; no local Sonar credential was available, and no hosted rerun is claimed.

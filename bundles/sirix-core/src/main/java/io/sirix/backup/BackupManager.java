@@ -61,8 +61,8 @@ import static java.util.Objects.requireNonNull;
  * There is no public "lock only" hook on {@link ResourceSession}, so this class acquires the
  * semaphore the supported way: it opens a read-write transaction via
  * {@link ResourceSession#beginNodeTrx()}, performs <em>no</em> modifications, holds the transaction
- * open while that resource's files are copied, and afterwards calls {@link NodeTrx#rollback()} +
- * {@link NodeTrx#close()}. Rolling back an empty transaction is purely in-memory (it clears the
+ * open while that resource's files are copied, and afterwards closes the owning session, which
+ * aborts and closes its transaction. Rolling back an empty transaction is purely in-memory (it clears the
  * transaction-intent log; verified against {@code NodeStorageEngineWriter#rollback}) — it never
  * writes to the resource files.
  *
@@ -270,16 +270,20 @@ public final class BackupManager {
       success = true;
       return new BackupSummary(source, target, resourceSummaries, derivedSummaries, totalBytes, notBackedUp);
     } finally {
-      interrupted[0] |= Thread.interrupted();
-      try {
-        if (!success) {
-          cleanupTarget(target, targetExisted);
-        }
-      } finally {
-        interrupted[0] |= Thread.interrupted();
-        if (interrupted[0]) {
-          Thread.currentThread().interrupt();
-        }
+      finishBackup(target, targetExisted, success, interrupted[0]);
+    }
+  }
+
+  private static void finishBackup(final Path target, final boolean targetExisted, final boolean success,
+      final boolean deferredInterruption) {
+    final boolean interrupted = Thread.interrupted() | deferredInterruption;
+    try {
+      if (!success) {
+        cleanupTarget(target, targetExisted);
+      }
+    } finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
       }
     }
   }
@@ -332,39 +336,26 @@ public final class BackupManager {
         // Acquire the resource's JVM-global writer semaphore (see class javadoc). This also runs
         // leftover-.commit crash recovery before we copy. Fails fast (~5s) if another transaction is
         // writing.
+        // This session owns the empty writer and aborts/closes it on every exit.
         final NodeTrx lockHolder = session.beginNodeTrx();
+        lockHolder.getStorageEngineWriter().getUberPage().getFeatures().requireToolCompatible();
+        final int mostRecentRevision = session.getMostRecentRevisionNumber();
+        // The hidden derived sibling is quiesced before the source copy starts, so both halves of
+        // this resource are copied from one state the database never left.
+        final DerivedQuiescence derived = quiesceDerivedResource(session, resourcePath, interrupted);
         try {
-          lockHolder.getStorageEngineWriter().getUberPage().getFeatures().requireToolCompatible();
-          final int mostRecentRevision = session.getMostRecentRevisionNumber();
-          // The hidden derived sibling is quiesced before the source copy starts, so both halves of
-          // this resource are copied from one state the database never left.
-          final DerivedQuiescence derived = quiesceDerivedResource(session, resourcePath, interrupted);
-          try {
-            final long bytes = copyTree(resourcePath, targetResources.resolve(resourceName), rel -> false,
-                BackupManager::isTransientResourceFile);
-            final Path derivedPath = derived.derivedPath();
-            return new CopiedResource(new ResourceSummary(resourceName, mostRecentRevision, bytes), derivedPath == null
-                ? null
-                : copyDerivedResource(derivedPath, targetResources, mostRecentRevision));
-          } finally {
-            derived.release();
-          }
+          final long bytes = copyTree(resourcePath, targetResources.resolve(resourceName), rel -> false,
+              BackupManager::isTransientResourceFile);
+          final Path derivedPath = derived.derivedPath();
+          return new CopiedResource(new ResourceSummary(resourceName, mostRecentRevision, bytes), derivedPath == null
+              ? null
+              : copyDerivedResource(derivedPath, targetResources, mostRecentRevision));
         } finally {
-          closeSourceWriter(lockHolder, interrupted);
+          derived.release();
         }
       } finally {
         interrupted[0] |= Thread.interrupted();
       }
-    }
-  }
-
-  private static void closeSourceWriter(final NodeTrx writer, final boolean[] interrupted) {
-    interrupted[0] |= Thread.interrupted();
-    try {
-      writer.rollback();
-    } finally {
-      interrupted[0] |= Thread.interrupted();
-      writer.close();
     }
   }
 
@@ -396,6 +387,9 @@ public final class BackupManager {
    * @throws SirixIOException if maintenance does not become quiescent in time — the alternative would
    *         be a partial copy of a store that is being written
    */
+  // TXN-613: finishBackup restores interruption after writer/session/database/target cleanup, including
+  // cleanup failure. Re-interrupting here would prevent those interruptible lifetimes from closing.
+  @SuppressWarnings("java:S2142")
   private static DerivedQuiescence quiesceDerivedResource(final ResourceSession<?, ?> session, final Path resourcePath,
       final boolean[] interrupted) {
     final Path derivedPath = resourcePath.resolveSibling(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX);

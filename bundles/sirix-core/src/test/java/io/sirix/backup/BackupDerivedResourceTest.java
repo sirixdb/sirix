@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedStatic;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -61,8 +62,10 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mockStatic;
 
 /**
  * TXN-613: a backup copies the hidden {@code $derived} resources that hold temporal-aggregate data,
@@ -320,6 +323,82 @@ final class BackupDerivedResourceTest {
         return acquired;
       }).get(30, TimeUnit.SECONDS), "refusal must leave derived maintenance usable");
     }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"copy", "cleanup-runtime", "cleanup-error"})
+  @DisplayName("TXN-613: copy cancellation releases ownership and restores interruption even if cleanup fails")
+  void interruptedCopyReleasesOwnershipEvenWhenTargetCleanupFails(final String failureMode) throws IOException {
+    final Path backupDir = tempDir.resolve("interrupted-copy");
+    final IOException copyFailure = new IOException("interrupted resource copy");
+    final AssertionError cleanupError = new AssertionError("target cleanup failed");
+    // TXN-613 supplies the oracle: cancellation survives all teardown, and closing the last
+    // application handle releases OS ownership. Faults are injected only at the filesystem boundary.
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(sourceDb);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      try (final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+        if (invocation.getMethod().getName().equals("copy")
+            && invocation.getArgument(0, Path.class).startsWith(sourceDb.resolve("resources").resolve(RESOURCE))) {
+          Thread.currentThread().interrupt();
+          throw copyFailure;
+        }
+        if (invocation.getMethod().getName().equals("walk") && invocation.getArgument(0).equals(backupDir)) {
+          if (failureMode.equals("cleanup-error")) {
+            throw cleanupError;
+          }
+          if (failureMode.equals("cleanup-runtime")) {
+            throw new UncheckedIOException("target cleanup failed", new IOException());
+          }
+        }
+        return invocation.callRealMethod();
+      })) {
+        if (failureMode.equals("cleanup-error")) {
+          assertSame(cleanupError, assertThrows(AssertionError.class,
+              () -> BackupManager.backupDatabase(sourceDb, backupDir)));
+        } else {
+          final SirixIOException failure =
+              assertThrows(SirixIOException.class, () -> BackupManager.backupDatabase(sourceDb, backupDir));
+          assertSame(copyFailure, failure.getCause(), "teardown must preserve the copy refusal");
+        }
+        assertTrue(Thread.currentThread().isInterrupted(), "teardown must preserve the cancellation signal");
+      } finally {
+        Thread.interrupted();
+      }
+      assertEquals(REVISIONS, session.getMostRecentRevisionNumber(), "the source history stays usable");
+      try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+        assertEquals(REVISIONS + 1, writer.getRevisionNumber(), "cancellation releases the source writer lock");
+      }
+    }
+    try (final FileChannel channel = FileChannel.open(sourceDb.resolve(".lock"), StandardOpenOption.WRITE);
+        final FileLock ownership = channel.tryLock(0, 1, false)) {
+      assertNotNull(ownership, "failed copying and cleanup must not retain database ownership");
+    }
+    assertEquals(!failureMode.equals("copy"), Files.exists(backupDir),
+        "the target is removed unless filesystem cleanup itself failed");
+  }
+
+  @Test
+  @DisplayName("TXN-613: interruption after metadata publication survives successful backup teardown")
+  void completedCopyPreservesInterruption() {
+    final Path backupDir = tempDir.resolve("completed-copy");
+    final Path settings = backupDir.resolve("dbsetting.obj");
+    try (final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+      final Object result = invocation.callRealMethod();
+      if (invocation.getMethod().getName().equals("move") && invocation.getArgument(1).equals(settings)) {
+        Thread.currentThread().interrupt();
+      }
+      return result;
+    })) {
+      final BackupManager.BackupSummary completed = BackupManager.backupDatabase(sourceDb, backupDir);
+      assertTrue(Thread.currentThread().isInterrupted(), "successful teardown must preserve the cancellation signal");
+      assertEquals(1, completed.derivedResourcesCopied());
+    } finally {
+      Thread.interrupted();
+    }
+    assertEquals(REVISIONS,
+        BackupManager.restoreDatabase(backupDir, tempDir.resolve("completed-restore"))
+                     .resources().getFirst().mostRecentRevision(),
+        "the completed copy must remain a usable backup");
   }
 
   @Test
