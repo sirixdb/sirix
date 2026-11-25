@@ -9,6 +9,11 @@
   nobody holds at the publication boundary and evicts again at every engine call, with released frames
   poisoned. No requirement text changes.
 
+- Require allocation legs to run with escape analysis off, the Graal JIT disabled (HotSpot C2),
+  a non-collecting collector and a fixed batch in
+  [CONV-302](CONV-conventions.md#conv-302--timed-acceptance-verdict): their whole-byte figure
+  must be identical in every process; the importer refuses other legs.
+  The allocation acceptance rule is unchanged.
 - Make the PR mutation lane's unit of work its blocking criterion. New
   [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant
   generation to the PR's own lines through a repository interceptor on PIT's tool classpath,
