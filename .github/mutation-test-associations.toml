@@ -203,11 +203,11 @@ tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest", "io.sirix.b
 # HOT packed-image ownership and allocator refusal span the store, decoder and native backend.
 [[association]]
 class = "io.sirix.cache.CompactImageStore"
-tests = ["io.sirix.cache.CompactImageStoreTest", "io.sirix.cache.CompactImageAllocatorLifecycleTest", "io.sirix.page.CompactImageOwnershipTest"]
+tests = ["io.sirix.cache.CompactImageStoreTest", "io.sirix.cache.CompactImageAllocatorLifecycleTest", "io.sirix.page.CompactImageOwnershipTest", "io.sirix.cache.CompactImagePoolBudgetTest"]
 
 [[association]]
 class = "io.sirix.cache.FrameSlotAllocator"
-tests = ["io.sirix.cache.FrameSlotAllocatorTest", "io.sirix.cache.FrameAllocationAdmissionTest", "io.sirix.cache.CompactImageAllocatorLifecycleTest"]
+tests = ["io.sirix.cache.FrameSlotAllocatorTest", "io.sirix.cache.FrameAllocationAdmissionTest", "io.sirix.cache.CompactImageAllocatorLifecycleTest", "io.sirix.cache.CompactImagePoolBudgetTest"]
 
 [[association]]
 class = "io.sirix.index.hot.page.HOTLeafPage"

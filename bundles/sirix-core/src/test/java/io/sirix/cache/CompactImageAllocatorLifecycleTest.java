@@ -62,7 +62,7 @@ final class CompactImageAllocatorLifecycleTest {
   }
 
   private enum FirstAllocation {
-    FRAME, RECLAIMABLE_SLAB, PERMANENT_SLAB
+    FRAME, RECLAIMABLE_SLAB, OWNER_BUDGETED_SLAB
   }
 
   @ParameterizedTest
@@ -76,7 +76,7 @@ final class CompactImageAllocatorLifecycleTest {
       final MemorySegment segment = switch (kind) {
         case FRAME -> allocator.allocate(4096);
         case RECLAIMABLE_SLAB -> allocator.allocateSlab(4096);
-        case PERMANENT_SLAB -> allocator.allocatePermanentSlab(4096);
+        case OWNER_BUDGETED_SLAB -> allocator.allocateOwnerBudgetedSlab(4096);
       };
       assertNotNull(segment);
       try {
@@ -111,9 +111,9 @@ final class CompactImageAllocatorLifecycleTest {
     try {
       if (failure == Failure.HEAP_RESERVE || failure == Failure.HEAP_COMMIT || failure == Failure.HEAP_POPULATE) {
         assertSame(memory.heapFailure,
-            assertThrows(OutOfMemoryError.class, () -> allocator.allocatePermanentSlab(8192)));
+            assertThrows(OutOfMemoryError.class, () -> allocator.allocateOwnerBudgetedSlab(8192)));
       } else {
-        assertNull(allocator.allocatePermanentSlab(8192));
+        assertNull(allocator.allocateOwnerBudgetedSlab(8192));
       }
       assertEquals(0L, allocator.getPhysicalMemoryBytes());
       assertEquals(0L, allocator.nonExecutionCommittedBytes());
@@ -122,7 +122,7 @@ final class CompactImageAllocatorLifecycleTest {
           ? 0
           : 1, memory.releases);
       allocator.setSlabMemoryForTesting(FrameSlotAllocator.virtualMemory());
-      final MemorySegment recovered = allocator.allocatePermanentSlab(8192);
+      final MemorySegment recovered = allocator.allocateOwnerBudgetedSlab(8192);
       assertNotNull(recovered);
       recovered.set(ValueLayout.JAVA_BYTE, 0L, (byte) 42);
       assertEquals((byte) 42, recovered.get(ValueLayout.JAVA_BYTE, 0L));
@@ -134,14 +134,14 @@ final class CompactImageAllocatorLifecycleTest {
   }
 
   @Test
-  void permanentSlabPublicationFailureStillPropagates() {
+  void ownerBudgetedSlabPublicationFailureStillPropagates() {
     final FrameSlotAllocator allocator = new FrameSlotAllocator(4L << 20);
     final OutOfMemoryError failure = new OutOfMemoryError("heap publication failure");
     allocator.setSlabPublicationHookForTesting(() -> {
       throw failure;
     });
     try {
-      assertSame(failure, assertThrows(OutOfMemoryError.class, () -> allocator.allocatePermanentSlab(8192)));
+      assertSame(failure, assertThrows(OutOfMemoryError.class, () -> allocator.allocateOwnerBudgetedSlab(8192)));
       assertEquals(0L, allocator.getPhysicalMemoryBytes());
       assertEquals(0L, allocator.nonExecutionCommittedBytes());
       assertEquals(0L, allocator.getSlabBytes());
@@ -204,14 +204,14 @@ final class CompactImageAllocatorLifecycleTest {
   }
 
   @Test
-  void commitmentCeilingStillDecodesOnGcOwnedStorage() throws IOException {
+  void poolCeilingStillDecodesOnGcOwnedStorage() throws IOException {
     final byte[] wire = wire();
-    final FrameSlotAllocator allocator = FrameSlotAllocator.getInstance();
     final CompactImageStore store = CompactImageStore.getInstance();
-    final long budget = allocator.getMaxBufferSize();
-    final long remaining =
-        budget - budget / 8 - allocator.oversizedHeadroomBytes() - allocator.nonExecutionCommittedBytes();
-    assertTrue(allocator.reserveSlabCommittedBytes(remaining));
+    final long ceiling = store.maxSlabBytes();
+    // The pool's ceiling is its owner's share, which is the only thing that refuses a lease now.
+    // Hold it at what is already mapped: no class can grow, so a class with no free block refuses
+    // and the decode must still read correctly from its own GC-owned image.
+    store.setMaxSlabBytesForTesting(store.mappedSlabBytes());
     final List<Block> held = new ArrayList<>();
     try {
       for (Block block; (block = store.acquire(60000)) != null;) {
@@ -219,7 +219,7 @@ final class CompactImageAllocatorLifecycleTest {
       }
       assertFallbackRead(wire);
     } finally {
-      allocator.refundCommittedBytes(remaining);
+      store.setMaxSlabBytesForTesting(ceiling);
       for (final Block block : held) {
         block.run();
       }
@@ -259,7 +259,7 @@ final class CompactImageAllocatorLifecycleTest {
     final Class<? extends Throwable> failureType = heapFailure
         ? OutOfMemoryError.class
         : IllegalStateException.class;
-    when(allocator.allocatePermanentSlab(anyLong())).thenAnswer(invocation -> {
+    when(allocator.allocateOwnerBudgetedSlab(anyLong())).thenAnswer(invocation -> {
       // Ownership transfers to releaseSlab, which closes the arena.
       @SuppressWarnings("MustBeClosedChecker")
       final Arena arena = Arena.ofConfined();

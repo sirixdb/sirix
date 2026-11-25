@@ -298,7 +298,7 @@ performance measurement and mutation gates remain owned by the outer pipeline.
   `reserveSlabCommittedBytes` put them in the allowance page frames commit from, which is permanent
   by design. Both admission choices are wrong in different directions: the pool needed a way to give
   bytes back.
-- Correction: idle slabs are reclaimed. The allocator's pressure path first lets its listener evict
+- Correction **as it stood after round 2, superseded by round 4 below**: idle slabs are reclaimed. The allocator's pressure path first lets its listener evict
   the page caches — which closes cached compact images and returns their blocks — then asks the pool
   to give idle slabs back up to the refused caller's shortfall; the caller's existing retry loop
   observes the relief. A slab is idle only when every block carved from it is free, derived during
@@ -306,7 +306,7 @@ performance measurement and mutation gates remain owned by the outer pipeline.
   it. A pass is skipped when free blocks are fewer than the smallest slab's block count, or when a
   hand-out is in flight. The strategy, its alternatives and the agreed fallback are in
   `firstmate/data/sirix-compact-decode-arena/reclaim-strategy.md`.
-- An idle slab is **discarded in place**, not unmapped (Umbra/vmcache's decommit-keep-mapping): its
+- Also superseded by round 4: an idle slab is **discarded in place**, not unmapped (Umbra/vmcache's decommit-keep-mapping): its
   pages are dropped and its commitment refunded while the mapping, its segment and every block view
   over it stay valid, and the next growth charges it again and leases from it instead of mapping a
   new one. That is what removes the unmap window entirely — see the next section for the review that
@@ -321,7 +321,7 @@ performance measurement and mutation gates remain owned by the outer pipeline.
 | `Block.run` → `give` → `push` | none: one compare-and-set push, one atomic decrement |
 | `Block.segment()` handed to the decoder | none: the block's own segment object, created once when its slab was carved |
 | `PageKind` compact branch | the page's own objects only; the storage acquisition adds nothing (it used to add one `Arena`, its session and a `Cleaner` registration) |
-| reclaim pass (`reclaimIdleSlabs`) | two small arrays per pass, both sized from the pass's target — cold path, under pressure only, never per read |
+| reclaim pass (`reclaimIdleSlabs`) | removed in review round 4 together with the reclaimer; while it existed a pass allocated two arrays, and one of them was sized to the whole pool rather than to the pass's target |
 
 Bounded by `CompactImageStorageAllocationBudgetTest`: a warmed lease/release cycle allocates 0 bytes
 over 100,000 rounds, and a cycle measured after a reclamation pass still allocates 0, which is what
@@ -362,3 +362,56 @@ the positive control.
 - Also here: the release path's span lookup is read off the class monitor, so the slab-span list is
   copy-on-write — two volatile array reads per block return, no allocation — while the only writer
   adds one span per mapped slab under the monitor.
+
+### Review round 4: the pool gets its own budget, and the reclaimer goes
+
+- Symptom: review of the discard-and-revive commit returned six findings, all on reclamation, after
+  three earlier rounds on the same theme. Five were real: a bounded pass that examined the same
+  free-stack prefix on every firing and so could never reach a wholly idle slab deeper down; a
+  Windows discard that decommits and immediately recommits, refunding the allocator while the OS
+  commitment stays charged; a discard failure that stranded both the drained blocks and the refund,
+  because the charge flag was cleared before the discard could throw; a copy-on-write span list and
+  a revival scan that made cold population quadratic in slab count; and a tally array sized to the
+  whole historical pool on every pass. The sixth asked whether the reclaim target should be capped
+  by the request.
+- Root cause of four rounds of findings: **the pool had joined a budget it could not leave.** Every
+  mechanism — the admission ceiling, the pass, the ordering, the discard, the revival, the shortfall
+  — existed only to let cached compact images give bytes back to the allowance page frames commit
+  from. A reclaimer is a small garbage collector, and each round found the part of a collector the
+  previous round had not specified.
+- Correction (the design now in the code): the pool is bounded by **its owner's share** —
+  `HeapCacheBudget.Pool.HOT_IMAGES`, the ceiling that already bounds what the fragment cache's
+  compact half retains — and charges none of the allocator's frame commitment. A full pool refuses a
+  lease and the decoder keeps its own GC-owned image. Storage comes back the way the owning cache's
+  storage always comes back: the cache evicts an image, the image closes, its block returns to the
+  free stack, and the next decode of that class reuses it. An idle slab stays mapped as retained
+  capacity. There is no pass, no discard, no revival, no refund and no pressure hook, so all five
+  real findings cease to exist rather than being fixed, and the sixth is moot.
+- Established shapes this follows, which is why it is the end of the sequence: memory charged in
+  bytes to the cache that owns it and bounded by that cache's capacity (RocksDB block cache); a full
+  owner budget refusing the insert so the caller keeps its own copy (RocksDB
+  `strict_capacity_limit` — byte for byte our GC-owned fallback); memory returning through that
+  cache's own eviction; no background reclaimer and no decay timer for a *budget* problem; and idle
+  slabs retained and reused before mapping new ones (jemalloc's dirty extents, mimalloc's lazy page
+  retire). Frames and the pool are separate budgets with separate owners, as in PostgreSQL's shared
+  buffers versus memory contexts and RocksDB's block cache versus write-buffer manager. Comparison:
+  `firstmate/data/sirix-dbcompare-slab-reclaim/report.md`; mapping and the one part with no
+  counterpart: `firstmate/data/sirix-compact-decode-arena/reclaim-strategy.md`.
+- Reverted with the reclaimer: the round-2 fix that evicted the fragment cache's compact half under
+  allocator pressure. Once the pool holds none of the frame allowance, evicting a cache that owns no
+  frames cannot relieve a frame shortage; pressure on one budget never evicts another budget's
+  entries in RocksDB or PostgreSQL either. The compact half keeps its own clock sweeper.
+- Kept, because it is independent: the Darwin `madvise` repair. `MADV_DONTNEED` is advisory on
+  Darwin — it neither zeroes nor releases anonymous pages — so `resetSegment`'s documented contract
+  (the next read observes zeros, resident size drops) silently did not hold there. macOS now uses
+  `MADV_FREE_REUSABLE`, and `FrameSlotAllocatorTest.resetSegmentDiscardsTheContentsItDocuments`
+  asserts the observable contract, which is what makes the macOS lane the witness.
+- Regression witness: `CompactImagePoolBudgetTest` runs the production sequence — a cache full of
+  compact images, nothing closed by the test, then the 64 KiB frame a scan needs, which succeeds —
+  against a negative arm that charges the pool's slabs to the frame allowance through a forwarding
+  allocator and starves on exactly the same sequence. Around it: the refusal at the ceiling, a zero
+  ceiling, reuse instead of growth, the owning cache's eviction returning blocks, and the cleanup
+  refusal naming what still holds the pool.
+- Allocation audit: the per-read sites are unchanged from the table above, minus the reclaim-pass
+  row, which no longer exists. `CompactImageStorageAllocationBudgetTest` still bounds a warmed
+  lease and release at 0 bytes over 100,000 rounds with the automatic arena as the positive control.

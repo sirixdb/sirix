@@ -40,9 +40,14 @@ import org.junit.jupiter.params.provider.ValueSource;
  */
 final class CompactImageStoreTest {
 
-  /** A store over its own slab arena, so a test never disturbs the process-wide one. */
+  /**
+   * A store over its own slab arena, so a test never disturbs the process-wide one. Its ceiling is
+   * explicit and ample: these tests specify the pool's structure, and the share a real pool answers
+   * to is derived from the running heap, which would make them machine-dependent.
+   * {@code CompactImagePoolBudgetTest} specifies that ceiling.
+   */
   private static CompactImageStore storeOver(final SlabRecordingAllocator allocator) {
-    return new CompactImageStore(allocator);
+    return new CompactImageStore(allocator, 1L << 40);
   }
 
   @Test
@@ -476,7 +481,7 @@ final class CompactImageStoreTest {
     }
 
     @Override
-    public synchronized @Nullable MemorySegment allocatePermanentSlab(final long bytes) {
+    public synchronized @Nullable MemorySegment allocateOwnerBudgetedSlab(final long bytes) {
       if (refuse) {
         return null;
       }

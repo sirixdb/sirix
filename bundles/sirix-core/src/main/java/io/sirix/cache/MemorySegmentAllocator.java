@@ -86,47 +86,28 @@ public interface MemorySegmentAllocator {
   }
 
   /**
-   * Allocate a slab with the ownership and release protocol of {@link #allocateSlab(long)}, but admit
-   * it within the permanent frame-commitment allowance, preserving oversized headroom.
+   * Allocate a slab with the ownership and release protocol of {@link #allocateSlab(long)} whose
+   * bytes this allocator does NOT charge: the caller admitted them against its own byte ceiling and
+   * is the single owner of that budget.
+   *
+   * <p>
+   * Use it for storage a cache already bounds — a pool of blocks for that cache's entries — so the
+   * pool cannot take bytes a page frame needs, and so nothing has to be handed back under pressure.
+   * The slab is still tracked, released and reported like any other: only the commitment accounting
+   * is the owner's. Releasing it refunds nothing here and never recycles its backing.
+   * </p>
    *
    * @param bytes the positive requested size, rounded up to whole pages
-   * @return the slab, or {@code null} on budget, native reservation/commitment/population or shutdown
+   * @return the slab, or {@code null} on native reservation, commitment, population or shutdown
    *         refusal; heap and publication failures propagate
    */
-  default @Nullable MemorySegment allocatePermanentSlab(final long bytes) {
+  default @Nullable MemorySegment allocateOwnerBudgetedSlab(final long bytes) {
     return null;
   }
 
   /**
-   * Discard a permanent slab's contents and refund its commitment, keeping the mapping valid.
-   *
-   * <p>
-   * The address stays usable and the next read observes zeros, so the owner may keep the segment and
-   * the views it handed out, and charge them again with {@link #recommitPermanentSlab(MemorySegment)}
-   * when it needs the storage back. This is how a pool gives bytes back under pressure without ever
-   * leaving a reachable view over unmapped memory. Implementations that own no slabs refuse.
-   * </p>
-   *
-   * @param slab the exact segment {@link #allocatePermanentSlab(long)} returned
-   * @return whether this call discarded the slab and refunded its bytes; {@code false} when it was
-   *         already discarded, unknown, or this allocator owns no slabs
-   */
-  default boolean discardPermanentSlab(final MemorySegment slab) {
-    return false;
-  }
-
-  /**
-   * Charge a discarded permanent slab again so its owner may reuse it instead of mapping a new one.
-   *
-   * @param slab the exact segment that was discarded
-   * @return whether the bytes were admitted; {@code false} leaves the slab discarded
-   */
-  default boolean recommitPermanentSlab(final MemorySegment slab) {
-    return false;
-  }
-
-  /**
-   * Release a slab obtained from {@link #allocateSlab(long)} or {@link #allocatePermanentSlab(long)}.
+   * Release a slab obtained from {@link #allocateSlab(long)} or
+   * {@link #allocateOwnerBudgetedSlab(long)}.
    * Idempotent: a stale or repeated release is rejected and returns {@code false}.
    *
    * @param slab the exact segment returned by either slab allocation method

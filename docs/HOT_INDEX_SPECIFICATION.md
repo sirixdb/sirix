@@ -810,27 +810,20 @@ Body fields below follow the shared envelope and any extension block.
   optimistic stamp, with no live guard. Pool refusal falls back to GC-owned native storage.
   Class rounding follows `CompactImageStore.blockBytesFor`; cache charges follow the
   [projection cache accounting](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
-  A slab whose every block has been returned MUST be reclaimable: permanent pool slabs share the
-  frame commitment ceiling, so holding them would starve page frames with no way to recover. The
-  allocator's pressure path MUST ask the pool to reclaim only AFTER its listener has evicted the
-  page caches — including the fragment cache's compact half, whose images are what hold pool blocks
-  — and MUST take no more than the refused caller's own shortfall against the ceiling that refused
-  it, in whole slabs; the caller's own retry observes the relief. A pass MUST be skipped, not waited
-  on, when a hand-out is in flight, and MUST be skipped when free blocks are fewer than the smallest
-  slab's block count. A pass MUST inspect no more blocks than its target could need, so its cost
-  follows the shortfall rather than the pool's size. Idleness MUST be derived during the pass, never
-  tracked per lease. Reclamation MUST discard a selected slab in place — dropping its contents and
-  refunding its commitment while the mapping, its segment and every block view over it stay valid —
-  and MUST NOT unmap it, so no reachable block can point into unmapped memory and a stale read
-  observes zeros rather than another image's bytes. The platform discard MUST really zero the pages
-  (`MADV_FREE_REUSABLE` on Darwin, whose `MADV_DONTNEED` is advisory and leaves them readable). A
-  discarded slab's blocks MUST NOT be leased or returned while it is discarded, and its directory
-  entries MUST survive, so a block's slab stays its index divided by the class's blocks per slab.
-  Growth MUST charge a discarded slab again and lease from it before mapping a new one, which bounds
-  the directory by the class's peak slab count rather than by its history. The refund MUST reach the
-  budget at discard time. `CompactImageReclamationTest` exercises the starved-frame scenario in its
-  production sequence — nothing closed by the test — revival reading back as zeros, the shortfall
-  bound, the live-image refusal and the skipped pass.
+  The pool MUST have exactly one budget and one owner: its mapped slab bytes MUST be admitted
+  against the share that bounds what the fragment cache's compact half retains
+  (`HeapCacheBudget.Pool.HOT_IMAGES`), which is the cache these blocks hold storage for, and MUST
+  charge NONE of the allocator's frame commitment — so cached compact images can never starve a page
+  frame, and nothing has to be handed back under pressure. Growth past that ceiling MUST be refused;
+  `acquire` then returns `null` and the decoder MUST fall back to its own GC-owned image. Storage
+  MUST come back the way the owning cache's storage comes back: the cache evicts an image, the image
+  closes, its block returns to the free stack and the next decode of that class reuses it. An idle
+  slab MUST therefore stay mapped as retained capacity, and the allocator's pressure path MUST NOT
+  ask the pool for anything. `CompactImagePoolBudgetTest` exercises the production sequence — a
+  cache full of compact images, nothing closed by the test, then the page frame a scan needs, which
+  succeeds — against its negative arm that charges the pool's slabs to the frame allowance and
+  starves, plus the refusal at the ceiling, a zero ceiling, reuse instead of growth, and the owning
+  cache's eviction returning blocks.
   Shutdown MUST stop lease admission before checking both in-flight acquisitions and live
   leases; it MUST refuse cleanup while either exists and MUST refuse new leases after successful
   cleanup. Before releasing any slab in a class, cleanup MUST detach that class's free blocks and
@@ -839,14 +832,15 @@ Body fields below follow the shared envelope and any extension block.
   when possible. Rejected shutdown MUST never restore access to a released block; subsequent
   leases may use only surviving mapped storage or freshly allocated slabs.
   `CompactImageAllocatorLifecycleTest` checks partial-release failure and pooled decoding after
-  rejected shutdown. Permanent pool slabs MUST share the frame commitment ceiling, preserving oversized
-  headroom, while reclaimable slabs keep their existing ceiling. Before a newly mapped slab is
+  rejected shutdown. Pool slabs MUST charge no allocator commitment at all — neither the frame
+  allowance nor the reclaimable ceiling — because their owner admitted them; reclaimable slabs keep
+  their existing ceiling. Before a newly mapped slab is
   published, every failure MUST return it to the allocator and preserve the primary exception,
   retaining a cleanup exception as suppressed when possible. Directory growth MUST copy O(n)
   references over n carved blocks; reported block and byte counts MUST exclude spare directory
   capacity. Regression witnesses: `CompactImageStoreTest`, `FrameAllocationAdmissionTest`,
-  `FrameSlotAllocatorTest.slabCommitmentCannotStarveTheOversizedHeadroom`, and
-  `CompactImageStorageAllocationBudgetTest`.
+  `FrameSlotAllocatorTest.slabCommitmentCannotStarveTheOversizedHeadroom`,
+  `CompactImagePoolBudgetTest`, and `CompactImageStorageAllocationBudgetTest`.
 - **Zero-copy ordinary decoding**: if the input is a `MemorySegmentBytesIn` with a
   `DecompressionResult`, `slotMemory` becomes a slice of the decompressed buffer and ownership of
   that buffer transfers to the page;
