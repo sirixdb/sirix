@@ -211,3 +211,39 @@ performance measurement and mutation gates remain owned by the outer pipeline.
   one mutation worker on the shared host. No production setting, assertion or budget was widened.
   Compiling `:sirix-kotlin-cli:classes` supplied the unchanged CLI bytecode the disposition checker
   also validates. Remote ARM and Sonar analysis still require the outer executor's updated CI run.
+
+### CI: monitor-protected diagnostic counter
+
+- Symptom: both Sonar checks failed in [run 45515806526](https://github.com/sirixdb/sirix/actions/runs/45515806526/job/138889681273).
+  The analysis uploaded successfully; the quality gate rejected the new reliability rating (C).
+  Its only reliability issue was `java:S3078` on `directoryGrowths++`; coverage was 94.6%, and
+  every other quality-gate condition passed.
+- Root cause: the analyzer flags the compound volatile write without recognizing the caller's
+  monitor. The required invariant is that every write to a size class's directory-growth counter
+  holds that size class's monitor, while diagnostic reads have cross-thread visibility.
+  `take()` is the only caller of private `grow()` and calls it inside `synchronized (this)`.
+  `grow()` contains the only counter write; slab release does not reset it. The volatile read in
+  `directoryGrowthCount()` supplies visibility to the cold-population budget test.
+- Correction: suppress S3078 only on `grow()`, with its locking proof beside the annotation.
+  No runtime logic, allocation, budget, default, persisted bytes or query answer changes.
+- Caller trace: an available block is popped without growth; an empty stack takes the monitor,
+  rechecks the stack and grows only if still empty. Refusal and unpublished-slab failure leave
+  the counter untouched. Successful directory replacement increments it under the monitor;
+  growth within existing capacity does not. Slab release takes the same monitor and leaves the
+  historical count intact. No helper, branch or caller becomes unreachable.
+- Regression evidence: the remote quality gate is the failing consumer, rather than a runtime
+  race reproduced by a unit test. Existing `coldPopulationHasLinearDirectoryCopyCost` and
+  `concurrentLeasesAreExclusive` exercise growth accounting and concurrent lease ownership.
+  No source-text test is added for the annotation; remote analysis must confirm the suppression.
+- Local verification: `:sirix-core:spotlessCheck` and `:sirix-core:test --tests
+  'io.sirix.cache.CompactImageStoreTest'` passed (32 store cases), together with the normal task's
+  prerequisite suites, including 19 allocator lifecycle cases and 19 allocation checks. The command
+  used `-PtestHeapMin=128m -PtestHeapMax=1g -Dsirix.allocator.maxSize=512M
+  '-Dorg.gradle.jvmargs=-Xmx1g -XX:ActiveProcessorCount=2' --max-workers=1 --no-daemon
+  --console=plain`. Log and pre-fix Sonar responses are under `build/ci-evidence/sonar-counter/`.
+  No runtime logic changed, so no new mutation run is needed for this annotation-only correction.
+- Vision check: retaining the monitor-protected primitive counter preserves the zero-allocation
+  lease path and changes no engine behavior. There is no new default or policy decision.
+- Lesson: inspect the actual failed quality-gate condition, then trace every writer and reader
+  before replacing a volatile diagnostic with an atomic object. A caller-held monitor can justify
+  a narrowly documented suppression.

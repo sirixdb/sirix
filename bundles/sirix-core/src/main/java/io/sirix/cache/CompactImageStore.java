@@ -482,6 +482,8 @@ public final class CompactImageStore {
      *
      * @return the block to lease, or {@code null} when the allocator has no room for another slab
      */
+    // take() holds this monitor for the only counter write; volatile serves diagnostic readers.
+    @SuppressWarnings("java:S3078")
     private @Nullable Block grow() {
       final Block[] current = blocks;
       final int base = carvedBlocks;
