@@ -7,6 +7,12 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.io.IOStorage;
 import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.StorageType;
+import io.sirix.budget.WorkCapture.ThrowingAction;
+import io.sirix.io.filechannel.FileChannelReader;
+import io.sirix.page.SerializationType;
+import io.sirix.page.PagePersister;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import java.nio.file.StandardOpenOption;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -26,6 +32,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mockStatic;
 
 @Isolated
@@ -73,6 +82,40 @@ final class FormatDiscoveryWorkBudgetTest {
                 "normal discovery must not inspect more than the latest envelope and its 16-entry window");
           }
         }
+      }
+    }
+  }
+
+  /** CONV-301: a complete window has one directory I/O, independently of envelope byte counts. */
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void completeWindowNeedsOneDirectoryRead(final StorageType backend) throws Exception {
+    final Path database = createStore(backend, 20);
+    final Path data = database.resolve("resources/fixture/data");
+    Databases.clearGlobalCaches();
+    try (final FileChannel pages = FileChannel.open(data.resolve(IOStorage.FILENAME), StandardOpenOption.READ);
+        final FileChannel records =
+            FileChannel.open(data.resolve(IOStorage.REVISIONS_FILENAME), StandardOpenOption.READ)) {
+      final long[] reads = {0};
+      final WorkCounter calls = WorkCounter.alwaysOn("format.directoryReadCalls",
+          "positional reads of the complete 16-slot discovery window", () -> reads[0]);
+      final WorkCapture capture = WorkCapture.of(calls);
+      final FileChannel observed = mock(FileChannel.class, delegatesTo(records));
+      doAnswer(call -> {
+        reads[0]++;
+        return records.read(call.getArgument(0), call.getArgument(1));
+      }).when(observed).read(any(ByteBuffer.class), anyLong());
+      try (final FileChannelReader reader = new FileChannelReader(pages, observed, new ByteHandlerPipeline(),
+          SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build())) {
+        final ThrowingAction discover = () -> reader.requireCompatibleRevisionRoots(20);
+        capture.run(discover).assertExactly(calls, 1, "a complete window must not fall back to per-record reads");
+        Databases.clearGlobalCaches();
+        final WorkReport repeated = capture.run(() -> {
+          discover.run();
+          discover.run();
+        });
+        assertThrows(AssertionError.class,
+            () -> repeated.assertAtMost(calls, 1, "two real window validations must exceed the single-read bound"));
       }
     }
   }

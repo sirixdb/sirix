@@ -397,7 +397,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
               ResourceFormatCompatibility.verifyWithoutSettings(probe.build().setDatabaseConfiguration(dbConfig));
         }
         compatibility.uberPage().getFeatures().requireWritable();
-        compatibility.requireResource(derivedPath);
         logger.warn("Rebuilding unreadable derived resource {} from the source log", name, unreadable);
         final Path path = source.getResourcePath().resolveSibling(name);
         final T existing = resourceStore.getOpenResourceSession(path);

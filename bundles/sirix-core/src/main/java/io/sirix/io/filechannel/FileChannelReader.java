@@ -34,7 +34,6 @@ import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.AbstractReader;
 import io.sirix.io.IOStorage;
 import io.sirix.io.ResourceFormatCompatibility;
-import io.sirix.io.ResourceFormatCompatibility.RepairProof;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -1148,7 +1147,8 @@ public final class FileChannelReader extends AbstractReader {
   public void requireCompatibleRevisionRoots(final int lastRevision) throws IOException {
     final int first = Math.max(0, lastRevision - IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY + 1);
     final int count = lastRevision - first + 1;
-    try (final ScratchLease lease = borrow(count * IOStorage.REVISIONS_FILE_RECORD_SIZE)) {
+    try (final ScratchLease lease =
+        borrow(IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY * IOStorage.REVISIONS_FILE_RECORD_SIZE)) {
       final ByteBuffer records = lease.buffer();
       records.clear().limit(count * IOStorage.REVISIONS_FILE_RECORD_SIZE);
       final int bytesRead = readRevisionRecords(records, IOStorage.revisionsFileOffset(first));
@@ -1336,9 +1336,7 @@ public final class FileChannelReader extends AbstractReader {
       if (!Arrays.equals(magic, Superblock.MAGIC)) {
         return;
       }
-      final RepairProof compatibility =
-          ResourceFormatCompatibility.verifyRepair(dataFileChannel, revisionsOffsetFileChannel, this);
-      compatibility.requireChannels(dataFileChannel, revisionsOffsetFileChannel);
+      ResourceFormatCompatibility.verifyRepair(dataFileChannel, revisionsOffsetFileChannel, this);
       final long recordOffset = IOStorage.revisionsFileOffset(revision);
       final long offset = ringRecord.offset();
       final long timestampMicros = CommitTimestamps.toEpochMicros(ringRecord.timestamp());

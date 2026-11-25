@@ -21,7 +21,6 @@
 
 package io.sirix.io.filechannel;
 
-import io.sirix.io.ResourceFormatCompatibility.RepairProof;
 
 import io.sirix.cache.ScratchLease;
 import io.sirix.cache.ScratchUse;
@@ -463,9 +462,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   @Override
   public Writer truncateTo(final int revision) {
     try {
-      final RepairProof compatibility =
-          ResourceFormatCompatibility.verifyRepair(dataFileChannel, revisionsFileChannel, reader);
-      compatibility.requireChannels(dataFileChannel, revisionsFileChannel);
+      ResourceFormatCompatibility.verifyRepair(dataFileChannel, revisionsFileChannel, reader);
       requireCompatibleRevisionRoots(revision);
       final long fileSize = dataFileChannel.size();
       final int durableRevision = durableBeaconRevision();
@@ -476,7 +473,6 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       final RevisionFileData revisionFileData = reader.getRevisionFileData(revision);
       final ValidatedFrame frame = validateRevisionRootFrame(dataFileChannel, revisionFileData, revision, fileSize, -1L,
           "truncateTo(" + revision + ")");
-      ResourceFormatCompatibility.requireRootEnvelope(dataFileChannel, frame.frameOffset(), reader.getByteHandler());
       final long newSize = frame.frameEnd();
 
       RevisionRecordDurability.invalidateFor(revisionsFilePath);
@@ -908,7 +904,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     if (actualHash != revisionFileData.pageHash()) {
       throw new SirixIOException(context + ": revision-root payload hash mismatch for revision " + revision);
     }
-    return new ValidatedFrame(frameOffset, payloadOffset, frameEnd, dataLength);
+    return new ValidatedFrame(payloadOffset, frameEnd, dataLength);
   }
 
   static long checkedFrameEnd(final long frameOffset, final int dataLength, final String context, final int revision) {
@@ -922,7 +918,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
-  record ValidatedFrame(long frameOffset, long payloadOffset, long frameEnd, int dataLength) {
+  record ValidatedFrame(long payloadOffset, long frameEnd, int dataLength) {
   }
 
   private static final Access<ChannelHashInput> CHANNEL_HASH_ACCESS = new ChannelHashAccess(ByteOrder.LITTLE_ENDIAN);

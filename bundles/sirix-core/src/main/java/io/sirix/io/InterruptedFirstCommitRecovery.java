@@ -123,7 +123,7 @@ public final class InterruptedFirstCommitRecovery {
           + "beacons either were never written or advertise only the EMPTY bootstrap revision, and the "
           + "revisions file holds no checksum-valid revision record — no commit carrying data ever became "
           + "durable and nothing on disk is reachable. Re-initializing the resource empty.", dataFile, openFailure);
-      reinitializeEmpty(resourceConfig, dataFile, revisionsFile, ResourceFormatCompatibility.verify(resourceConfig));
+      reinitializeEmpty(resourceConfig, dataFile, revisionsFile);
       // Retry: with both files truncated to zero, exists() is false and the SAME code path that
       // initializes a brand-new resource runs (bootstrap UberPage, no on-disk reads).
       final IOStorage storage = StorageType.getStorage(resourceConfig);
@@ -415,8 +415,8 @@ public final class InterruptedFirstCommitRecovery {
    * retried open and the subsequent first commit behave exactly like a brand-new resource.
    */
   private static void reinitializeEmpty(final ResourceConfiguration resourceConfig, final Path dataFile,
-      final Path revisionsFile, final Proof compatibility) {
-    compatibility.requireResource(resourceConfig.resourcePath);
+      final Path revisionsFile) {
+    ResourceFormatCompatibility.verify(resourceConfig);
     try {
       truncateToZero(dataFile);
       truncateToZero(revisionsFile);

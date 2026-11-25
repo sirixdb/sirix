@@ -101,7 +101,6 @@ public final class ResourceFormatCompatibility {
           final FileChannelReader reader =
               new FileChannelReader(channel, records, new ByteHandlerPipeline(config.byteHandlePipeline),
                   SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build())) {
-        reader.setStoreFeatures(uber.getFeatures());
         final RevisionFileData root;
         try {
           root = reader.getRevisionFileDataWithoutHealing(uber.getRevisionNumber());
@@ -122,8 +121,9 @@ public final class ResourceFormatCompatibility {
           }
           return new Proof(config.resourcePath, uber);
         }
+        // The bounded scan above includes this latest root's envelope; tombstones still
+        // need their typed retention refusal because that scan deliberately skips them.
         root.requireReadable(uber.getRevisionNumber());
-        requireRootEnvelope(channel, root.offset(), reader.getByteHandler());
       }
       return new Proof(config.resourcePath, uber);
     } catch (final IOException failure) {
@@ -144,26 +144,9 @@ public final class ResourceFormatCompatibility {
     return new Proof(config.resourcePath, uber);
   }
 
-  /** Compatibility evidence bound to the exact descriptors a direct repair will modify. */
-  public static final class RepairProof {
-    private final FileChannel data;
-    private final FileChannel revisions;
-
-    private RepairProof(final FileChannel data, final FileChannel revisions) {
-      this.data = data;
-      this.revisions = revisions;
-    }
-
-    @SuppressWarnings("ReferenceEquality") // Proofs authorize these exact descriptors, not equal wrappers.
-    public void requireChannels(final FileChannel dataChannel, final FileChannel revisionsChannel) {
-      if (data != dataChannel || revisions != revisionsChannel) {
-        throw new IllegalArgumentException("Compatibility proof belongs to other storage files");
-      }
-    }
-  }
-
-  public static RepairProof verifyRepair(final FileChannel data, final FileChannel revisions,
-      final FileChannelReader reader) throws IOException {
+  /** Validate the exact descriptors a direct repair will modify, without healing records. */
+  public static void verifyRepair(final FileChannel data, final FileChannel revisions, final FileChannelReader reader)
+      throws IOException {
     final ByteBuffer header = ByteBuffer.allocate(Superblock.BYTES).order(ByteOrder.LITTLE_ENDIAN);
     readFully(data, header, 0L);
     header.flip();
@@ -181,8 +164,7 @@ public final class ResourceFormatCompatibility {
     final RevisionFileData root = reader.getRevisionFileDataWithoutHealing(uber.getRevisionNumber());
     reader.requireCompatibleRevisionRoots(uber.getRevisionNumber());
     root.requireReadable(uber.getRevisionNumber());
-    requireRootEnvelope(data, root.offset(), reader.getByteHandler());
-    return new RepairProof(data, revisions);
+    // requireCompatibleRevisionRoots includes the latest live root's envelope.
   }
 
   /** Also guards direct reader healing and writer truncation, which need no resource settings. */
@@ -236,7 +218,8 @@ public final class ResourceFormatCompatibility {
   private static void requireFramedPrefix(final FileChannel channel, final ByteHandler handler) throws IOException {
     final ByteBuffer length = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
     final long size = channel.size();
-    for (long offset = IOStorage.DATA_REGION_START; offset + Integer.BYTES <= size;) {
+    // A partial terminal length is incomplete input too; callers apply the bootstrap decision table.
+    for (long offset = IOStorage.DATA_REGION_START; offset < size;) {
       length.clear();
       readFully(channel, length, offset);
       final int bytes = length.getInt(0);

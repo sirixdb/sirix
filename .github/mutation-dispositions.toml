@@ -372,3 +372,25 @@ prefix advances by whole character widths, `encoded[0] & 0xFF`, or a char of a s
 AsciiKeyBytes.isAsciiPrefix accepted, which is below 0x80. 0x80 is a continuation byte and cannot
 lead a character of well-formed UTF-8, which is what String.getBytes(UTF_8) produces. Every other
 byte takes the same branch under both forms."""
+[[mutant]]
+class = "io.sirix.io.ResourceFormatCompatibility"
+method = "requireFramedPrefix"
+descriptor = "(Ljava/nio/channels/FileChannel;Lio/sirix/io/bytepipe/ByteHandler;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [22]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "c2f49677dba6e139f7f48303953259318d012565"
+justification = """FMT-401's incomplete-frame table gives prefix exhaustion and an incomplete terminal
+length the same outcome. Changing offset < size to offset <= size adds an iteration only at
+exact EOF of the stable surviving prefix inspected before bootstrap recovery. That iteration
+reuses the existing four-byte length buffer and makes one fixed-size terminal probe; readFully
+reports EOF before any envelope decoding or payload allocation. verifyBootstrap returns the
+same resource-bound proof; verify's missing-record fallback returns the same revision-zero
+proof or rethrows the same original missing-record failure for a later revision. Earlier readable
+foreign versions still propagate unchanged before this boundary. Results, refusal messages,
+resource identity and persisted bytes are identical. Cost differs only at this single EOF
+boundary by one extra constant-time terminal probe, the narrow CONV-201 boundary exception;
+there is no additional frame scan or data-dependent work. The complete 164-mutant local run
+at the recorded head retained this exact mutant; the surviving prefix and both recovery
+outcomes are exercised by FormatRepairBoundaryTest."""

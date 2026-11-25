@@ -19,7 +19,7 @@ tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.Com
 
 [[association]]
 class = "io.sirix.io.filechannel.FileChannelReader"
-tests = ["io.sirix.access.FormatRepairBoundaryTest"]
+tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.budget.FormatDiscoveryWorkBudgetTest"]
 
 [[association]]
 class = "io.sirix.io.ResourceFormatCompatibility"
@@ -54,7 +54,7 @@ tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest"]
 
 [[association]]
 class = "io.sirix.access.LocalDatabase"
-tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest", "io.sirix.access.LocalDatabaseInMemoryLifetimeTest", "io.sirix.index.aggregate.DeclaredTemporalAggregateFailureTest", "io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest"]
+tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.access.DatabasesInMemoryLifetimeTest", "io.sirix.access.LocalDatabaseInMemoryLifetimeTest", "io.sirix.index.aggregate.DeclaredTemporalAggregateFailureTest", "io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest"]
 
 [[association]]
 class = "io.sirix.access.InMemoryResources"
@@ -205,3 +205,31 @@ tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
 [[association]]
 class = "io.sirix.index.name.NameIndexRecheck"
 tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest", "io.sirix.budget.NameIndexRecheckWorkBudgetTest"]
+# FMT-401 is observed at open, direct repair and storage-provider boundaries.
+[[association]]
+class = "io.sirix.io.filechannel.FileChannelWriter"
+tests = ["io.sirix.access.FormatRepairBoundaryTest"]
+
+[[association]]
+class = "io.sirix.io.InterruptedFirstCommitRecovery"
+tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.io.InterruptedFirstCommitProofTest"]
+
+[[association]]
+class = "io.sirix.io.StorageType"
+tests = ["io.sirix.io.StorageTypeTest"]
+
+[[association]]
+class = "io.sirix.io.SuperblockValidator"
+tests = ["io.sirix.io.SuperblockResourceUuidTest", "io.sirix.access.FormatRepairBoundaryTest"]
+
+[[association]]
+class = "io.sirix.page.UberPageFormat"
+tests = ["io.sirix.format.FormatVersionBaselineTest", "io.sirix.access.FormatRepairBoundaryTest"]
+
+[[association]]
+class = "io.sirix.io.filechannel.FileChannelStorage"
+tests = ["io.sirix.access.FormatRepairBoundaryTest"]
+
+[[association]]
+class = "io.sirix.io.memorymapped.MMStorage"
+tests = ["io.sirix.access.FormatRepairBoundaryTest"]
