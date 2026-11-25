@@ -463,7 +463,7 @@ and [cache budgets](#4-cache-budgets) when sizing a production deployment.
 | Symptom | First place to check |
 |---|---|
 | `IllegalAccessError` on startup | mandatory JVM flags (§ 2). |
-| `<n> not known.` on resource open | resource was written by an incompatible Sirix version (§ 1, § 10.3). |
+| `unsupported format version` on resource open | check the [format baseline](../spec/FMT-disk-format.md#fmt-401--10-format-baseline) for the version named in the error. |
 | `OutOfMemoryError: Direct buffer memory` | raise `-XX:MaxDirectMemorySize` (§ 3). |
 | `OutOfMemoryError: Java heap space` | raise `-Xmx`, OR shrink record-page cache (§ 4). |
 | Page cache hit rate < 50 % | look at the working-set size in the startup log; raise `sirix.cache.recordPage`. |
