@@ -265,4 +265,3 @@
   previous dispositions. Two reviewed equivalent dispositions remain: a cycle-guard loop bound no
   block can reach and `utf8Width(0x80)` for a byte that cannot lead a UTF-8 character. Mutation
   remeasurement of this revised code belongs to the outer validation lane.
-

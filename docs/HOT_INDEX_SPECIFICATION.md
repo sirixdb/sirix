@@ -1837,8 +1837,8 @@ insert-driven consolidation of §4.5.1.
 4. `buildIndirect` (`:382-600`): start the frontier with the root's two children; repeatedly expand
    the **largest** expandable frontier node (one whose group does not fit a leaf) until 32 children
    or nothing is expandable; D = union of the expanded BiNodes' bits; sparse partial keys from the
-   paths; recurse; height = 1 + max child height; choose `SINGLE_MASK` if D fits one 8-byte window,
-   else `MULTI_MASK`.
+   paths; recurse; assemble the frontier under the
+   [routing and assembly contracts](#26-partial-keys-and-routing).
 
 `MAX_FANOUT = 32`, `MAX_LEAF_ENTRIES = 512` (`:75`, `:78`). There is no fill-factor constant: a leaf is
 the highest subtree of R(S) that fits. The builder does no I/O; all keys, values, one record per R(S)
