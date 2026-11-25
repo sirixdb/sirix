@@ -25,13 +25,16 @@ import io.brackit.query.node.parser.NodeStreamSubtreeParser;
 import io.brackit.query.node.parser.NodeSubtreeHandler;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.util.annotation.FunctionAnnotation;
+import io.sirix.access.MutationGate;
 import io.sirix.query.MutationAuthorization;
+import io.sirix.query.function.FreeResourceName;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBStore;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,7 +52,11 @@ import org.jspecify.annotations.Nullable;
  */
 @FunctionAnnotation(
     description = "Store the given fragments in a collection. "
-        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
+        + "A missing collection is created. In an existing collection a new resource name is added "
+        + "and every other resource is kept; an existing name is refused with SIRIXDBF0006 "
+        + "without writes, whatever $create-new says. "
+        + "Several fragments are added under new automatic names. No call drops a collection: "
+        + "use drop-database first to replace one, and import to write into an existing resource.",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Store extends AbstractFunction {
 
@@ -63,7 +70,7 @@ public final class Store extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param createNew determines if a new collection has to be created or not
+   * @param createNew whether this overload omits the explicit {@code $create-new} argument
    */
   public Store(final boolean createNew) {
     this(STORE, createNew);
@@ -73,7 +80,7 @@ public final class Store extends AbstractFunction {
    * Constructor.
    *
    * @param name the function name
-   * @param createNew determines if a new collection has to be created or not
+   * @param createNew whether this overload omits the explicit {@code $create-new} argument
    */
   public Store(final QNm name, final boolean createNew) {
     super(name, createNew
@@ -106,7 +113,6 @@ public final class Store extends AbstractFunction {
       if (nodes == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));
       }
-      final boolean createNew = args.length < 4 || args[3].booleanValue();
 
       final String commitMessage = args.length >= 5
           ? FunUtil.getString(args, 4, "commitMessage", null, null, false)
@@ -123,24 +129,40 @@ public final class Store extends AbstractFunction {
       // xn:load and jn:store do; the query-level updating-expression check does not cover it.
       MutationAuthorization.requireCreate(ctx, collName, resName);
 
+      // An existing database is never replaced (#1384). Only a missing one is created, under the
+      // exclusive database hold so a caller racing to create it is seen.
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
+      final Path databaseDirectory = store.databaseDirectory(collName);
       try (final Iter iterator = nodes.iterate()) {
         final ParserStream parsers = new ParserStream(iterator);
         final boolean singleton = parsers.readFirstParsers();
-        final XmlDBCollection coll = createNew
-            ? null
-            : store.lookup(collName);
-        if (singleton) {
-          final NodeSubtreeParser parser = parsers.next();
-          if (coll == null) {
-            store.create(collName, resName, parser, commitMessage, commitTimesstamp);
-          } else {
-            coll.add(resName == null
-                ? "resource"
-                : resName, parser, commitMessage, commitTimesstamp).getTrx().close();
+        XmlDBCollection coll = store.lookup(collName);
+        if (coll == null) {
+          try (var gate = databaseDirectory == null
+              ? null
+              : MutationGate.acquireDatabase(databaseDirectory)) {
+            coll = store.lookup(collName);
+            if (coll == null) {
+              if (singleton) {
+                store.create(collName, resName, parsers.next(), commitMessage, commitTimesstamp);
+              } else {
+                store.create(collName, parsers);
+              }
+              return null;
+            }
           }
-        } else if (coll == null) {
-          store.create(collName, parsers);
+        }
+        if (singleton) {
+          // Cardinality, including sorted and lazy singletons, determines the named target.
+          final String target = resName == null
+              ? "resource"
+              : resName;
+          final var database = coll.getDatabase();
+          try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), target)) {
+            final NodeSubtreeParser input = parsers.next();
+            FreeResourceName.require(XMLFun.ERR_RESOURCE_EXISTS, collName, database, target);
+            coll.importResource(target, input, commitMessage, commitTimesstamp);
+          }
         } else {
           final List<NodeSubtreeParser> inputs = new ArrayList<>();
           for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
@@ -152,6 +174,9 @@ public final class Store extends AbstractFunction {
 
       return null;
     } catch (final Exception e) {
+      if (e instanceof QueryException refusal && XMLFun.ERR_RESOURCE_EXISTS.equals(refusal.getCode())) {
+        throw refusal;
+      }
       throw new QueryException(e, new QNm(e.getMessage()));
     }
   }

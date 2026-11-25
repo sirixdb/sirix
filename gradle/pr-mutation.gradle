@@ -66,6 +66,10 @@ configure(mutationProject) {
             junit5PluginVersion = '1.2.3'
             targetClasses = targets
             targetTests = providers.gradleProperty('prMutationTests').get().split(',').toList()
+            // This lane starts no Keycloak service; use REST's existing offline test contract.
+            if (mutationModule == 'sirix-rest-api') {
+                includedGroups = ['offline']
+            }
             // No per-class sample in the lane (CONV-205): once the scope is the changed lines
             // there is nothing left worth sampling, and a sampled changed-line count could not be
             // read as a complete measurement. The limit stays available for a manual focused

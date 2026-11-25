@@ -19,12 +19,13 @@ import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.node.stream.ArrayStream;
-import io.brackit.query.sequence.FunctionConversionSequence;
-import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.sirix.access.MutationGate;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.FunUtil;
+import io.sirix.query.function.ImportInput;
+import io.sirix.query.function.jn.JNFun;
+import io.sirix.query.function.FreeResourceName;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -49,7 +50,11 @@ import java.util.List;
  */
 @FunctionAnnotation(
     description = "Store the given fragments in a collection. "
-        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
+        + "A missing collection is created. In an existing collection a new resource name is added "
+        + "and every other resource is kept; an existing name is refused with SIRIXDBF0006 "
+        + "without writes, whatever $create-new says. "
+        + "Several fragments are added under new automatic names. No call drops a collection: "
+        + "use drop-database first to replace one, and import to write into an existing resource.",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Store extends AbstractFunction {
 
@@ -59,7 +64,7 @@ public final class Store extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param createIfNotExists determines if a new collection has to be created or not
+   * @param createIfNotExists whether this overload omits the explicit {@code $create-new} argument
    */
   public Store(final boolean createIfNotExists) {
     this(STORE, createIfNotExists);
@@ -69,7 +74,7 @@ public final class Store extends AbstractFunction {
    * Constructor.
    *
    * @param name the function name
-   * @param createIfNotExists determines if a new collection has to be created or not
+   * @param createIfNotExists whether this overload omits the explicit {@code $create-new} argument
    */
   public Store(final QNm name, final boolean createIfNotExists) {
     super(name, createIfNotExists
@@ -99,12 +104,11 @@ public final class Store extends AbstractFunction {
 
       final String collectionName = FunUtil.getString(args, 0, "collectionName", "collection", null, true);
       final String resourceName = FunUtil.getString(args, 1, "resourceName", "resource", null, false);
-      final Sequence nodes = args[2];
-      final boolean createIfNotExists = args.length < 4 || args[3].booleanValue();
+      final Sequence resources = args[2];
       final Object options;
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
 
-      if (nodes == null) {
+      if (resources == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));
       }
 
@@ -117,31 +121,31 @@ public final class Store extends AbstractFunction {
       // Store/load are ordinary function calls, so require CREATE before touching the store or
       // reading input; the query-level updating-expression check does not cover them.
       MutationAuthorization.requireCreate(ctx, collectionName, resourceName);
+      final Sequence nodes = ImportInput.snapshotStrings(resources);
 
-      // Only the create path can replace the whole database, so only it takes the exclusive
-      // database hold. Appending into an existing collection takes nothing here: each target's
-      // check and write are ordered on that resource's own hold, inside the collection, so two
-      // callers writing different resources of one database never wait on each other.
+      // An existing database is never replaced (#1384). Only a missing one is created, under the
+      // exclusive database hold so a caller racing to create it is seen; writing into an existing
+      // database takes only the target resource's hold.
       final Path databaseDirectory = store.databaseDirectory(collectionName);
-      final boolean mayReplaceDatabase = createIfNotExists || store.lookup(collectionName) == null;
-      try (var gate = databaseDirectory == null || !mayReplaceDatabase
-          ? null
-          : MutationGate.acquireDatabase(databaseDirectory)) {
-        if (createIfNotExists) {
-          create(store, collectionName, resourceName, nodes, options);
-        } else {
-          final JsonDBCollection collection = store.lookup(collectionName);
+      JsonDBCollection collection = store.lookup(collectionName);
+      if (collection == null) {
+        try (var gate = databaseDirectory == null
+            ? null
+            : MutationGate.acquireDatabase(databaseDirectory)) {
+          collection = store.lookup(collectionName);
           if (collection == null) {
             create(store, collectionName, resourceName, nodes, options);
-          } else {
-            add(collection, resourceName, nodes, options);
+            return null;
           }
         }
-
       }
+      write(collection, collectionName, resourceName, nodes, options);
 
       return null;
     } catch (final Exception e) {
+      if (e instanceof QueryException refusal && JNFun.ERR_RESOURCE_EXISTS.equals(refusal.getCode())) {
+        throw refusal;
+      }
       // (Throwable, QNm) is the cause-attaching overload. The (QNm, Object) one this used to bind
       // to renders the throwable into the message and drops it, so a failing store — an async-flush
       // SirixIOException, say — arrived with no `Caused by:` chain and was undiagnosable.
@@ -149,15 +153,35 @@ public final class Store extends AbstractFunction {
     }
   }
 
+  /**
+   * Write into the existing database: one item goes to {@code resourceName}, which is added when the
+   * name is free and refused when it is taken; several items are added under new automatic names.
+   */
+  static void write(final JsonDBCollection collection, final String collectionName, final String resourceName,
+      final Sequence nodes, final Object options) {
+    if (nodes instanceof Str) {
+      final var database = collection.getDatabase();
+      try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
+        FreeResourceName.require(JNFun.ERR_RESOURCE_EXISTS, collectionName, database, resourceName);
+        add(collection, resourceName, nodes, options);
+      }
+    } else {
+      add(collection, resourceName, nodes, options);
+    }
+  }
+
   private static void add(final JsonDBCollection collection, final String resourceName, final Sequence nodes,
       final Object options) {
     if (nodes instanceof Str) {
-      try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
-        collection.add(resourceName, reader, options);
+      final String input = ((Str) nodes).stringValue();
+      try (final JsonReader reader = input.isEmpty()
+          ? null
+          : JsonShredder.createStringReader(input)) {
+        collection.importResource(resourceName, reader, options);
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
-    } else if (nodes instanceof FunctionConversionSequence || nodes instanceof ItemSequence) {
+    } else {
       final List<JsonReader> readers = new ArrayList<>();
       try (final Closeable inputs = () -> closeReaders(readers); final Iter iter = nodes.iterate()) {
         for (Item item; (item = iter.next()) != null;) {
@@ -200,7 +224,7 @@ public final class Store extends AbstractFunction {
           throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
         }
       }
-    } else if (nodes instanceof FunctionConversionSequence || nodes instanceof ItemSequence) {
+    } else {
       try (final Iter iter = nodes.iterate()) {
         final List<Str> list = new ArrayList<>();
 

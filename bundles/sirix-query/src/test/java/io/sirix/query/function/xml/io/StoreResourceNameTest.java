@@ -1,7 +1,9 @@
 package io.sirix.query.function.xml.io;
 
 import io.brackit.query.Query;
+import io.brackit.query.QueryException;
 import io.sirix.query.SirixCompileChain;
+import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
 import java.io.PrintWriter;
@@ -13,6 +15,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * {@code xn:store($coll, $res, $nodes, $create-new)} stores a single node as resource {@code $res}
@@ -39,13 +42,13 @@ final class StoreResourceNameTest {
       run(chain, context, "xn:store('missing','products'," + a + ",false())");
       assertEquals(List.of("products"), resources(store, "missing"));
       assertEquals("<a/>", run(chain, context, "xn:doc('missing','products')"));
-      // Recreating replaces the database, again under the given name.
+      // Storing another name into the existing database adds it (#1384).
       run(chain, context, "xn:store('created','orders'," + b + ")");
-      assertEquals(List.of("orders"), resources(store, "created"));
+      assertEquals(List.of("orders", "products"), resources(store, "created"));
       assertEquals("<b/>", run(chain, context, "xn:doc('created','orders')"));
       // Appending to an existing collection.
       run(chain, context, "xn:store('created','customers'," + c + ",false())");
-      assertEquals(List.of("customers", "orders"), resources(store, "created"));
+      assertEquals(List.of("customers", "orders", "products"), resources(store, "created"));
       assertEquals("<c/>", run(chain, context, "xn:doc('created','customers')"));
     }
   }
@@ -62,17 +65,23 @@ final class StoreResourceNameTest {
       assertEquals(List.of("resource1"), resources(store, "unnamed"));
       run(chain, context, "xn:store('unnamed',()," + one + ",false())");
       assertEquals(List.of("resource", "resource1"), resources(store, "unnamed"));
-      run(chain, context, "xn:store('unnamed',()," + one + ")");
-      assertEquals(List.of("resource1"), resources(store, "unnamed"));
+      // "resource" is now taken, and a taken name is refused whatever $create-new says (#1384).
+      final QueryException refused =
+          assertThrows(QueryException.class, () -> run(chain, context, "xn:store('unnamed',()," + one + ")"));
+      assertEquals(XMLFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
+      assertEquals(List.of("resource", "resource1"), resources(store, "unnamed"));
       run(chain, context, "xn:store('unnamed-missing',()," + one + ",false())");
       assertEquals(List.of("resource1"), resources(store, "unnamed-missing"));
       for (final String name : List.of("'ignored'", "()")) {
-        run(chain, context, "xn:store('several'," + name + "," + several + ")");
-        assertEquals(List.of("resource1", "resource2"), resources(store, "several"));
-        run(chain, context, "xn:store('several'," + name + "," + several + ",false())");
-        assertEquals(List.of("resource1", "resource2", "resource3", "resource4"), resources(store, "several"));
-        assertEquals("<a/>", run(chain, context, "xn:doc('several','resource3')"));
-        assertEquals("<b/>", run(chain, context, "xn:doc('several','resource4')"));
+        final String collection = name.equals("()")
+            ? "several-unnamed"
+            : "several-named";
+        run(chain, context, "xn:store('" + collection + "'," + name + "," + several + ")");
+        assertEquals(List.of("resource1", "resource2"), resources(store, collection));
+        run(chain, context, "xn:store('" + collection + "'," + name + "," + several + ",false())");
+        assertEquals(List.of("resource1", "resource2", "resource3", "resource4"), resources(store, collection));
+        assertEquals("<a/>", run(chain, context, "xn:doc('" + collection + "','resource3')"));
+        assertEquals("<b/>", run(chain, context, "xn:doc('" + collection + "','resource4')"));
       }
       run(chain, context, "xn:store('several-missing','ignored'," + several + ",false())");
       assertEquals(List.of("resource1", "resource2"), resources(store, "several-missing"));

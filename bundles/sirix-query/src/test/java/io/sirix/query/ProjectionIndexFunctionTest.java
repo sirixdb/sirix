@@ -117,7 +117,7 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
           let $doc := jn:doc('json-path1','prices.jn')
           return count(for $r in $doc[] where $r.price >= 8 return $r)
         """;
-    test(STORE_DOUBLES_QUERY, CREATE_DOUBLE_INDEX_QUERY, longFiltered, "1");
+    test(longFiltered, "1");
   }
 
   @Test
@@ -135,7 +135,7 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
           let $doc := jn:doc('json-path1','prices.jn')
           return count(for $r in $doc[] where $r.price > 2.5 return $r)
         """;
-    test(STORE_DOUBLES_QUERY, CREATE_DOUBLE_INDEX_QUERY, filteredCount, "2");
+    test(filteredCount, "2");
   }
 
   @Test

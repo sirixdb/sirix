@@ -104,8 +104,9 @@ class StoreMutationBoundaryTest {
         }
     }
 
+    /** Adding into a resource that already exists under its given name is a modification. */
     @ParameterizedTest
-    @ValueSource(ints = [1, 2, 3, 4])
+    @ValueSource(ints = [1, 2])
     fun xmlAddsRequireModifyForExistingTargets(overload: Int) {
         BasicXmlDBStore.newBuilder().location(directory).build().use { delegate ->
             delegate.create("auth").add("resource2", DocumentParser("<root>preserved</root>")).trx.close()
@@ -115,7 +116,25 @@ class StoreMutationBoundaryTest {
             assertEquals(before, xmlWitness(delegate, "resource2"))
             val allowed = XmlSessionDBStore(context(), delegate, user("view", "create", "modify"), authorizations())
             appendXml(allowed, overload)
-            assertEquals(before.revisions + if (overload == 4) 2 else 1, xmlWitness(delegate, "resource2").revisions)
+            assertEquals(before.revisions + 1, xmlWitness(delegate, "resource2").revisions)
+        }
+    }
+
+    /**
+     * Automatic names are always new (#1478): an unnamed add skips the existing resource2, so CREATE
+     * suffices and resource2 is untouched.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = [3, 4])
+    fun xmlAutomaticNamesNeverReachAnExistingResource(overload: Int) {
+        BasicXmlDBStore.newBuilder().location(directory).build().use { delegate ->
+            delegate.create("auth").add("resource2", DocumentParser("<root>preserved</root>")).trx.close()
+            val before = xmlWitness(delegate, "resource2")
+            appendXml(XmlSessionDBStore(context(), delegate, user("view", "create"), authorizations()), overload)
+            val after = xmlWitness(delegate, "resource2")
+            val added = if (overload == 4) setOf("resource3", "resource4") else setOf("resource3")
+            assertEquals(setOf("resource2") + added, after.resources)
+            assertEquals(before.copy(resources = after.resources), after)
         }
     }
 

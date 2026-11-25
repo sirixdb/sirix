@@ -40,9 +40,9 @@ public interface MutationAuthorizer {
    * resource or its database is created and before any input is read.
    *
    * <p>
-   * Separate from {@link #authorizeWrite}, because storing and loading reach both operations:
-   * {@code jn:store} and {@code jn:load} create a resource that does not exist yet and write into one
-   * that does, and those are different permissions.
+   * Separate from {@link #authorizeWrite}, because creating a resource and modifying an existing
+   * resource require different permissions. Query store/load target selection is documented in the
+   * repository README.
    * </p>
    *
    * @param databaseName the target's full collection name used for REST roles, never a path basename

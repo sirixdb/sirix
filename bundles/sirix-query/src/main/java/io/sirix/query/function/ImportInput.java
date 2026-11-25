@@ -23,7 +23,7 @@ import java.io.StringWriter;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamConstants;
 
-/** Content validation before a load can create, replace or write its target. */
+/** Content validation before a load can create or write its target. */
 public final class ImportInput {
   private ImportInput() {}
 
@@ -49,6 +49,18 @@ public final class ImportInput {
     return contents.size() == 1
         ? contents.getFirst()
         : new ItemSequence(contents.toArray(new Str[0]));
+  }
+
+  public static Sequence snapshotStrings(final Sequence resources) {
+    final List<Str> values = new ArrayList<>();
+    try (final Iter inputs = resources.iterate()) {
+      for (Item item; (item = inputs.next()) != null;) {
+        values.add(new Str(((Str) item).stringValue()));
+      }
+    }
+    return values.size() == 1
+        ? values.getFirst()
+        : new ItemSequence(values.toArray(new Str[0]));
   }
 
   public static String json(final Sequence input) {

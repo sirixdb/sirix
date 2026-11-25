@@ -99,6 +99,17 @@ The candidate's median minus the baseline's is rounded to whole bytes, ties to t
 must be at most zero. Reports show both rounded arm figures and the rounded delta. If a series has
 allocation legs, both arms must retain an accepted leg or judgment is refused.
 
+The allocation-leg settings and reproducibility requirements are defined in
+[CONV-302](../../../../spec/CONV-conventions.md#conv-302--timed-acceptance-verdict).
+They measure allocation as written, an **upper bound** on production allocation. Use the same
+settings for both arms, with a heap large enough for the non-collecting run. `import-jmh
+--allocation-leg` checks the required settings and converts the profiler's bytes per batch to
+bytes per operation. Fresh-process equality of the whole-byte figure is a property of the settings
+and the batch, not of the importer. A batch of 100,000 operations per iteration keeps the residual
+far below half a byte per operation for the gate's benchmarks (observed about 0.0001 B/op).
+The measured sub-byte residual is
+recorded in the [compiler follow-up evidence](MUTATION_DISPOSITIONS.md#compiler-follow-up-root-cause-and-verification).
+
 With the ClickBench kit, set `OLD` and `NEW` to the full commit SHAs used to build the two
 images, then run the gate:
 
@@ -125,7 +136,9 @@ for PAIR in $(seq 1 20); do
   $L import-jmh --run "$RUN" --json "$PAIR-candidate.json" --arm candidate --pair "$PAIR" --position 2 --process "$PAIR"
   [ "$($L stop --run "$RUN" | tail -1)" = stop ] && break
 done
-# once: the allocation legs, each arm in its own fresh process with -prof gc
+# once: the allocation legs, each arm in its own fresh process with -prof gc, run as
+#   java -jar <arm>.jar <benchmarks> -f 1 -bm ss -bs 100000 -wi 3 -i 3 -prof gc -rf json -rff alloc-<arm>.json \
+#     -jvmArgsAppend "-Xmx3g -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC -XX:-DoEscapeAnalysis -XX:-UseJVMCICompiler"
 $L import-jmh --run "$RUN" --json alloc-baseline.json  --arm baseline  --process 1 --allocation-leg
 $L import-jmh --run "$RUN" --json alloc-candidate.json --arm candidate --process 1 --allocation-leg
 $L judge --run "$RUN"        # appends to the ledger, then prints the verdicts; exit 1 = regression

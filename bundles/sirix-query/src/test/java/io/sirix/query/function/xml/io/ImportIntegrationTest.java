@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
+import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBNode;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -92,8 +93,11 @@ class ImportIntegrationTest {
       assertTrue(appended.getDatabase().existsResource("existing"));
       assertEquals(2, appended.getDocumentCount());
       assertFalse(appended.getDatabase().beginResourceSession("resource").getNodeTrx().isPresent());
-      new Query(chain, "xn:store('appended',(),<again/>,false())").evaluate(context);
-      assertEquals(2, appended.getDatabase().beginResourceSession("resource").getMostRecentRevisionNumber());
+      // An existing name is refused, not written into, when create-new is false (#1384).
+      final QueryException refused = assertThrows(QueryException.class,
+          () -> new Query(chain, "xn:store('appended',(),<again/>,false())").evaluate(context));
+      assertEquals(XMLFun.ERR_RESOURCE_EXISTS, refused.getCode());
+      assertEquals(1, appended.getDatabase().beginResourceSession("resource").getMostRecentRevisionNumber());
       assertEquals(2, appended.getDocumentCount());
     }
   }

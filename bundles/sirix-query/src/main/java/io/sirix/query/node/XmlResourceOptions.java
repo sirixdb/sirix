@@ -1,6 +1,8 @@
 package io.sirix.query.node;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.io.StorageType;
 import io.sirix.settings.VersioningType;
@@ -15,12 +17,17 @@ import static java.util.Objects.requireNonNull;
  * resource gets its own configuration; commit timestamps remain specific to that resource.
  */
 record XmlResourceOptions(StorageType storageType, boolean buildPathSummary, boolean buildPathStatistics,
-    boolean storeDeweyIds, HashType hashType, VersioningType versioningType, boolean storeNodeHistory) {
+    boolean storeDeweyIds, HashType hashType, VersioningType versioningType, boolean storeNodeHistory,
+    int numberOfNodesBeforeAutoCommit) {
 
   XmlResourceOptions {
     requireNonNull(storageType);
     requireNonNull(hashType);
     requireNonNull(versioningType);
+  }
+
+  XmlNodeTrx beginImportTrx(final XmlResourceSession resourceSession) {
+    return resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit);
   }
 
   ResourceConfiguration create(final String resourceName, final @Nullable Instant commitTimestamp) {

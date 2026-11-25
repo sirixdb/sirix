@@ -476,7 +476,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * options may override the backend, and the fallback contract is "unsupported backend → synchronous
    * auto-commits", never a failed import.
    */
-  private JsonNodeTrx beginImportTrx(final JsonResourceSession resourceSession) {
+  @Override
+  public JsonNodeTrx beginImportTrx(final JsonResourceSession resourceSession) {
     final StorageType resourceStorageType = resourceSession.getResourceConfig().getStorageType();
     if (useAsyncFlushForImports
         && (resourceStorageType == StorageType.FILE_CHANNEL || resourceStorageType == StorageType.MEMORY_MAPPED)) {

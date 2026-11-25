@@ -2,6 +2,18 @@
 
 ## 1.0.0 (unreleased)
 
+- Record the structural validator as evidence for
+  [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from
+  reporting the index malformed because a leaf was evicted, and the validation that follows a published
+  splice now has its own conformance case: `HOTStructuralValidatorLeafRetentionTest` retires every leaf
+  nobody holds at the publication boundary and evicts again at every engine call, with released frames
+  poisoned. No requirement text changes.
+
+- Require allocation legs to run with escape analysis off, the Graal JIT disabled (HotSpot C2),
+  a non-collecting collector and a fixed batch in
+  [CONV-302](CONV-conventions.md#conv-302--timed-acceptance-verdict): their whole-byte figure
+  must be identical in every process; the importer refuses other legs.
+  The allocation acceptance rule is unchanged.
 - Make the PR mutation lane's unit of work its blocking criterion. New
   [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant
   generation to the PR's own lines through a repository interceptor on PIT's tool classpath,
@@ -18,6 +30,17 @@
   changed line, which is nothing to judge rather than nothing to measure. Commands, the
   measured cost this replaces and the scheduled report are in
   [Verification](../docs/VERIFICATION.md#pr-mutation-testing).
+
+- Amend [REST-210](REST-api.md#rest-210--resource-creation-and-query-import-boundaries) twice. A PUT
+  that creates a resource requires CREATE, and one that replaces an existing resource additionally
+  requires MODIFY and DELETE, checked before the resource is removed; a refusal returns 403 and
+  preserves content and revisions. The query functions `jn:store`, `jn:load`, `xn:store` and
+  `xn:load` instead never replace a resource: they add a free name without dropping the database or
+  touching any other resource, and refuse a name that is already taken with `SIRIXDBF0006` before
+  anything is written, whatever `$create-new` says. Replacing a resource from a query is reserved
+  for a future atomic replace operation. Imports into existing databases retain configured bounded
+  transactions and release discarded results, while singleton empty JSON stores preserve their
+  empty-resource and configured-index contract.
 
 - Store the commit timestamp as signed epoch microseconds instead of epoch milliseconds.
   VER-201 fixes the unit in the unchanged 64-bit timestamp field, requires truncation toward

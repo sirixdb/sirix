@@ -252,8 +252,8 @@ counterfactuals are qualified in [the mutation notes](../docs/lifecycle-mutation
 - **Level:** MUST
 - **Status:** partial
 - **Since:** 1.0
-- **Code:** [timed_gate.py](../bundles/sirix-query/bench/common/timed_gate.py) `difference_and_threshold`, `classify`, `stop_states`, `judge`, `allocation_median`, `collect_allocation`; [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `stop`, `judge`; [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh) for `SIRIX_BENCH_TIER=gate`; [DEVELOPMENT.md](../docs/DEVELOPMENT.md#the-benchmark-protocol).
-- **Verified by:** [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py) `ThresholdTest`, `VerdictTest`, `AAControlTest`, `StopRuleTest`, `BoundaryTest`, `JudgeTest`, `OtherRowsTest`, `AllocationTest`, `ReportTextTest`, `CommandLineTest`; [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `RunDirectoryTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`.
+- **Code:** [timed_gate.py](../bundles/sirix-query/bench/common/timed_gate.py) `difference_and_threshold`, `classify`, `stop_states`, `judge`, `allocation_median`, `collect_allocation`; [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `stop`, `judge`, `_jvm_flag`, `_allocation_per_operation`, `_jmh_row`; [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh) for `SIRIX_BENCH_TIER=gate`; [DEVELOPMENT.md](../docs/DEVELOPMENT.md#the-benchmark-protocol).
+- **Verified by:** [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py) `ThresholdTest`, `VerdictTest`, `AAControlTest`, `StopRuleTest`, `BoundaryTest`, `JudgeTest`, `OtherRowsTest`, `AllocationTest`, `ReportTextTest`, `CommandLineTest`; [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `RunDirectoryTest`, `ImporterTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`.
 - **Evidence class:** code+test (local execution, historical mutation results and pending remeasurement recorded in [MUTATION_DISPOSITIONS.md](../bundles/sirix-query/bench/common/MUTATION_DISPOSITIONS.md); the `Benchmark protocol tooling` CI job arrives with the same change and has not reported for this baseline)
 - **Gap/note:** Replaces the fixed bar (paired point estimate at most +1%, lower 95% bound at most 0), which failed identical code in about 81% of ten-pair runs of a twelve-benchmark gate (A/A control of 2026-11-23: `main` against itself, 17 accepted pairs, kept as the fixture of `AAControlTest`). Decided by the maintainer on 2026-11-23, with the floor at 4%. No CI job runs a timed comparison: the rule binds whoever drives one, and the analysis refuses a gate run that did not end at its stop point. Of the kits only the ClickBench cold rounds apply the stop rule themselves; other drivers call `bench_ledger.py stop`. Pair admission on outside load is the driver's and is recorded, not checked. A threshold learned from ledger history, as an outlier fence over a benchmark's earlier paired differences, is a later refinement and is not specified here.
 
@@ -306,6 +306,25 @@ rounded to the nearest whole byte, ties to the even byte. The check passes when 
 most zero. If allocation legs were measured for a judged series, each arm MUST retain at least one
 accepted allocation leg; otherwise judgment MUST be refused. A series with no allocation legs has
 no allocation check. Allocation has no threshold and no `unstable` verdict.
+
+An allocation leg MUST count the allocation as the code writes it:
+escape analysis disabled (`-XX:-DoEscapeAnalysis`), the Graal JIT disabled
+(`-XX:-UseJVMCICompiler`), a collector that never collects (`-XX:+UseEpsilonGC`), and a fixed
+number of operations per measured iteration (JMH single-shot mode with a batch size).
+Its figure per operation is the iteration's allocation divided by the batch size. The figure is
+therefore an upper bound of what a production process allocates, not the
+share that escape analysis happens to remove in one process: whether C2 scalar-replaces an object is
+decided per compilation, and a collecting run adds allocation that follows GC timing. On GraalVM,
+the Graal compiler ignores `-XX:-DoEscapeAnalysis` and keeps partial escape analysis, so the leg
+forces C2. The last occurrence of each boolean `-XX` flag MUST determine its effective value,
+as in the JVM. A leg measured otherwise MUST be refused.
+
+For fresh-process reproducibility, round the leg's per-operation figure to the nearest whole byte,
+ties to the even byte. This figure MUST be identical in every process of the same code.
+The batch MUST be large enough to keep one-time
+residual allocation far below half a byte per operation. Importer checks alone do not establish
+fresh-process equality; the measured sub-byte residual is recorded in the
+[compiler follow-up evidence](../bundles/sirix-query/bench/common/MUTATION_DISPOSITIONS.md#compiler-follow-up-root-cause-and-verification).
 
 ### CONV-303 — Results ledger and conditions record
 
@@ -527,6 +546,6 @@ and a weekly/RC crash lane are required follow-up work, not completed by Markdow
 | CONV-205 | [ChangedLineInterceptorTest.java](../tools/pit-changed-lines/src/test/java/io/sirix/pit/ChangedLineInterceptorTest.java); [test_pr_mutation_dispositions.py](../.github/scripts/tests/test_pr_mutation_dispositions.py) `CensusVerdictTest`; [test_pr_mutation.py](../.github/scripts/tests/test_pr_mutation.py) command construction. | partial |
 | CONV-206 | [test_pr_mutation.py](../.github/scripts/tests/test_pr_mutation.py) `FullScopeTest`; workflow review acceptance. | partial |
 | CONV-301 | LifecycleWorkBudgetTest and LifecycleLockAllocationBudgetTest locally verify the lifecycle refinement. **Planned:** Budget inventory reconciliation against executable work-counter assertions; execute the six mapped suites and the Work budgets block for affected product changes. | proposed |
-| CONV-302 | [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py): pinned thresholds, scale invariance, the 2026-11-23 A/A control, shifted arms, the stop rule, allocation and the error cases; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`. | partial |
+| CONV-302 | [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py): pinned thresholds, scale invariance, the 2026-11-23 A/A control, shifted arms, the stop rule, allocation and the error cases; [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py): allocation legs refused unless measured with escape analysis off, the Graal JIT disabled (HotSpot C2), a non-collecting collector and a fixed batch, and their figure per operation; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`. | partial |
 | CONV-303 | [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py): capture, fingerprint, conditions record, row schema, append-only file, run directory, importers; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py). | partial |
 | CONV-304 | [test_bench_trend.py](../bundles/sirix-query/bench/common/test_bench_trend.py): steady, step, slow drift, unconfirmed outlier, speedup, unstable series, short history, conditions boundary, report. | partial |

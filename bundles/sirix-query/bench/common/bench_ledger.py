@@ -1190,6 +1190,36 @@ def jsonbench_rows(
 _JMH_TIME_MODES = ("avgt", "sample", "ss")
 
 
+def _jvm_flag(args: Sequence[str], name: str) -> bool | None:
+    """The effective value of a boolean -XX flag: the JVM honours its last occurrence; None when absent."""
+    value = None
+    for arg in args:
+        if arg == f"-XX:+{name}":
+            value = True
+        elif arg == f"-XX:-{name}":
+            value = False
+    return value
+
+
+def _allocation_per_operation(result: Mapping[str, Any], profiled: Mapping[str, Any], name: str, source: str) -> float:
+    """CONV-302: allocation as written, per operation of the single-shot batch."""
+    args = [str(arg) for arg in result.get("jvmArgs") or []]
+    if _jvm_flag(args, "DoEscapeAnalysis") is not False:
+        raise LedgerError(f"{source} {name}: an allocation leg needs escape analysis disabled (-XX:-DoEscapeAnalysis)")
+    if _jvm_flag(args, "UseJVMCICompiler") is not False:
+        raise LedgerError(
+            f"{source} {name}: an allocation leg needs the Graal JIT disabled (-XX:-UseJVMCICompiler)"
+        )
+    if _jvm_flag(args, "UseEpsilonGC") is not True:
+        raise LedgerError(
+            f"{source} {name}: an allocation leg needs a collector that never collects (-XX:+UseEpsilonGC)"
+        )
+    batch = result.get("measurementBatchSize")
+    if result.get("mode") != "ss" or not _is_int(batch) or batch < 1:
+        raise LedgerError(f"{source} {name}: an allocation leg needs single-shot mode with a batch size (-bm ss -bs N)")
+    return float(profiled["score"]) / batch
+
+
 def _jmh_row(result: Mapping[str, Any], base: Mapping[str, Any], allocation_leg: bool, source: str) -> dict[str, Any]:
     name = ".".join(str(result["benchmark"]).split(".")[-2:])
     series = {
@@ -1205,7 +1235,8 @@ def _jmh_row(result: Mapping[str, Any], base: Mapping[str, Any], allocation_leg:
     if allocation_leg:
         if profiled is None:
             raise LedgerError(f"{source} {name}: an allocation leg needs the GC profiler's gc.alloc.rate.norm")
-        return {**series, "metric": timed_gate.ALLOCATION_METRIC, "unit": "B/op", "value": profiled["score"]}
+        value = _allocation_per_operation(result, profiled, name, source)
+        return {**series, "metric": timed_gate.ALLOCATION_METRIC, "unit": "B/op", "value": value}
     if profiled is not None:
         raise LedgerError(f"{source} {name}: a timed process must not carry the allocation profiler")
     if result.get("mode") not in _JMH_TIME_MODES:
