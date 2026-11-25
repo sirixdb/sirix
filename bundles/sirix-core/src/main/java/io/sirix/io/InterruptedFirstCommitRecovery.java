@@ -151,8 +151,10 @@ public final class InterruptedFirstCommitRecovery {
   }
 
   public static ReaderAndUberPage openReaderForTool(final ResourceConfiguration config) {
+    // Keep disk-engine beacon, feature, superblock/UUID and revision-index checks with private metadata.
     final UberPage uberPage = probeUberPage(config);
     uberPage.getFeatures().requireToolCompatible();
+    IOStorage.requireCommittedBeacon(config, uberPage);
     final Path dataFile = dataFilePath(config);
     final Path revisionsFile = revisionsFilePath(config);
     final long uuidHigh = config.resourceUuid == null ? 0L : config.resourceUuid.getMostSignificantBits();

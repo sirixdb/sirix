@@ -112,3 +112,29 @@
   Mutation and counterfactual runs remain with the outer verification phases.
 - Vision check: verification reads the actual durable history and refuses actual corruption without
   retaining identity-bound state from earlier copies; no live read/cache default changes.
+
+## Missing committed beacons during isolated verification
+
+- Symptom: a derived store with both committed beacon slots zeroed can be accepted as revision 0,
+  then silently rebuilt when the restored source opens.
+- Trigger: zero bytes 4096–12287 in a populated derived backup while retaining its superblock,
+  revision records and all pages, including the readable revision-0 root.
+- Root cause: the isolated reader bypassed the disk storage constructors' existing guard against
+  treating a nonempty file as a fresh bootstrap store. Root and mapping checks could then accept
+  the real but unrelated revision-0 state.
+- Fix: FileChannel storage, memory-mapped storage and the isolated reader call the same committed
+  beacon guard. Valid committed revision-0 stores remain accepted; empty-store bootstrap and
+  conservative first-commit recovery retain their previous behavior. Verification retains strict
+  feature checks, fresh UUID-checked superblocks, complete revision-index validation and private
+  metadata before checking the derived root and mappings.
+- Why tests missed it: earlier damage tests truncated pages or damaged referenced metadata while
+  keeping a valid beacon; none removed both beacons while preserving a readable revision-0 root.
+- Regression: `BackupDerivedResourceTest.restoreRefusesDerivedStoresWithZeroedBeacons` changes only
+  the beacon slots, asserts the other persisted bytes remain intact, and requires refusal with
+  target cleanup under TXN-613. Accepting the bootstrap probe and reporting success violates its
+  independent oracle. Focused execution passed all 28 cases across `BackupDerivedResourceTest`,
+  `BackupPressureHandlerTest` and `InterruptedFirstCommitRecoveryTest`, with only those class filters
+  on `:sirix-core:test` and attached startup/allocation/storage-epoch/disabled-cache tasks excluded.
+  Counterfactual and mutation verification remain with the outer phases.
+- Vision check: refuses unverifiable durable state without silently replacing historical derived
+  data, preserving the existing disk-engine acceptance rule and live cache ownership.

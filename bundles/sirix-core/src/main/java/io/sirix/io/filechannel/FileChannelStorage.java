@@ -229,9 +229,7 @@ public final class FileChannelStorage implements IOStorage {
     resourceUuidLsb = resourceConfig.resourceUuid != null
         ? resourceConfig.resourceUuid.getLeastSignificantBits()
         : 0L;
-    if (this.openingUberPage.isBootstrap() && exists()) {
-      throw new SirixIOException("No committed uber-page beacon exists for " + resourceConfig.resourcePath);
-    }
+    IOStorage.requireCommittedBeacon(resourceConfig, this.openingUberPage);
   }
 
   /**

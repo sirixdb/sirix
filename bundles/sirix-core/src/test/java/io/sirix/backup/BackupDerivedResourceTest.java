@@ -38,6 +38,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -46,6 +47,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static io.brackit.query.util.path.Path.parse;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -161,6 +163,37 @@ final class BackupDerivedResourceTest {
     assertThrows(SirixIOException.class, () -> BackupManager.restoreDatabase(backupDir, restoredDir),
         "a truncated derived resource must fail restore verification");
     assertFalse(Files.exists(restoredDir), "a failed restore must leave no partial target");
+  }
+
+  @Test
+  @DisplayName("TXN-613: zeroed derived beacon slots cannot masquerade as a fresh revision-0 store")
+  void restoreRefusesDerivedStoresWithZeroedBeacons() throws IOException {
+    final Path backupDir = tempDir.resolve("backup");
+    final BackupManager.BackupSummary backup = BackupManager.backupDatabase(sourceDb, backupDir);
+    assertTrue(onlyDerived(backup).mostRecentRevision() > 0);
+    final Path dataFile = derivedFile(backupDir, "sirix.data");
+    final byte[] originalData = Files.readAllBytes(dataFile);
+    final byte[] originalRevisions = Files.readAllBytes(derivedFile(backupDir, "sirix.revisions"));
+    assertTrue(originalData.length > IOStorage.DATA_REGION_START);
+    try (final FileChannel channel = FileChannel.open(dataFile, StandardOpenOption.WRITE)) {
+      final ByteBuffer zeros = ByteBuffer.allocate((int) (IOStorage.DATA_REGION_START - IOStorage.PRIMARY_BEACON_OFFSET));
+      while (zeros.hasRemaining()) {
+        channel.write(zeros, IOStorage.PRIMARY_BEACON_OFFSET + zeros.position());
+      }
+    }
+    final byte[] damagedData = Files.readAllBytes(dataFile);
+    assertArrayEquals(Arrays.copyOfRange(originalData, 0, (int) IOStorage.PRIMARY_BEACON_OFFSET),
+        Arrays.copyOfRange(damagedData, 0, (int) IOStorage.PRIMARY_BEACON_OFFSET), "the superblock stays intact");
+    assertArrayEquals(Arrays.copyOfRange(originalData, (int) IOStorage.DATA_REGION_START, originalData.length),
+        Arrays.copyOfRange(damagedData, (int) IOStorage.DATA_REGION_START, damagedData.length),
+        "all committed pages, including revision 0, stay intact");
+    assertArrayEquals(originalRevisions, Files.readAllBytes(derivedFile(backupDir, "sirix.revisions")),
+        "the revision records stay intact");
+    final Path restoredDir = tempDir.resolve("restored-db");
+    final SirixIOException refusal = assertThrows(SirixIOException.class,
+        () -> BackupManager.restoreDatabase(backupDir, restoredDir));
+    assertTrue(refusal.getMessage().contains(DERIVED));
+    assertFalse(Files.exists(restoredDir), "a missing committed beacon must leave no restored target");
   }
 
   @Test

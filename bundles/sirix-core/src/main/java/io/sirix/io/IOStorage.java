@@ -22,12 +22,18 @@ package io.sirix.io;
 
 import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 
 import io.sirix.utils.CommitTimestamps;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Objects;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
@@ -375,6 +381,22 @@ public interface IOStorage {
    * @throws SirixIOException if storage is not accessible
    */
   boolean exists();
+
+  static void requireCommittedBeacon(final ResourceConfiguration config, final UberPage uberPage) {
+    Objects.requireNonNull(config);
+    Objects.requireNonNull(uberPage);
+    if (!uberPage.isBootstrap()) {
+      return;
+    }
+    final Path dataFile = config.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
+    try {
+      if (Files.exists(dataFile) && Files.size(dataFile) > 0) {
+        throw new SirixIOException("No committed uber-page beacon exists for " + config.resourcePath);
+      }
+    } catch (final IOException failure) {
+      throw new UncheckedIOException(failure);
+    }
+  }
 
   default UberPage getOpeningUberPage() {
     if (!exists()) {
