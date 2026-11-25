@@ -98,6 +98,19 @@ final class HOTIndirectLevelSplitTest {
   }
 
   @Test
+  void aNameableBitSetIsRefusedByTheLevelSplitWithoutDrawingAPageKey() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final PageReference[] children = {new PageReference(), new PageReference(), new PageReference(),
+        new PageReference()};
+    final IllegalArgumentException refusal = assertThrows(IllegalArgumentException.class,
+        () -> HOTBulkBuilder.assembleOverLevels(new int[] {EARLY_BYTE * Byte.SIZE, NAMEABLE_BYTE * Byte.SIZE},
+            new int[] {0, 1, 2, 3}, children, 1, 1, IndexType.NAME, pageKeys::getAndIncrement));
+    assertTrue(refusal.getMessage().contains("key byte " + NAMEABLE_BYTE), refusal.getMessage());
+    assertTrue(refusal.getMessage().contains("base byte " + EARLY_BYTE), refusal.getMessage());
+    assertEquals(1, pageKeys.get(), "a nameable bit set must not allocate a level split");
+  }
+
+  @Test
   void aLeadingBitThatBranchesNoChildIsRefusedWithoutDrawingAPageKey() {
     final AtomicLong pageKeys = new AtomicLong(1);
     final PageReference[] children = {new PageReference(), new PageReference()};

@@ -668,6 +668,7 @@ public final class HOTBulkBuilder {
    * <p>
    * This is the cold path of a rare key geometry — names that share a long head and differ again far
    * past it — so it favours clarity over the allocation discipline of the routable case.
+   * Package-private so the refusal of a set one node can name is asserted directly.
    *
    * @param discBits discriminative bits as sorted ascending absolute positions
    * @param partials per-child sparse-path partials over {@code discBits}, ascending
@@ -675,12 +676,17 @@ public final class HOTBulkBuilder {
    * @param height the height a node holding {@code children} directly would have
    * @return the root of the nest
    */
-  private static HOTIndirectPage assembleOverLevels(final int[] discBits, final int[] partials,
+  static HOTIndirectPage assembleOverLevels(final int[] discBits, final int[] partials,
       final PageReference[] children, final int height, final int revision, final IndexType indexType,
       final LongSupplier pageKeyAllocator) {
     final int columns = discBits.length;
     final int firstByte = discBits[0] >>> 3;
     final int prefix = HOTIndirectPage.nameableLeadingBits(discBits);
+    if (prefix == columns) {
+      throw new IllegalArgumentException(
+          "HOT level split is unnecessary for discriminative key byte " + (discBits[columns - 1] >>> 3)
+              + " from base byte " + firstByte);
+    }
     final int suffixColumns = columns - prefix;
 
     // Plan the split before allocating anything: group boundaries first, then the pages. A caller

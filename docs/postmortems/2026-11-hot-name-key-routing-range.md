@@ -247,12 +247,20 @@
   `HOTIndirectPage.nameableLeadingBits`, where a set it can name whole is an ordinary input instead
   of an unreachable loop bound, and the group's column walk is now driven by the column weight, so a
   wrong starting weight or a wrong shift direction changes the bits a group names.
-- Verification: the lane's whole selected test set green locally (148 tests), and the lane itself
-  run locally over the changed lines: 243 mutants, 232 killed, 5 timed out, 6 undetected. Each of
-  the six is a reviewed `equivalent` disposition, and each argument was checked by applying the
-  mutant to a source copy and running the behaviour tests — a cycle-guard loop bound no block can
-  reach, a fast-path boundary whose two arms return the same prefix, a loop bound its only caller
-  makes unreachable, a range check that only decides which `IndexOutOfBoundsException` an undersized
-  buffer raises, `utf8Width(0x80)` for a byte that cannot lead a UTF-8 character, and the dispatch
-  shift that can only send a nameable bit set through a level split which rebuilds the same node.
+- Verification before the cost review: the lane's whole selected test set green locally (148
+  tests), and the lane itself run locally over the changed lines: 243 mutants, 232 killed, 5 timed
+  out, 6 undetected. Those counts describe that earlier revision, not the revised code below.
+- The cost review found that returning the same prefix or rebuilding the same node did not prove
+  equivalence: the boundary walk adds work proportional to the component length, and sending a
+  nameable set through the level split allocates temporary arrays and traverses its children.
+  The record-read budget observes neither cost. The serializer now takes both prefix decisions
+  from the truncation flag it already has, and its redundant escape-rewrite range check is gone.
+  The level split refuses a bit set one node can name before allocating arrays or drawing a page
+  key; `HOTIndirectLevelSplitTest.aNameableBitSetIsRefusedByTheLevelSplitWithoutDrawingAPageKey`
+  asserts that refusal. The budget walk now reaches the end of a component in a shape covered by
+  `NameKeySerializerRoutableBoundTest.aWholeNamespaceSurvivesWhenOnlyTheLocalNameExceedsTheBound`:
+  the namespace fits whole while only the local name is cut. These changes resolve four of the
+  previous dispositions. Two reviewed equivalent dispositions remain: a cycle-guard loop bound no
+  block can reach and `utf8Width(0x80)` for a byte that cannot lead a UTF-8 character. Mutation
+  remeasurement of this revised code belongs to the outer validation lane.
 

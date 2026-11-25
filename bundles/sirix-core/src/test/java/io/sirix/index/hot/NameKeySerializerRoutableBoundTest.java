@@ -100,6 +100,17 @@ final class NameKeySerializerRoutableBoundTest {
   }
 
   @Test
+  void aWholeNamespaceSurvivesWhenOnlyTheLocalNameExceedsTheBound() {
+    final QNm name = new QNm("urn:x", "p", "a".repeat(BOUND));
+    final byte[] stored = serialize(name);
+    assertTrue(NameKeySerializer.isTruncated(stored, 0, stored.length));
+    assertEquals(BOUND, stored.length);
+    final QNm read = SERIALIZER.deserialize(stored, 0, stored.length);
+    assertEquals("urn:x", read.getNamespaceURI());
+    assertEquals("a".repeat(BOUND - 9), read.getLocalName());
+  }
+
+  @Test
   void anEscapedNulInTheNamespaceCountsTowardTheBound() {
     final QNm name = new QNm("a\u0000b", "p", "local");
     final byte[] stored = serialize(name);

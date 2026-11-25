@@ -108,7 +108,9 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
           ? 1
           : utf8Width(localBytes[0] & 0xFF);
       final int uriBudget = budget - NAMESPACE_FRAMING_BYTES - firstLocalWidth;
-      final int uriPrefix = prefixOrWhole(uri, uriBytes, uriLength, (long) uriLength + uriZeros, uriBudget, true);
+      final int uriPrefix = truncated
+          ? prefixWithinBudget(uri, uriBytes, uriLength, uriBudget, true)
+          : uriLength;
       dest[pos++] = NAMESPACE_SENTINEL;
       final int start = pos;
       writeEncodedPrefix(uri, uriBytes, uriPrefix, dest, start);
@@ -122,7 +124,6 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
         }
       }
       if (uriZeros != 0) {
-        checkFromIndexSize(start, uriPrefix + uriZeros, dest.length);
         int target = pos + uriZeros;
         for (int source = pos - 1; source >= start; source--) {
           final byte value = dest[source];
@@ -137,7 +138,9 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
       dest[pos++] = 0;
       budget -= NAMESPACE_FRAMING_BYTES + uriPrefix + uriZeros;
     }
-    final int localPrefix = prefixOrWhole(localName, localBytes, localLength, localLength, budget, false);
+    final int localPrefix = truncated
+        ? prefixWithinBudget(localName, localBytes, localLength, budget, false)
+        : localLength;
     writeEncodedPrefix(localName, localBytes, localPrefix, dest, pos);
     pos += localPrefix;
     if (truncated) {
@@ -153,18 +156,9 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
   }
 
   /**
-   * The prefix of {@code value} this key stores: the whole of it when the {@code stored} bytes it
-   * would occupy fit {@code budget}, and otherwise the longest whole-character prefix that does. One
-   * decision for both components, so that a name inside the bound pays a comparison rather than a
-   * walk over its characters.
+   * The longest whole-character prefix that fits {@code budget}, reached only for a key past the
+   * bound. A component may still fit whole when the other component causes truncation.
    */
-  private static int prefixOrWhole(final String value, final byte @Nullable [] encoded, final int length,
-      final long stored, final int budget, final boolean escapeZeros) {
-    return stored <= budget
-        ? length
-        : prefixWithinBudget(value, encoded, length, budget, escapeZeros);
-  }
-
   private static int prefixWithinBudget(final String value, final byte @Nullable [] encoded, final int length,
       final int budget, final boolean escapeZeros) {
     int bytes = 0;
