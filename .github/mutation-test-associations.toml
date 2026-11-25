@@ -181,7 +181,8 @@ tests = ["io.sirix.index.hot.HOTIndirectLevelSplitTest", "io.sirix.index.name.Na
 
 [[association]]
 class = "io.sirix.index.hot.page.HOTIndirectPage"
-tests = ["io.sirix.index.hot.HOTIndirectLevelSplitTest"]
+# FMT-306's routing-work contract is asserted outside the page's package.
+tests = ["io.sirix.index.hot.HOTIndirectLevelSplitTest", "io.sirix.budget.HOTLookupShapeWorkBudgetTest"]
 
 [[association]]
 class = "io.sirix.index.hot.AbstractHOTIndexWriter"

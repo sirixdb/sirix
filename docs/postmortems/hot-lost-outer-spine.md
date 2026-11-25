@@ -382,3 +382,29 @@ repartitioning across block boundaries rather than a larger fold.
   -PtestHeapMin=128m -PtestHeapMax=2g`.
 - Lesson: reacquire transaction-owned storage handles after commit or rollback before checking
   the next state; see [Lessons from failures](../LESSONS.md).
+
+### CI follow-up: routing work-budget selection
+
+- Symptom: [PR #1502's PIT run](https://github.com/sirixdb/sirix/actions/runs/45698789878/job/139507250689)
+  completed with two surviving changed-line routing-counter mutants and one uncovered getter.
+- Trigger: the changed production source is `HOTIndirectPage`, while the existing FMT-306
+  behavior test is named `HOTLookupShapeWorkBudgetTest` in the budget package.
+- Root cause: name-based selection and the existing page association selected only
+  `HOTIndirectPageTest` and `HOTIndirectLevelSplitTest`. Neither asserts routing work, so disabling
+  the instrument was invisible. CONV-204 requires associating the test that owns that contract.
+- Regression protection: add the existing budget test to the page's association. Its independent
+  oracle is one routing step for a committed eight-leaf index, with exact posting answers, under
+  ascending/descending insertion and FULL/DIFFERENTIAL revisions. A disabled counter reports zero
+  and fails that exact-work assertion. No new test or relaxed bound is needed.
+- Verification: rerun `python3 .github/scripts/pr_mutation.py run --seconds 1320 --blocking
+  --output build/ci-evidence/fixed-pr-mutation` after selecting this PR's base/head and compiling
+  core test classes; compare its selected tests and changed-line verdict with the failed artifact.
+  The local rerun selected all three tests and killed all three changed-line mutants (previously
+  two survived and one had no coverage), with the same 555 off-diff mutants removed. Both budget
+  cases and all 266 mutation-tooling tests passed. The reporting helper still exited 1 because
+  26 unrelated CLI/REST disposition entries had no compiled classes in this core-only local build;
+  CI's full build artifact supplied those classes and reported no disposition failures.
+- Lesson: associate a budget test with the production class that supplies its counter when their
+  names differ; see [Lessons from failures](../LESSONS.md).
+- Vision check: this restores verification of FMT-306's lookup-work contract without changing
+  results, persisted stores, runtime paths or performance bounds.
