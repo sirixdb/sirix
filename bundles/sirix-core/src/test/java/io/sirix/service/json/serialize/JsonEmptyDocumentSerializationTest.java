@@ -102,6 +102,7 @@ final class JsonEmptyDocumentSerializationTest {
         case 2 -> builder.withNodeKeyAndChildCountMetaData(true);
         case 3 -> builder.withMetaData(true);
         default -> {
+          // Mode 0 retains the corresponding builder default.
         }
       }
       builder.build().call();
@@ -115,6 +116,7 @@ final class JsonEmptyDocumentSerializationTest {
         case 2 -> builder.maxChildren(1);
         case 3 -> builder.numberOfNodes(10);
         default -> {
+          // Mode 0 retains the corresponding builder default.
         }
       }
       switch (metadata) {
@@ -122,6 +124,7 @@ final class JsonEmptyDocumentSerializationTest {
         case 2 -> builder.withNodeKeyAndChildCountMetaData(true);
         case 3 -> builder.withMetaData(true);
         default -> {
+          // Mode 0 retains the corresponding builder default.
         }
       }
       builder.build().call();

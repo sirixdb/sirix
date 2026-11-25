@@ -48,7 +48,8 @@ final class JsonRecordSubtreeScopeTest {
           if (root < 0) {
             assertThrows(IllegalArgumentException.class, () -> builder.rootNodeKey(root));
           } else {
-            assertThrows(IllegalArgumentException.class, () -> builder.rootNodeKey(root).build().call());
+            final var serializer = builder.rootNodeKey(root).build();
+            assertThrows(IllegalArgumentException.class, serializer::call);
           }
           assertEquals("", bytes
               ? stream.toString(StandardCharsets.UTF_8)
@@ -186,6 +187,7 @@ final class JsonRecordSubtreeScopeTest {
       case 2 -> builder.withNodeKeyAndChildCountMetaData(true);
       case 3 -> builder.withMetaData(true);
       default -> {
+        // Mode 0 uses the builder's plain-output default.
       }
     }
     builder.build().call();

@@ -4,6 +4,7 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.brackit.query.jdm.Item
+import io.brackit.query.jdm.Iter
 import io.brackit.query.util.serialize.Serializer
 import io.sirix.query.SirixCompileChain
 import io.sirix.query.SirixQueryContext
@@ -38,48 +39,42 @@ class QuerySerializer {
                 val sequence =
                     PermissionCheckingQuery(sirixCompileChain, query, keycloak, user, authz).execute(queryCtx)
 
-                if (sequence != null) {
-                    if (sequence is Item) {
-                        if (startResultSeqIndex == 0L) {
-                            serialize(serializer, sequence)
-                        }
-                        return
+                if (sequence == null) return
+                if (sequence is Item) {
+                    if (startResultSeqIndex == 0L) {
+                        serialize(serializer, sequence)
                     }
-                    sequence.iterate().use { itemIterator ->
+                    return
+                }
+                sequence.iterate().use { itemIterator ->
+                    serializeWindow(itemIterator, startResultSeqIndex, endResultSeqIndex, serializer, serialize)
+                }
+            }
+        }
 
-                        // Skip to the window start, STOPPING at end-of-sequence: brackit iterators
-                        // return null forever once exhausted, so an unbounded skip loop with a huge
-                        // start index (e.g. ?startResultSeqIndex=10^15) spun for that many iterations
-                        // on a worker thread and head-of-line-blocked the ordered context — a DoS any
-                        // VIEW-role user could trigger.
-                        var skipped = 0L
-                        while (skipped < startResultSeqIndex && itemIterator.next() != null) {
-                            skipped++
-                        }
-                        if (skipped < startResultSeqIndex) {
-                            return // sequence shorter than the window start — empty result
-                        }
+        private fun serializeWindow(
+            itemIterator: Iter,
+            startResultSeqIndex: Long,
+            endResultSeqIndex: Long?,
+            serializer: Serializer,
+            serialize: (Serializer, Item?) -> Unit
+        ) {
+            // Stop skipping at exhaustion even for a very large requested start index.
+            var skipped = 0L
+            while (skipped < startResultSeqIndex && itemIterator.next() != null) {
+                skipped++
+            }
+            if (skipped < startResultSeqIndex) return
 
-                        if (endResultSeqIndex == null) {
-                            while (true) {
-                                val item = itemIterator.next()
-
-                                if (item == null)
-                                    break
-                                else
-                                    serialize(serializer, item)
-                            }
-                        } else {
-                            for (i in startResultSeqIndex..endResultSeqIndex) {
-                                val item = itemIterator.next()
-
-                                if (item == null)
-                                    break
-                                else
-                                    serialize(serializer, item)
-                            }
-                        }
-                    }
+            if (endResultSeqIndex == null) {
+                while (true) {
+                    val item = itemIterator.next() ?: break
+                    serialize(serializer, item)
+                }
+            } else {
+                for (i in startResultSeqIndex..endResultSeqIndex) {
+                    val item = itemIterator.next() ?: break
+                    serialize(serializer, item)
                 }
             }
         }

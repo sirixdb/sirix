@@ -153,6 +153,8 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
    * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
   @Override
+  // S3776: Per-node dispatch stays in one compiled unit to preserve the measured serialization path.
+  @SuppressWarnings("java:S3776")
   protected void emitNode(final XmlNodeReadOnlyTrx rtx) {
     try {
       switch (rtx.getKind()) {

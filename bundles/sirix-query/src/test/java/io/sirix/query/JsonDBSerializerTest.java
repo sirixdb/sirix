@@ -76,9 +76,9 @@ final class JsonDBSerializerTest {
   @Test
   void unusedSerializerProducesAnEmptyResultSequence() {
     final StringBuilder output = new StringBuilder();
-    try (final var serializer = new JsonDBSerializer(output, false)) {
-      // No selected items, as for an excluded query result window.
-    }
+    final var serializer = new JsonDBSerializer(output, false);
+    // No selected items, as for an excluded query result window.
+    serializer.close();
     assertEquals(JsonParser.parseString("{\"rest\":[]}"), JsonParser.parseString(output.toString()));
   }
 

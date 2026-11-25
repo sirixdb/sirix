@@ -533,6 +533,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param rtx the read-only transaction
    * @throws IOException if serialization fails
    */
+  // S3776: The per-record sibling loop reuses one builder; keep its cursor and emission operations
+  // together.
+  @SuppressWarnings("java:S3776")
   private void serializeSiblingsAfter(final JsonNodeReadOnlyTrx rtx, final int revision) throws IOException {
     if (startNodeKey == rootNodeKey) {
       out.append("{\"value\":[]}");
@@ -627,15 +630,16 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param rtx the read-only transaction
    * @throws IOException if serialization fails
    */
+  // S3776: The per-record child loop reuses one builder; keep its cursor and emission operations
+  // together.
+  @SuppressWarnings("java:S3776")
   private void serializeWithParentWrapper(final JsonNodeReadOnlyTrx rtx, final int revision) throws IOException {
     var state = State.IS_PRIMITIVE;
 
     checkArgument(rtx.moveTo(rootNodeKey), "Subtree root does not exist");
-    if (rootNodeKey == 0) {
-      if (!rtx.moveToFirstChild()) {
-        out.append("null");
-        return;
-      }
+    if (rootNodeKey == 0 && !rtx.moveToFirstChild()) {
+      out.append("null");
+      return;
     }
 
     // Pre-compute metadata flag for efficiency

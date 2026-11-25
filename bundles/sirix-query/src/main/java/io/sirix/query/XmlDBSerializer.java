@@ -72,6 +72,8 @@ public final class XmlDBSerializer implements Serializer, AutoCloseable {
   }
 
   @Override
+  // S3776: Per-query-item dispatch stays together to preserve the serialization loop shape.
+  @SuppressWarnings("java:S3776")
   public void serialize(Sequence sequence) throws QueryException {
     emitRestSequenceStart();
     if (sequence != null) {

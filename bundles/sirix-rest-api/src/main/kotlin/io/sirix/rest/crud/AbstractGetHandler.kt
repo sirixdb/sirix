@@ -77,9 +77,14 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
 
             manager.use {
                 body = if (!query.isNullOrEmpty()) {
-                    queryResource(
-                        databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                        vertxContext, user, jsonBody
+                    // The outer database scope owns this collection's database; xquery closes its stores.
+                    val dbCollection = getDBCollection(databaseName, database)
+                    val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
+                    val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrNull(0)
+                    val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrNull(0)
+                    xquery(
+                        manager, dbCollection, nodeId, revisionNumber, query, ctx, vertxContext, user,
+                        startResultSeqIndex?.toLong(), endResultSeqIndex?.toLong(), jsonBody
                     )
                 } else {
                     val revisions: IntArray =
@@ -97,33 +102,6 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
             ctx.response().end(body)
         } else {
             ctx.response().end()
-        }
-    }
-
-    private suspend fun queryResource(
-        databaseName: String?, database: Database<T>, revision: String?,
-        revisionTimestamp: String?, manager: T, ctx: RoutingContext,
-        nodeId: Long?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
-    ): Buffer? {
-        val dbCollection = getDBCollection(databaseName, database)
-        dbCollection.use {
-            val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
-            val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
-            val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
-
-            return xquery(
-                manager,
-                dbCollection,
-                nodeId,
-                revisionNumber,
-                query,
-                ctx,
-                vertxContext,
-                user,
-                startResultSeqIndex?.toLong(),
-                endResultSeqIndex?.toLong(),
-                jsonBody
-            )
         }
     }
 
@@ -173,21 +151,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                     @Suppress("UNCHECKED_CAST") val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0]) as R
 
                     rtx.use {
-                        if (nodeId == null) {
-                            rtx.moveToFirstChild()
-                        } else {
-                            // An unchecked moveTo would bind the context item to the document
-                            // root, silently evaluating the query against the wrong context.
-                            rtx.moveToOrNotFound(nodeId)
-                        }
-
-                        val nodeHash = if (nodeId != null && manager.resourceConfig.hashType != HashType.NONE) {
-                            (rtx as NodeReadOnlyTrx).hash
-                        } else {
-                            null
-                        }
-
-                        handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)
+                        val nodeHash = bindQueryContext(rtx, nodeId, manager, dbCollection, queryCtx, jsonDBStore)
 
                         body = executeQueryAndSerialize(
                             routingContext,
@@ -222,6 +186,25 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
             }
             body
         }, false).coAwait()
+    }
+
+    private fun bindQueryContext(
+        rtx: R, nodeId: Long?, manager: T, dbCollection: W,
+        queryCtx: SirixQueryContext, jsonDBStore: JsonSessionDBStore
+    ): Long? {
+        if (nodeId == null) {
+            rtx.moveToFirstChild()
+        } else {
+            // Refuse an unknown key before context binding or query evaluation.
+            rtx.moveToOrNotFound(nodeId)
+        }
+        val nodeHash = if (nodeId != null && manager.resourceConfig.hashType != HashType.NONE) {
+            (rtx as NodeReadOnlyTrx).hash
+        } else {
+            null
+        }
+        handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)
+        return nodeHash
     }
 
     private suspend fun serializeResource(

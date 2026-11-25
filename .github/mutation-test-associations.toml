@@ -63,7 +63,7 @@ tests = ["io.sirix.io.CommitTimestampOutputTest"]
 
 [[association]]
 class = "io.sirix.service.json.serialize.JsonRecordSerializer"
-tests = ["io.sirix.io.CommitTimestampOutputTest"]
+tests = ["io.sirix.io.CommitTimestampOutputTest", "io.sirix.service.json.serialize.JsonRecordSubtreeScopeTest", "io.sirix.service.json.serialize.JsonEmptyDocumentSerializationTest"]
 
 [[association]]
 class = "io.sirix.service.xml.serialize.XmlSerializer"

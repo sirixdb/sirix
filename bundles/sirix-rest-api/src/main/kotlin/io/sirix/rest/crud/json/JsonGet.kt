@@ -191,14 +191,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         val startNodeKey = ctx.queryParam("startNodeKey").getOrNull(0)?.toLong()
 
         if (nodeId != null && startNodeKey != null) {
-            for (revision in revisions) {
-                manager.beginNodeReadOnlyTrx(revision).use { rtx ->
-                    require(rtx.moveTo(startNodeKey)) { "startNodeKey must exist inside the nodeId subtree" }
-                    while (rtx.nodeKey != nodeId && rtx.moveToParent()) {
-                    }
-                    require(rtx.nodeKey == nodeId) { "startNodeKey must exist inside the nodeId subtree" }
-                }
-            }
+            requireCursorInSubtree(manager, revisions, nodeId, startNodeKey)
         }
 
         val numberOfNodes = ctx.queryParam("numberOfNodes").getOrNull(0)?.toLong()
@@ -217,29 +210,23 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
 
             nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
-            if (withMetaData != null) {
-                when (withMetaData) {
+            withMetaData?.let {
+                when (it) {
                     "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
                     "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
                     else -> serializerBuilder.withMetaData(true)
                 }
             }
 
-            if (maxLevel != null) {
-                serializerBuilder.maxLevel(maxLevel.toLong())
-            }
+            maxLevel?.let { serializerBuilder.maxLevel(it.toLong()) }
 
-            if (maxChildren != null) {
-                serializerBuilder.maxChildren(maxChildren)
-            }
+            maxChildren?.let { serializerBuilder.maxChildren(it) }
 
             if (prettyPrint != null) {
                 serializerBuilder.prettyPrint()
             }
 
-            if (numberOfNodes != null) {
-                serializerBuilder.numberOfNodes(numberOfNodes)
-            }
+            numberOfNodes?.let { serializerBuilder.numberOfNodes(it) }
 
             val serializer = serializerBuilder.build()
 
@@ -253,37 +240,42 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
 
             nodeId?.let { serializerBuilder.rootNodeKey(it) }
 
-            if (startNodeKey != null) {
-                serializerBuilder.startNodeKey(startNodeKey)
-            }
+            startNodeKey?.let { serializerBuilder.startNodeKey(it) }
 
-            if (withMetaData != null) {
-                when (withMetaData) {
+            withMetaData?.let {
+                when (it) {
                     "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
                     "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
                     else -> serializerBuilder.withMetaData(true)
                 }
             }
 
-            if (maxLevel != null) {
-                serializerBuilder.maxLevel(maxLevel.toLong())
-            }
+            maxLevel?.let { serializerBuilder.maxLevel(it.toLong()) }
 
-            if (maxChildren != null) {
-                serializerBuilder.maxChildren(maxChildren)
-            }
+            maxChildren?.let { serializerBuilder.maxChildren(it) }
 
             if (prettyPrint != null) {
                 serializerBuilder.prettyPrint()
             }
 
-            if (numberOfNodes != null) {
-                serializerBuilder.numberOfNodes(numberOfNodes)
-            }
+            numberOfNodes?.let { serializerBuilder.numberOfNodes(it) }
 
             val serializer = serializerBuilder.build()
 
             return JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId)
+        }
+    }
+
+    private fun requireCursorInSubtree(
+        manager: JsonResourceSession, revisions: IntArray, nodeId: Long, startNodeKey: Long
+    ) {
+        for (revision in revisions) {
+            manager.beginNodeReadOnlyTrx(revision).use { rtx ->
+                require(rtx.moveTo(startNodeKey)) { "startNodeKey must exist inside the nodeId subtree" }
+                while (rtx.nodeKey != nodeId && rtx.moveToParent()) {
+                }
+                require(rtx.nodeKey == nodeId) { "startNodeKey must exist inside the nodeId subtree" }
+            }
         }
     }
 

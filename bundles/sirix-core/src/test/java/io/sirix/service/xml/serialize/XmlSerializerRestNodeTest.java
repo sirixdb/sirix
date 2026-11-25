@@ -74,8 +74,9 @@ final class XmlSerializerRestNodeTest {
             assertEquals(prefix, node.getAttribute("prefix"));
             assertEquals(uri, node.getAttribute("uri"));
           }
-          assertThrows(IllegalStateException.class,
-              () -> XmlSerializer.newBuilder(session, new ByteArrayOutputStream()).startNodeKey(key).build().call());
+          final var plainSerializer =
+              XmlSerializer.newBuilder(session, new ByteArrayOutputStream()).startNodeKey(key).build();
+          assertThrows(IllegalStateException.class, plainSerializer::call);
         }
       }
     }
