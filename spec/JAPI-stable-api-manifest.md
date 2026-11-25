@@ -1087,6 +1087,10 @@ Source: [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/siri
 [internal] public final ValidTimeConfig validTimeConfig;
 [internal] public final UUID resourceUuid;
 [stable] public static Builder newBuilder(final String resource);
+[internal] public long getIncarnationId();
+[internal] public static String formatIncarnationId(final long incarnationId);
+[internal] public void publishFreshIncarnationId();
+[internal] public static void publishFreshIncarnationId(final Path resourceDirectory);
 [internal] public BinaryEncodingVersion getBinaryEncodingVersion();
 [stable] public boolean customCommitTimestamps();
 [internal] public ResourceConfiguration setID(final long id);

@@ -16,7 +16,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.io.TempDir
@@ -37,10 +36,9 @@ import java.nio.file.Path
  * lowercase hexadecimal digits, so the test binds to no accessor of an implementation. The token
  * grammar and its 412 / 428 verdicts belong to REST-204 / REST-205 and are not exercised here.
  *
- * Planned, not enforced (CONV-102): the id is unimplemented, so the class is `@Disabled`. The
- * implementation change removes the annotation and must not weaken an assertion.
+ * Written before the implementation and enabled unchanged by the change that implemented FMT-209;
+ * no assertion may be weakened.
  */
-@Disabled("FMT-209 / REST-210 planned: PUT replacement does not yet draw an incarnation id")
 @Tag("offline")
 @Timeout(60)
 class PutResourceIncarnationIdTest {

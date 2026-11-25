@@ -1473,6 +1473,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
           resourceSession.createPageTransaction(trxID, revision, revNumber - 1, InternalResourceSession.Abort.NO, true);
       storageEngineWriter.setStorageEpochSpilling(
           storageEpochRotationSupported && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
+      // FMT-209: the commit of this revision publishes a revert; it becomes the last-revert revision.
+      storageEngineWriter.getActualRevisionRootPage().markRevertPublished();
       nodeReadOnlyTrx.setPageReadTransaction(null);
       nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
       resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);

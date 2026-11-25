@@ -572,7 +572,7 @@ public abstract class AbstractReader implements Reader {
     if (features == null) {
       features = ((UberPage) readUberPageReference().getPage()).getFeatures();
     }
-    return features.readOnlyCompat() == 0;
+    return !features.hasUnknownReadOnlyCompat();
   }
 
   public final UberPage readOpeningUberPage() {

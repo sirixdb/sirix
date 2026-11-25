@@ -387,7 +387,7 @@ public final class DatabaseConfiguration {
    * sharing violation a concurrent reader can raise. A non-transient failure (e.g. a genuinely
    * unwritable directory) exhausts the bounded retries and is rethrown to the caller unchanged.
    */
-  private static void moveIntoPlace(final Path tmpFile, final Path configFile) throws IOException {
+  static void moveIntoPlace(final Path tmpFile, final Path configFile) throws IOException {
     IOException lastError = null;
     for (int attempt = 0; attempt < CONFIG_IO_MAX_ATTEMPTS; attempt++) {
       try {

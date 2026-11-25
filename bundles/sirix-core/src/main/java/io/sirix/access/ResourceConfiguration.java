@@ -30,6 +30,9 @@ package io.sirix.access;
 
 import io.sirix.exception.UnsupportedFormatVersionException;
 import io.sirix.utils.ToStringHelper;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import com.google.gson.stream.JsonWriter;
@@ -51,16 +54,23 @@ import io.sirix.settings.StringCompressionType;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.ChildCounts;
 import net.openhft.hashing.LongHashFunction;
+import org.jspecify.annotations.Nullable;
 
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.security.SecureRandom;
+import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -439,7 +449,26 @@ public final class ResourceConfiguration {
    */
   public final UUID resourceUuid;
 
+  /**
+   * The resource incarnation id (FMT-209): an independent uniform unsigned 64-bit draw from a
+   * cryptographically secure RNG, persisted in the settings as {@code incarnationId}, 16 lowercase
+   * hexadecimal digits (CONF-102). It identifies the incarnation and timeline the revision numbers
+   * belong to, so it changes only where that timeline ends: resource creation (including recreation),
+   * truncate (TXN-404), whole-resource replacement (REST-210, which creates a new resource) and
+   * backup restore (TXN-613/614). Ordinary commits, reopen and settings rewrites keep it. Read at
+   * open and settings level only, never per record.
+   */
+  private volatile long incarnationId;
+
   // END MEMBERS FOR FIXED FIELDS
+
+  /** One shared generator; {@link SecureRandom} is thread-safe and the draws are rare. */
+  private static final SecureRandom INCARNATION_ID_RANDOM = new SecureRandom();
+
+  /** CONF-102: the encoded length of an incarnation id. */
+  private static final int INCARNATION_ID_DIGITS = 16;
+
+  private static final HexFormat INCARNATION_ID_FORMAT = HexFormat.of();
 
   /**
    * Get a new builder instance.
@@ -494,6 +523,157 @@ public final class ResourceConfiguration {
     hashAlgorithm = builder.hashAlgorithm;
     validTimeConfig = builder.validTimeConfig;
     resourceUuid = builder.resourceUuid;
+    // Never a sentinel (FMT-209): even a configuration that is never persisted carries a real draw.
+    incarnationId = drawIncarnationId();
+  }
+
+  /**
+   * The resource incarnation id (FMT-209), an unsigned 64-bit value.
+   *
+   * @return the id as a signed {@code long} carrying the unsigned bits
+   */
+  public long getIncarnationId() {
+    return incarnationId;
+  }
+
+  /**
+   * Encodes an incarnation id as CONF-102 persists it.
+   *
+   * @param incarnationId the unsigned 64-bit id
+   * @return exactly 16 lowercase hexadecimal digits
+   */
+  public static String formatIncarnationId(final long incarnationId) {
+    return INCARNATION_ID_FORMAT.toHexDigits(incarnationId);
+  }
+
+  private static long drawIncarnationId() {
+    return INCARNATION_ID_RANDOM.nextLong();
+  }
+
+  /**
+   * Draws the id of a newly created resource (FMT-209: creation, including recreation). Runs before
+   * the first settings write, so a configuration object reused for several creations never hands one
+   * incarnation id to two resources.
+   */
+  void drawIncarnationIdForCreation() {
+    incarnationId = drawIncarnationId();
+  }
+
+  /**
+   * Draws a fresh incarnation id for this persisted resource and durably publishes it in its settings
+   * before adopting it (FMT-209, TXN-404). When this returns, the new id is on disk and forced; when
+   * it throws, neither the settings file nor this configuration changed.
+   *
+   * @throws SirixIOException if the settings cannot be read or durably rewritten
+   */
+  public void publishFreshIncarnationId() {
+    final long fresh = drawIncarnationId();
+    writeIncarnationId(resourcePath, fresh);
+    incarnationId = fresh;
+  }
+
+  /**
+   * Draws a fresh incarnation id for the persisted resource in {@code resourceDirectory} and durably
+   * publishes it in its settings (FMT-209: backup restore draws per restored resource before exposing
+   * it). Only the {@code incarnationId} member changes; every other setting is kept as written.
+   *
+   * @param resourceDirectory the resource directory holding {@code ressetting.obj}
+   * @throws SirixIOException if the settings are not a valid 1.0 settings document or cannot be
+   *         durably rewritten
+   */
+  public static void publishFreshIncarnationId(final Path resourceDirectory) {
+    writeIncarnationId(requireNonNull(resourceDirectory), drawIncarnationId());
+  }
+
+  /**
+   * Replaces the persisted {@code incarnationId} member with {@code incarnationId}: write a sibling
+   * temporary file, force it, atomically move it over the settings and force the directory, so a
+   * crash leaves the old or the new document in full, and the new one durably once this returns.
+   */
+  private static void writeIncarnationId(final Path resourceDirectory, final long incarnationId) {
+    final Path configFile = resourceDirectory.resolve(ResourcePaths.CONFIG_BINARY.getPath());
+    final JsonObject settings;
+    try {
+      settings = JsonParser.parseString(Files.readString(configFile, StandardCharsets.UTF_8)).getAsJsonObject();
+    } catch (final IOException | RuntimeException e) {
+      throw new SirixIOException(configFile + ": cannot read the resource settings", e);
+    }
+    // The member already exists, so the replacement keeps its position in the document.
+    parseIncarnationId(settings.get(INCARNATION_ID_NAME), configFile);
+    settings.addProperty(INCARNATION_ID_NAME, formatIncarnationId(incarnationId));
+    Path tmpFile = null;
+    try {
+      tmpFile = Files.createTempFile(resourceDirectory, "ressetting", ".tmp");
+      try (final FileChannel channel = FileChannel.open(tmpFile, StandardOpenOption.WRITE)) {
+        final ByteBuffer bytes = ByteBuffer.wrap(settings.toString().getBytes(StandardCharsets.UTF_8));
+        while (bytes.hasRemaining()) {
+          channel.write(bytes);
+        }
+        channel.force(true);
+      }
+      DatabaseConfiguration.moveIntoPlace(tmpFile, configFile);
+      tmpFile = null;
+      forceDirectory(resourceDirectory);
+    } catch (final IOException e) {
+      throw new SirixIOException(configFile + ": cannot publish a new incarnation id", e);
+    } finally {
+      if (tmpFile != null) {
+        try {
+          Files.deleteIfExists(tmpFile);
+        } catch (final IOException ignored) {
+          // Best effort: a leftover temporary file is not a settings document.
+        }
+      }
+    }
+  }
+
+  /** Makes the rename durable. Windows cannot open a directory channel; NTFS journals the rename. */
+  private static void forceDirectory(final Path directory) throws IOException {
+    if (System.getProperty("os.name", "").startsWith("Windows")) {
+      return;
+    }
+    try (final FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
+      channel.force(true);
+    }
+  }
+
+  /**
+   * Validates a persisted {@code incarnationId} member (CONF-102): a JSON string of exactly 16
+   * lowercase hexadecimal digits. Absence, any other JSON type and any other spelling are refused;
+   * nothing defaults to a sentinel (FMT-209).
+   */
+  private static long parseIncarnationId(final @Nullable JsonElement member, final Path configFile) {
+    if (member == null) {
+      throw missingIncarnationId(configFile);
+    }
+    if (!member.isJsonPrimitive() || !member.getAsJsonPrimitive().isString()) {
+      throw new SirixIOException(configFile + ": settings field '" + INCARNATION_ID_NAME
+          + "' must be a string of 16 lowercase hexadecimal digits");
+    }
+    return parseIncarnationId(member.getAsString(), configFile);
+  }
+
+  private static long parseIncarnationId(final String value, final Path configFile) {
+    if (value.length() != INCARNATION_ID_DIGITS) {
+      throw malformedIncarnationId(configFile);
+    }
+    for (int i = 0; i < INCARNATION_ID_DIGITS; i++) {
+      final char c = value.charAt(i);
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+        throw malformedIncarnationId(configFile);
+      }
+    }
+    return Long.parseUnsignedLong(value, 16);
+  }
+
+  private static SirixIOException malformedIncarnationId(final Path configFile) {
+    return new SirixIOException(configFile + ": settings field '" + INCARNATION_ID_NAME
+        + "' must be exactly 16 lowercase hexadecimal digits (CONF-102)");
+  }
+
+  private static SirixIOException missingIncarnationId(final Path configFile) {
+    return new SirixIOException(configFile + ": the resource settings lack the required '" + INCARNATION_ID_NAME
+        + "' member (FMT-209); every 1.0 resource carries one and none is assumed");
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -666,7 +846,10 @@ public final class ResourceConfiguration {
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "deweyIdSiblingDistance", "verifyChecksumsOnRead",
       "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath", "pathStatistics", "repairBulkInsertHashes",
-      "resourceUuid", "regionCompression", "aggregateKernel", "saltRecordPages"};
+      "resourceUuid", "regionCompression", "aggregateKernel", "saltRecordPages", "incarnationId"};
+
+  /** CONF-102 / FMT-209 member name. */
+  private static final String INCARNATION_ID_NAME = JSONNAMES[30];
 
   /**
    * Serialize the configuration.
@@ -744,6 +927,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[27]).value(config.regionCompressionType.name());
       jsonWriter.name(JSONNAMES[28]).value(config.aggregateKernel);
       jsonWriter.name(JSONNAMES[29]).value(config.saltRecordPages);
+      // Resource incarnation id (FMT-209), a string: JSON numbers cannot hold every u64 (CONF-102).
+      jsonWriter.name(INCARNATION_ID_NAME).value(formatIncarnationId(config.incarnationId));
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -871,6 +1056,8 @@ public final class ResourceConfiguration {
       RegionCompressionType regionCompressionType = RegionCompressionType.LZ77;
       boolean aggregateKernel = false;
       boolean saltRecordPages = true;
+      boolean hasIncarnationId = false;
+      long incarnationId = 0L;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[17])) {
@@ -911,6 +1098,17 @@ public final class ResourceConfiguration {
           aggregateKernel = jsonReader.nextBoolean();
         } else if (name.equals(JSONNAMES[29])) {
           saltRecordPages = jsonReader.nextBoolean();
+        } else if (name.equals(INCARNATION_ID_NAME)) {
+          if (hasIncarnationId) {
+            throw new SirixIOException(configFile + ": duplicate settings field '" + INCARNATION_ID_NAME + "'");
+          }
+          // peek first: nextString() would silently accept a JSON number.
+          if (jsonReader.peek() != JsonToken.STRING) {
+            throw new SirixIOException(configFile + ": settings field '" + INCARNATION_ID_NAME
+                + "' must be a string of 16 lowercase hexadecimal digits");
+          }
+          incarnationId = parseIncarnationId(jsonReader.nextString(), configFile);
+          hasIncarnationId = true;
         } else if (name.equals("extensions")) {
           if (jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
             throw new SirixIOException(configFile + ": settings field 'extensions' must be an object");
@@ -922,6 +1120,9 @@ public final class ResourceConfiguration {
       }
 
       jsonReader.endObject();
+      if (!hasIncarnationId) {
+        throw missingIncarnationId(configFile);
+      }
 
       requireResourceIdentity(resourceUuid, configFile);
 
@@ -961,6 +1162,7 @@ public final class ResourceConfiguration {
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
+      config.incarnationId = incarnationId;
       config.setDatabaseConfiguration(dbConfig);
       return config.setID(ID);
     } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException

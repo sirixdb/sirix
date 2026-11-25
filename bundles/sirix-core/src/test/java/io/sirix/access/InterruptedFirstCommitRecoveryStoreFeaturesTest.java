@@ -84,6 +84,12 @@ import static org.mockito.ArgumentMatchers.isNull;
 /** Fault images use the independent beacon contract, never the feature codec being tested. */
 @Isolated
 class InterruptedFirstCommitRecoveryStoreFeaturesTest {
+  /**
+   * A readOnlyCompat bit no engine implements; bit 0 is assigned to the FMT-209 conditional-write
+   * metadata and therefore known.
+   */
+  private static final int UNKNOWN_READ_ONLY_COMPAT = 0x2;
+
   @TempDir
   Path directory;
   private Path databasePath;
@@ -282,7 +288,7 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   void readOnlyOpeningSnapshotCannotCreateMissingDataFile(final StorageType backend) throws IOException {
     createStore(backend);
     materializeRevisionRecords();
-    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
     final Proof compatibility = ResourceFormatCompatibility.verify(config);
     Files.delete(dataFile());
     final IOStorage storage = backend == StorageType.MEMORY_MAPPED
@@ -372,8 +378,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void toolOpenRefusesEachUnknownWordWithoutChangingBytes(final StorageType storageType) throws IOException {
     createStore(storageType);
-    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0),
-        new StoreFeatures(0, 0, 1)}) {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0),
+        new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0), new StoreFeatures(0, 0, 1)}) {
       replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
       replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
       final byte[] before = Files.readAllBytes(dataFile());
@@ -387,7 +393,7 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @ValueSource(booleans = {false, true})
   void readOnlySalvageDoesNotHealRevisionRecords(final boolean secondaryOnly) throws IOException {
     createStore(StorageType.FILE_CHANNEL);
-    installDamagedRevisionFixture(new StoreFeatures(0, 1, 0));
+    installDamagedRevisionFixture(new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
     if (secondaryOnly) {
       zeroBeacon(IOStorage.PRIMARY_BEACON_OFFSET);
     }
@@ -428,8 +434,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void damagedRevisionToolRefusalPreservesBothFiles(final StorageType storageType) throws IOException {
-    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0),
-        new StoreFeatures(0, 0, 1)}) {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0),
+        new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0), new StoreFeatures(0, 0, 1)}) {
       createStore(storageType);
       installDamagedRevisionFixture(features);
       final byte[] dataBefore = Files.readAllBytes(dataFile());
@@ -478,7 +484,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void unsupportedOpenPreservesMissingFilesAndSpills(final StorageType storageType) throws IOException {
-    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0)}) {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0),
+        new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0)}) {
       createStore(storageType);
       replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
       replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
@@ -502,8 +509,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void readOnlyOpenPreservesOrphanSpills(final StorageType storageType) throws IOException {
     createStore(storageType);
-    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
-    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
     final Path spill = Files.createDirectories(config.resourcePath.resolve("projection-sort-spill"));
     Files.writeString(spill.resolve("orphan.tmp"), "preserve this run");
     Databases.clearGlobalCaches();
@@ -529,8 +536,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
           writer.commit();
         }
       }
-      replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
-      replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+      replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
+      replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
       if (missing) {
         Files.delete(revisionsFile());
       }
@@ -555,7 +562,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void unsupportedDerivedDamageNeverTriggersRebuild(final StorageType storageType) throws IOException {
-    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0)}) {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0),
+        new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0)}) {
       for (int damage = 0; damage < 5; damage++) {
         createDerivedStore(storageType, damage == 2);
         replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
@@ -583,8 +591,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void toolsRefuseHiddenDerivedFeaturesBeforeOpeningParents(final StorageType storageType) throws IOException {
-    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0),
-        new StoreFeatures(0, 0, 1)}) {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0),
+        new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0), new StoreFeatures(0, 0, 1)}) {
       createDerivedStore(storageType, false);
       replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
       replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
@@ -625,8 +633,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
     final Path backup = directory.resolve("backup");
     final Path restored = directory.resolve("restored");
     Files.createFile(marker());
-    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0),
-        new StoreFeatures(0, 0, 1)}) {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0),
+        new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0), new StoreFeatures(0, 0, 1)}) {
       replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
       replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
       final byte[] before = Files.readAllBytes(dataFile());
@@ -675,7 +683,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   void readOnlyFeatureRefusalPrecedesWriterLockContention() {
     createStore(StorageType.FILE_CHANNEL);
     final var unavailableWriterLock = mock(Semaphore.class);
-    try (final var session = sessionBoundary(new StoreFeatures(0, 1, 0), unavailableWriterLock)) {
+    try (
+        final var session = sessionBoundary(new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0), unavailableWriterLock)) {
       assertThrows(UnsupportedStoreFeatureException.class, session::beginNodeTrx);
       assertThrows(UnsupportedStoreFeatureException.class, session::createStorageEngineWriter);
       verifyNoInteractions(unavailableWriterLock);
@@ -813,7 +822,7 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
     for (final int activeSlots : new int[] {1, 2, 3}) {
       for (final boolean unwrittenInactive : new boolean[] {false, true}) {
         createStore(storageType);
-        final var active = new StoreFeatures(0, 1, 0);
+        final var active = new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0);
         replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 1, (activeSlots & 1) != 0
             ? active
             : StoreFeatures.NONE);
@@ -933,7 +942,7 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
     try (final var database = Databases.openJsonDatabase(databasePath);
         final var session = database.beginResourceSession("resource")) {
       final var internal = (InternalResourceSession<?, ?>) session;
-      internal.setLastCommittedUberPage(new UberPage(2, new StoreFeatures(0, 1, 0)));
+      internal.setLastCommittedUberPage(new UberPage(2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0)));
       final Map<Path, byte[]> before = snapshotResource();
       assertThrows(UnsupportedStoreFeatureException.class, () -> {
         try (final var ignored = internal.createPageTransaction(99, 1, 1, Abort.NO, false)) {
@@ -947,8 +956,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void readOnlyStorageRefusesItsOwnWriter(final StorageType storageType) throws IOException {
     createStore(storageType);
-    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
-    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
     Databases.clearGlobalCaches();
     final Map<Path, byte[]> before = snapshotResource();
     final IOStorage storage = StorageType.getStorage(config);
@@ -964,8 +973,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void healthyReadOnlyDerivedStoreRemainsUnavailableForWrites(final StorageType storageType) throws IOException {
     createDerivedStore(storageType, false);
-    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
-    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
     Databases.clearGlobalCaches();
     final Map<Path, byte[]> before = snapshotResource();
     try (final var database = Databases.openJsonDatabase(databasePath);
@@ -979,8 +988,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void readOnlyContextCannotRecreateADeletedDataFile(final StorageType storageType) throws IOException {
     createStore(storageType);
-    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
-    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
     Databases.clearGlobalCaches();
     final IOStorage storage = storageType == StorageType.FILE_CHANNEL
         ? new FileChannelStorage(config, Caffeine.newBuilder().buildAsync())
@@ -1043,7 +1052,7 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @Test
   void rawReaderChecksFeaturesBeforeSalvageAndOnExplicitRefresh() throws IOException {
     createStore(StorageType.FILE_CHANNEL);
-    installDamagedRevisionFixture(new StoreFeatures(0, 1, 0));
+    installDamagedRevisionFixture(new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
     final Map<Path, byte[]> before = snapshotResource();
     try (final var data = FileChannel.open(dataFile(), StandardOpenOption.READ);
         final var revisions = FileChannel.open(revisionsFile(), StandardOpenOption.READ, StandardOpenOption.WRITE);
@@ -1115,7 +1124,7 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
     try (final var database = Databases.openJsonDatabase(databasePath);
         final var session = database.beginResourceSession("resource")) {
       final var internal = (InternalResourceSession<?, ?>) session;
-      final var pending = new UberPage(2, new StoreFeatures(0, 1, 0));
+      final var pending = new UberPage(2, new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0));
       assertThrows(UnsupportedStoreFeatureException.class, () -> {
         try (final var ignored = internal.createPageTransaction(99, 1, 1, Abort.NO, false, pending)) {
           // A successor epoch must not write through unknown requirements staged by its predecessor.

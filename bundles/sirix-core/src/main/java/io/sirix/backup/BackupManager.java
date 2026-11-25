@@ -490,6 +490,10 @@ public final class BackupManager {
       final long totalBytes = copyTree(source, target, rel -> isInMemoryResourceDirectory(source, rel),
           rel -> isTransientDatabaseFile(rel) || isTransientResourceFile(relativeToResource(rel)));
 
+      // FMT-209 / TXN-613/614: every restored resource is a new incarnation. Draw its id before the
+      // verification pass below first exposes it; copied history and derived state stay as copied.
+      drawRestoredIncarnationIds(target);
+
       // Verify derived stores without installing their owners first: opening a source session
       // could rebuild a damaged sibling and hide the corruption this pass must report.
       final VerifiedResources verified = verifyRestoredDatabase(target, databaseType);
@@ -500,6 +504,27 @@ public final class BackupManager {
       if (!success) {
         cleanupTarget(target, targetExisted);
       }
+    }
+  }
+
+  /**
+   * Draws and durably publishes a fresh incarnation id (FMT-209) for every restored resource
+   * directory, hidden {@code $derived} resources included, so neither a repeated restore of one
+   * backup nor a restore of an older backup can resurrect an id whose tokens it would satisfy.
+   */
+  private static void drawRestoredIncarnationIds(final Path target) {
+    final Path resources = target.resolve(RESOURCES_DIR);
+    if (!Files.isDirectory(resources)) {
+      return;
+    }
+    try (final DirectoryStream<Path> directories = Files.newDirectoryStream(resources, Files::isDirectory)) {
+      for (final Path resource : directories) {
+        if (Files.exists(resource.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()))) {
+          ResourceConfiguration.publishFreshIncarnationId(resource);
+        }
+      }
+    } catch (final IOException e) {
+      throw new SirixIOException("Could not list the restored resources of " + target + ".", e);
     }
   }
 

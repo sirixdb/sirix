@@ -101,6 +101,7 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
+import io.sirix.page.StoreFeatures;
 import io.sirix.page.UberPage;
 import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.TemporalAggregateIndexPage;
@@ -4434,6 +4435,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       final UberPage uberPage = storageEngineReader.getUberPage();
+      if (newRevisionRootPage.getLastRevertRevision() != 0) {
+        // FMT-209: a store whose revision roots carry the last-revert entry sets readOnlyCompat bit 0
+        // atomically with the commit that first writes it; the uber clone keeps it from then on.
+        uberPage.addFeatures(StoreFeatures.CONDITIONAL_WRITE_METADATA_FEATURES);
+      }
 
       setUserIfPresent();
       setCommitMessageAndTimestampIfRequired(commitMessage, commitTimestamp);
@@ -6784,6 +6790,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     storagePageReaderWriter.requireCompatibleRevisionRoots(revision);
     storagePageReaderWriter.readRevisionRootPage(revision, getResourceSession().getResourceConfig());
+    // FMT-209 / TXN-404: durably publish a fresh incarnation id BEFORE removing anything. A crash
+    // between the two leaves the new id with the old data, which only rejects conditional-write
+    // tokens that would otherwise have been accepted; the opposite order could accept a token from
+    // the destroyed timeline once later commits reissue its revision numbers.
+    getResourceSession().getResourceConfig().publishFreshIncarnationId();
+
     // Rollback semantics: any buffered (uncommitted) page writes refer to the world being
     // truncated away — discard them before touching the files.
     bufferBytes.clear();

@@ -14,7 +14,6 @@ import io.sirix.backup.BackupManager;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.xml.shredder.XmlShredder;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -57,12 +56,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * test asks for an opt-in switch or accepts a settings document without the member.
  *
  * <p>
- * <b>Planned, not enforced (CONV-102).</b> Nothing of FMT-209 is implemented at this baseline, so
- * the class is {@code @Disabled}. The implementation change removes the annotation in the same
- * commit that makes the tests pass; it must not weaken any assertion (docs/DEVELOPMENT.md section
- * 2).
+ * Written before the implementation and enabled unchanged by the change that implemented FMT-209;
+ * no assertion may be weakened (docs/DEVELOPMENT.md section 2).
  */
-@Disabled("FMT-209 planned: the incarnationId member and its draw sites are unimplemented (CONF-102 gap note)")
 final class IncarnationIdConformanceTest {
 
   /** CONF-102: a 16-digit lowercase hexadecimal string. */

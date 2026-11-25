@@ -12,7 +12,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -57,11 +56,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * here.
  *
  * <p>
- * <b>Planned, not enforced (CONV-102).</b> The incarnation id is unimplemented, so the class is
- * {@code @Disabled}; the implementation change removes the annotation and must not weaken an
- * assertion.
+ * Written before the implementation and enabled unchanged by the change that implemented FMT-209;
+ * no assertion may be weakened.
  */
-@Disabled("FMT-209 / TXN-404 planned: truncateTo does not yet draw or publish an incarnation id")
 final class IncarnationIdTruncateCrashOrderTest {
 
   private static final String RESOURCE = "incarnation-crash-resource";

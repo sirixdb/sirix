@@ -55,6 +55,13 @@ nested values, are ignored. A non-object value is refused. Do not put settings r
 interpret or safely rewrite a resource there; skipped contents are not retained on rewrite.
 See `ResourceSettingsExtensionsTest` for independent settings mutations.
 
+One tail field is required: `incarnationId` (FMT-209, CONF-102), the resource's unsigned 64-bit
+incarnation id as a string of exactly 16 lowercase hexadecimal digits. A document without it, or
+with any other type or spelling, is refused without being rewritten; there is no default. Creation,
+`truncateTo`, whole-resource replacement and backup restore each draw a new id from a
+cryptographically secure RNG; truncate and restore replace only that member, through a forced
+temporary file, an atomic rename and a forced directory. See `IncarnationIdConformanceTest`.
+
 ### sirix.data (FILE_CHANNEL, the default)
 
 ```
@@ -310,7 +317,11 @@ byte (PIXD/PIXS/PIX1, PIXM). Enum-typed bytes on disk are always explicit stable
 fail-fast lookups, never ordinals.
 
 - **UberPage**: [store feature words and revision count](#uberpage-store-feature-words).
-- **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
+- **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user. A
+  resource that has published a revert carries one envelope extension entry (FMT-209): tag `0x41`
+  (kind-local, optional), length 4, the last-revert revision as a little-endian u32. It is omitted
+  while the resource never reverted, so those images are unchanged; `LastRevertRevisionEntryTest`
+  pins the bytes.
   The delegate's reference count and offsets are defined by
   [`RevisionRootPage`](../bundles/sirix-core/src/main/java/io/sirix/page/RevisionRootPage.java).
   Its bitmap delegate refuses slots beyond that known reference count;
@@ -555,7 +566,9 @@ defines the access policy for unknown bits:
 | `readOnlyCompat` | Permit read-only access | Refuse, including revert, truncate and index creation | Refuse |
 | `compat` | Ignore | Ignore | Refuse |
 
-This build implements the words but assigns no supported feature bits. Feature-word refusal raises
+This build implements the words and one feature bit: `readOnlyCompat` bit 0 (`0x00000001`,
+conditional-write metadata, FMT-209), set by the commit whose revision root first carries the
+last-revert entry. Every other bit is unknown. Feature-word refusal raises
 `UnsupportedStoreFeatureException`, naming the word and hexadecimal mask and requesting an upgrade.
 Unknown UberPage versions raise its `UnsupportedFormatVersionException` subtype with the plain
 "unsupported format version" diagnostic and the value found; unknown flags and required entries
