@@ -300,16 +300,18 @@ performance measurement and mutation gates remain owned by the outer pipeline.
   bytes back.
 - Correction: idle slabs are reclaimed. The allocator's pressure path first lets its listener evict
   the page caches — which closes cached compact images and returns their blocks — then asks the pool
-  to release idle slabs up to the refused caller's shortfall; the caller's existing retry loop
+  to give idle slabs back up to the refused caller's shortfall; the caller's existing retry loop
   observes the relief. A slab is idle only when every block carved from it is free, derived during
   the pass by draining the free stack and tallying per slab, so the lease path keeps no counter for
-  it. A selected slab's directory entries are nulled and its blocks are off the stack before it is
-  unmapped, and its indices are never reused. A pass is skipped when free blocks are fewer than the
-  smallest slab's block count, or when a hand-out is in flight. The strategy, its alternatives and
-  the agreed fallback are in `firstmate/data/sirix-compact-decode-arena/reclaim-strategy.md`.
-- The refund is not immediate: `releaseSlab` may park the region among the allocator's recycled
-  slabs and keep its commitment until a reservation drains it, which the retried reservation does.
-  The regression test therefore asserts committed bytes after the retry.
+  it. A pass is skipped when free blocks are fewer than the smallest slab's block count, or when a
+  hand-out is in flight. The strategy, its alternatives and the agreed fallback are in
+  `firstmate/data/sirix-compact-decode-arena/reclaim-strategy.md`.
+- An idle slab is **discarded in place**, not unmapped (Umbra/vmcache's decommit-keep-mapping): its
+  pages are dropped and its commitment refunded while the mapping, its segment and every block view
+  over it stay valid, and the next growth charges it again and leases from it instead of mapping a
+  new one. That is what removes the unmap window entirely — see the next section for the review that
+  rejected unmapping — and it is why the refund is immediate rather than parked among the
+  allocator's recycled slabs.
 
 #### Allocation audit of the per-read sites this change touches
 
@@ -319,14 +321,44 @@ performance measurement and mutation gates remain owned by the outer pipeline.
 | `Block.run` → `give` → `push` | none: one compare-and-set push, one atomic decrement |
 | `Block.segment()` handed to the decoder | none: the block's own segment object, created once when its slab was carved |
 | `PageKind` compact branch | the page's own objects only; the storage acquisition adds nothing (it used to add one `Arena`, its session and a `Cleaner` registration) |
-| reclaim pass (`reclaimIdleSlabs`) | two small arrays per pass — cold path, under pressure only, never per read |
+| reclaim pass (`reclaimIdleSlabs`) | two small arrays per pass, both sized from the pass's target — cold path, under pressure only, never per read |
 
 Bounded by `CompactImageStorageAllocationBudgetTest`: a warmed lease/release cycle allocates 0 bytes
 over 100,000 rounds, and a cycle measured after a reclamation pass still allocates 0, which is what
 would catch per-lease bookkeeping added for a reclaim pass's benefit. The automatic arena is kept as
 the positive control.
 
-- Reviewed disposition, recorded rather than tested artificially: the directory check in `give()`
-  that refuses a block whose slab was reclaimed is unreachable by construction — a leased block
-  keeps its slab mapped, so a reclaimed slab's block cannot be held by any page — and it is kept as
-  a loud guard against a double release. A mutant removing it is expected to survive.
+- Reviewed disposition, recorded rather than tested artificially: the charge check in `give()` that
+  refuses a block of a discarded slab is unreachable by construction — a leased block keeps its slab
+  charged, because a pass only selects a slab whose every block is on the free stack — and it is
+  kept as a loud guard against a double release. A mutant removing it is expected to survive.
+
+### Review round 2: unmapping was the wrong half of the design
+
+- Symptom: review of the first reclamation commit returned five findings on one theme. The
+  production sequence was still broken (R1): the pressure listener evicted only the native half of
+  the fragment cache, so cached compact images kept their blocks and nothing became idle — the
+  regression test had closed every image by hand and so could not see it. Around that: a stranding
+  window if a release threw between detaching a slab's blocks and unmapping it (R2), a pass that
+  drained the whole free stack per firing while the pressure loop fires ~2,000 times in ten seconds
+  (R3), the reuse policy for a reclaimed slab's directory indices (R4, a policy question), and a
+  reclaim target that asked for the whole refused request instead of its shortfall (R5).
+- Root cause of the cluster: unmapping. Every one of R2, R3 and R4 exists only because a reclaimed
+  slab's address was taken away, which forces detach-before-unmap ordering, dead directory indices
+  and a directory that grows with history. Discarding in place removes all three at once: nothing is
+  detached, no index dies, and the only state a slab carries is whether it is charged.
+- Corrections: `HOTFragmentCache.evictUnderPressure` evicts both halves (R1), and the regression
+  test now runs the production sequence with nothing closed by the test; the slab is discarded in
+  place and revived on growth (R2, R4); a pass inspects only as many blocks as its target could need
+  (R3); and each of the five pressure sites passes its own measured shortfall against the ceiling
+  that refused it rather than the caller's whole request (R5).
+- Found while implementing the above, and load-bearing for it: `PosixVirtualMemory.discardToZeros`
+  issued `MADV_DONTNEED` on every POSIX platform. On Darwin that advice is advisory — it neither
+  zeroes nor releases anonymous pages — so the documented contract of `resetSegment` (next read
+  observes zeros, resident size drops) silently did not hold there, and a revived slab would have
+  handed a decoder the previous image's bytes. Darwin now uses `MADV_FREE_REUSABLE`. The revival
+  case's zeros assertion is what proves this on the macOS lane; it is a pre-existing defect of the
+  virtual-memory layer, not of this change.
+- Also here: the release path's span lookup is read off the class monitor, so the slab-span list is
+  copy-on-write — two volatile array reads per block return, no allocation — while the only writer
+  adds one span per mapped slab under the monitor.

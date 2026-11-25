@@ -813,15 +813,24 @@ Body fields below follow the shared envelope and any extension block.
   A slab whose every block has been returned MUST be reclaimable: permanent pool slabs share the
   frame commitment ceiling, so holding them would starve page frames with no way to recover. The
   allocator's pressure path MUST ask the pool to reclaim only AFTER its listener has evicted the
-  page caches, which is what returns cached images' blocks, and MUST take no more than the refused
-  caller's shortfall, in whole slabs; the caller's own retry observes the relief. A pass MUST be
-  skipped, not waited on, when a hand-out is in flight, and MUST be skipped when free blocks are
-  fewer than the smallest slab's block count. Idleness MUST be derived during the pass, never
-  tracked per lease. A reclaimed slab's blocks MUST leave the directory and the free stack before it
-  is unmapped, and their indices MUST NOT be reused; a block of a reclaimed slab MUST NOT be leased
-  again. The refunded bytes reach the budget when a later reservation drains what the release
-  parked. `CompactImageReclamationTest` exercises the starved-frame scenario, the shortfall bound,
-  the live-image refusal and the skipped pass.
+  page caches — including the fragment cache's compact half, whose images are what hold pool blocks
+  — and MUST take no more than the refused caller's own shortfall against the ceiling that refused
+  it, in whole slabs; the caller's own retry observes the relief. A pass MUST be skipped, not waited
+  on, when a hand-out is in flight, and MUST be skipped when free blocks are fewer than the smallest
+  slab's block count. A pass MUST inspect no more blocks than its target could need, so its cost
+  follows the shortfall rather than the pool's size. Idleness MUST be derived during the pass, never
+  tracked per lease. Reclamation MUST discard a selected slab in place — dropping its contents and
+  refunding its commitment while the mapping, its segment and every block view over it stay valid —
+  and MUST NOT unmap it, so no reachable block can point into unmapped memory and a stale read
+  observes zeros rather than another image's bytes. The platform discard MUST really zero the pages
+  (`MADV_FREE_REUSABLE` on Darwin, whose `MADV_DONTNEED` is advisory and leaves them readable). A
+  discarded slab's blocks MUST NOT be leased or returned while it is discarded, and its directory
+  entries MUST survive, so a block's slab stays its index divided by the class's blocks per slab.
+  Growth MUST charge a discarded slab again and lease from it before mapping a new one, which bounds
+  the directory by the class's peak slab count rather than by its history. The refund MUST reach the
+  budget at discard time. `CompactImageReclamationTest` exercises the starved-frame scenario in its
+  production sequence — nothing closed by the test — revival reading back as zeros, the shortfall
+  bound, the live-image refusal and the skipped pass.
   Shutdown MUST stop lease admission before checking both in-flight acquisitions and live
   leases; it MUST refuse cleanup while either exists and MUST refuse new leases after successful
   cleanup. Before releasing any slab in a class, cleanup MUST detach that class's free blocks and

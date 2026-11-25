@@ -45,6 +45,19 @@ final class PosixVirtualMemory implements VirtualMemory {
       ? 0
       : 0x4000;
   private static final int MADV_DONTNEED = 4;
+
+  /**
+   * Darwin's "I am done with these pages, you may reclaim them": the next read observes zeros and
+   * the resident size drops. {@code MADV_DONTNEED} exists on macOS too but is advisory there — it
+   * neither zeroes nor releases anonymous pages, so a discard through it leaves the previous
+   * contents readable, which a caller that relies on zeros cannot tell from a successful discard.
+   */
+  private static final int MADV_FREE_REUSABLE = 7;
+
+  /** The advice that actually discards on this platform. */
+  private static final int MADV_DISCARD = OS.isMacOSX()
+      ? MADV_FREE_REUSABLE
+      : MADV_DONTNEED;
   private static final int MADV_POPULATE_WRITE = 23;
   private static final int ENOMEM = 12;
   private static final int EINVAL = 22;
@@ -122,9 +135,10 @@ final class PosixVirtualMemory implements VirtualMemory {
       return;
     }
     try {
-      final int rc = (int) MADVISE.invokeExact(segment, segment.byteSize(), MADV_DONTNEED);
+      final int rc = (int) MADVISE.invokeExact(segment, segment.byteSize(), MADV_DISCARD);
       if (rc != 0) {
-        LOGGER.debug("discardToZeros MADV_DONTNEED rc={} on address 0x{}", rc, Long.toHexString(segment.address()));
+        LOGGER.debug("discardToZeros advice {} rc={} on address 0x{}", MADV_DISCARD, rc,
+            Long.toHexString(segment.address()));
       }
     } catch (final Throwable t) {
       LOGGER.debug("discardToZeros madvise failed: {}", t.getMessage());

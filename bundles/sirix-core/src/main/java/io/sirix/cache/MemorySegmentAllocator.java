@@ -98,6 +98,34 @@ public interface MemorySegmentAllocator {
   }
 
   /**
+   * Discard a permanent slab's contents and refund its commitment, keeping the mapping valid.
+   *
+   * <p>
+   * The address stays usable and the next read observes zeros, so the owner may keep the segment and
+   * the views it handed out, and charge them again with {@link #recommitPermanentSlab(MemorySegment)}
+   * when it needs the storage back. This is how a pool gives bytes back under pressure without ever
+   * leaving a reachable view over unmapped memory. Implementations that own no slabs refuse.
+   * </p>
+   *
+   * @param slab the exact segment {@link #allocatePermanentSlab(long)} returned
+   * @return whether this call discarded the slab and refunded its bytes; {@code false} when it was
+   *         already discarded, unknown, or this allocator owns no slabs
+   */
+  default boolean discardPermanentSlab(final MemorySegment slab) {
+    return false;
+  }
+
+  /**
+   * Charge a discarded permanent slab again so its owner may reuse it instead of mapping a new one.
+   *
+   * @param slab the exact segment that was discarded
+   * @return whether the bytes were admitted; {@code false} leaves the slab discarded
+   */
+  default boolean recommitPermanentSlab(final MemorySegment slab) {
+    return false;
+  }
+
+  /**
    * Release a slab obtained from {@link #allocateSlab(long)} or {@link #allocatePermanentSlab(long)}.
    * Idempotent: a stale or repeated release is rejected and returns {@code false}.
    *

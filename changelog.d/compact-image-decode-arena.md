@@ -9,6 +9,9 @@ section: Changed
   rounded size is what the fragment cache charges; when the allocator admits no block, the decode
   falls back to its former GC-owned image. The pool's slabs share the allocator's permanent
   commitment ceiling with page frames, so an idle slab is given back under memory pressure — after
-  the page caches have evicted and only up to what the refused allocation is short of. Read results
-  are unchanged
+  the page caches have evicted, and only up to what the refused allocation is short of. Giving it
+  back discards its pages in place and refunds its bytes while its mapping stays valid, and the next
+  decode that needs the storage charges the same slab again, so a cache under pressure no longer
+  starves page frames and no address is ever withdrawn from a live reader. Read results are
+  unchanged
   ([write-up](docs/postmortems/2026-11-compact-image-decode-arena.md)).

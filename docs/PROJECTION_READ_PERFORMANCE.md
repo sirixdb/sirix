@@ -164,10 +164,12 @@ and zero disables retention. Malformed values fail configuration. See
 [Derived query-cache memory](DERIVED_QUERY_CACHES.md) for the allocation table. The compact half spends no native fragment allowance; the mini reservation comes from the
 complete-leaf share described above. This cache ceiling bounds retained images, not idle pool
 slabs; their commitment follows the storage contract linked above, which also governs when an idle
-slab is reclaimed — after the page caches evict under allocator pressure, and only up to the refused
-allocation's shortfall. Neither compact fragments nor
+slab is reclaimed — after allocator pressure has evicted this cache, and only up to the refused
+allocation's shortfall; a reclaimed slab is discarded in place and charged again on the next growth,
+so no mapping is ever withdrawn under a live view. Neither compact fragments nor
 mini pages hold an allocator frame, so these caches have their own clock sweepers rather than
-relying on allocator pressure. Point fragment walks,
+depending on allocator pressure for their own capacity; pressure evicts both halves even so,
+because a retained compact image holds a pool block that the frame budget has committed. Point fragment walks,
 including walks answered from cached raw images, contribute to `EngineWorkCounters.HOT_LEAF_LOADS`;
 older point fragments contribute to `HOT_FRAGMENTS_WALKED`, and complete-leaf or mini-page hits
 contribute neither. A FULL-versioned resource still bypasses the merge and contributes nothing.

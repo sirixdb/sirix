@@ -45,7 +45,8 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
   }
 
   /**
-   * The images allocator pressure cannot reclaim: {@link HOTLeafPage#isCompactImage() compact images}
+   * The images whose storage allocator pressure cannot take back by releasing a frame:
+   * {@link HOTLeafPage#isCompactImage() compact images}
    * and any heap-resident image. See the class documentation for budget ownership.
    */
   public ShardedPageCache<HOTLeafPage> compactImages() {
@@ -53,8 +54,10 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
   }
 
   private ShardedPageCache<HOTLeafPage> cacheFor(final HOTLeafPage page) {
-    // The compact half holds what allocator pressure cannot reclaim: a compact decoded image (native
-    // memory it owns outright, see HOTLeafPage#isCompactImage) and any heap-resident image.
+    // The compact half holds the images whose bytes a frame release cannot free: a compact decoded
+    // image (a pool block it owns outright, see HOTLeafPage#isCompactImage) and any heap-resident
+    // image. Pressure still evicts it — see evictUnderPressure — because its block holds permanent
+    // commitment the pool can only give back once the image closes.
     return page.isCompactImage() || !page.slots().isNative()
         ? compactImages
         : nativeImages;
@@ -227,7 +230,11 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
   }
 
   public void evictUnderPressure() {
-    // Allocator pressure concerns the resident half only; a compact image holds no frame to release.
+    // Both halves. A compact image holds no frame, but it does hold a block of a pool slab that was
+    // admitted against the permanent frame-commitment allowance, so holding it starves exactly the
+    // page frames this eviction is trying to make room for. Closing it returns its block, which is
+    // what lets the pool discard an idle slab and refund its bytes afterwards.
     nativeImages.evictUnderPressure();
+    compactImages.evictUnderPressure();
   }
 }

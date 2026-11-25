@@ -27,7 +27,8 @@ import java.lang.foreign.MemorySegment;
  * <li>Once committed, a slot STAYS committed across recycle cycles — nothing here decommits, so
  * recycled slots are always touch-safe on every platform.</li>
  * <li>{@link #discardToZeros} discards a segment's contents such that the next read observes zeros,
- * without invalidating the address (POSIX anonymous memory: {@code MADV_DONTNEED}; Windows:
+ * without invalidating the address (Linux: {@code MADV_DONTNEED}; macOS: {@code MADV_FREE_REUSABLE},
+ * because Darwin's {@code MADV_DONTNEED} is advisory and leaves the old contents readable; Windows:
  * decommit + recommit).</li>
  * </ul>
  */

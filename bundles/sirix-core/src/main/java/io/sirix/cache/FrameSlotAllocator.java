@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiFunction;
+import java.util.function.LongSupplier;
 
 /**
  * Umbra / LeanStore-style buffer allocator with fixed-position frame slots and optimistic versioned
@@ -476,7 +477,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * leases decide when nothing can still dereference it, and a global-scope segment carries no
    * per-access liveness check. Release may come from any thread.
    */
-  private record SlabAllocation(MemorySegment segment, long bytes) {
+  private record SlabAllocation(MemorySegment segment, long bytes, AtomicBoolean charged) {
+
+    SlabAllocation(final MemorySegment segment, final long bytes) {
+      this(segment, bytes, new AtomicBoolean(true));
+    }
   }
 
   private static final long SLAB_PAGE_BYTES = 4096L;
@@ -602,7 +607,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       SlabAllocation recycled;
       while (freed < wanted && (recycled = free.pollLast()) != null) {
         recycledSlabBytes.addAndGet(-recycled.bytes());
-        unmapSlab(recycled.segment(), recycled.bytes());
+        unmapSlab(recycled.segment(), recycled.bytes(), true);
         freed += recycled.bytes();
       }
       if (freed >= wanted) {
@@ -747,7 +752,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       publishSlab(reused, mapped);
       return reused;
     } catch (final RuntimeException | Error failure) {
-      unmapSlab(recycled.segment(), mapped);
+      unmapSlab(recycled.segment(), mapped, true);
       throw failure;
     }
   }
@@ -845,11 +850,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       }
       final long bytes = allocation.bytes();
       activeBytes.addAndGet(-bytes);
+      // A discarded slab's commitment went back at discard time and its pages are not resident:
+      // it may neither be refunded again nor parked among the recycled slabs, whose bytes are
+      // counted as committed-but-unread.
+      final boolean charged = allocation.charged().compareAndSet(true, false);
       try {
         boolean recycled = false;
         try {
           HftBoundaryTelemetry.allocatorRelease();
-          if (!terminated.get() && tryReserveRecycledBytes(bytes)) {
+          if (charged && !terminated.get() && tryReserveRecycledBytes(bytes)) {
             recycled = true;
             beforeSlabPublication();
             recycledSlabs.computeIfAbsent(bytes, size -> new ConcurrentLinkedDeque<>()).addFirst(allocation);
@@ -859,10 +868,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
           if (recycled) {
             recycledSlabBytes.addAndGet(-bytes);
           }
-          unmapSlab(allocation.segment(), bytes);
+          unmapSlab(allocation.segment(), bytes, charged);
           throw failure;
         }
-        return unmapSlab(allocation.segment(), bytes);
+        return unmapSlab(allocation.segment(), bytes, charged);
       } finally {
         slabBytes.addAndGet(-bytes);
       }
@@ -871,9 +880,90 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
   }
 
-  private boolean unmapSlab(final MemorySegment segment, final long bytes) {
+  /**
+   * Discard a permanent slab's contents and refund its commitment, keeping the mapping.
+   *
+   * <p>
+   * The address stays valid and the next read observes zeros, so the owner may keep the segment and
+   * its views and re-charge them later with {@link #recommitPermanentSlab(MemorySegment)}. This is
+   * what lets a pool hand bytes back under pressure without ever leaving a reachable view over
+   * unmapped memory. Idempotent: a slab already discarded returns {@code false}.
+   * </p>
+   *
+   * @param slab the exact segment {@link #allocatePermanentSlab(long)} returned
+   * @return whether this call discarded the slab and refunded its bytes
+   */
+  public boolean discardPermanentSlab(final MemorySegment slab) {
+    slabOperations.incrementAndGet();
+    try {
+      final SlabAllocation allocation = slabsByAddress.get(slab.address());
+      if (allocation == null || allocation.segment() != slab || !allocation.charged().compareAndSet(true, false)) {
+        return false;
+      }
+      VM.discardToZeros(slab);
+      refundCommittedBytes(allocation.bytes());
+      HftBoundaryTelemetry.allocatorRelease();
+      return true;
+    } finally {
+      slabOperations.decrementAndGet();
+    }
+  }
+
+  /**
+   * Charge a discarded permanent slab again, so its owner may use it instead of mapping a new one.
+   *
+   * @param slab the exact segment that was discarded
+   * @return whether the bytes were admitted; {@code false} leaves the slab discarded
+   */
+  public boolean recommitPermanentSlab(final MemorySegment slab) {
+    slabOperations.incrementAndGet();
+    try {
+      final SlabAllocation allocation = slabsByAddress.get(slab.address());
+      if (allocation == null || allocation.segment() != slab || allocation.charged().get()) {
+        return false;
+      }
+      if (terminated.get() || !reserveSlabCommittedBytes(allocation.bytes())) {
+        return false;
+      }
+      if (!allocation.charged().compareAndSet(false, true)) {
+        // Another thread revived it first; give the bytes this call reserved straight back.
+        refundCommittedBytes(allocation.bytes());
+        return false;
+      }
+      return true;
+    } finally {
+      slabOperations.decrementAndGet();
+    }
+  }
+
+  /**
+   * How far {@code bytes} is from fitting under {@code limit} right now, which is what a pool is
+   * asked to give back — never the whole request, so warm storage survives a small shortage.
+   *
+   * @return the shortfall in bytes, zero when the request already fits
+   */
+  long commitmentShortfall(final long bytes, final long limit) {
+    final long shortBy = nonExecutionCommittedBytes.getAcquire() - (limit - bytes);
+    return Math.max(0L, shortBy);
+  }
+
+  long frameCommitmentShortfall(final long bytes) {
+    return commitmentShortfall(bytes, frameCommitLimit());
+  }
+
+  long scratchCommitmentShortfall(final long bytes) {
+    return commitmentShortfall(bytes, scratchCommitLimit());
+  }
+
+  long contentCommitmentShortfall(final long bytes) {
+    return commitmentShortfall(bytes, contentCommitLimit());
+  }
+
+  private boolean unmapSlab(final MemorySegment segment, final long bytes, final boolean charged) {
     final boolean released = VM.release(segment);
-    refundCommittedBytes(bytes);
+    if (charged) {
+      refundCommittedBytes(bytes);
+    }
     HftBoundaryTelemetry.nativeRelease();
     return released;
   }
@@ -1328,7 +1418,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return false;
     }
     long waitedNanos = 0L;
-    firePressure(bytes);
+    firePressure(bytes, () -> scratchCommitmentShortfall(bytes));
     long parkNanos = INITIAL_PARK_NANOS;
     while (waitedNanos < MAX_WAIT_NANOS) {
       if (reserveScratchCommittedBytes(bytes)) {
@@ -1337,7 +1427,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       LockSupport.parkNanos(parkNanos);
       waitedNanos += parkNanos;
       parkNanos = Math.min(parkNanos * 2, MAX_PARK_NANOS);
-      firePressure(bytes);
+      firePressure(bytes, () -> scratchCommitmentShortfall(bytes));
     }
     if (reserveScratchCommittedBytes(bytes)) {
       return true;
@@ -1372,7 +1462,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       // First shot at relief before parking: the cache is the most likely
       // owner of the bytes we need, so ask it to evict synchronously. Skips
       // the 500 ms ClockSweeper cadence in the common hot-scan case.
-      firePressure(c.slotSize);
+      firePressure(c.slotSize, () -> frameCommitmentShortfall(c.slotSize));
       slotIdx = acquireSlot(c);
     }
     if (slotIdx < 0) {
@@ -1384,7 +1474,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         parkNanos = Math.min(parkNanos * 2, MAX_PARK_NANOS);
         slotIdx = acquireSlot(c);
         if (slotIdx < 0) {
-          firePressure(c.slotSize);
+          firePressure(c.slotSize, () -> frameCommitmentShortfall(c.slotSize));
           slotIdx = acquireSlot(c);
         }
       }
@@ -1513,7 +1603,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         // path allocates and releases on the same thread; a cross-thread caller fails loudly with
         // WrongThreadException rather than leaking or deferring reclaim to GC.
         if (!reserveCommittedBytes(size)) {
-          firePressure(size);
+          firePressure(size, () -> contentCommitmentShortfall(size));
           // The retry can observe relief from concurrent OVERSIZED releases (their bytes return to
           // committedBytes on close) and from compact-image slabs the pressure path reclaimed after
           // the caches evicted. A page-cache eviction on its own returns frame SLOTS, not budget —
@@ -1726,7 +1816,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *
    * @param wantedBytes the bytes the refused caller is trying to satisfy
    */
-  private void firePressure(final long wantedBytes) {
+  private void firePressure(final long wantedBytes, final LongSupplier shortfall) {
     final PressureListener l = pressureListener;
     if (l != null) {
       try {
@@ -1738,7 +1828,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     final CompactImageStore pool = compactImages.get();
     if (pool != null) {
       try {
-        pool.reclaimIdleSlabs(wantedBytes);
+        // After the listener: what is still missing, not what the caller asked for. A 64 KiB frame
+        // short by 4 KiB must cost one slab, not four.
+        pool.reclaimIdleSlabs(Math.min(wantedBytes, Math.max(0L, shortfall.getAsLong())));
       } catch (final RuntimeException | Error failure) {
         // Relief is best effort: the caller's retry reports the shortage if this could not help.
         LOGGER.debug("Compact-image reclamation threw: {}", failure.toString());
@@ -2175,7 +2267,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     final CompactImageStore pool = compactImages.get();
     if (pool != null && !pool.releaseIdleSlabs()) {
       throw new IllegalStateException(
-          "FrameSlotAllocator shutdown with compact-image leases or acquisitions in flight");
+          "FrameSlotAllocator shutdown with compact-image leases or acquisitions in flight: "
+              + pool.describeInFlight());
     }
     // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
     // lease; unmapping it here would be a use-after-free.

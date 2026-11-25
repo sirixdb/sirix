@@ -4,9 +4,10 @@
 package io.sirix.cache;
 
 import java.lang.foreign.MemorySegment;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -57,9 +58,10 @@ import org.jspecify.annotations.Nullable;
  * A compact image that is never closed now leaks its block, where the collector used to reclaim it:
  * the same contract as every other HOT leaf, whose allocator frame leaks just as a missing close
  * leaks a file handle, and {@link #leasedBlockCount()} makes it observable. The pool grows only
- * when a decode finds its size class empty, retaining each class's peak slab capacity until
- * shutdown. A page's native cache charge is its block's size; the cache budget bounds retained
- * images, not the pool's idle slabs. Blocks are committed from the permanent frame commitment
+ * when a decode finds its size class empty and no slab of that class is dormant, so its mapped
+ * address space stays at the class's peak until shutdown while its committed bytes do not. A
+ * page's native cache charge is its block's size; the cache budget bounds retained images, not the
+ * pool's idle slabs. Blocks are committed from the permanent frame commitment
  * allowance, so the pool can never consume the headroom that keeps large-value buffers allocatable —
  * but that allowance is the one page frames commit from, so an idle slab does NOT stay committed
  * until shutdown: {@link #reclaimIdleSlabs(long)} gives it back, called from the allocator's
@@ -229,6 +231,11 @@ public final class CompactImageStore {
     return step * (CLASSES_PER_OCTAVE + 1 + index % CLASSES_PER_OCTAVE);
   }
 
+  /** Why a cleanup refused, for a diagnosable failure rather than a bare "in flight". */
+  public String describeInFlight() {
+    return "leases=" + leasedBlocks.get() + " acquisitions=" + acquisitions.get() + " blocks=" + blockCount();
+  }
+
   /** Blocks currently leased to a page. */
   public int leasedBlockCount() {
     return leasedBlocks.get();
@@ -265,14 +272,15 @@ public final class CompactImageStore {
    * </p>
    *
    * <p>
-   * The bytes do not reach the budget here: {@code releaseSlab} may park the region among the
-   * allocator's recycled slabs and keep its commitment until a reservation drains it, which the
-   * retried reservation does. {@code committedBytes()} after that retry is where the refund shows.
+   * An idle slab is discarded in place rather than unmapped: its pages go, its commitment is
+   * refunded at once, and its mapping, its segment and the block views over it stay valid, so a
+   * later decode charges the same slab again instead of mapping a new one and nothing can ever
+   * reach into unmapped memory.
    * </p>
    *
-   * @param wantedBytes the bytes the refused caller needs; whole slabs are released, so at least
+   * @param wantedBytes the bytes the refused caller needs; whole slabs are discarded, so at least
    *        this much is given back when enough slabs are idle
-   * @return the bytes released, zero when nothing could be
+   * @return the bytes given back, zero when nothing could be
    */
   public long reclaimIdleSlabs(final long wantedBytes) {
     if (wantedBytes <= 0L || !mayHoldAnIdleSlab()) {
@@ -307,7 +315,7 @@ public final class CompactImageStore {
         if (released >= wantedBytes) {
           break;
         }
-        released += sizeClass.reclaimIdle(allocator, wantedBytes - released);
+        released += sizeClass.reclaimIdle(wantedBytes - released);
       }
       return released;
     } finally {
@@ -498,10 +506,26 @@ public final class CompactImageStore {
     /** How often growth had to copy the directory. Diagnostic; same writer and readers. */
     private final AtomicInteger directoryGrowths = new AtomicInteger();
 
-    /** One mapped slab and the directory index its first block took. */
-    private record SlabSpan(MemorySegment segment, int baseIndex) {}
+    /**
+     * One mapped slab, the directory index its first block took, and whether its bytes are charged.
+     *
+     * <p>
+     * A dormant slab has been discarded: its contents are gone and its commitment refunded, but the
+     * mapping, the segment and every {@link Block} view over it stay valid, so the grow path can
+     * revive it instead of mapping a new one. Nothing is ever removed from the directory, so a
+     * block's slab is its index divided by the class's blocks per slab.
+     * </p>
+     */
+    private record SlabSpan(MemorySegment segment, int baseIndex, AtomicBoolean charged) {
 
-    private final List<SlabSpan> slabs = new ArrayList<>();
+      SlabSpan(final MemorySegment segment, final int baseIndex) {
+        this(segment, baseIndex, new AtomicBoolean(true));
+      }
+    }
+
+    // Copy-on-write: grow() adds a span under this class's monitor while give() reads the
+    // backing span of a released block off the lock. Adds are one per mapped slab.
+    private final List<SlabSpan> slabs = new CopyOnWriteArrayList<>();
 
     SizeClass(final CompactImageStore store, final int blockBytes) {
       this.store = store;
@@ -535,17 +559,27 @@ public final class CompactImageStore {
     }
 
     void give(final Block block) {
-      // Only Block.run calls this, on the final SizeClass that constructed that block. A block
-      // whose slab was reclaimed has a null directory entry and must never reach the free stack: it
-      // could only get here through a double release, since a leased block keeps its slab mapped.
+      // Only Block.run calls this, on the final SizeClass that constructed that block. A block of a
+      // discarded slab must never reach the free stack: a lease keeps its slab charged, so getting
+      // here could only be a double release or a release after teardown.
       final Block[] current = blocks.get();
-      if (block.index >= current.length || current[block.index] != block) {
+      if (block.index >= current.length || current[block.index] != block || !isCharged(block.index)) {
         store.leasedBlocks.decrementAndGet();
-        throw new IllegalStateException(
-            "Compact-image block " + block.index + " of the " + blockBytes + "-byte class is not this class's");
+        throw new IllegalStateException("Compact-image block " + block.index + " of the " + blockBytes
+            + "-byte class is not this class's, or its slab is discarded");
       }
       push(block);
       store.leasedBlocks.decrementAndGet();
+    }
+
+    /**
+     * Whether the slab backing a block index still holds its commitment. Read off the lock on the
+     * release path, so the span list is copy-on-write: two volatile array reads, no allocation. A
+     * span the teardown already dropped reads as discarded rather than throwing out of bounds.
+     */
+    private boolean isCharged(final int blockIndex) {
+      final int span = blockIndex / blocksPerSlab;
+      return span < slabs.size() && slabs.get(span).charged().get();
     }
 
     private @Nullable Block pop() {
@@ -584,6 +618,10 @@ public final class CompactImageStore {
      * @return the block to lease, or {@code null} when the allocator has no room for another slab
      */
     private @Nullable Block grow() {
+      final Block revived = revive();
+      if (revived != null) {
+        return revived;
+      }
       final Block[] current = blocks.get();
       final int base = nextIndex.get();
       final int required = Math.addExact(base, blocksPerSlab);
@@ -627,91 +665,107 @@ public final class CompactImageStore {
     }
 
     /**
-     * Release the slabs of this class whose every block is free, until {@code wantedBytes} are
+     * Charge a dormant slab again and take one of its blocks, or {@code null} when this class has
+     * none or the budget refuses it.
+     *
+     * <p>
+     * Called under this class's monitor from {@link #grow()}, before any new mapping: reviving costs
+     * no system call and no page fault beyond the re-faulting of what is read, and it keeps the
+     * directory bounded by the class's peak slab count rather than by its history.
+     * </p>
+     */
+    private @Nullable Block revive() {
+      final Block[] directory = blocks.get();
+      for (int span = 0; span < slabs.size(); span++) {
+        final SlabSpan slab = slabs.get(span);
+        if (slab.charged().get() || !store.allocator.recommitPermanentSlab(slab.segment())) {
+          continue;
+        }
+        slab.charged().set(true);
+        liveBlocks.addAndGet(blocksPerSlab);
+        for (int i = 1; i < blocksPerSlab; i++) {
+          push(directory[slab.baseIndex() + i]);
+        }
+        return directory[slab.baseIndex()];
+      }
+      return null;
+    }
+
+    /**
+     * Discard the slabs of this class whose every block is free, until {@code wantedBytes} are
      * given back.
      *
      * <p>
      * Idleness is derived here rather than tracked per lease: the free stack is drained, each
-     * drained block is tallied against the slab it came from, and a slab whose tally equals its
-     * block count held no live image at that moment. A block that is leased is not on the stack, so
-     * a slab this pass selects cannot be the target of a concurrent release either.
+     * drained block is tallied against the slab it came from — its index divided by this class's
+     * blocks per slab, since the directory never loses an entry — and a slab whose tally equals its
+     * block count held no live image at that moment. A leased block is not on the stack, so a slab
+     * this pass selects cannot be the target of a concurrent release either.
      * </p>
      *
      * <p>
-     * Order is the invariant: a selected slab's directory entries are nulled and its blocks are
-     * already off the stack <em>before</em> the slab is unmapped, so at no instant does a reachable
-     * block point into unmapped memory. A release that throws leaves the blocks detached — a leaked
-     * mapping, which the allocator's live-slab check reports, rather than a block over freed bytes.
+     * Nothing is unmapped: a selected slab is discarded in place, which drops its contents, refunds
+     * its commitment and leaves its address valid. There is therefore no instant at which a
+     * reachable block points into unmapped memory, and a stale read sees zeros rather than another
+     * image's bytes. Every array this pass needs is allocated before the first pop, so no
+     * allocation failure can leave drained blocks off the free stack.
      * </p>
      *
-     * @return the bytes released
+     * @return the bytes given back
      */
-    synchronized long reclaimIdle(final MemorySegmentAllocator allocator, final long wantedBytes) {
-      if (slabs.isEmpty()) {
+    synchronized long reclaimIdle(final long wantedBytes) {
+      final int spans = slabs.size();
+      if (spans == 0) {
         return 0L;
       }
       final Block[] directory = blocks.get();
-      final int[] tally = new int[slabs.size()];
-      final int[] drained = new int[liveBlocks.get()];
+      final int[] tally = new int[spans];
+      // Bounded: a pass inspects only as many blocks as its target could need, so it costs
+      // O(target) rather than O(pool) however large the class has grown - the pressure loop can
+      // fire it thousands of times in ten seconds. The caller comes back if one pass did not cover
+      // the shortfall, and a pass that frees anything makes progress.
+      final long slabBytes = (long) blocksPerSlab * blockBytes;
+      final int slabsNeeded = (int) Math.min(spans, (wantedBytes + slabBytes - 1) / slabBytes);
+      final int drainLimit =
+          (int) Math.min(liveBlocks.get(), Math.max(blocksPerSlab, 2L * blocksPerSlab * (slabsNeeded + 1)));
+      final int[] drained = new int[drainLimit];
       int drainedCount = 0;
-      for (Block block = pop(); block != null && drainedCount < drained.length; block = pop()) {
+      for (Block block = pop(); block != null; block = pop()) {
+        if (drainedCount == drained.length) {
+          // The pass has seen its budget of blocks: put this one back and judge what it found.
+          push(block);
+          break;
+        }
         drained[drainedCount++] = block.index;
-        final int span = spanOf(block.index);
-        if (span >= 0) {
+        final int span = block.index / blocksPerSlab;
+        if (span < spans) {
           tally[span]++;
         }
       }
       long released = 0L;
-      final boolean[] reclaimed = new boolean[slabs.size()];
-      Throwable cleanupFailure = null;
-      for (int span = 0; span < slabs.size() && released < wantedBytes; span++) {
-        if (tally[span] != blocksPerSlab) {
+      for (int span = 0; span < spans && released < wantedBytes; span++) {
+        final SlabSpan slab = slabs.get(span);
+        if (tally[span] != blocksPerSlab || !slab.charged().get()) {
           continue;
         }
-        final SlabSpan slab = slabs.get(span);
-        // Detach first: null the entries, then unmap. Their indices are not pushed back below.
-        for (int i = 0; i < blocksPerSlab; i++) {
-          directory[slab.baseIndex() + i] = null;
-        }
-        liveBlocks.addAndGet(-blocksPerSlab);
-        reclaimed[span] = true;
-        released += (long) blocksPerSlab * blockBytes;
         final Runnable hook = store.slabReleaseHook.get();
         if (hook != null) {
           hook.run();
         }
-        try {
-          allocator.releaseSlab(slab.segment());
-        } catch (final RuntimeException | Error failure) {
-          cleanupFailure = FrameSlotAllocator.retainCleanupFailure(cleanupFailure, failure);
+        if (!store.allocator.discardPermanentSlab(slab.segment())) {
+          continue;
         }
+        slab.charged().set(false);
+        liveBlocks.addAndGet(-blocksPerSlab);
+        released += (long) blocksPerSlab * blockBytes;
       }
       for (int i = 0; i < drainedCount; i++) {
         final Block block = directory[drained[i]];
-        if (block != null) {
+        if (slabs.get(block.index / blocksPerSlab).charged().get()) {
           push(block);
         }
       }
-      for (int span = slabs.size() - 1; span >= 0; span--) {
-        if (reclaimed[span]) {
-          slabs.remove(span);
-        }
-      }
-      if (cleanupFailure != null) {
-        FrameSlotAllocator.rethrowCleanupFailure(cleanupFailure);
-      }
       return released;
-    }
-
-    /** The slab a block index belongs to, or -1 when its slab is already gone. */
-    private int spanOf(final int blockIndex) {
-      for (int span = 0; span < slabs.size(); span++) {
-        final int base = slabs.get(span).baseIndex();
-        if (blockIndex >= base && blockIndex < base + blocksPerSlab) {
-          return span;
-        }
-      }
-      return -1;
     }
 
     synchronized void releaseSlabs(final MemorySegmentAllocator allocator) {
