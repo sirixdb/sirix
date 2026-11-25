@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit
 @Tag("offline")
 @ExtendWith(VertxExtension::class)
 @DisplayName("Route error mapping for java.lang.Error")
-class RouteErrorMappingTest {
+class RequestFailureHandlingTest {
 
     @ParameterizedTest
     @ValueSource(ints = [401, 403, 409])

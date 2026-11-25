@@ -839,7 +839,7 @@ final class JsonBulkInsertDiffRegressionTest {
         wtx.remove();
         assertChildLinks(wtx, 0);
         assertEquals(2, wtx.getMaxNodeKey());
-        expected.add("");
+        expected.add("null");
       }
       default -> throw new AssertionError(scenario);
     }
@@ -854,7 +854,7 @@ final class JsonBulkInsertDiffRegressionTest {
       assertChildLinks(wtx, 0);
       assertEquals(3, wtx.getMaxNodeKey());
       wtx.commit();
-      expected.add("");
+      expected.add("null");
     }
     wtx.moveToDocumentRoot();
     wtx.insertArrayAsFirstChild();

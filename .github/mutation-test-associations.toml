@@ -67,7 +67,7 @@ tests = ["io.sirix.io.CommitTimestampOutputTest"]
 
 [[association]]
 class = "io.sirix.service.xml.serialize.XmlSerializer"
-tests = ["io.sirix.io.CommitTimestampOutputTest"]
+tests = ["io.sirix.io.CommitTimestampOutputTest", "io.sirix.service.xml.serialize.XmlSerializerRestNodeTest"]
 
 [[association]]
 class = "io.sirix.query.function.sdb.trx.GetRevisionTimestamp"
@@ -85,3 +85,8 @@ tests = ["io.sirix.rest.CommitTimestampOutputTest"]
 [[association]]
 class = "io.sirix.utils.ReplayWorkDiagnostics"
 tests = ["io.sirix.budget.LifecycleWorkBudgetTest"]
+
+# REST-203 document contexts are exercised through the factory and query serialization boundary.
+[[association]]
+class = "io.sirix.query.json.JsonItemFactory"
+tests = ["io.sirix.query.json.JsonDBDocumentTest"]

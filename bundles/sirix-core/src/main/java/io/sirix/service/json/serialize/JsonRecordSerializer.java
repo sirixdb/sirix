@@ -760,7 +760,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
    */
   private void emitParentMetadata(final JsonNodeReadOnlyTrx rtx) throws IOException {
     out.append('{');
-    if (rootNodeKey > 0 && rtx.isObjectKey()) {
+    if (rtx.isObjectKey()) {
       out.append("\"key\":");
       emitFieldName(rtx);
       out.append(',');

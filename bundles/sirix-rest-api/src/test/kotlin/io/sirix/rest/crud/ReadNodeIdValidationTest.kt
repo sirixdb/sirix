@@ -7,6 +7,8 @@ import io.sirix.access.trx.node.HashType
 import io.sirix.api.Database
 import io.sirix.api.NodeCursor
 import io.sirix.api.NodeReadOnlyTrx
+import io.sirix.api.json.JsonResourceSession
+import io.sirix.api.xml.XmlResourceSession
 import io.sirix.api.json.JsonNodeTrx
 import io.sirix.api.xml.XmlNodeTrx
 import io.sirix.rest.NoneAuth
@@ -44,6 +46,7 @@ import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
 import org.mockito.Mockito
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.stream.Stream
 
 /**
@@ -426,20 +429,60 @@ class ReadNodeIdValidationTest {
             val user = NoneAuth.createUser()
             val scope = CoroutineScope(vertx.dispatcher())
             val router = Router.router(vertx)
+            // ResourceSession.activeTrxCount is the public leak diagnostic. Observe real engine
+            // state before parent cleanup, so deferred cleanup cannot hide leaked helper readers.
+            val readersAtRetirement = AtomicInteger()
+            fun jsonDatabase(path: Path): Database<JsonResourceSession> {
+                val database = Databases.openJsonDatabase(path)
+                return object : Database<JsonResourceSession> by database {
+                    override fun beginResourceSession(name: String): JsonResourceSession {
+                        val session = database.beginResourceSession(name)
+                        return object : JsonResourceSession by session {
+                            override fun close() {
+                                readersAtRetirement.accumulateAndGet(session.activeTrxCount(), ::maxOf)
+                                session.close()
+                            }
+                        }
+                    }
+                }
+            }
+            fun xmlDatabase(path: Path): Database<XmlResourceSession> {
+                val database = Databases.openXmlDatabase(path)
+                return object : Database<XmlResourceSession> by database {
+                    override fun beginResourceSession(name: String): XmlResourceSession {
+                        val session = database.beginResourceSession(name)
+                        return object : XmlResourceSession by session {
+                            override fun close() {
+                                readersAtRetirement.accumulateAndGet(session.activeTrxCount(), ::maxOf)
+                                session.close()
+                            }
+                        }
+                    }
+                }
+            }
+            val jsonGet = Mockito.spy(JsonGet(location, keycloak, NoneAuth))
+            val xmlGet = Mockito.spy(XmlGet(location, keycloak, NoneAuth))
+            val jsonHead = Mockito.spy(JsonHead(location))
+            val xmlHead = Mockito.spy(XmlHead(location))
+            Mockito.doAnswer { jsonDatabase(it.getArgument(0)) }.`when`(jsonGet).openDatabase(location.resolve("db"))
+            Mockito.doAnswer { xmlDatabase(it.getArgument(0)) }.`when`(xmlGet).openDatabase(location.resolve("db"))
+            Mockito.doAnswer { jsonDatabase(it.getArgument(0)) }.`when`(jsonHead).openDatabase(location.resolve("db"))
+            Mockito.doAnswer { xmlDatabase(it.getArgument(0)) }.`when`(xmlHead).openDatabase(location.resolve("db"))
             router.get("/json/:database/:resource").handler(BodyHandler.create())
                 .handler { ctx -> ctx.put("user", user); ctx.next() }
-                .coroutineHandler(scope) { JsonGet(location, keycloak, NoneAuth).handle(it) }
+                .coroutineHandler(scope) { jsonGet.handle(it) }
             router.get("/xml/:database/:resource").handler(BodyHandler.create())
                 .handler { ctx -> ctx.put("user", user); ctx.next() }
-                .coroutineHandler(scope) { XmlGet(location, keycloak, NoneAuth).handle(it) }
+                .coroutineHandler(scope) { xmlGet.handle(it) }
             router.head("/json/:database/:resource")
-                .coroutineHandler(scope) { JsonHead(location).handle(it) }
+                .coroutineHandler(scope) { jsonHead.handle(it) }
             router.head("/xml/:database/:resource")
-                .coroutineHandler(scope) { XmlHead(location).handle(it) }
+                .coroutineHandler(scope) { xmlHead.handle(it) }
             router.route().failureHandler(routerFailureHandler())
             val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
             try {
                 block(client, server.actualPort())
+                assertEquals(0, readersAtRetirement.get(), "Read helpers must release their readers before parent cleanup")
             } finally {
                 server.close().coAwait()
             }

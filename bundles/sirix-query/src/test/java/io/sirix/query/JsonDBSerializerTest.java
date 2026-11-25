@@ -72,6 +72,16 @@ final class JsonDBSerializerTest {
     }
   }
 
+  // REST-203: closing an unused query serializer still emits the empty result envelope.
+  @Test
+  void unusedSerializerProducesAnEmptyResultSequence() {
+    final StringBuilder output = new StringBuilder();
+    try (final var serializer = new JsonDBSerializer(output, false)) {
+      // No selected items, as for an excluded query result window.
+    }
+    assertEquals(JsonParser.parseString("{\"rest\":[]}"), JsonParser.parseString(output.toString()));
+  }
+
   @Test
   void storedXmlNodesAreRejectedWithoutCastingTheirTransactionToJson() {
     try (final var store = BasicXmlDBStore.newBuilder().location(directory).build();

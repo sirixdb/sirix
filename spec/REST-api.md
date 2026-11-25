@@ -156,7 +156,7 @@ The REST diff route MUST operate on JSON revisions with 1 <= first-revision < se
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [RequestFailureHandling.kt](../bundles/sirix-rest-api/src/main/kotlin/io/sirix/rest/RequestFailureHandling.kt):`coroutineHandler`; [RequestFailureHandling.kt](../bundles/sirix-rest-api/src/main/kotlin/io/sirix/rest/RequestFailureHandling.kt):`routerFailureHandler`; [RequestFailureHandling.kt](../bundles/sirix-rest-api/src/main/kotlin/io/sirix/rest/RequestFailureHandling.kt):`endWithErrorResponse`
-- **Verified by:** [RouteErrorMappingTest.kt](../bundles/sirix-rest-api/src/test/kotlin/io/sirix/rest/RouteErrorMappingTest.kt) (including quotes, backslashes, control characters and Unicode in messages) **Planned:** RestErrorSchemaConformance: validate emitted JSON against Error schema.
+- **Verified by:** [RequestFailureHandlingTest.kt](../bundles/sirix-rest-api/src/test/kotlin/io/sirix/rest/RequestFailureHandlingTest.kt) (including quotes, backslashes, control characters and Unicode in messages) **Planned:** RestErrorSchemaConformance: validate emitted JSON against Error schema.
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Decoded control characters in malformed node parameters are covered through GET and DELETE. Full Error-schema validation remains planned. This chapter does not silently bless every IllegalStateException as a client error.
 

@@ -10,7 +10,6 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.StructuredDBItem;
 
-import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public final class JsonDBDocument extends AbstractItem implements JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
@@ -20,7 +19,6 @@ public final class JsonDBDocument extends AbstractItem implements JsonDBItem, St
   JsonDBDocument(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
     this.rtx = requireNonNull(rtx);
     this.collection = requireNonNull(collection);
-    checkArgument(rtx.isDocumentRoot(), "A document context requires the document root");
   }
 
   @Override

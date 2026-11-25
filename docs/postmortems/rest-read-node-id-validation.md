@@ -105,7 +105,7 @@ per request. Requests without `nodeId` are unchanged.
   missing and revision-partial cursors. `queryReturnsSelectedContextETagForEveryResultMode`
   checks JSON/XML, hashes on/off, ordinary/paginated results, transformed queries, historical
   revisions and query failure. Malformed-key tests on GET and DELETE include decoded controls.
-  `RouteErrorMappingTest.errorMessageRoundTripsJsonEscapesAndUnicode` round-trips every JSON
+  `RequestFailureHandlingTest.errorMessageRoundTripsJsonEscapesAndUnicode` round-trips every JSON
   control character and non-ASCII text through the actual HTTP failure boundary (REST-209).
 - Verification: all 44 focused REST cases and 22 focused core serializer cases passed across
   the focused runs, including the corrected query-syntax and scalar fixtures. The core cases
@@ -228,3 +228,80 @@ per request. Requests without `nodeId` are unchanged.
 - Vision check: keeps committed empty and historical revisions readable without substituting a
   different node or changing storage format; the explicit null representation follows the
   captain's decision for this review.
+
+## CI follow-up: serializer contracts and mutation selection
+
+- Symptom: Linux, macOS, ARM and Windows core lanes reported the same five failures. The
+  shared XML fixture still expected spaces around the stored comment `foo`, and both empty
+  transitions in the copy/replay fixture still expected an empty string.
+- Invariant: serialized comments preserve stored text, and every empty JSON revision emits
+  `null`, including the first edited revision, repeated empty commits, copied histories and
+  replayed histories. REST-203 and the accepted R5/R6 decisions supply these oracles.
+- Root cause: the earlier fixes updated production serialization and focused tests but omitted
+  these existing consumers of the same output contracts. Update the single XML expected-document
+  fixture and both empty-state expectations; retain all allocation-identity and replay assertions.
+- Regression evidence: the focused pre-change Gradle run reproduced exactly the five CI failures
+  (`PICommentTest.testPI` and the four empty cases of
+  `JsonBulkInsertDiffRegressionTest.initialRevisionCopyPreservesEditedAllocationIdentity`).
+- Mutation invariant: selected tests must execute each changed public behavior without depending
+  on a service the mutation lane does not start. The broad package fallback for
+  `RequestFailureHandling` selected Keycloak integration suites; name its existing HTTP error
+  regression `RequestFailureHandlingTest` so the real selector chooses it directly. Core XML
+  tests now cover standalone attributes/namespaces in prefixed/default and REST/non-REST forms;
+  query tests cover the same representations, populated/empty document contexts and closing an
+  unused result serializer. Associate document-context tests with the item factory as well.
+- Record-root tests assert the builder's documented refusal of negative and absent keys without
+  output, followed by ordinary root serialization, in both byte and character output. Remove the
+  redundant metadata root-key predicate: after document unwrapping its payload cannot be an
+  object field. Remove the document constructor's duplicate kind assertion: its sole caller is
+  the factory's `JSON_DOCUMENT` branch. Neither removal changes admitted inputs or results.
+- Trace: valid record roots still move to the selected node before emitting their existing
+  wrappers; invalid roots fail before output. Document roots still unwrap once, and named
+  field roots still emit `key`. Factory dispatch still constructs a document only for key 0;
+  the item repositions its cursor to that identity before serialization, for empty and populated
+  revisions alike. Error tests still issue HTTP requests against the real failure handler.
+- External compatibility conflict: the separate `sirix-python-client` checkout unconditionally
+  indexes HEAD `etag` for hash-disabled resources. Its nine failures conflict with the accepted
+  R5 decision and REST-203 rule that hash-disabled HEAD omits ETag. This repository cannot fix
+  that client's code, and restoring a synthetic ETag would undo the recorded decision.
+- The final REST mutation pass also exposed the absent-parameter sibling: DELETE without
+  `nodeId` must retain resource, database and global delete scopes. The new
+  `DeleteNodeIdValidationTest.absentNodeIdPreservesResourceDatabaseAndGlobalDeleteScopes`
+  checks status and real persisted removal at each scope for JSON and XML.
+- Reader ownership is observable cost, not an equivalent close-time change. The read suite now
+  decorates the real engine session at the REST/database boundary and records its public
+  `activeTrxCount()` **before** parent cleanup. Its independent zero-reader oracle covers GET,
+  queries, HEAD, revision preflight and record cursor validation, successes and refusals, in
+  both formats/hash modes. Responses still come from the real handlers and serializers; no
+  expected results come from mocked storage. The final PIT run kills all three removed-close
+  mutations, including the formerly dispositioned HEAD close; remove that obsolete disposition.
+- Four additional dispositions identify individual Kotlin null assertions on transactions whose
+  API guarantees a non-null reader or throws. Review their exact identities and producer
+  invariants in `.github/mutation-dispositions.toml`; update the existing HEAD session assertion's
+  instruction identity. No cleanup/cost mutation is accepted as equivalent. The local checker
+  also needs the unchanged CLI classes compiled to validate its pre-existing Backup entries;
+  CI already restores these from the all-module Build job.
+- Verification: the core Work budgets command from `docs/VERIFICATION.md`, plus the focused
+  serializers, original regressions and `JsonModelBasedOracleTest`, passed 394 main-task cases
+  and their allocation/startup/epoch forks with `-PtestHeapMin=512m -PtestHeapMax=3g`.
+  The default workstation-sized heap was killed with exit 137 in a prior broad run; no bound
+  or test case was relaxed. Query work budgets plus serializer/document tests passed 350 cases;
+  the MCP Work budgets command passed all 3 selected cases. The broader REST run passed 52
+  cases; after adding the reader probe and absent-parameter cases, this focused command passed
+  all 42 read/delete cases:
+
+  ```bash
+  ./gradlew :sirix-rest-api:offlineTest \
+    --tests 'io.sirix.rest.crud.ReadNodeIdValidationTest' \
+    --tests 'io.sirix.rest.crud.DeleteNodeIdValidationTest' \
+    -PtestHeapMin=512m -PtestHeapMax=3g
+  ```
+
+- Complete changed-line PIT results: core 38 killed / 38; query 11 killed / 11; REST 49 killed,
+  1 timeout-detected and 9 individually reviewed equivalents / 59. No uncovered or unaccepted
+  changed-line mutant remains. The REST-only helper rerun exited zero, and
+  `pr_mutation.py dispositions --check` passed with all three complete reports and censuses.
+  The mutation-tooling Python suite passed all 266 tests. Local command logs and reports are
+  retained under the ignored `build/ci-phase-evidence/` directory.
+- Vision check: keeps historical output exact and the mutation evidence honest, without changing
+  the storage format, hash default, cost bounds or the accepted HTTP contracts.

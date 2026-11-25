@@ -20,10 +20,44 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class JsonRecordSubtreeScopeTest {
   @TempDir
   Path directory;
+
+  // The builder promises nonnegative existing subtree roots; neither invalid form may serialize data.
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void invalidRecordRootsAreRejectedWithoutOutput(final boolean bytes) {
+    final Path path = directory.resolve("invalid-roots");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (final var database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("res").build());
+      try (final var session = database.beginResourceSession("res")) {
+        try (final var writer = session.beginNodeTrx()) {
+          writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2]"), JsonNodeTrx.Commit.NO);
+          writer.commit();
+        }
+        for (final long root : new long[] {-1, Long.MIN_VALUE, 999}) {
+          final var stream = new ByteArrayOutputStream();
+          final var writer = new StringWriter();
+          final var builder = bytes
+              ? JsonRecordSerializer.newBuilder(session, 2, stream)
+              : JsonRecordSerializer.newBuilder(session, 2, writer);
+          if (root < 0) {
+            assertThrows(IllegalArgumentException.class, () -> builder.rootNodeKey(root));
+          } else {
+            assertThrows(IllegalArgumentException.class, () -> builder.rootNodeKey(root).build().call());
+          }
+          assertEquals("", bytes
+              ? stream.toString(StandardCharsets.UTF_8)
+              : writer.toString());
+        }
+        assertPayload(session, bytes, 0, 0, "[1,2]");
+      }
+    }
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})

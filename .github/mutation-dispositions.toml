@@ -134,30 +134,78 @@ throws the same NullPointerException, so results, errors, state and cost are ide
 
 [[mutant]]
 class = "io.sirix.rest.crud.AbstractHeadHandler"
-method = "eTagOf"
-descriptor = "(Lio/sirix/api/ResourceSession;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Ljava/lang/String;"
-mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
-indexes = [118]
-description = "removed call to kotlin/jdk7/AutoCloseableKt::closeFinally"
-kind = "equivalent"
-checked_at = "2974051f65aea1827e5d5a9292f47b8bd9f019bf"
-justification = """Removes the close of the read-only transaction that eTagOf opens with `use`. The caller
-holds the owning ResourceSession in its own `use` block, and AbstractResourceSession.close closes
-every read-only transaction the session still holds, within the same request a few statements
-later, on success and on the 404 path alike. Results, errors, persisted state and the work done
-are identical; only the point in the same request at which the one close call runs differs."""
-
-[[mutant]]
-class = "io.sirix.rest.crud.AbstractHeadHandler"
 method = "head"
 descriptor = "(Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Ljava/lang/String;)V"
 mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
-indexes = [174]
+indexes = [171]
 description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
 kind = "equivalent"
-checked_at = "2974051f65aea1827e5d5a9292f47b8bd9f019bf"
+checked_at = "847bee5a09f951556b43602799794ed6128bc141"
 justification = """Kotlin's compiler-inserted null check on the platform-typed session returned by the Java
 API Database.beginResourceSession, passed to eTagOf's non-null parameter. The resource's
 existence is checked just before, and beginResourceSession returns an open session or throws; it
 never returns null. Were it ever null, eTagOf's first statement reads manager.resourceConfig and
 throws the same NullPointerException, so results, errors, state and cost are identical."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractHeadHandler"
+method = "eTagOf"
+descriptor = "(Lio/sirix/api/ResourceSession;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Ljava/lang/String;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [55]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "847bee5a09f951556b43602799794ed6128bc141"
+justification = """REST-203's HEAD path receives a transaction from ResourceSession.beginNodeReadOnlyTrx,
+which returns an open transaction or throws. Its public contract admits no null return.
+This Kotlin-generated assertion precedes the NodeCursor cast of that same non-null reference;
+removing it changes no result, error, resource ownership or counted work for an admitted request.
+ReadNodeIdValidationTest exercises hashed and hash-disabled success and unknown-key paths,
+with live-reader diagnostics at the owning session's retirement boundary."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractGetHandler"
+method = "requireNodeInEveryRevision"
+descriptor = "(Lio/sirix/api/ResourceSession;[IJ)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [38]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "847bee5a09f951556b43602799794ed6128bc141"
+justification = """REST-203's preflight obtains each revision reader from ResourceSession.beginNodeReadOnlyTrx,
+whose contract returns an open transaction or throws, never null. This compiler-generated
+assertion only checks that same reference before its NodeCursor cast. Its failure arm is
+unreachable for the concrete resource sessions admitted by REST. Removing the assertion changes
+no results, errors, ownership or counted work. ReadNodeIdValidationTest covers both formats,
+valid and missing keys, revision ranges, and zero outstanding readers before session cleanup."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractGetHandler"
+method = "xquery$lambda$0"
+descriptor = "(Lio/vertx/ext/web/RoutingContext;Lio/sirix/rest/crud/AbstractGetHandler;Lio/vertx/ext/auth/User;Lio/vertx/core/json/JsonObject;Lio/sirix/api/ResourceSession;Ljava/lang/AutoCloseable;[ILjava/lang/Long;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;)Lio/vertx/core/buffer/Buffer;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [290]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "847bee5a09f951556b43602799794ed6128bc141"
+justification = """REST-203 query contexts use the open transaction returned by ResourceSession.beginNodeReadOnlyTrx.
+That API returns a non-null reader or throws; the concrete JSON/XML sessions used by REST do
+not admit a nullable substitute. This Kotlin assertion checks the reference before passing it
+to moveToOrNotFound. Removing the unreachable null failure changes no result, error, ownership
+or counted work. The route suite exercises valid and unknown query contexts in both formats."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.json.JsonSerializeHelper"
+method = "writeResponseWithHashValue"
+descriptor = "(Lio/sirix/api/json/JsonResourceSession;ILio/vertx/ext/web/RoutingContext;Ljava/lang/Long;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [41]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "847bee5a09f951556b43602799794ed6128bc141"
+justification = """REST-203's JSON header helper receives the transaction returned by
+JsonResourceSession.beginNodeReadOnlyTrx, which returns an open reader or throws, never null.
+This is the same non-null producer invariant as the XML helper's reviewed assertion. The
+compiler check before moveToOrNotFound cannot fail on an admitted request; removing it changes
+no result, error, ownership or counted work. The read suite checks JSON subtree ETags for
+valid and missing keys and observes real reader counts before parent session cleanup."""

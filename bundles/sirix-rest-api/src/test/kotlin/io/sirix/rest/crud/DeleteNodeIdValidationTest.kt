@@ -106,6 +106,24 @@ class DeleteNodeIdValidationTest {
         }
     }
 
+    // REST-203: omitting the narrowing parameter preserves each route's existing delete scope.
+    @ParameterizedTest
+    @EnumSource(Format::class)
+    fun absentNodeIdPreservesResourceDatabaseAndGlobalDeleteScopes(format: Format) = runBlocking {
+        createResource(format)
+        serve { client, port ->
+            assertEquals(204, delete(client, port, "/db/res").statusCode())
+            assertTrue(Databases.existsDatabase(location.resolve("db")))
+            openDatabase(format).use { db -> assertFalse(db.existsResource("res")) }
+            createResource(format)
+            assertEquals(204, delete(client, port, "/db").statusCode())
+            assertFalse(Databases.existsDatabase(location.resolve("db")))
+            createResource(format)
+            assertEquals(204, delete(client, port, "/").statusCode())
+            assertFalse(Databases.existsDatabase(location.resolve("db")))
+        }
+    }
+
     private fun assertError(response: HttpResponse<Buffer>, status: Int, what: String) {
         assertEquals(status, response.statusCode(), "$what: ${response.bodyAsString()}")
         val body = response.bodyAsJsonObject()
