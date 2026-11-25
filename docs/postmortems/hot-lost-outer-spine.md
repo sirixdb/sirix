@@ -364,3 +364,20 @@ including that a deliberately wrong stored height misroutes no key and is still 
 
 The remaining excess height on the skew workload is unchanged and permitted by FMT-302; it needs
 repartitioning across block boundaries rather than a larger fold.
+
+### Review follow-up: post-commit regression writer ownership
+
+- Symptom: all three `HOTStoredHeightSpineTest` cases reached a closed-writer guard
+  after commit instead of checking committed heights, subtree-local insertion or corruption.
+- Trigger: retain `transaction.getStorageEngineWriter()` across a `KEEP_OPEN` commit.
+- Root cause: commit re-instantiates the storage transaction, closing the predecessor writer;
+  the regression fixture treated its borrowed writer as having the node transaction's lifetime.
+- Why tests missed it: the new regression cases had not successfully executed their post-commit
+  assertions, even though sibling spine tests already reacquired the writer at that boundary.
+- Regression test: all four commit boundaries in `HOTStoredHeightSpineTest` now reacquire the
+  writer before creating another index writer, loading pages, walking or validating the trie.
+  Every original assertion, height bound and subtree-local insertion witness remains intact.
+  Focused command: `./gradlew :sirix-core:test --tests io.sirix.index.hot.HOTStoredHeightSpineTest
+  -PtestHeapMin=128m -PtestHeapMax=2g`.
+- Lesson: reacquire transaction-owned storage handles after commit or rollback before checking
+  the next state; see the [lesson fragment](../lessons.d/hot-stored-height-spine-continuity.md).

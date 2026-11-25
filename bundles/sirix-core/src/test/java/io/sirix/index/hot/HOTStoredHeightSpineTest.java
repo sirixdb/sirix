@@ -106,13 +106,14 @@ final class HOTStoredHeightSpineTest {
                                                                 .build()));
         try (JsonResourceSession session = database.beginResourceSession("spine");
             JsonNodeTrx transaction = session.beginNodeTrx()) {
-          final StorageEngineWriter engine = transaction.getStorageEngineWriter();
+          StorageEngineWriter engine = transaction.getStorageEngineWriter();
           final HOTIndexWriter<Long> writer = HOTIndexWriter.create(engine, SERIALIZER, IndexType.CAS, 0);
           for (final long key : keys) {
             writer.indexNodeKey(key, 1);
           }
           assertShapeIsSound(writer.getRootReference(), engine, keys, "live");
           transaction.commit();
+          engine = transaction.getStorageEngineWriter();
           final HOTIndexWriter<Long> committed = HOTIndexWriter.create(engine, SERIALIZER, IndexType.CAS, 0);
           final Shape afterCommit = assertShapeIsSound(committed.getRootReference(), engine, keys, "committed");
           // Clause 2, the shrink direction: folding the spine away must leave no larger height behind.
@@ -150,12 +151,13 @@ final class HOTStoredHeightSpineTest {
           ResourceConfiguration.newBuilder("spine").versioningApproach(VersioningType.FULL).storeDiffs(false).build()));
       try (JsonResourceSession session = database.beginResourceSession("spine");
           JsonNodeTrx transaction = session.beginNodeTrx()) {
-        final StorageEngineWriter engine = transaction.getStorageEngineWriter();
+        StorageEngineWriter engine = transaction.getStorageEngineWriter();
         HOTIndexWriter<Long> writer = HOTIndexWriter.create(engine, SERIALIZER, IndexType.CAS, 0);
         for (final long key : keys) {
           writer.indexNodeKey(key, 1);
         }
         transaction.commit();
+        engine = transaction.getStorageEngineWriter();
         final long before = AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get();
         writer = HOTIndexWriter.create(engine, SERIALIZER, IndexType.CAS, 0);
         final HOTIndirectPage committedRoot = (HOTIndirectPage) engine.loadHOTPage(writer.getRootReference());
@@ -168,6 +170,7 @@ final class HOTStoredHeightSpineTest {
             "this fixture must split inside a subtree below an already committed ancestor");
         assertShapeIsSound(writer.getRootReference(), engine, keys, "after a subtree-local split");
         transaction.commit();
+        engine = transaction.getStorageEngineWriter();
         final HOTIndexWriter<Long> committed = HOTIndexWriter.create(engine, SERIALIZER, IndexType.CAS, 0);
         assertShapeIsSound(committed.getRootReference(), engine, keys, "committed after a subtree-local split");
       }
@@ -190,12 +193,13 @@ final class HOTStoredHeightSpineTest {
           ResourceConfiguration.newBuilder("spine").versioningApproach(VersioningType.FULL).storeDiffs(false).build()));
       try (JsonResourceSession session = database.beginResourceSession("spine");
           JsonNodeTrx transaction = session.beginNodeTrx()) {
-        final StorageEngineWriter engine = transaction.getStorageEngineWriter();
+        StorageEngineWriter engine = transaction.getStorageEngineWriter();
         final HOTIndexWriter<Long> writer = HOTIndexWriter.create(engine, SERIALIZER, IndexType.CAS, 0);
         for (final long key : keys) {
           writer.indexNodeKey(key, 1);
         }
         transaction.commit();
+        engine = transaction.getStorageEngineWriter();
         // One further key gives this transaction its own copy of the spine; a committed, cache-shared
         // page is never a legal target for a height change.
         final HOTIndexWriter<Long> owner = HOTIndexWriter.create(engine, SERIALIZER, IndexType.CAS, 0);
