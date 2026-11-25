@@ -15,7 +15,8 @@ public interface NodeTrx extends NodeReadOnlyTrx {
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no
-   * modification at all.
+   * modification at all. Durability is reported exactly as described for
+   * {@link #commit(String, Instant)}.
    *
    * @return NodeTrx return current instance
    * @throws SirixException if this revision couldn't be commited
@@ -26,7 +27,8 @@ public interface NodeTrx extends NodeReadOnlyTrx {
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no
-   * modification at all. The author assignes a commit message.
+   * modification at all. The author assignes a commit message. Durability is reported exactly as
+   * described for {@link #commit(String, Instant)}.
    *
    * @param commitMessage message of the commit
    * @return NodeTrx return current instance
@@ -40,6 +42,21 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    * Commit modifications. Lifecycle reentrancy from pre/post hooks or revision listeners for this
    * database, including another user session, is rejected with IllegalStateException before acquiring
    * execution locks.
+   *
+   * <p>
+   * What a normal return and a thrown exception say about durability:
+   *
+   * <ul>
+   * <li><b>Normal return</b> — the new revision N is durable. This includes a commit whose cleanup
+   * after the commit point failed: the revision exists, so the commit is not reported as failed. The
+   * failure is logged and the resource is flagged for repair, and this transaction is then terminal —
+   * further mutations and commits are rejected, it cannot be retried or rolled back into a usable
+   * state, and {@code close()} is clean because nothing uncommitted is left.
+   * {@code spec: TXN-307}</li>
+   * <li><b>Thrown exception</b> — the failure precedes the commit point and nothing was committed. No
+   * revision number is consumed, the modifications are retained, and the transaction stays usable:
+   * retry the commit or roll it back. {@code spec: TXN-305}</li>
+   * </ul>
    *
    * @param commitMessage optional message
    * @param commitTimeStamp optional configured custom timestamp

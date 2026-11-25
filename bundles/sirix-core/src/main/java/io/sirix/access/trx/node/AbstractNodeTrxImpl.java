@@ -820,6 +820,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // uncommitted work (close() only refuses when modificationCount > 0).
       modificationCount = 0L;
 
+      // A cleanup step AFTER the commit point may have failed. Revision N exists, so the caller is
+      // told the truth — the commit succeeded — and this writer goes terminal instead of back to
+      // RUNNING, so the same change cannot be retried into a second revision (#1380). spec: TXN-307
+      final Throwable postDurableCleanupFailure = storageEngineWriter.postCommitCleanupFailure();
+      if (postDurableCleanupFailure != null) {
+        completeCommitAfterPostDurableCleanupFailure(uberPage, postDurableCleanupFailure);
+        return;
+      }
+
       try {
         // Remember successfully committed uber page in resource session.
         resourceSession.setLastCommittedUberPage(uberPage);
@@ -864,6 +873,45 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     });
 
     return self();
+  }
+
+  /**
+   * Finish a commit whose revision is durable but whose post-durable cleanup failed: publish the
+   * revision, keep the repair flag the storage writer set, and leave this writer terminal.
+   *
+   * <p>
+   * The writer deliberately does NOT get re-bound to the new revision: its transaction-intent log,
+   * page guard or spill bookkeeping may be exactly what failed to tidy up, and a writer back in
+   * RUNNING is a writer whose caller may retry the change it already committed. Nothing dirty is
+   * left, so {@code close()} is clean. {@code spec: TXN-307}
+   *
+   * @param uberPage the uber page of the durable revision
+   * @param cleanupFailure the cleanup failure, already logged and flagged for repair by the storage
+   *        writer
+   */
+  // Terminal bookkeeping must complete after an Error too; none of it may undo a known success.
+  @SuppressWarnings("java:S1181")
+  private void completeCommitAfterPostDurableCleanupFailure(final UberPage uberPage, final Throwable cleanupFailure) {
+    final int revision = uberPage.getRevisionNumber();
+    // Terminal FIRST: no later bookkeeping failure may leave this writer RUNNING.
+    state = State.COMMITTED;
+    try {
+      resourceSession.setLastCommittedUberPage(uberPage);
+      enqueuePostCommitHooks(postCommitHooks, revision);
+    } catch (final RuntimeException | Error publicationFailure) {
+      ShardedPageCache.retainCleanupFailure(cleanupFailure, publicationFailure);
+      LOGGER.error("Revision {} is durably committed, but publishing it to the resource session failed after a "
+          + "post-commit cleanup failure.", revision, publicationFailure);
+    }
+    // The storage writer already flagged the resource; repeat it here so a writer implementation
+    // that only reports the failure still leaves the repair responsibility behind.
+    try {
+      resourceSession.requireCommitRecovery();
+    } catch (final RuntimeException | Error markerFailure) {
+      ShardedPageCache.retainCleanupFailure(cleanupFailure, markerFailure);
+      LOGGER.error("Cannot flag the resource for repair after revision {} committed with a cleanup failure.", revision,
+          markerFailure);
+    }
   }
 
   /**

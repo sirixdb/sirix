@@ -44,6 +44,26 @@ public interface StorageEngineWriter extends StorageEngineReader {
   BytesOut<?> newBufferedBytesInstance();
 
   /**
+   * The failure of a cleanup step that ran AFTER the most recent commit crossed its commit point, or
+   * {@code null} when there was none.
+   *
+   * <p>
+   * A commit crosses its commit point when the uber-page beacon write returns: revision N is durable
+   * and acknowledged from that moment on. Forgetting the spill file, closing durable read pages,
+   * releasing the page guard, clearing the transaction-intent log and deleting the recovery marker
+   * all happen afterwards and only tidy up a revision that already exists. A failure in one of them
+   * therefore must NOT be reported as a commit failure: the storage writer logs it, flags the
+   * resource for repair and reports it here, so the transaction above can report the commit as the
+   * success it is while making itself terminal. {@code spec: TXN-307}
+   *
+   * @return the first post-durable cleanup failure of the most recent commit, or {@code null} when
+   *         every cleanup step succeeded
+   */
+  default @Nullable Throwable postCommitCleanupFailure() {
+    return null;
+  }
+
+  /**
    * Truncate resource to given revision.
    *
    * @param revision the given revision
