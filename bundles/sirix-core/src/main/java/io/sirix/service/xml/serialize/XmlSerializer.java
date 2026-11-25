@@ -153,10 +153,36 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
    * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
   @Override
+  // S3776: Per-node dispatch stays in one compiled unit to preserve the measured serialization path.
+  @SuppressWarnings("java:S3776")
   protected void emitNode(final XmlNodeReadOnlyTrx rtx) {
     try {
       switch (rtx.getKind()) {
         case XML_DOCUMENT:
+          break;
+        case ATTRIBUTE:
+          if (!serializeRest) {
+            throw new IllegalStateException("A standalone attribute requires REST serialization");
+          }
+          write("<rest:attribute name=\"");
+          writeQName(rtx);
+          write("\" namespace=\"");
+          writeEscaped(rtx.getNamespaceURI().getBytes(Constants.DEFAULT_ENCODING), true);
+          write("\" value=\"");
+          writeEscaped(rtx.getRawValue(), true);
+          write("\"/>");
+          break;
+        case NAMESPACE:
+          if (!serializeRest) {
+            throw new IllegalStateException("A standalone namespace requires REST serialization");
+          }
+          write("<rest:namespace prefix=\"");
+          if (rtx.getPrefixKey() != -1) {
+            out.write(rtx.rawNameForKey(rtx.getPrefixKey()));
+          }
+          write("\" uri=\"");
+          writeEscaped(rtx.getNamespaceURI().getBytes(Constants.DEFAULT_ENCODING), true);
+          write("\"/>");
           break;
         case ELEMENT:
           // Emit start element.

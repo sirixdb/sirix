@@ -1,5 +1,6 @@
 package io.sirix.rest.crud.json
 
+import io.sirix.rest.crud.moveToOrNotFound
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
@@ -72,7 +73,7 @@ class JsonSerializeHelper {
                 rtx.moveToFirstChild()
                 rtx.hash
             } else {
-                rtx.moveTo(nodeId)
+                rtx.moveToOrNotFound(nodeId)
                 rtx.hash
             }
 

@@ -268,6 +268,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param rtx Sirix {@link JsonNodeReadOnlyTrx}
    */
   @Override
+  // S3776: Per-node dispatch stays in one compiled unit to preserve the allocation-free emission
+  // path.
+  @SuppressWarnings("java:S3776")
   public void emitNode(final JsonNodeReadOnlyTrx rtx) {
     try {
       final boolean hasChildren = rtx.hasChildren();
@@ -278,6 +281,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
       switch (kind) {
         case JSON_DOCUMENT:
+          if (!hasChildren) {
+            appendObjectValue("null");
+          }
           break;
         case OBJECT:
           emitMetaData(rtx);

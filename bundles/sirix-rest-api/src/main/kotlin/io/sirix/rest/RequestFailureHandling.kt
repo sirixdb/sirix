@@ -5,6 +5,7 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Handler
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpServerResponse
+import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.HttpException
@@ -128,7 +129,8 @@ internal fun endWithErrorResponse(response: HttpServerResponse, statusCode: Int,
     }
     response.setStatusCode(statusCode)
         .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-    val safeMessage = message ?: "An error occurred"
-    val escapedMessage = safeMessage.replace("\\", "\\\\").replace("\"", "\\\"")
-    response.end("""{"statusCode":$statusCode,"message":"$escapedMessage"}""")
+    response.end(JsonObject()
+        .put("statusCode", statusCode)
+        .put("message", message ?: "An error occurred")
+        .encode())
 }

@@ -186,8 +186,8 @@ paths:
         '200':
           description: |
             Query result. With `plan=true` (JSON output only) the result is
-            wrapped as `{"results": …, "plan": …}`. On the JSON output path,
-            updating queries and queries with no result yield an empty body.
+            wrapped as `{"results": …, "plan": …}`. See the referenced result
+            schemas for empty-result handling.
           content:
             application/json:
               schema:
@@ -208,10 +208,12 @@ paths:
       description: |
         Closes every open database and removes **all** databases under the
         server's storage location. Requires the global `delete` role.
+        A `nodeId` query parameter is rejected with 400 and nothing is removed.
       operationId: deleteAllDatabases
       responses:
         '204':
           description: All databases removed.
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/ServerError' }
@@ -438,10 +440,13 @@ paths:
     delete:
       tags: [database]
       summary: Delete a database
+      description: |
+        A `nodeId` query parameter is rejected with 400 and nothing is removed.
       operationId: deleteDatabase
       responses:
         '204':
           description: Database removed.
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -458,7 +463,7 @@ paths:
         Returns the stable node hash of the document root's first child (or of
         `nodeId` when given) in the `ETag` response header, for use as an
         `If-Match` precondition on later updates/deletes. For resources built
-        with `hashType=NONE` the `ETag` is empty. `Accept` selects the JSON or
+        with `hashType=NONE` the `ETag` is omitted. `Accept` selects the JSON or
         XML pipeline.
       operationId: headResource
       parameters:
@@ -467,10 +472,11 @@ paths:
         - $ref: '#/components/parameters/nodeId'
       responses:
         '200':
-          description: Hash available.
+          description: Node exists; ETag is present only when hashes are stored.
           headers:
             ETag:
               $ref: '#/components/headers/ETag'
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -524,7 +530,8 @@ paths:
         '200':
           description: |
             Serialized resource data or query result. The `ETag` header
-            carries the serialized node's hash (resources with
+            carries the selected context node's hash for queries with `nodeId`,
+            or the serialized node's hash for direct reads (resources with
             `hashType=NONE`: no `ETag`).
           headers:
             ETag:
@@ -689,6 +696,9 @@ paths:
         Without `nodeId`: removes the whole resource (history included). With
         `nodeId`: removes that subtree in a new revision; subject to the same
         `If-Match` precondition as updates when the resource stores hashes.
+        A `nodeId` that is not a 64-bit integer is a 400 and one that is not a
+        node of the most recent revision is a 404; neither removes anything,
+        and a malformed `nodeId` never falls back to removing the resource.
       operationId: deleteResource
       parameters:
         - $ref: '#/components/parameters/nodeId'
@@ -961,7 +971,11 @@ components:
     nodeId:
       name: nodeId
       in: query
-      description: Node key selecting the target node/subtree (unique, stable per resource).
+      description: |
+        Node key selecting the target node/subtree (unique, stable per resource).
+        On reads (GET, HEAD) a value that is not a 64-bit integer is a 400, and
+        a key that is not a node in every selected revision is a 404; the
+        response never falls back to the whole resource.
       schema: { type: integer, format: int64 }
     maxLevel:
       name: maxLevel
@@ -978,12 +992,18 @@ components:
       in: query
       description: |
         JSON only: paginated top-level-record serialization — return the next
-        N top-level records, starting after `startNodeKey`.
+        N records within the subtree selected by `nodeId` (the whole resource
+        when omitted), starting after `startNodeKey` on continuation pages.
       schema: { type: integer, format: int32 }
     startNodeKey:
       name: startNodeKey
       in: query
-      description: 'JSON only, with `nextTopLevelNodes`: continue after this node key (0/omitted = from the document start).'
+      description: |
+        JSON only, with `nextTopLevelNodes`: continue after this node key;
+        omitted means the initial page of the selected subtree. With `nodeId`,
+        the cursor must belong to that subtree in every selected revision
+        (otherwise 400). Cursor 0 selects the initial page only for the
+        document root; a non-document subtree-root cursor yields an empty page.
       schema: { type: integer, format: int64 }
     numberOfNodes:
       name: numberOfNodes
@@ -1162,9 +1182,9 @@ components:
         JSON query results: the result-sequence items in serialization order.
         JSON document nodes are serialized from storage (annotated with
         `revisionNumber`/`revisionTimestamp` when they stem from a versioned
-        resource). Atomics are serialized as JSON scalars. Updating queries and queries with no result produce
-        an EMPTY response body instead of
-        this envelope.
+        resource). Atomics are serialized as JSON scalars. Empty result
+        sequences, including excluded pagination windows and updating queries
+        with no result, produce `{"rest":[]}`.
 
         XML nodes (including index-definition nodes returned by index-creation
         queries), function items and other unsupported result items cause a

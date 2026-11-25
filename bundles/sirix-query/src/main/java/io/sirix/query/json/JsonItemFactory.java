@@ -62,6 +62,8 @@ public final class JsonItemFactory {
 
   public JsonItem getSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
     switch (rtx.getKind()) {
+      case JSON_DOCUMENT:
+        return new JsonDBDocument(rtx, collection);
       case ARRAY:
         return new JsonDBArray(rtx, collection);
       case OBJECT:

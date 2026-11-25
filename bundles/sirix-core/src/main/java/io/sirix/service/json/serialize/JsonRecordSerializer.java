@@ -35,6 +35,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
   private final long startNodeKey;
 
+  private final long rootNodeKey;
+
   private enum State {
     IS_OBJECT,
 
@@ -87,6 +89,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     withNodeKeyAndChildNodeKeyMetaData = builder.withNodeKeyAndChildCount;
     numberOfNodes = builder.maxNodes;
     startNodeKey = builder.nodeKey;
+    rootNodeKey = builder.rootNodeKey;
   }
 
   /**
@@ -188,6 +191,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
      */
     private long nodeKey;
 
+    private long rootNodeKey;
+
     /**
      * Determines if an initial indent is needed or not.
      */
@@ -276,13 +281,27 @@ public final class JsonRecordSerializer implements Callable<Void> {
     }
 
     /**
-     * Specify the start node key.
+     * Specify the continuation cursor, independently of the subtree root.
      *
-     * @param nodeKey node key to start serialization from (the root of the subtree to serialize)
-     * @return this XMLSerializerBuilder reference
+     * @param nodeKey last loaded node, whose right siblings form the next page; zero selects the
+     *        initial page
+     * @return this builder
      */
     public Builder startNodeKey(final long nodeKey) {
       this.nodeKey = nodeKey;
+      return this;
+    }
+
+    /**
+     * Select the initial-page subtree root. Callers must validate that a continuation cursor belongs to
+     * this subtree before serialization; a cursor at a non-document root yields an empty page.
+     *
+     * @param rootNodeKey nonnegative subtree root key; defaults to the document root (zero)
+     * @return this builder
+     */
+    public Builder rootNodeKey(final long rootNodeKey) {
+      checkArgument(rootNodeKey >= 0, "rootNodeKey must be nonnegative");
+      this.rootNodeKey = rootNodeKey;
       return this;
     }
 
@@ -410,7 +429,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
   /**
    * Serialize records. Two modes of operation:
    * <ul>
-   * <li>Initial Load Mode (startNodeKey == 0): Serialize from document root with parent wrapper</li>
+   * <li>Initial Load Mode (startNodeKey == 0): Serialize from rootNodeKey with parent wrapper</li>
    * <li>Pagination Mode (startNodeKey > 0): Serialize right siblings of startNodeKey as array</li>
    * </ul>
    *
@@ -488,7 +507,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
             // PAGINATION MODE: Serialize right siblings of startNodeKey as array
             serializeSiblingsAfter(rtx, currentRevision);
           } else {
-            // INITIAL LOAD MODE: Serialize from document root with parent wrapper
+            // INITIAL LOAD MODE: Preserve the selected subtree's wrapper and field identity.
             serializeWithParentWrapper(rtx, currentRevision);
           }
 
@@ -507,14 +526,22 @@ public final class JsonRecordSerializer implements Callable<Void> {
   }
 
   /**
-   * Pagination mode: Serialize right siblings of startNodeKey as a JSON array with parent metadata.
-   * Output format: {"metadata":{parentNodeKey, childCount, ...}, "value":[{sibling1}, {sibling2},
-   * ...]}
+   * Pagination mode: serialize right siblings of startNodeKey in a {@code value} array. Optional
+   * parent metadata uses the same wrapper as {@link #serializeWithParentWrapper}, including the
+   * {@code key} for a named parent. A cursor at the non-document subtree root yields an empty page.
    * 
    * @param rtx the read-only transaction
    * @throws IOException if serialization fails
    */
+  // S3776: The per-record sibling loop reuses one builder; keep its cursor and emission operations
+  // together.
+  @SuppressWarnings("java:S3776")
   private void serializeSiblingsAfter(final JsonNodeReadOnlyTrx rtx, final int revision) throws IOException {
+    if (startNodeKey == rootNodeKey) {
+      out.append("{\"value\":[]}");
+      return;
+    }
+
     // Move to the start node (last loaded child)
     if (!rtx.moveTo(startNodeKey)) {
       out.append("{\"value\":[]}");
@@ -597,22 +624,21 @@ public final class JsonRecordSerializer implements Callable<Void> {
   }
 
   /**
-   * Initial load mode: Serialize from document root with parent wrapper. Output format:
-   * {"metadata":{...}, "value":[{child1}, {child2}, ...]}
+   * Initial load mode: serialize the selected subtree with its parent wrapper. Metadata output uses
+   * {"key"?, "metadata":{...}, "value":[{child1}, {child2}, ...]}; plain output retains named fields.
    * 
    * @param rtx the read-only transaction
    * @throws IOException if serialization fails
    */
+  // S3776: The per-record child loop reuses one builder; keep its cursor and emission operations
+  // together.
+  @SuppressWarnings("java:S3776")
   private void serializeWithParentWrapper(final JsonNodeReadOnlyTrx rtx, final int revision) throws IOException {
     var state = State.IS_PRIMITIVE;
 
-    rtx.moveToDocumentRoot();
-    if (!rtx.hasFirstChild()) {
-      return;
-    }
-    rtx.moveToFirstChild();
-
-    if (rtx.getNodeKey() <= 0) {
+    checkArgument(rtx.moveTo(rootNodeKey), "Subtree root does not exist");
+    if (rootNodeKey == 0 && !rtx.moveToFirstChild()) {
+      out.append("null");
       return;
     }
 
@@ -623,6 +649,13 @@ public final class JsonRecordSerializer implements Callable<Void> {
       state = State.IS_OBJECT;
     } else if (rtx.isArray()) {
       state = State.IS_ARRAY;
+    }
+
+    final boolean namedContainer = rtx.isObjectKey() && state != State.IS_PRIMITIVE;
+    if (namedContainer && !hasMetadata) {
+      out.append('{');
+      emitFieldName(rtx);
+      out.append(':');
     }
 
     // Emit the parent wrapper manually to avoid the extra '{' that emitNode adds for OBJECT
@@ -652,7 +685,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
     // For primitives, serialize the node itself (not children, which don't exist)
     if (state == State.IS_PRIMITIVE) {
-      builder.startNodeKey(rtx.getNodeKey()).build().call();
+      builder.serializeStartNodeWithBrackets(true).startNodeKey(rtx.getNodeKey()).build().call();
     } else if (rtx.hasFirstChild()) {
       // Serialize children for objects/arrays
       rtx.moveToFirstChild();
@@ -708,6 +741,17 @@ public final class JsonRecordSerializer implements Callable<Void> {
       // IS_PRIMITIVE with metadata: close {"metadata":{...},"value":[...]}
       out.append("]}");
     }
+
+    if (namedContainer && !hasMetadata) {
+      out.append('}');
+    }
+  }
+
+  private void emitFieldName(final JsonNodeReadOnlyTrx rtx) throws IOException {
+    if (out instanceof JsonOutputSink sink && sink.tryEmitQuoted(rtx.getNameBytes())) {
+      return;
+    }
+    out.append('"').append(StringValue.escape(rtx.getName().stringValue())).append('"');
   }
 
   /**
@@ -719,7 +763,13 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param rtx the read-only transaction
    */
   private void emitParentMetadata(final JsonNodeReadOnlyTrx rtx) throws IOException {
-    out.append("{\"metadata\":{");
+    out.append('{');
+    if (rtx.isObjectKey()) {
+      out.append("\"key\":");
+      emitFieldName(rtx);
+      out.append(',');
+    }
+    out.append("\"metadata\":{");
 
     // Node key
     if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {

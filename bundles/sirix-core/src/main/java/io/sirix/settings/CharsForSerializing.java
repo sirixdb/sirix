@@ -74,11 +74,11 @@ public enum CharsForSerializing {
   /** " xmlns:". */
   XMLNS_COLON(SPACE.getBytes(), new byte[] {120, 109, 108, 110, 115, 58}),
 
-  /** "&lt;!-- ". */
-  OPENCOMMENT(OPEN.getBytes(), new byte[] {33, 45, 45}, SPACE.getBytes()),
+  /** "&lt;!--". */
+  OPENCOMMENT(OPEN.getBytes(), new byte[] {33, 45, 45}),
 
-  /** " --&gt;". */
-  CLOSECOMMENT(SPACE.getBytes(), new byte[] {45, 45}, CLOSE.getBytes()),
+  /** "--&gt;". */
+  CLOSECOMMENT(new byte[] {45, 45}, CLOSE.getBytes()),
 
   /** "&lt;?". */
   OPENPI(OPEN.getBytes(), new byte[] {63}),

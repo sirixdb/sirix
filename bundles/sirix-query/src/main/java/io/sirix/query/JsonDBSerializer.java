@@ -197,6 +197,9 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
   @Override
   public void close() {
     try {
+      if (first) {
+        serialize(null);
+      }
       out.append("]}");
     } catch (final IOException e) {
       throw new UncheckedIOException(e);

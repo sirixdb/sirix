@@ -23,6 +23,7 @@
 # After a refactor, `pr_mutation.py dispositions --check/--remap` lists stale entries and
 # proposes their new identities for review.
 
+
 [[mutant]]
 class = "io.sirix.cli.commands.BackupKt"
 method = "printBackupSummary"
@@ -337,6 +338,222 @@ description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpre
 kind = "equivalent"
 checked_at = "cd2527684cada0f2461723e1de3a13ecc62c30cc"
 justification = "REST-210 / Vert.x Route handler contract: database-only JSON PUT receives a non-null RoutingContext. The coroutineHandler bridge has already called ctx.vertx() on this same immutable captured reference before invoking the route lambda. A null callback argument cannot reach this generated assertion even through the bridge. Removing it preserves all request handling and errors and changes no allocation, IO or traversal. The real-router HTTP tests execute the corresponding named and database-only routes."
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractHeadHandler"
+method = "head"
+descriptor = "(Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Ljava/lang/String;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [18]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "11f89417b5c9c0f2df77d599be3fd50f6c787af7"
+justification = """Kotlin's compiler-inserted null check on the platform-typed List returned by Vert.x
+RoutingContext.queryParam("nodeId"). Vert.x documents and implements queryParam as returning a
+non-null list (empty when the parameter is absent), so the check never fires for any request.
+Were it ever null, the very next instruction (the inlined getOrNull reading the list's size)
+throws the same NullPointerException, so results, errors, state and cost are identical either way."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractGetHandler"
+method = "get"
+descriptor = "(Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Ljava/lang/String;Ljava/lang/String;Lio/vertx/core/Context;Lio/vertx/ext/auth/User;Lio/vertx/core/json/JsonObject;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [124]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "11f89417b5c9c0f2df77d599be3fd50f6c787af7"
+justification = """Kotlin's compiler-inserted null check on the platform-typed List returned by Vert.x
+RoutingContext.queryParam("nodeId"). Vert.x documents and implements queryParam as returning a
+non-null list (empty when the parameter is absent), so the check never fires for any request.
+Were it ever null, the very next instruction (the inlined getOrNull reading the list's size)
+throws the same NullPointerException, so results, errors, state and cost are identical either way."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.xml.XmlSerializeHelper"
+method = "writeResponseWithHashValue"
+descriptor = "(Lio/sirix/api/xml/XmlResourceSession;ILio/vertx/ext/web/RoutingContext;Ljava/lang/Long;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [41]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "11f89417b5c9c0f2df77d599be3fd50f6c787af7"
+justification = """Kotlin's compiler-inserted null check on the read-only transaction returned by the Java API
+ResourceSession.beginNodeReadOnlyTrx(revision). That method either returns an open transaction or
+throws; it never returns null (it is also used unchecked by every other REST read). Were it ever
+null, the next instruction (the NodeCursor moveTo / cast on the same reference) throws the same
+NullPointerException, so results, errors, state and cost are identical for every input."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.HandlerPreconditionsKt"
+method = "requireSubtreeNodeId"
+descriptor = "(Lio/vertx/ext/web/RoutingContext;)Ljava/lang/Long;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [12]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "11f89417b5c9c0f2df77d599be3fd50f6c787af7"
+justification = """Kotlin's compiler-inserted null check on the platform-typed List returned by Vert.x
+RoutingContext.queryParam("nodeId"). Vert.x documents and implements queryParam as returning a
+non-null list (empty when the parameter is absent), so the check never fires for any request.
+Were it ever null, the very next instruction (the inlined getOrNull reading the list's size)
+throws the same NullPointerException, so results, errors, state and cost are identical either way."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractHeadHandler"
+method = "head"
+descriptor = "(Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Ljava/lang/String;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [171]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "847bee5a09f951556b43602799794ed6128bc141"
+justification = """Kotlin's compiler-inserted null check on the platform-typed session returned by the Java
+API Database.beginResourceSession, passed to eTagOf's non-null parameter. The resource's
+existence is checked just before, and beginResourceSession returns an open session or throws; it
+never returns null. Were it ever null, eTagOf's first statement reads manager.resourceConfig and
+throws the same NullPointerException, so results, errors, state and cost are identical."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractHeadHandler"
+method = "eTagOf"
+descriptor = "(Lio/sirix/api/ResourceSession;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Ljava/lang/String;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [55]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "847bee5a09f951556b43602799794ed6128bc141"
+justification = """REST-203's HEAD path receives a transaction from ResourceSession.beginNodeReadOnlyTrx,
+which returns an open transaction or throws. Its public contract admits no null return.
+This Kotlin-generated assertion precedes the NodeCursor cast of that same non-null reference;
+removing it changes no result, error, resource ownership or counted work for an admitted request.
+ReadNodeIdValidationTest exercises hashed and hash-disabled success and unknown-key paths,
+with live-reader diagnostics at the owning session's retirement boundary."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractGetHandler"
+method = "requireNodeInEveryRevision"
+descriptor = "(Lio/sirix/api/ResourceSession;[IJ)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [38]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "847bee5a09f951556b43602799794ed6128bc141"
+justification = """REST-203's preflight obtains each revision reader from ResourceSession.beginNodeReadOnlyTrx,
+whose contract returns an open transaction or throws, never null. This compiler-generated
+assertion only checks that same reference before its NodeCursor cast. Its failure arm is
+unreachable for the concrete resource sessions admitted by REST. Removing the assertion changes
+no results, errors, ownership or counted work. ReadNodeIdValidationTest covers both formats,
+valid and missing keys, revision ranges, and zero outstanding readers before session cleanup."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractGetHandler"
+method = "xquery$lambda$0"
+descriptor = "(Lio/vertx/ext/web/RoutingContext;Lio/sirix/rest/crud/AbstractGetHandler;Lio/vertx/ext/auth/User;Lio/vertx/core/json/JsonObject;Lio/sirix/api/ResourceSession;Ljava/lang/AutoCloseable;[ILjava/lang/Long;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;)Lio/vertx/core/buffer/Buffer;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [267]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "3d9996af7d1480deab6bbe72eec41e570b69cf91"
+justification = """REST-203 query contexts receive the reader returned by
+ResourceSession.beginNodeReadOnlyTrx, which returns an open reader or throws, never null.
+After the binding-stage extraction this compiler assertion checks that reader before
+passing it to bindQueryContext, rather than before the inlined node move. The same
+non-null producer contract makes its null failure unreachable. Removing it changes no
+admitted result, error, ownership or counted work. The read suite observes real reader
+counts before parent cleanup in both formats and hash modes."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.json.JsonSerializeHelper"
+method = "writeResponseWithHashValue"
+descriptor = "(Lio/sirix/api/json/JsonResourceSession;ILio/vertx/ext/web/RoutingContext;Ljava/lang/Long;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [41]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "847bee5a09f951556b43602799794ed6128bc141"
+justification = """REST-203's JSON header helper receives the transaction returned by
+JsonResourceSession.beginNodeReadOnlyTrx, which returns an open reader or throws, never null.
+This is the same non-null producer invariant as the XML helper's reviewed assertion. The
+compiler check before moveToOrNotFound cannot fail on an admitted request; removing it changes
+no result, error, ownership or counted work. The read suite checks JSON subtree ETags for
+valid and missing keys and observes real reader counts before parent session cleanup."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractGetHandler"
+method = "bindQueryContext"
+descriptor = "(Lio/sirix/api/NodeCursor;Ljava/lang/Long;Lio/sirix/api/ResourceSession;Ljava/lang/AutoCloseable;Lio/sirix/query/SirixQueryContext;Lio/sirix/rest/crud/json/JsonSessionDBStore;)Ljava/lang/Long;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [32]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "3d9996af7d1480deab6bbe72eec41e570b69cf91"
+justification = """The non-null R parameter is the reader returned by ResourceSession.beginNodeReadOnlyTrx.
+Both concrete REST formats bind only their open read-only transactions. This compiler
+assertion precedes the NodeReadOnlyTrx cast for hash access; no admitted input can make
+it null. Removing the assertion changes no result, failure, ownership or counted work.
+ReadNodeIdValidationTest checks subtree/query ETags and live-reader cleanup in both formats."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractGetHandler"
+method = "get"
+descriptor = "(Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Ljava/lang/String;Ljava/lang/String;Lio/vertx/core/Context;Lio/vertx/ext/auth/User;Lio/vertx/core/json/JsonObject;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [584]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "3d9996af7d1480deab6bbe72eec41e570b69cf91"
+justification = """Database.beginResourceSession returns an open session or throws, never null. This
+compiler assertion passes that same session to Revisions.getRevisionNumber after the
+forwarding method was removed. Its null failure is unreachable for concrete REST sessions.
+Removing it changes no admitted result, failure, ownership or counted work; the route
+suite covers both formats, missing nodes, explicit revisions and reader cleanup."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractGetHandler"
+method = "get"
+descriptor = "(Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Ljava/lang/String;Ljava/lang/String;Lio/vertx/core/Context;Lio/vertx/ext/auth/User;Lio/vertx/core/json/JsonObject;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [595]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "3d9996af7d1480deab6bbe72eec41e570b69cf91"
+justification = """Vert.x RoutingContext.queryParam returns a non-null List, including an empty List
+when startResultSeqIndex is absent. This assertion checks the List before getOrNull,
+not the optional first element. The next operation would also reject a null List, but
+that value is outside the API contract. Removing the assertion changes no admitted
+result, error, ownership or counted work. Ordinary and paginated query routes are covered."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractGetHandler"
+method = "get"
+descriptor = "(Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Ljava/lang/String;Ljava/lang/String;Lio/vertx/core/Context;Lio/vertx/ext/auth/User;Lio/vertx/core/json/JsonObject;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [607]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "3d9996af7d1480deab6bbe72eec41e570b69cf91"
+justification = """Vert.x RoutingContext.queryParam returns a non-null List, including an empty List
+when endResultSeqIndex is absent. This assertion checks the List before getOrNull,
+not the optional first element. The next operation would also reject a null List, but
+that value is outside the API contract. Removing the assertion changes no admitted
+result, error, ownership or counted work. Bounded and unbounded query windows are covered."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.QuerySerializer$Companion"
+method = "serializePaginated"
+descriptor = "(Lio/sirix/query/SirixCompileChain;Ljava/lang/String;Lio/sirix/query/SirixQueryContext;JLjava/lang/Long;Lio/vertx/ext/auth/oauth2/OAuth2Auth;Lio/vertx/ext/auth/authorization/AuthorizationProvider;Lio/vertx/ext/auth/User;Lio/brackit/query/util/serialize/Serializer;Lkotlin/jvm/functions/Function2;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [156]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "3d9996af7d1480deab6bbe72eec41e570b69cf91"
+justification = """The Sequence.iterate contract returns an iterator, never null. This compiler
+assertion checks that iterator before passing it to serializeWindow after extraction;
+it does not check an item, whose null value intentionally signals exhaustion. No admitted
+sequence can take the null failure. Removing the assertion changes no result, error,
+ownership or counted work. QuerySerializerLifecycleTest covers bounded, exhausted,
+past-end and failing iterations and observes iterator/serializer close ordering."""
 
 # FMT-305: two boundaries the NAME key encoding and the frontier route walk make unreachable.
 # Each argument was checked by applying the mutant to a source copy and running the behaviour
