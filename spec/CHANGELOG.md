@@ -2,27 +2,12 @@
 
 ## 1.0.0 (unreleased)
 
-- Implement and verify
-  [TXN-307](TXN-transactions-durability.md#txn-307--known-durable-commit-survives-cleanup-failure)
-  across synchronous and pipelined commit orchestration, and correct what the trace tables claim around it. No requirement
-  text changes. Every step after the uber-page beacon write now runs independently of the others,
-  the first failure is retained, logged and turned into a repair flag, and the commit returns the
-  durable revision with an irreversible terminal condition instead of rethrowing into the pre-durability
-  classification. Publication, sidecar publication, successor rebinding and retirement failures follow
-  the same rule; speculative successor edits remain uncommitted and are discarded only by internal abort.
-  Post-beacon diagnostics are best-effort: marker errors are retained without wrappers, cleanup keeps
-  the first failure without suppressed-exception allocation, and debug/error logging cannot change
-  known success. Async orchestration consumes recorded durable causes directly, including checked
-  marker errors. Reporting-failure cases cover runtime exceptions and out-of-memory errors in both modes.
-  Lifecycle and rotation regression tests extend the mapped evidence; the requirement moves to `partial` with an executed conformance case. The
-  [TXN-305](TXN-transactions-durability.md#txn-305--known-pre-commit-point-failure) note loses the
-  half of its gap that TXN-307 now owns and records a measured one in its place: after a storage
-  failure between page serialization and the beacon write the writer reports running and refuses a
-  dirty close, but neither immediate reuse nor reuse after rollback is safe, so the preserved
-  rollback path that clause asks for is unmet at that failure site. The note also states which
-  injection point belongs to this requirement and which belongs to TXN-705: a throw out of
-  `writeUberPageReference` leaves durability undetermined, because that call's return is the
-  acknowledgement.
+- Record the synchronous and pipelined cleanup-failure implementation and regression evidence under
+  [TXN-307](TXN-transactions-durability.md#txn-307--known-durable-commit-survives-cleanup-failure),
+  moving its status to `partial` without changing requirement text. The
+  [TXN-305](TXN-transactions-durability.md#txn-305--known-pre-commit-point-failure) and
+  [TXN-705](TXN-transactions-durability.md#txn-705--unknown-durability-outcome-and-no-fsync-retry)
+  notes distinguish the remaining pre-point reuse and uncertainty gaps.
 
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from

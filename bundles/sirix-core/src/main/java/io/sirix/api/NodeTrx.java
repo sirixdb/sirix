@@ -44,22 +44,24 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    * execution locks.
    *
    * <p>
-   * What a normal return and a thrown exception say about durability:
+   * For persistent storage, what a normal return and a thrown exception say about durability:
    *
    * <ul>
    * <li><b>Normal return</b> — the new revision N is durable. This includes a commit whose cleanup
    * after the commit point failed: the revision exists, so the commit is not reported as failed. The
-   * failure is logged and the resource is flagged for repair, and this transaction is then terminal —
-   * further mutations and commits are rejected, it cannot be retried or rolled back into a usable
-   * state, and {@code close()} is clean because nothing uncommitted is left.
-   * {@code spec: TXN-307}</li>
+   * implementation attempts to log the failure and flag the resource for repair; this transaction is
+   * then terminal — further mutations and commits are rejected, it cannot be retried or rolled back
+   * into a usable state. {@code close()} is clean when no uncommitted successor edits remain;
+   * otherwise it refuses dirty close, and closing the resource session discards those edits after
+   * fencing the worker. {@code spec: TXN-307}</li>
    * <li><b>Known pre-commit-point failure</b> — an exception for a failure known to precede the
-   * commit point means nothing was committed. No
-   * revision number is consumed, the modifications are retained, and the transaction stays usable:
-   * retry the commit or roll it back. {@code spec: TXN-305}</li>
+   * commit point means nothing was committed. No revision number is consumed and uncommitted work is
+   * retained. Recoverable pre-hook failures permit retry; late storage failures can leave the writer
+   * unsafe to reuse even after rollback, so close and reopen the resource session before retrying.
+   * See the current implementation gaps under TXN-305 in the transaction specification.</li>
    * <li><b>Uncertain outcome</b> — a beacon-write error can throw even though revision N may be
-   * durable. Recovery on reopen determines whether N exists; the application must not assume its
-   * work was lost or retry the commit while the outcome is unknown. {@code spec: TXN-705}</li>
+   * durable. Recovery on reopen determines whether N exists; the application must not assume its work
+   * was lost or retry the commit while the outcome is unknown. {@code spec: TXN-705}</li>
    * </ul>
    *
    * @param commitMessage optional message

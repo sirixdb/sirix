@@ -58,7 +58,7 @@ remains the outer pipeline's responsibility.
 
 Vision check: the fix preserves the single committed revision history and its readable content,
 adds only cheap admission guards to mutation paths, changes no storage format or default, and
-implements TXN-307 without adding a public API.
+implements TXN-307 without changing the public commit signatures.
 
 Review-round result: the focused command passed all 179 selected cases (30 durability, 147
 abort-lifecycle, one async ordering and one async sidecar case). Gradle's required isolated

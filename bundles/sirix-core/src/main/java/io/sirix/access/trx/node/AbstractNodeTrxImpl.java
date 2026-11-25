@@ -835,11 +835,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
         uberPage = storageEngineWriter.commit(commitMessage, commitTimestamp, isAutoCommitting, isIntermediateCommit);
       } catch (final RuntimeException | Error e) {
-        // Nothing is durable yet: restore the state machine so the transaction stays usable
-        // (retry, further work, or an explicit rollback all remain possible) instead of being
-        // stranded in COMMITTING where assertRunning() rejects everything. The modification
-        // counter is untouched here — it is only cleared after durability — so the dirty-close
-        // guard keeps refusing to silently drop the uncommitted work (#1061).
+        // Hardening did not acknowledge durability; a beacon-write error can still have persisted
+        // the revision (the unresolved TXN-705 case). Preserve dirty accounting so close cannot
+        // silently discard work (#1061). RUNNING alone does not establish safe reuse after a late
+        // storage failure; see the TXN-305 implementation gap.
         state = State.RUNNING;
         throw e;
       }
