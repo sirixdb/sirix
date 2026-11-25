@@ -258,9 +258,34 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       DerivedIndexMaintainer.this.resume();
     }
 
-    /** Used only by truncation, never by normal source commits. */
+    /** Used only by truncation and by a backup copier, never by normal source commits. */
     public void lockHistory() {
       historyLock.lock();
+    }
+
+    /**
+     * Bounded {@link #lockHistory()} for a copier that must not race a derived commit (TXN-613). Every
+     * base publication, aggregate fold, summary fold and rewind holds this lock, so holding it means
+     * the derived resource's files are at rest. {@code false} means derived maintenance did not become
+     * quiescent within {@code timeout}; a backup refuses rather than copy a store that is being
+     * written.
+     *
+     * @param timeout how long to wait for in-flight derived maintenance to finish
+     * @return {@code true} if the history lock is now held by the calling thread
+     * @throws InterruptedException if the calling thread is interrupted while waiting
+     */
+    public boolean tryLockHistory(final Duration timeout) throws InterruptedException {
+      Objects.requireNonNull(timeout);
+      if (timeout.isNegative()) {
+        throw new IllegalArgumentException("Quiescence requires a nonnegative timeout");
+      }
+      final long budget;
+      try {
+        budget = timeout.toNanos();
+      } catch (final ArithmeticException overflow) {
+        throw new IllegalArgumentException("Quiescence timeout exceeds the supported nanosecond range", overflow);
+      }
+      return historyLock.tryLock(budget, TimeUnit.NANOSECONDS);
     }
 
     public void unlockHistory() {

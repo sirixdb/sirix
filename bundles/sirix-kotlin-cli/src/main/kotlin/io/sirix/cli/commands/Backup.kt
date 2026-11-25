@@ -26,6 +26,13 @@ internal fun printBackupSummary(summary: BackupManager.BackupSummary, cliPrinter
     summary.resources().forEach {
         cliPrinter.prnLnV("  - ${it.resourceName()}: revision ${it.mostRecentRevision()}, ${it.bytesCopied()} bytes")
     }
+    if (summary.derivedResources().isNotEmpty()) {
+        cliPrinter.prnLn("Derived resources (temporal aggregates): " +
+                summary.derivedResources().joinToString(", ") { it.resourceName() })
+        summary.derivedResources().forEach {
+            cliPrinter.prnLnV("  - ${it.resourceName()}: revision ${it.mostRecentRevision()}, ${it.bytesCopied()} bytes")
+        }
+    }
     if (summary.notBackedUp().isNotEmpty()) {
         cliPrinter.prnLn("Not backed up (in-memory resources): ${summary.notBackedUp().joinToString(", ")}")
     }

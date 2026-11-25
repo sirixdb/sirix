@@ -5,13 +5,19 @@ import io.sirix.access.DatabaseType;
 import io.sirix.access.InMemoryResources;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.Database;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.aggregate.DerivedIndexMaintainer;
+import io.sirix.io.IOStorage;
 import io.sirix.io.InterruptedFirstCommitRecovery;
+import io.sirix.io.Reader;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.UberPage;
 import io.sirix.utils.SirixFiles;
 
 import org.jspecify.annotations.Nullable;
@@ -23,6 +29,7 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Semaphore;
@@ -35,14 +42,19 @@ import static java.util.Objects.requireNonNull;
  *
  * <h2>Consistency mechanism (why the copy is crash-consistent)</h2>
  *
- * SirixDB resources are append-only: all mutations to a resource's on-disk state — the
+ * SirixDB resources are append-only, and every mutation of a resource's on-disk state — the
  * {@code data/sirix.data} page store, the {@code data/sirix.revisions} revision index, index
- * definitions and the {@code update-operations} diff files — happen exclusively inside
- * {@code commit()} of a node read-write transaction. A read-write transaction can only be opened
- * while holding the resource's writer {@link Semaphore}, which is <em>JVM-global per resource
- * path</em> (handed out by {@code WriteLocksRegistry}, shared across every
- * {@code Database}/{@code ResourceSession} handle for the same resource — see
- * {@code AbstractResourceSession#beginNodeTrx}).
+ * definitions and the {@code update-operations} diff files — is made by a node read-write
+ * transaction. Not all of them are made inside {@code commit()}: an
+ * {@link io.sirix.access.trx.node.AfterCommitState#KEEP_OPEN_ASYNC_FLUSH} or
+ * {@link io.sirix.access.trx.node.AfterCommitState#KEEP_OPEN_ASYNC_COMMIT} transaction flushes
+ * pages to {@code sirix.data} from a background thread before its commit. What bounds all of them
+ * is the writer lock: a read-write transaction can only be opened while holding the resource's
+ * writer {@link Semaphore}, which is <em>JVM-global per resource path</em> (handed out by
+ * {@code WriteLocksRegistry}, shared across every {@code Database}/{@code ResourceSession} handle
+ * for the same resource — see {@code AbstractResourceSession#beginNodeTrx}), and closing it awaits
+ * every pending asynchronous flush. Holding that semaphore therefore means no thread is writing the
+ * resource's files.
  *
  * <p>
  * There is no public "lock only" hook on {@link ResourceSession}, so this class acquires the
@@ -56,7 +68,7 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * While the writer semaphore is held by our empty transaction:
  * <ul>
- * <li>no other transaction can commit, so no bytes of {@code sirix.data} are appended, the dual
+ * <li>no other transaction exists, so no bytes of {@code sirix.data} are appended, the dual
  * uber-page beacon slots (offsets 4096/8192) are not rewritten, and no revision slot is added to
  * {@code sirix.revisions} — the (data, revisions) pair is <b>byte-stable</b> and mutually
  * consistent at the last committed revision;</li>
@@ -81,9 +93,19 @@ import static java.util.Objects.requireNonNull;
  * {@code dbsetting*.tmp} and diff-file {@code *.json.tmp*} spill files).
  *
  * <p>
+ * Each backed-up resource's hidden {@code <name>$derived} sibling is copied with it (TXN-613). It
+ * is a resource of its own that holds the temporal-aggregate data the public resource listing
+ * hides, so omitting it would silently drop that data from the backup. A derived store is written
+ * by the database's own {@code DerivedIndexMaintainer} rather than by a caller's transaction, so
+ * the copy holds its history lock — the lock every derived publication, fold and rewind takes —
+ * instead of its writer semaphore. A backup names the copied derived resources in
+ * {@link BackupSummary#derivedResources()}; one whose maintenance does not become quiescent within
+ * {@value #DERIVED_QUIESCENCE_SECONDS} seconds is refused rather than copied mid-build.
+ *
+ * <p>
  * IN_MEMORY resources are never copied (TXN-615): their committed state lives only in the open
  * database. A backup names them in {@link BackupSummary#notBackedUp()}, and a restore skips any of
- * their leftovers in a cold copy.
+ * their leftovers — including a derived sibling — in a cold copy.
  */
 public final class BackupManager {
 
@@ -94,26 +116,36 @@ public final class BackupManager {
   /**
    * Result of a backup or restore run.
    *
+   * @param resources the visible resources, in the order they were copied
+   * @param derivedResources the hidden {@code $derived} resources copied with their source (TXN-613).
+   *        They hold temporal-aggregate data, are not part of {@code resources} and are never listed
+   *        by {@code Database#listResources()}
    * @param notBackedUp names of the IN_MEMORY resources a backup skipped (TXN-615): their state lives
    *        only in the open database, so a backup never holds them; empty for a restore
    */
-  public record BackupSummary(Path sourceDir, Path targetDir, List<ResourceSummary> resources, long totalBytesCopied,
-      List<String> notBackedUp) {
+  public record BackupSummary(Path sourceDir, Path targetDir, List<ResourceSummary> resources,
+      List<ResourceSummary> derivedResources, long totalBytesCopied, List<String> notBackedUp) {
 
     public BackupSummary {
       resources = List.copyOf(resources);
+      derivedResources = List.copyOf(derivedResources);
       notBackedUp = List.copyOf(notBackedUp);
     }
 
-    /** A summary that skipped nothing. */
+    /** A summary with no hidden derived resource that skipped nothing. */
     public BackupSummary(final Path sourceDir, final Path targetDir, final List<ResourceSummary> resources,
         final long totalBytesCopied) {
-      this(sourceDir, targetDir, resources, totalBytesCopied, List.of());
+      this(sourceDir, targetDir, resources, List.of(), totalBytesCopied, List.of());
     }
 
-    /** Number of resources copied. */
+    /** Number of visible resources copied; the hidden derived resources are counted separately. */
     public int resourcesCopied() {
       return resources.size();
+    }
+
+    /** Number of hidden {@code $derived} resources copied. */
+    public int derivedResourcesCopied() {
+      return derivedResources.size();
     }
   }
 
@@ -130,6 +162,15 @@ public final class BackupManager {
    */
   private static final String INTENT_LOG_DIR_NAME =
       ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath().getFileName().toString();
+
+  /**
+   * Seconds a backup waits for a hidden derived resource's maintenance to become quiescent before it
+   * refuses the backup. Matches the writer-lock acquisition timeout a visible resource fails fast on,
+   * so both halves of a resource have the same "another writer is busy, retry later" behaviour.
+   */
+  static final int DERIVED_QUIESCENCE_SECONDS = 5;
+
+  private static final Duration DERIVED_QUIESCENCE_TIMEOUT = Duration.ofSeconds(DERIVED_QUIESCENCE_SECONDS);
 
   private BackupManager() {
     throw new AssertionError("May not be instantiated!");
@@ -171,6 +212,7 @@ public final class BackupManager {
 
     final boolean targetExisted = Files.exists(target);
     final List<ResourceSummary> resourceSummaries = new ArrayList<>();
+    final List<ResourceSummary> derivedSummaries = new ArrayList<>();
     final List<String> notBackedUp = new ArrayList<>();
     long totalBytes = 0;
     boolean success = false;
@@ -208,40 +250,147 @@ public final class BackupManager {
             notBackedUp.add(resourceName);
             continue;
           }
-          final long bytes;
-          final int mostRecentRevision;
-          try (final ResourceSession<?, ?> session = database.beginResourceSession(resourceName)) {
-            // Refuse before writer creation can run marker recovery; recheck under the lock below.
-            try (final NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
-              reader.getStorageEngineReader().getUberPage().getFeatures().requireToolCompatible();
-            }
-            // Acquire the resource's JVM-global writer semaphore (see class javadoc). This also
-            // runs leftover-.commit crash recovery before we copy. Fails fast (~5s) if another
-            // transaction is writing.
-            final NodeTrx lockHolder = session.beginNodeTrx();
-            try {
-              lockHolder.getStorageEngineWriter().getUberPage().getFeatures().requireToolCompatible();
-              mostRecentRevision = session.getMostRecentRevisionNumber();
-              bytes = copyTree(resourcePath, targetResources.resolve(resourceName), rel -> false,
-                  BackupManager::isTransientResourceFile);
-            } finally {
-              // Rollback of an UNMODIFIED trx is in-memory only; close releases the semaphore.
-              lockHolder.rollback();
-              lockHolder.close();
-            }
+          final CopiedResource copied = copyResource(database, resourcePath, targetResources);
+          resourceSummaries.add(copied.resource());
+          final ResourceSummary derivedSummary = copied.derived();
+          if (derivedSummary != null) {
+            derivedSummaries.add(derivedSummary);
           }
-          resourceSummaries.add(new ResourceSummary(resourceName, mostRecentRevision, bytes));
-          totalBytes += bytes;
+          totalBytes += copied.totalBytesCopied();
         }
       }
 
       success = true;
-      return new BackupSummary(source, target, resourceSummaries, totalBytes, notBackedUp);
+      return new BackupSummary(source, target, resourceSummaries, derivedSummaries, totalBytes, notBackedUp);
     } finally {
       if (!success) {
         cleanupTarget(target, targetExisted);
       }
     }
+  }
+
+  /**
+   * What copying one resource produced: its own summary, plus its hidden derived sibling's if it has
+   * one.
+   */
+  private record CopiedResource(ResourceSummary resource, @Nullable ResourceSummary derived) {
+
+    long totalBytesCopied() {
+      return resource.bytesCopied() + (derived == null
+          ? 0L
+          : derived.bytesCopied());
+    }
+  }
+
+  /**
+   * Copies one persistent resource and its hidden derived sibling while holding the resource's writer
+   * semaphore and, for the sibling, its maintainer's history lock.
+   */
+  private static CopiedResource copyResource(final Database<?> database, final Path resourcePath,
+      final Path targetResources) {
+    final String resourceName = resourcePath.getFileName().toString();
+    try (final ResourceSession<?, ?> session = database.beginResourceSession(resourceName)) {
+      // Refuse before writer creation can run marker recovery; recheck under the lock below.
+      try (final NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+        reader.getStorageEngineReader().getUberPage().getFeatures().requireToolCompatible();
+      }
+      // Acquire the resource's JVM-global writer semaphore (see class javadoc). This also runs
+      // leftover-.commit crash recovery before we copy. Fails fast (~5s) if another transaction is
+      // writing.
+      final NodeTrx lockHolder = session.beginNodeTrx();
+      try {
+        lockHolder.getStorageEngineWriter().getUberPage().getFeatures().requireToolCompatible();
+        final int mostRecentRevision = session.getMostRecentRevisionNumber();
+        // The hidden derived sibling is quiesced before the source copy starts, so both halves of
+        // this resource are copied from one state the database never left.
+        final DerivedQuiescence derived = quiesceDerivedResource(session, resourcePath);
+        try {
+          final long bytes = copyTree(resourcePath, targetResources.resolve(resourceName), rel -> false,
+              BackupManager::isTransientResourceFile);
+          final Path derivedPath = derived.derivedPath();
+          return new CopiedResource(new ResourceSummary(resourceName, mostRecentRevision, bytes), derivedPath == null
+              ? null
+              : copyDerivedResource(derivedPath, targetResources));
+        } finally {
+          derived.release();
+        }
+      } finally {
+        // Rollback of an UNMODIFIED trx is in-memory only; close releases the semaphore.
+        lockHolder.rollback();
+        lockHolder.close();
+      }
+    }
+  }
+
+  /**
+   * A source resource's hidden derived sibling, held at rest while the resource's files are copied.
+   *
+   * @param derivedPath the derived resource directory, or {@code null} if the source has none
+   * @param held the maintainer resource whose history lock this quiescence holds, or {@code null} if
+   *        no maintainer owns the derived store in this JVM and nothing can be writing it
+   */
+  private record DerivedQuiescence(@Nullable Path derivedPath, DerivedIndexMaintainer.@Nullable Resource held) {
+
+    void release() {
+      if (held != null) {
+        held.unlockHistory();
+      }
+    }
+  }
+
+  /**
+   * Brings the hidden derived sibling of {@code resourcePath} to rest so its files can be copied.
+   *
+   * <p>
+   * A derived store is written by the database's own maintainer, not by a caller's transaction, so
+   * its writer semaphore stays taken for the maintainer's whole lifetime and is useless as a copy
+   * barrier. Its history lock is the barrier: every base publication, aggregate fold, summary fold
+   * and rewind holds it.
+   *
+   * @throws SirixIOException if maintenance does not become quiescent in time — the alternative would
+   *         be a partial copy of a store that is being written
+   */
+  private static DerivedQuiescence quiesceDerivedResource(final ResourceSession<?, ?> session,
+      final Path resourcePath) {
+    final Path derivedPath = resourcePath.resolveSibling(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX);
+    if (!Files.isDirectory(derivedPath)) {
+      return new DerivedQuiescence(null, null);
+    }
+    final DerivedIndexMaintainer.@Nullable Resource maintained =
+        session instanceof final AbstractResourceSession<?, ?> internal
+            ? internal.getDerivedResource()
+            : null;
+    if (maintained == null) {
+      // No maintainer owns this store here, so its files are already at rest.
+      return new DerivedQuiescence(derivedPath, null);
+    }
+    final boolean quiescent;
+    try {
+      quiescent = maintained.tryLockHistory(DERIVED_QUIESCENCE_TIMEOUT);
+    } catch (final InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new SirixIOException(
+          "Interrupted while waiting for the derived resource " + derivedPath.getFileName() + " to become quiescent.",
+          interrupted);
+    }
+    if (!quiescent) {
+      throw new SirixIOException("The derived resource " + derivedPath.getFileName()
+          + " is still being built: its maintenance did not become quiescent within " + DERIVED_QUIESCENCE_SECONDS
+          + "s, and copying it now would make the backup partial. "
+          + "Retry the backup once its temporal-aggregate maintenance has caught up.");
+    }
+    return new DerivedQuiescence(derivedPath, maintained);
+  }
+
+  /** Copies one quiesced derived resource; its revision is read from the on-disk uber beacon. */
+  private static ResourceSummary copyDerivedResource(final Path derivedPath, final Path targetResources) {
+    final String derivedName = derivedPath.getFileName().toString();
+    final UberPage uberPage =
+        InterruptedFirstCommitRecovery.probeUberPage(ResourceConfiguration.deserialize(derivedPath));
+    uberPage.getFeatures().requireToolCompatible();
+    final long bytes = copyTree(derivedPath, targetResources.resolve(derivedName), rel -> false,
+        BackupManager::isTransientResourceFile);
+    return new ResourceSummary(derivedName, uberPage.getRevisionNumber(), bytes);
   }
 
   /**
@@ -303,13 +452,13 @@ public final class BackupManager {
       final long totalBytes = copyTree(source, target, rel -> isInMemoryResourceDirectory(source, rel),
           rel -> isTransientDatabaseFile(rel) || isTransientResourceFile(relativeToResource(rel)));
 
-      // Verification pass: open a read-only transaction on every restored resource; any
-      // corruption surfaces here (superblock validation, beacon checksums, revision-slot
-      // checksums and the page-checksum chain on the root page read).
-      final List<ResourceSummary> resourceSummaries = verifyRestoredDatabase(target, databaseType);
+      // Verification pass: open a read-only transaction on every restored resource, hidden derived
+      // ones included; any corruption surfaces here (superblock validation, beacon checksums,
+      // revision-slot checksums and the page-checksum chain on the root page read).
+      final VerifiedResources verified = verifyRestoredDatabase(target, databaseType);
 
       success = true;
-      return new BackupSummary(source, target, resourceSummaries, totalBytes);
+      return new BackupSummary(source, target, verified.resources(), verified.derived(), totalBytes, List.of());
     } finally {
       if (!success) {
         cleanupTarget(target, targetExisted);
@@ -321,9 +470,16 @@ public final class BackupManager {
    * Opens the restored database and a read-only transaction on every resource; reading the most
    * recent revision exercises superblock validation, beacon recovery, the checksummed revision slot
    * and the root-page checksum chain.
+   *
+   * <p>
+   * The hidden derived resources are verified <em>first</em> and reported separately (TXN-613).
+   * Opening a source resource installs its derived maintainer, which deletes and rebuilds a derived
+   * store it cannot read — so verifying the sources first would repair the very damage this pass
+   * exists to report.
    */
-  private static List<ResourceSummary> verifyRestoredDatabase(final Path target, final DatabaseType databaseType) {
+  private static VerifiedResources verifyRestoredDatabase(final Path target, final DatabaseType databaseType) {
     final List<ResourceSummary> resourceSummaries = new ArrayList<>();
+    final List<ResourceSummary> derivedSummaries = new ArrayList<>();
     try {
       InterruptedFirstCommitRecovery.requireDatabaseToolCompatible(target);
     } catch (final RuntimeException failure) {
@@ -331,28 +487,83 @@ public final class BackupManager {
           + "the restore has been rolled back: " + failure.getMessage(), failure);
     }
     try (final Database<?> database = openDatabase(target, databaseType)) {
-      for (final Path resourcePath : database.listResources()) {
+      final List<Path> resourcePaths = database.listResources();
+      for (final Path resourcePath : resourcePaths) {
+        if (!Files.isDirectory(resourcePath)) {
+          continue; // stray non-directory entry below resources/ — not a resource
+        }
+        final Path derivedPath =
+            resourcePath.resolveSibling(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX);
+        if (Files.isDirectory(derivedPath)) {
+          derivedSummaries.add(verifyRestoredDerivedResource(derivedPath));
+        }
+      }
+      for (final Path resourcePath : resourcePaths) {
         if (!Files.isDirectory(resourcePath)) {
           continue;
         }
-        final String resourceName = resourcePath.getFileName().toString();
-        try (final ResourceSession<?, ?> session = database.beginResourceSession(resourceName)) {
-          final int mostRecentRevision = session.getMostRecentRevisionNumber();
-          try (final NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-            rtx.getStorageEngineReader().getUberPage().getFeatures().requireToolCompatible();
-            if (rtx.getRevisionNumber() != mostRecentRevision) {
-              throw new SirixIOException("Restored resource " + resourceName + " opened at revision "
-                  + rtx.getRevisionNumber() + " instead of the most recent revision " + mostRecentRevision + ".");
-            }
-          }
-          resourceSummaries.add(new ResourceSummary(resourceName, mostRecentRevision, directorySize(resourcePath)));
-        } catch (final RuntimeException e) {
-          throw new SirixIOException("Verification of restored resource '" + resourceName + "' failed — "
-              + "the restore has been rolled back: " + e.getMessage(), e);
-        }
+        resourceSummaries.add(verifyRestoredResource(database, resourcePath));
       }
     }
-    return resourceSummaries;
+    return new VerifiedResources(resourceSummaries, derivedSummaries);
+  }
+
+  /** What a restore's verification pass found: the visible resources and the hidden derived ones. */
+  private record VerifiedResources(List<ResourceSummary> resources, List<ResourceSummary> derived) {
+  }
+
+  /**
+   * Verifies one restored hidden derived resource and reports what it holds.
+   *
+   * <p>
+   * A derived resource is internal: it has no user session, so this reads its storage directly
+   * through the tool open — strict feature compatibility, the uber beacon, then the revision-root
+   * page of its most recent revision, which exercises the checksummed revision slot and the
+   * page-checksum chain exactly as the read-only transaction on a visible resource does.
+   */
+  private static ResourceSummary verifyRestoredDerivedResource(final Path derivedPath) {
+    final String derivedName = derivedPath.getFileName().toString();
+    try {
+      final ResourceConfiguration config = ResourceConfiguration.deserialize(derivedPath);
+      final InterruptedFirstCommitRecovery.StorageAndUberPage opened =
+          InterruptedFirstCommitRecovery.openStorageForTool(config);
+      final IOStorage storage = opened.storage();
+      try {
+        final int mostRecentRevision = opened.uberPage().getRevisionNumber();
+        try (final Reader reader = storage.createReader()) {
+          final RevisionRootPage root = reader.readRevisionRootPage(mostRecentRevision, config);
+          if (root.getRevision() != mostRecentRevision) {
+            throw new SirixIOException("Restored derived resource " + derivedName + " holds revision "
+                + root.getRevision() + " instead of the most recent revision " + mostRecentRevision + ".");
+          }
+        }
+        return new ResourceSummary(derivedName, mostRecentRevision, directorySize(derivedPath));
+      } finally {
+        storage.close();
+      }
+    } catch (final RuntimeException e) {
+      throw new SirixIOException("Verification of restored derived resource '" + derivedName + "' failed — "
+          + "the restore has been rolled back: " + e.getMessage(), e);
+    }
+  }
+
+  /** Opens one restored resource read-only and reports what it holds. */
+  private static ResourceSummary verifyRestoredResource(final Database<?> database, final Path resourcePath) {
+    final String resourceName = resourcePath.getFileName().toString();
+    try (final ResourceSession<?, ?> session = database.beginResourceSession(resourceName)) {
+      final int mostRecentRevision = session.getMostRecentRevisionNumber();
+      try (final NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.getStorageEngineReader().getUberPage().getFeatures().requireToolCompatible();
+        if (rtx.getRevisionNumber() != mostRecentRevision) {
+          throw new SirixIOException("Restored resource " + resourceName + " opened at revision "
+              + rtx.getRevisionNumber() + " instead of the most recent revision " + mostRecentRevision + ".");
+        }
+      }
+      return new ResourceSummary(resourceName, mostRecentRevision, directorySize(resourcePath));
+    } catch (final RuntimeException e) {
+      throw new SirixIOException("Verification of restored resource '" + resourceName + "' failed — "
+          + "the restore has been rolled back: " + e.getMessage(), e);
+    }
   }
 
   private static Database<?> openDatabase(final Path databaseDir, final DatabaseType databaseType) {
