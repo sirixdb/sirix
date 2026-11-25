@@ -1,6 +1,5 @@
 package io.sirix.api;
 
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.hot.reader.HOTReadIntent;
 import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.access.trx.node.CommitCredentials;
@@ -117,14 +116,8 @@ public interface StorageEngineReader extends AutoCloseable {
    * Get the resource session this transaction is bound to.
    *
    * @return resource session instance
-   * @throws NullPointerException if this is a session-free tool reader
    */
   ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession();
-
-  /** Returns the resource configuration, including for session-free tool readers. */
-  default ResourceConfiguration getResourceConfig() {
-    return getResourceSession().getResourceConfig();
-  }
 
   boolean hasTrxIntentLog();
 

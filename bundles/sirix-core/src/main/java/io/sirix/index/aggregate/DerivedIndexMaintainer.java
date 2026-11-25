@@ -68,12 +68,11 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     }
   }
 
-  private static int validateSnapshot(final StorageEngineReader reader) {
+  private static void validateSnapshot(final StorageEngineReader reader) {
     final int frontier = DerivedRevisionMapping.frontier(reader);
     if (frontier > 0 && DerivedRevisionMapping.read(reader, frontier) == null) {
       throw new IllegalStateException("Derived frontier has no durable mapping");
     }
-    return frontier;
   }
 
   public static void validateBackupSnapshot(final StorageEngineReader reader, final int sourceHead) {
@@ -81,9 +80,8 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     if (sourceHead < 0) {
       throw new IllegalArgumentException("Source head must be nonnegative");
     }
-    if (validateSnapshot(reader) > sourceHead) {
-      throw new IllegalStateException("Derived frontier exceeds the copied source head " + sourceHead);
-    }
+    validateSnapshot(reader);
+    // The validated frontier names one of these mappings, so this also bounds the frontier.
     for (final DerivedRevisionMapping mapping : DerivedRevisionMapping.readAll(reader)) {
       if (mapping.sourceRevision() > sourceHead) {
         throw new IllegalStateException("Derived mapping exceeds the copied source head " + sourceHead);

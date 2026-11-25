@@ -184,7 +184,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   /**
    * {@link InternalResourceSession} reference.
    */
-  private final @Nullable InternalResourceSession<?, ?> resourceSession;
+  final @Nullable InternalResourceSession<?, ?> resourceSession;
 
   /**
    * The revision number, this page trx is bound to.
@@ -540,19 +540,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
-  public InternalResourceSession<?, ?> getResourceSession() {
+  public ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession() {
     assertNotClosed();
-    return resourceSession();
-  }
-
-  InternalResourceSession<?, ?> resourceSession() {
     return requireNonNull(resourceSession, "Tool readers have no resource session");
-  }
-
-  @Override
-  public ResourceConfiguration getResourceConfig() {
-    assertNotClosed();
-    return resourceConfig;
   }
 
   /**
@@ -963,7 +953,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * get stored under one offset and looked up under another.
    */
   DatabaseType databaseType() {
-    return getResourceSession() instanceof JsonResourceSession
+    return resourceSession instanceof JsonResourceSession
         ? DatabaseType.JSON
         : DatabaseType.XML;
   }
@@ -1331,7 +1321,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   private Int2LongMap collectTrieLaneAnchors() {
     final Int2LongMap anchors = new Int2LongOpenHashMap();
-    final IndexController<?, ?> indexController = getResourceSession().getRtxIndexController(revisionNumber);
+    final IndexController<?, ?> indexController = resourceSession.getRtxIndexController(revisionNumber);
     if (indexController == null) {
       return anchors;
     }
@@ -1361,7 +1351,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         // hasTrxIntentLog() is true -- construction walks the whole path summary in level order and
         // allocates a StructNode[maxNrOfNodes + 1] plus two maps. Bounded, because the resolver it
         // feeds is memoised for this reader's life, so a resource pays it at most once. Not free.
-        pathSummary = PathSummaryReader.getInstance(this, getResourceSession());
+        pathSummary = PathSummaryReader.getInstance(this, resourceSession);
       }
       final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
       if (columnAnchors.length != fieldPaths.size()) {
@@ -1753,7 +1743,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // slot; ordinary readers, including callback views, must resolve a durable root.
     final RevisionRootPage pendingRevisionRoot = trxIntentLog == null
         ? null
-        : resourceSession().getPendingRevisionRoot(revisionKey);
+        : resourceSession.getPendingRevisionRoot(revisionKey);
     if (pendingRevisionRoot != null) {
       return pendingRevisionRoot;
     }

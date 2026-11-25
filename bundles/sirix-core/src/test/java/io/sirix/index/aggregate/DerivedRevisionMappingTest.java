@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
+import java.nio.ByteBuffer;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,6 +72,58 @@ final class DerivedRevisionMappingTest {
           assertEquals(Integer.MAX_VALUE, DerivedRevisionMapping.frontier(reader));
           assertThrows(IllegalArgumentException.class, () -> DerivedRevisionMapping.readWindow(reader, 0));
           assertThrows(IllegalArgumentException.class, () -> DerivedRevisionMapping.readWindow(reader, -1));
+        }
+      }
+    }
+  }
+
+  @Test
+  void backupValidationBoundsEveryMappingIncludingThoseBeyondTheFrontier() {
+    final var path = directory.toPath().resolve("backup-bound");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("index").storageType(StorageType.FILE_CHANNEL).build());
+      try (JsonResourceSession session = database.beginResourceSession("index")) {
+        try (StorageEngineReader empty = session.createStorageEngineReader()) {
+          DerivedIndexMaintainer.validateBackupSnapshot(empty, 0);
+          assertThrows(IllegalArgumentException.class, () -> DerivedIndexMaintainer.validateBackupSnapshot(empty, -1));
+        }
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          mapping(2).write(writer.getStorageEngineWriter());
+          mapping(1).write(writer.getStorageEngineWriter());
+          writer.commit();
+        }
+        try (StorageEngineReader reader = session.createStorageEngineReader()) {
+          assertEquals(1, DerivedRevisionMapping.frontier(reader));
+          DerivedIndexMaintainer.validateBackupSnapshot(reader, 2);
+          assertThrows(IllegalStateException.class, () -> DerivedIndexMaintainer.validateBackupSnapshot(reader, 1),
+              "a mapping past the copied source head must be rejected even when the frontier fits");
+          assertThrows(IllegalStateException.class, () -> DerivedIndexMaintainer.validateBackupSnapshot(reader, 0));
+        }
+      }
+    }
+  }
+
+  @Test
+  void backupValidationRefusesAFrontierWithoutItsDurableMapping() {
+    final var path = directory.toPath().resolve("missing-frontier-mapping");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("index").storageType(StorageType.FILE_CHANNEL).build());
+      try (JsonResourceSession session = database.beginResourceSession("index")) {
+        try (JsonNodeTrx writer = session.beginNodeTrx()) {
+          mapping(1).write(writer.getStorageEngineWriter());
+          // Persisted DerivedRevisionMapping protocol: prefix 4, key -1 is the restart frontier.
+          // Model a damaged restart record advertising source 2 without its corresponding mapping.
+          try (TemporalAggregateStorage storage = new TemporalAggregateStorage(writer.getStorageEngineWriter(), 0)) {
+            storage.put(ByteBuffer.allocate(5).put((byte) 4).putInt(-1).array(),
+                ByteBuffer.allocate(4).putInt(2).array());
+          }
+          writer.commit();
+        }
+        try (StorageEngineReader reader = session.createStorageEngineReader()) {
+          assertThrows(IllegalStateException.class, () -> DerivedIndexMaintainer.validateBackupSnapshot(reader, 2),
+              "TXN-612/613: bounds alone cannot make a frontier with a missing mapping restartable");
         }
       }
     }

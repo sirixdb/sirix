@@ -27,6 +27,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -43,10 +45,19 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static io.brackit.query.util.path.Path.parse;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -240,6 +251,61 @@ final class BackupDerivedResourceTest {
   }
 
   @Test
+  @DisplayName("TXN-613: interrupted quiescence preserves interruption and releases the source writer")
+  void interruptedBackupPreservesInterruptionAndCanBeRetried() {
+    final Path backupDir = tempDir.resolve("interrupted-backup");
+    try (final Database<JsonResourceSession> realDatabase = Databases.openJsonDatabase(sourceDb);
+        final JsonResourceSession realSession = realDatabase.beginResourceSession(RESOURCE)) {
+      final Database<?> database = mock(Database.class);
+      // The public session boundary delegates to a real session without borrowing its ownership.
+      final AbstractResourceSession<?, ?> delegated = mock(AbstractResourceSession.class,
+          withSettings().extraInterfaces(JsonResourceSession.class).defaultAnswer(delegatesTo(realSession)));
+      final JsonResourceSession session = (JsonResourceSession) delegated;
+      doNothing().when(delegated).close();
+      when(database.listResources()).thenReturn(List.of(sourceDb.resolve("resources").resolve(RESOURCE)));
+      when(database.beginResourceSession(RESOURCE)).thenAnswer(invocation -> session);
+      doAnswer(invocation -> {
+        final JsonNodeTrx writer = realSession.beginNodeTrx();
+        // Interruption starts after writer admission and its I/O have completed.
+        Thread.currentThread().interrupt();
+        return writer;
+      }).when(session).beginNodeTrx();
+      try (final var databases = mockStatic(Databases.class, invocation -> {
+        if (invocation.getMethod().getName().equals("openJsonDatabase")) {
+          return database;
+        }
+        return invocation.callRealMethod();
+      })) {
+        try {
+          final SirixIOException failure =
+              assertThrows(SirixIOException.class, () -> BackupManager.backupDatabase(sourceDb, backupDir));
+          assertTrue(failure.getMessage().contains(DERIVED));
+          assertTrue(Thread.currentThread().isInterrupted(), "backup cleanup must preserve interruption");
+        } finally {
+          Thread.interrupted(); // Do not leak the simulated caller interruption into the test runner.
+        }
+      }
+      assertFalse(Files.exists(backupDir), "an interrupted backup must leave no partial target");
+      assertEquals(1, BackupManager.backupDatabase(sourceDb, backupDir).derivedResourcesCopied(),
+          "cleanup must preserve live channels and permit another backup of the same resource");
+    }
+  }
+
+  private static void assertHistoryLockAvailable(final DerivedIndexMaintainer.Resource resource) throws Exception {
+    // Another thread must be able to enter: a leaked reentrant hold is invisible to the refusing
+    // caller.
+    try (final ExecutorService executor = Executors.newSingleThreadExecutor()) {
+      assertTrue(executor.submit(() -> {
+        final boolean acquired = resource.tryLockHistory(Duration.ZERO);
+        if (acquired) {
+          resource.unlockHistory();
+        }
+        return acquired;
+      }).get(30, TimeUnit.SECONDS), "refusal must leave derived maintenance usable");
+    }
+  }
+
+  @Test
   @DisplayName("TXN-613: a rebuilt hidden sibling cannot collide with the next restored resource")
   void backupReservesIdsForRebuiltDerivedResources() {
     SirixFiles.recursiveRemove(derivedDir(sourceDb));
@@ -261,9 +327,10 @@ final class BackupDerivedResourceTest {
     }
   }
 
-  @Test
-  @DisplayName("TXN-613: a pending rewind is refused while source and derived history are locked")
-  void backupRefusesAPendingDerivedRewind() {
+  @ParameterizedTest
+  @ValueSource(ints = {2, REVISIONS})
+  @DisplayName("TXN-613: a pending rewind is refused even when its durable frontier still fits")
+  void backupRefusesAPendingDerivedRewind(final int targetRevision) throws Exception {
     final Path backupDir = tempDir.resolve("backup");
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(sourceDb);
         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
@@ -273,13 +340,14 @@ final class BackupDerivedResourceTest {
       resource.pause();
       try {
         try (final JsonNodeTrx writer = session.beginNodeTrx()) {
-          writer.truncateTo(2);
+          writer.truncateTo(targetRevision);
         }
-        assertEquals(2, session.getMostRecentRevisionNumber());
+        assertEquals(targetRevision, session.getMostRecentRevisionNumber());
         final SirixIOException failure =
             assertThrows(SirixIOException.class, () -> BackupManager.backupDatabase(sourceDb, backupDir));
         assertTrue(failure.getMessage().contains(DERIVED));
         assertFalse(Files.exists(backupDir), "a refused backup must leave no target");
+        assertHistoryLockAvailable(resource);
       } finally {
         resource.resume();
       }

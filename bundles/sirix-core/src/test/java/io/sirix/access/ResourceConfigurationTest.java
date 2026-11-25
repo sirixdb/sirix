@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -95,6 +96,28 @@ final class ResourceConfigurationTest {
     Files.writeString(config.getConfigFile(), settings.toString());
     assertTrue(assertThrows(SirixIOException.class,
         () -> ResourceConfiguration.deserialize(config.getResource())).getMessage().contains("unknownSaltFormat"));
+  }
+
+  @Test
+  void toolResourceReadDoesNotSeedDatabaseMetadataForAReplacementCopy() throws Exception {
+    final ResourceConfiguration resource = persist(false);
+    final DatabaseConfiguration database = DatabaseConfiguration.deserializeForTool(directory).setDatabaseId(11);
+    DatabaseConfiguration.serialize(database);
+    assertEquals(11, ResourceConfiguration.deserializeForTool(resource.getResource()).getDatabaseId());
+
+    // TXN-613: a copied path can be replaced with equal-size metadata at the same timestamp.
+    // dbsetting.obj is the owned persisted configuration contract, not implementation source.
+    final Path settingsFile = database.getConfigFile();
+    final FileTime timestamp = Files.getLastModifiedTime(settingsFile);
+    final long size = Files.size(settingsFile);
+    final JsonObject replacement = JsonParser.parseString(Files.readString(settingsFile)).getAsJsonObject();
+    replacement.addProperty("databaseId", 22);
+    Files.writeString(settingsFile, replacement.toString());
+    assertEquals(size, Files.size(settingsFile), "the fixture must model an equal-size replacement copy");
+    Files.setLastModifiedTime(settingsFile, timestamp);
+
+    assertEquals(22, DatabaseConfiguration.deserialize(directory).getDatabaseId(),
+        "an isolated tool read must not publish stale metadata into the later database-open path");
   }
 
   private ResourceConfiguration persist(final boolean enabled) throws Exception {

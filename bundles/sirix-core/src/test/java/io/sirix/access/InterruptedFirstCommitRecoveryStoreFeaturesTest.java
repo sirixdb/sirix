@@ -684,6 +684,88 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
         new UberPage(2, features), writeLock, null, "feature-test", mock(StorageEngineWriterFactory.class));
   }
 
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void isolatedToolRefusesUnknownFeaturesWithoutChangingBytes(final StorageType backend) throws IOException {
+    createStore(backend);
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0),
+        new StoreFeatures(0, 0, 1)}) {
+      replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
+      replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
+      final byte[] dataBefore = Files.readAllBytes(dataFile());
+      final byte[] revisionsBefore = Files.readAllBytes(revisionsFile());
+      assertThrows(UnsupportedStoreFeatureException.class, () -> {
+        final var opened = InterruptedFirstCommitRecovery.openReaderForTool(config);
+        opened.reader().close();
+      });
+      assertArrayEquals(dataBefore, Files.readAllBytes(dataFile()));
+      assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile()));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void populatedStorageWithMissingBeaconsCannotOpenAsBootstrap(final StorageType backend) throws IOException {
+    createStore(backend);
+    try (final FileChannel channel = FileChannel.open(dataFile(), StandardOpenOption.WRITE)) {
+      final ByteBuffer zeros =
+          ByteBuffer.allocate((int) (IOStorage.DATA_REGION_START - IOStorage.PRIMARY_BEACON_OFFSET));
+      while (zeros.hasRemaining()) {
+        channel.write(zeros, IOStorage.PRIMARY_BEACON_OFFSET + zeros.position());
+      }
+    }
+    final byte[] dataBefore = Files.readAllBytes(dataFile());
+    final byte[] revisionsBefore = Files.readAllBytes(revisionsFile());
+    Databases.clearGlobalCaches();
+    assertThrows(SirixIOException.class, () -> {
+      final var opened = InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(config);
+      opened.storage().close();
+    });
+    assertArrayEquals(dataBefore, Files.readAllBytes(dataFile()), "readable old roots cannot excuse missing beacons");
+    assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile()));
+  }
+
+  @Test
+  void backupRechecksFeaturesBeforeWriterRecovery() throws IOException {
+    createStore(StorageType.FILE_CHANNEL);
+    final Path target = directory.resolve("pre-writer-backup");
+    final byte[][] before = new byte[1][];
+    try (final var realDatabase = Databases.openJsonDatabase(databasePath);
+        final var realSession = realDatabase.beginResourceSession("resource")) {
+      final Database<?> database = mock(Database.class);
+      final var session = mock(JsonResourceSession.class);
+      when(database.listResources()).thenReturn(List.of(config.resourcePath));
+      when(database.beginResourceSession("resource")).thenAnswer(invocation -> session);
+      when(session.getMostRecentRevisionNumber()).thenAnswer(invocation -> realSession.getMostRecentRevisionNumber());
+      when(session.beginNodeTrx()).thenAnswer(invocation -> realSession.beginNodeTrx());
+      when(session.beginNodeReadOnlyTrx()).thenAnswer(invocation -> {
+        // A real publication activates a tool-incompatible bit after the database-wide preflight.
+        try (final var writer = realSession.beginNodeTrx()) {
+          writer.getStorageEngineWriter().getUberPage().addFeatures(new StoreFeatures(0, 0, 1));
+          writer.commit();
+        }
+        // Model abandoned prewrites: writer admission would recover and truncate this tail.
+        Files.write(dataFile(), new byte[] {42, 43, 44}, StandardOpenOption.APPEND);
+        Files.createFile(marker());
+        before[0] = Files.readAllBytes(dataFile());
+        return realSession.beginNodeReadOnlyTrx();
+      });
+      try (final var databases = mockStatic(Databases.class, invocation -> {
+        if (invocation.getMethod().getName().equals("openJsonDatabase")) {
+          return database;
+        }
+        return invocation.callRealMethod();
+      })) {
+        assertThrows(UnsupportedStoreFeatureException.class, () -> BackupManager.backupDatabase(databasePath, target));
+      }
+      assertArrayEquals(before[0], Files.readAllBytes(dataFile()),
+          "a tool refusal must precede writer recovery of unsupported bytes");
+      assertTrue(Files.exists(marker()), "tool refusal must leave the recovery marker untouched");
+      Files.delete(marker());
+    }
+    assertFalse(Files.exists(target), "a refused backup must remove its partial target");
+  }
+
   @Test
   void backupRechecksFeaturesAfterAcquiringItsWriter() {
     createStore(StorageType.FILE_CHANNEL);

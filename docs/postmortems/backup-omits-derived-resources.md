@@ -138,3 +138,55 @@
   Counterfactual and mutation verification remain with the outer phases.
 - Vision check: refuses unverifiable durable state without silently replacing historical derived
   data, preserving the existing disk-engine acceptance rule and live cache ownership.
+
+## CI test selection and tool-reader ownership
+
+The first blocking mutation run selected name-related tests but omitted the existing TXN-613
+`BackupDerivedResourceTest`, `BackupRestoreTest` and `BackupPressureHandlerTest` contracts.
+The new isolated verification path consequently appeared uncovered even though its regressions
+ran in the ordinary test lane. Explicit CONV-204 associations now connect the cross-cutting
+backup contract to its reader, configuration, storage, derived-maintainer and cache entry points.
+The CLI change also moved the existing non-null-list assertions and added assertions for the
+derived list. Their per-mutant equivalence records must follow the compiled identities and
+explain the relevant immutable-list or public-command input contract.
+
+Sonar's reliability gate rejected the isolated tool open's catch-only channel cleanup. The
+reader's ownership must be explicit on all exits: until the fully initialized result is returned,
+`finally` blocks close the reader and each acquired channel, including constructor and
+revision-index failures. Once ownership transfers, the backup/restore verification caller keeps
+the reader open and closes it after verification. The existing damaged-store and successful-copy
+regressions exercise those error and success paths; no test asserts on source spelling.
+
+### Interrupted quiescence cleanup
+
+The new cancellation regression reproduced a masked refusal before the fix:
+`interruptedBackupPreservesInterruptionAndCanBeRetried` failed because writer rollback threw
+`SirixThreadedException` from its interruptible lifecycle lock, replacing the original derived
+quiescence `SirixIOException` and skipping writer close. Interruption during writer I/O could also
+close a live channel. The source writer's shared cleanup boundary now temporarily clears the
+interrupt flag, always closes the writer after rollback, and restores interruption afterwards.
+The regression injects interruption only after a real writer has finished admission, checks the
+original refusal and interrupt state, then performs a real backup again to prove ownership and
+channels remain usable. The pending-rewind refusal also checks that another thread can acquire
+the history lock while maintenance is paused.
+
+The CI follow-up keeps the original writer implementation and its direct session access: tool readers keep configuration internally rather than adding a public accessor or changing
+posting-index readers. It removes the unnecessary configuration API and the fallback that copied a sibling without its installed maintainer. The derived summary now
+comes directly from verification of the copied bytes. Frontier validation still requires a
+matching durable mapping, and one full mapping-bound check also bounds that frontier.
+
+Local contract verification passed 43 core cases plus 6 CLI cases, including both document
+models, file-channel and mapped stores, each unsupported feature word, retained revision-0 pages
+with erased beacons, actual Linux descriptor ownership, pending-rewind lock release, and the
+interruption regression's successful retry. All 363 core work-budget cases and 11 selected
+allocation checks passed. The deterministic interruption test was observed
+failing before its cleanup fix. SonarCloud analysis needs the CI credential; its local rerun is
+not claimed.
+
+The final local changed-line PIT verdict completed both modules with no failing mutants, no
+uncovered mutants, valid test associations and no failing dispositions: 107 core mutants
+(99 killed, 6 timed out, 2 runtime errors detected by PIT) and 9 CLI mutants (5 killed, 4
+documented equivalent Kotlin assertions). The local selection omitted four source files
+restored byte-for-byte to the PR base, matching the reduced diff the outer executor will commit.
+The full reports and failed-before/fixed-after logs are archived locally under
+`build/ci-pr1499/`; no mutation threshold, CI deadline or work bound was widened.

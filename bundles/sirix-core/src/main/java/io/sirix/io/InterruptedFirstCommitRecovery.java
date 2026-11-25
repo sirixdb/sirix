@@ -171,6 +171,8 @@ public final class InterruptedFirstCommitRecovery {
         : config.resourceUuid.getLeastSignificantBits();
     SuperblockValidator.validate(dataFile, Superblock.ROLE_DATA, uuidHigh, uuidLow);
     SuperblockValidator.validate(revisionsFile, Superblock.ROLE_REVISIONS, uuidHigh, uuidLow);
+    boolean channelsTransferred = false;
+    boolean transferred = false;
     try {
       final FileChannel data = FileChannel.open(dataFile, StandardOpenOption.READ);
       try {
@@ -179,16 +181,26 @@ public final class InterruptedFirstCommitRecovery {
           final FileChannelReader reader =
               new FileChannelReader(data, revisions, new ByteHandlerPipeline(config.byteHandlePipeline),
                   SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build());
-          reader.setStoreFeatures(uberPage.getFeatures());
-          IOStorage.readRevisionIndex(reader, uberPage.getRevisionNumber());
-          return new ReaderAndUberPage(reader, uberPage);
-        } catch (final RuntimeException | Error failure) {
-          revisions.close();
-          throw failure;
+          channelsTransferred = true;
+          try {
+            IOStorage.readRevisionIndex(reader, uberPage.getRevisionNumber());
+            final ReaderAndUberPage opened = new ReaderAndUberPage(reader, uberPage);
+            transferred = true;
+            return opened;
+          } finally {
+            if (!transferred) {
+              reader.close();
+            }
+          }
+        } finally {
+          if (!channelsTransferred) {
+            revisions.close();
+          }
         }
-      } catch (final IOException | RuntimeException | Error failure) {
-        data.close();
-        throw failure;
+      } finally {
+        if (!channelsTransferred) {
+          data.close();
+        }
       }
     } catch (final IOException failure) {
       throw new SirixIOException(failure);

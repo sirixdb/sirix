@@ -18,7 +18,6 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.io.InterruptedFirstCommitRecovery;
-import io.sirix.page.UberPage;
 import io.sirix.utils.SirixFiles;
 
 import org.jspecify.annotations.Nullable;
@@ -337,9 +336,23 @@ public final class BackupManager {
           derived.release();
         }
       } finally {
-        // Rollback of an UNMODIFIED trx is in-memory only; close releases the semaphore.
-        lockHolder.rollback();
-        lockHolder.close();
+        closeSourceWriter(lockHolder);
+      }
+    }
+  }
+
+  private static void closeSourceWriter(final NodeTrx writer) {
+    // Lifecycle locks and file I/O must finish before the caller's interruption is restored.
+    final boolean interrupted = Thread.interrupted();
+    try {
+      try {
+        writer.rollback();
+      } finally {
+        writer.close();
+      }
+    } finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
       }
     }
   }
@@ -349,7 +362,7 @@ public final class BackupManager {
    *
    * @param derivedPath the derived resource directory, or {@code null} if the source has none
    * @param held the maintainer resource whose history lock this quiescence holds, or {@code null} if
-   *        no maintainer owns the derived store in this JVM and nothing can be writing it
+   *        the source has no derived sibling
    */
   private record DerivedQuiescence(@Nullable Path derivedPath, DerivedIndexMaintainer.@Nullable Resource held) {
 
@@ -378,14 +391,9 @@ public final class BackupManager {
     if (!Files.isDirectory(derivedPath)) {
       return new DerivedQuiescence(null, null);
     }
-    final DerivedIndexMaintainer.@Nullable Resource maintained =
-        session instanceof final AbstractResourceSession<?, ?> internal
-            ? internal.getDerivedResource()
-            : null;
-    if (maintained == null) {
-      // No maintainer owns this store here, so its files are already at rest.
-      return new DerivedQuiescence(derivedPath, null);
-    }
+    // Opening a visible source with an existing sibling installs that sibling's maintainer.
+    final DerivedIndexMaintainer.Resource maintained =
+        requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource());
     final boolean quiescent;
     try {
       quiescent = maintained.tryLockHistory(DERIVED_QUIESCENCE_TIMEOUT);
@@ -409,17 +417,12 @@ public final class BackupManager {
     return new DerivedQuiescence(derivedPath, maintained);
   }
 
-  /** Copies one quiesced derived resource; its revision is read from the on-disk uber beacon. */
+  /** Copies a quiesced derived resource and reports the verified copy's state. */
   private static ResourceSummary copyDerivedResource(final Path derivedPath, final Path targetResources,
       final int sourceHead) {
-    final String derivedName = derivedPath.getFileName().toString();
-    final UberPage uberPage =
-        InterruptedFirstCommitRecovery.probeUberPage(ResourceConfiguration.deserialize(derivedPath));
-    uberPage.getFeatures().requireToolCompatible();
-    final long bytes = copyTree(derivedPath, targetResources.resolve(derivedName), rel -> false,
-        BackupManager::isTransientResourceFile);
-    verifyDerivedResource(targetResources.resolve(derivedName), sourceHead);
-    return new ResourceSummary(derivedName, uberPage.getRevisionNumber(), bytes);
+    final Path target = targetResources.resolve(derivedPath.getFileName());
+    copyTree(derivedPath, target, rel -> false, BackupManager::isTransientResourceFile);
+    return verifyDerivedResource(target, sourceHead);
   }
 
   /**
@@ -583,7 +586,6 @@ public final class BackupManager {
     try (final ResourceSession<?, ?> session = database.beginResourceSession(resourceName)) {
       final int mostRecentRevision = session.getMostRecentRevisionNumber();
       try (final NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        rtx.getStorageEngineReader().getUberPage().getFeatures().requireToolCompatible();
         if (rtx.getRevisionNumber() != mostRecentRevision) {
           throw new SirixIOException("Restored resource " + resourceName + " opened at revision "
               + rtx.getRevisionNumber() + " instead of the most recent revision " + mostRecentRevision + ".");

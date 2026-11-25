@@ -198,3 +198,40 @@ tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
 [[association]]
 class = "io.sirix.index.name.NameIndexRecheck"
 tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest", "io.sirix.budget.NameIndexRecheckWorkBudgetTest"]
+
+# TXN-613 backup/restore exercises isolated readers and derived-store acceptance end to end.
+[[association]]
+class = "io.sirix.backup.BackupManager"
+tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.backup.BackupRestoreTest", "io.sirix.cache.BackupPressureHandlerTest"]
+
+[[association]]
+class = "io.sirix.access.DatabaseConfiguration"
+tests = ["io.sirix.backup.BackupDerivedResourceTest"]
+
+[[association]]
+class = "io.sirix.access.ResourceConfiguration"
+tests = ["io.sirix.backup.BackupDerivedResourceTest"]
+
+[[association]]
+class = "io.sirix.access.trx.page.NodeStorageEngineReader"
+tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.access.trx.page.StorageEngineReaderContractTest", "io.sirix.access.node.json.ResourceSessionTest"]
+
+[[association]]
+class = "io.sirix.index.aggregate.DerivedIndexMaintainer"
+tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.index.aggregate.DerivedRevisionMappingTest"]
+
+[[association]]
+class = "io.sirix.io.IOStorage"
+tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.io.ToolReaderOwnershipTest", "io.sirix.io.SparseRevisionHistoryTest"]
+
+[[association]]
+class = "io.sirix.io.InterruptedFirstCommitRecovery"
+tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.io.ToolReaderOwnershipTest", "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest"]
+
+[[association]]
+class = "io.sirix.io.SuperblockValidator"
+tests = ["io.sirix.backup.BackupDerivedResourceTest"]
+
+[[association]]
+class = "io.sirix.cache.BufferManagerImpl"
+tests = ["io.sirix.cache.BackupPressureHandlerTest"]
