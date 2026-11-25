@@ -128,3 +128,33 @@ executable mutation; its earlier complete 11/11 report remains evidence for unch
 Remote Sonar analysis remains for the outer executor; this CI repair did not upload an
 analysis, rerun workflows or push. Native smoke remains an external Maven Central 429,
 and Python integration remains the external client's hash-disabled ETag incompatibility.
+
+## CI follow-up: malformed lesson fragment
+
+- Symptom / trigger: Actions run `45534678302` rejected the lesson note because its
+  first line was a heading instead of the fragment delimiter.
+- Root cause / invariant: every changelog and lesson entry must carry its directory's
+  front matter before its body. The analyzer repair added a prose lesson without the
+  required `kind: note` block, so the shared loader rejected it before validation or
+  release collection could finish.
+- Why tests missed it: the repair ran runtime, analyzer and mutation checks but omitted
+  the fragment consumer after adding the lesson. Existing fragment tests already reject
+  missing front matter and verify note collection; no new parser behavior is needed.
+- Scope / trace: add the documented front matter at the data boundary. Both `check`
+  and `collect` use the same loader for all changelog and lesson fragments. The note
+  body still reaches the lesson collector verbatim; no loader, renderer or caller changes.
+- Regression / lesson: the real `check --base-sha` command reproduced exit 2 before
+  the fix. After repair, `python3 .github/scripts/changelog_fragments.py check
+  --base-sha 7c9603baa5131f7aa51dd637aa9e537fa23c226e` passed, as did all 63 tests
+  from `python3 -m unittest discover -s .github/scripts/tests -p
+  test_changelog_fragments.py`. Run the fragment consumer after documentation
+  additions; see [Lessons](../LESSONS.md).
+- The same run's nine Python failures still originate in the separate client's
+  mandatory HEAD-header lookup for hash-disabled resources, as described above.
+  Preserving REST-203 requires fixing that external client rather than adding an ETag.
+  Local `:sirix-rest-api:offlineTest --tests
+  'io.sirix.rest.crud.ReadNodeIdValidationTest.headBehavesLikeGet'` passed all four
+  JSON/XML and NONE/ROLLING cases. The initial Docker-backed test invocation was
+  interrupted; its Keycloak container was stopped before the offline run.
+- Vision check: documentation becomes collectable without changing REST behavior,
+  persisted data, public defaults or quality-gate thresholds.
