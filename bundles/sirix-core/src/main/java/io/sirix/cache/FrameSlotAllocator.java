@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiFunction;
 
@@ -198,9 +199,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // per-platform VirtualMemory backend; everything below is portable Java.
   private static final VirtualMemory VM = VirtualMemory.forCurrentPlatform();
 
-  // The backend is stateless; volatile publishes the test replacement, whose counters are isolated.
-  @SuppressWarnings("java:S3077")
-  private volatile VirtualMemory slabMemory = VM;
+  // The backend is stateless, and an atomic holder publishes the test replacement (whose counters
+  // are isolated) without a volatile field whose type would suggest the backend itself is shared
+  // mutable state.
+  private final AtomicReference<VirtualMemory> slabMemory = new AtomicReference<>(VM);
 
   /**
    * Fixed, eagerly materialized chunks for per-slot optimistic versions.
@@ -627,7 +629,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   void setSlabMemoryForTesting(final VirtualMemory memory) {
-    slabMemory = Objects.requireNonNull(memory);
+    slabMemory.set(Objects.requireNonNull(memory));
   }
 
   void setSlabPublicationHookForTesting(final @Nullable Runnable hook) {
@@ -755,7 +757,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         : reserveCommittedBytes(mapped))) {
       return null;
     }
-    final VirtualMemory memory = slabMemory;
+    final VirtualMemory memory = slabMemory.get();
     final MemorySegment segment;
     try {
       segment = permanent

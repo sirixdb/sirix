@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -111,16 +112,13 @@ public final class CompactImageStore {
 
   private volatile boolean stopped;
 
-  // Test callbacks are safely published references; their latch state supplies its own
-  // synchronization.
-  @SuppressWarnings("java:S3077")
-  private volatile @Nullable Runnable leasePublicationHook;
+  // Test callbacks, in atomic holders rather than volatile reference fields: the publication is the
+  // only ordering they need, and an AtomicReference says so in the type instead of in a comment.
+  private final AtomicReference<@Nullable Runnable> leasePublicationHook = new AtomicReference<>();
 
-  @SuppressWarnings("java:S3077")
-  private volatile @Nullable Runnable slabReleaseHook;
+  private final AtomicReference<@Nullable Runnable> slabReleaseHook = new AtomicReference<>();
 
-  @SuppressWarnings("java:S3077")
-  private volatile @Nullable Runnable slabPublicationHook;
+  private final AtomicReference<@Nullable Runnable> slabPublicationHook = new AtomicReference<>();
 
   /** Test-only: refuse every lease, so the caller's fallback path runs. */
   private volatile boolean refuseLeases;
@@ -172,7 +170,7 @@ public final class CompactImageStore {
       if (block == null) {
         return null;
       }
-      final Runnable hook = leasePublicationHook;
+      final Runnable hook = leasePublicationHook.get();
       if (hook != null) {
         hook.run();
       }
@@ -257,7 +255,7 @@ public final class CompactImageStore {
       stopped = false;
       return false;
     }
-    final Runnable hook = slabReleaseHook;
+    final Runnable hook = slabReleaseHook.get();
     if (hook != null) {
       hook.run();
     }
@@ -272,21 +270,21 @@ public final class CompactImageStore {
   }
 
   void setLeasePublicationHookForTesting(final @Nullable Runnable hook) {
-    leasePublicationHook = hook;
+    leasePublicationHook.set(hook);
   }
 
   void setSlabReleaseHookForTesting(final @Nullable Runnable hook) {
-    slabReleaseHook = hook;
+    slabReleaseHook.set(hook);
   }
 
   void setSlabPublicationHookForTesting(final @Nullable Runnable hook) {
-    slabPublicationHook = hook;
+    slabPublicationHook.set(hook);
   }
 
   int directoryGrowthCount() {
     int total = 0;
     for (final SizeClass sizeClass : classes) {
-      total += sizeClass.directoryGrowths;
+      total += sizeClass.directoryGrowths.get();
     }
     return total;
   }
@@ -401,12 +399,15 @@ public final class CompactImageStore {
     /** Index to block. Replaced wholesale under the monitor, read without it; never shrinks. */
     // Entries below carvedBlocks never change. Growth publishes new entries before pushing them
     // onto the atomic free stack; shutdown replaces the directory only after admission has stopped.
-    @SuppressWarnings("java:S3077")
-    private volatile Block[] blocks = new Block[0];
+    // The holder is atomic rather than a volatile array field: a get() is the same single load the
+    // volatile field was, and the type no longer invites the reading that the ARRAY is thread-safe.
+    private final AtomicReference<Block[]> blocks = new AtomicReference<>(new Block[0]);
 
-    private volatile int carvedBlocks;
+    /** Published directory length. Written only under this monitor; read without it. */
+    private final AtomicInteger carvedBlocks = new AtomicInteger();
 
-    private volatile int directoryGrowths;
+    /** How often growth had to copy the directory. Diagnostic; same writer and readers. */
+    private final AtomicInteger directoryGrowths = new AtomicInteger();
 
     private final List<MemorySegment> slabs = new ArrayList<>();
 
@@ -418,11 +419,11 @@ public final class CompactImageStore {
     }
 
     int blockCount() {
-      return carvedBlocks;
+      return carvedBlocks.get();
     }
 
     long slabBytes() {
-      return (long) carvedBlocks * blockBytes;
+      return (long) carvedBlocks.get() * blockBytes;
     }
 
     /** Pop a free block, growing the class once when none is free. */
@@ -455,7 +456,7 @@ public final class CompactImageStore {
           return null;
         }
         // A block never leaves the array while the class lives, so an index on the stack resolves.
-        final Block candidate = blocks[top];
+        final Block candidate = blocks.get()[top];
         if (freeStack.compareAndSet(head, nextHead(head, candidate.nextFree))) {
           return candidate;
         }
@@ -482,11 +483,9 @@ public final class CompactImageStore {
      *
      * @return the block to lease, or {@code null} when the allocator has no room for another slab
      */
-    // take() holds this monitor for the only counter write; volatile serves diagnostic readers.
-    @SuppressWarnings("java:S3078")
     private @Nullable Block grow() {
-      final Block[] current = blocks;
-      final int base = carvedBlocks;
+      final Block[] current = blocks.get();
+      final int base = carvedBlocks.get();
       final int required = Math.addExact(base, blocksPerSlab);
       final MemorySegment slab = store.allocator.allocatePermanentSlab((long) blocksPerSlab * blockBytes);
       if (slab == null) {
@@ -500,7 +499,7 @@ public final class CompactImageStore {
         for (int i = 0; i < blocksPerSlab; i++) {
           grown[base + i] = new Block(this, slab.asSlice((long) i * blockBytes, blockBytes), base + i);
         }
-        final Runnable hook = store.slabPublicationHook;
+        final Runnable hook = store.slabPublicationHook.get();
         if (hook != null) {
           hook.run();
         }
@@ -515,10 +514,10 @@ public final class CompactImageStore {
         }
         throw failure;
       }
-      blocks = grown;
-      carvedBlocks = required;
+      blocks.set(grown);
+      carvedBlocks.set(required);
       if (grown != current) {
-        directoryGrowths++;
+        directoryGrowths.incrementAndGet();
       }
       for (int i = 1; i < blocksPerSlab; i++) {
         push(grown[base + i]);
@@ -531,8 +530,8 @@ public final class CompactImageStore {
         allocator.releaseSlab(slab);
       }
       slabs.clear();
-      blocks = new Block[0];
-      carvedBlocks = 0;
+      blocks.set(new Block[0]);
+      carvedBlocks.set(0);
       freeStack.set(EMPTY_TOP);
     }
   }
