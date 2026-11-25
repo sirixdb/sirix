@@ -284,7 +284,7 @@ mechanism rather than the retired hash form:
 | update and delete responses | add `412` for a failed precondition, including a mismatched incarnation id, and `428` for a missing required one; include the current token only when the failure identifies one surviving resource head (REST-211); successful tokens follow REST-205 |
 | `components.parameters.hashType` | remove the claim that `ROLLING` enables the `ETag`/`If-Match` mechanism: the mechanism is independent of hashing, which now affects `sdb:hash` only |
 | info description, `BadRequest` | move stale preconditions from 400 to 412; 400 keeps malformed tokens |
-| HEAD description | remove the empty-`ETag`-for-`NONE` behavior |
+| HEAD description | replace the hash-dependent ETag behavior in REST-203 with the hash-independent token of REST-205 |
 
 ## Deferred endpoint conformance work
 
@@ -298,7 +298,6 @@ mechanism rather than the retired hash form:
   draft does not expand its guarantees. Document-root and query precondition scope is no longer
   open: REST-212 decides it. Timestamp precision must conform to VER-201/204; strict generation is decided.
 - A response-validation filter, final schema version and immutable 1.0 baseline are planned.
-  No handler, schema or CI implementation is changed in this documentation task.
 
 ## Traceability
 

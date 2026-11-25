@@ -526,9 +526,9 @@ public final class JsonRecordSerializer implements Callable<Void> {
   }
 
   /**
-   * Pagination mode: Serialize right siblings of startNodeKey as a JSON array with parent metadata.
-   * Output format: {"metadata":{parentNodeKey, childCount, ...}, "value":[{sibling1}, {sibling2},
-   * ...]}
+   * Pagination mode: serialize right siblings of startNodeKey in a {@code value} array. Optional
+   * parent metadata uses the same wrapper as {@link #serializeWithParentWrapper}, including the
+   * {@code key} for a named parent. A cursor at the non-document subtree root yields an empty page.
    * 
    * @param rtx the read-only transaction
    * @throws IOException if serialization fails
