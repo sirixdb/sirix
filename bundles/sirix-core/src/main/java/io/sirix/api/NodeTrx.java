@@ -53,9 +53,13 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    * further mutations and commits are rejected, it cannot be retried or rolled back into a usable
    * state, and {@code close()} is clean because nothing uncommitted is left.
    * {@code spec: TXN-307}</li>
-   * <li><b>Thrown exception</b> — the failure precedes the commit point and nothing was committed. No
+   * <li><b>Known pre-commit-point failure</b> — an exception for a failure known to precede the
+   * commit point means nothing was committed. No
    * revision number is consumed, the modifications are retained, and the transaction stays usable:
    * retry the commit or roll it back. {@code spec: TXN-305}</li>
+   * <li><b>Uncertain outcome</b> — a beacon-write error can throw even though revision N may be
+   * durable. Recovery on reopen determines whether N exists; the application must not assume its
+   * work was lost or retry the commit while the outcome is unknown. {@code spec: TXN-705}</li>
    * </ul>
    *
    * @param commitMessage optional message

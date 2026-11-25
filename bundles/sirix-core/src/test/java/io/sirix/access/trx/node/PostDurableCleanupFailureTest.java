@@ -19,14 +19,25 @@ import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -48,6 +59,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * {@link FaultInjectingWriter} in front of the real {@code FILE_CHANNEL} writer of a live resource
  * session, so these are real commits of a real resource.
  */
+@Isolated
+@Timeout(30)
 final class PostDurableCleanupFailureTest {
 
   private static final String RESOURCE = "resource";
@@ -62,6 +75,7 @@ final class PostDurableCleanupFailureTest {
 
   @AfterEach
   void tearDown() throws IOException {
+    AbstractNodeTrxImpl.asyncCommitTestHook = null;
     FaultInjectingStorage.uninstall();
     deleteRecursive(workRoot);
   }
@@ -160,12 +174,267 @@ final class PostDurableCleanupFailureTest {
     }
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"commit", "rollback", "revert", "truncate", "maintenance", "atomic", "bulk", "record"})
+  void durableCleanupFailureIrreversiblyRejectsEveryLifecycleBoundary(final String operation) {
+    final Path databasePath = createDatabase();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      final JsonNodeTrx writer = session.beginNodeTrx();
+      writer.insertArrayAsFirstChild();
+      final FaultInjectingWriter injector = FaultInjectingStorage.lastWriter();
+      injector.injectAt(Point.BEFORE_DISCARD_SPILLED_WRITES, 1);
+      assertSame(writer, writer.commit());
+      assertFalse(injector.isArmedFor(Point.BEFORE_DISCARD_SPILLED_WRITES));
+      final AbstractNodeTrxImpl<?, ?, ?, ?, ?> internal = (AbstractNodeTrxImpl<?, ?, ?, ?, ?>) writer;
+      final Runnable action = switch (operation) {
+        case "commit" -> writer::commit;
+        case "rollback" -> writer::rollback;
+        case "revert" -> () -> writer.revertTo(0);
+        case "truncate" -> () -> writer.truncateTo(0);
+        case "maintenance" -> () -> internal.runStorageMaintenance(() -> {
+          throw new AssertionError("terminal writer admitted history maintenance");
+        });
+        case "atomic" -> internal::beginAtomicOperation;
+        case "bulk" -> internal::checkAccessAndCommitBulk;
+        case "record" -> () -> internal.bulkAccountMutations(1);
+        default -> throw new AssertionError(operation);
+      };
+      assertThrows(IllegalStateException.class, action::run);
+      assertThrows(IllegalStateException.class, writer::commit);
+      assertThrows(IllegalStateException.class, writer::rollback);
+      assertDoesNotThrow(writer::close);
+      assertEquals(1, session.getMostRecentRevisionNumber());
+    }
+    assertReopenedArray(databasePath);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"ordinary", "bulk", "record"})
+  void automaticRotationStopsBeforeAccountingAnotherMutation(final String mode) {
+    final Path databasePath = createDatabase();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      final JsonNodeTrx writer = session.beginNodeTrx(1, AfterCommitState.KEEP_OPEN);
+      writer.insertArrayAsFirstChild();
+      final FaultInjectingWriter injector = FaultInjectingStorage.lastWriter();
+      injector.injectAt(Point.BEFORE_DISCARD_SPILLED_WRITES, 1);
+      if (mode.equals("bulk")) {
+        ((InternalNodeTrx<?>) writer).setBulkInsertion(true);
+      }
+      if (mode.equals("record")) {
+        final AbstractNodeTrxImpl<?, ?, ?, ?, ?> internal = (AbstractNodeTrxImpl<?, ?, ?, ?, ?>) writer;
+        assertThrows(IllegalStateException.class, () -> internal.bulkAccountMutations(1));
+      } else {
+        assertThrows(IllegalStateException.class, () -> writer.insertStringValueAsFirstChild("uncommitted"));
+      }
+      assertFalse(injector.isArmedFor(Point.BEFORE_DISCARD_SPILLED_WRITES));
+      assertDoesNotThrow(writer::close);
+      assertEquals(1, session.getMostRecentRevisionNumber());
+    }
+    assertReopenedArray(databasePath);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"close-before", "close-after", "open"})
+  void synchronousSuccessorFailurePreservesDurableSuccess(final String failure) {
+    final Path databasePath = createDatabase();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      final JsonNodeTrx writer = session.beginNodeTrx();
+      writer.insertArrayAsFirstChild();
+      final FaultInjectingWriter injector = FaultInjectingStorage.lastWriter();
+      final Point point = failure.equals("close-before") ? Point.BEFORE_CLOSE : Point.AFTER_CLOSE;
+      if (failure.equals("open")) {
+        FaultInjectingStorage.failNextWriterCreation();
+      } else {
+        injector.injectAt(point, 1);
+      }
+      assertSame(writer, writer.commit());
+      if (failure.equals("open")) {
+        assertFalse(FaultInjectingStorage.isWriterCreationFailureArmed());
+      } else {
+        assertFalse(injector.isArmedFor(point));
+      }
+      assertTerminal(writer);
+      assertTrue(Files.exists(((InternalResourceSession<?, ?>) session).getCommitFile()));
+      assertDoesNotThrow(writer::close);
+      assertEquals(1, session.getMostRecentRevisionNumber());
+    }
+    assertReopenedArray(databasePath);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"after-publication", "before-diff-publication"})
+  void synchronousPublicationFailurePreservesDurableSuccess(final String failingStage) {
+    final int expectedRevision = failingStage.equals("before-diff-publication") ? 2 : 1;
+    final Path databasePath = createDatabase(true);
+    final AtomicBoolean fired = new AtomicBoolean();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      if (expectedRevision == 2) {
+        try (final JsonNodeTrx seed = session.beginNodeTrx()) {
+          seed.commit();
+        }
+      }
+      final JsonNodeTrx writer = session.beginNodeTrx();
+      writer.insertArrayAsFirstChild();
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals(failingStage) && fired.compareAndSet(false, true)) {
+          throw new SimulatedCrashException(stage);
+        }
+      };
+      assertSame(writer, writer.commit());
+      assertTrue(fired.get());
+      assertTerminal(writer);
+      assertTrue(Files.exists(((InternalResourceSession<?, ?>) session).getCommitFile()));
+      assertDoesNotThrow(writer::close);
+      assertEquals(expectedRevision, session.getMostRecentRevisionNumber());
+    }
+    assertReopenedArray(databasePath, expectedRevision);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"before-successor", "before-submission"})
+  void inlineHardeningAfterForegroundFailurePreservesDurableSuccess(final String failingStage) {
+    final Path databasePath = createDatabase();
+    final AtomicBoolean fired = new AtomicBoolean();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      final JsonNodeTrx writer = session.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      writer.insertArrayAsFirstChild();
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals(failingStage) && fired.compareAndSet(false, true)) {
+          throw new SimulatedCrashException(stage);
+        }
+      };
+      assertThrows(IllegalStateException.class, () -> writer.insertStringValueAsFirstChild("uncommitted"));
+      assertTrue(fired.get());
+      assertDoesNotThrow(writer::awaitPendingAsyncCommit);
+      assertTerminal(writer);
+      assertTrue(Files.exists(((InternalResourceSession<?, ?>) session).getCommitFile()));
+      assertDoesNotThrow(writer::close);
+      assertEquals(1, session.getMostRecentRevisionNumber());
+    }
+    assertReopenedArray(databasePath);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"after-publication", "before-pending-root-cleanup", "before-catalogue-acknowledgement",
+      "before-diff-publication", "spill", "close-before", "close-after"})
+  void asynchronousPostDurableFailureIsNotReportedAsHardeningFailure(final String failingStage) {
+    final int expectedRevision = failingStage.equals("before-diff-publication") ? 2 : 1;
+    final Path databasePath = createDatabase(failingStage.equals("before-diff-publication"));
+    final AtomicBoolean fired = new AtomicBoolean();
+    final CountDownLatch release = new CountDownLatch(1);
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      if (expectedRevision == 2) {
+        try (final JsonNodeTrx seed = session.beginNodeTrx()) {
+          seed.commit();
+        }
+      }
+      final JsonNodeTrx writer = session.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      writer.insertArrayAsFirstChild();
+      final FaultInjectingWriter injector = FaultInjectingStorage.lastWriter();
+      final Point point = switch (failingStage) {
+        case "spill" -> Point.BEFORE_DISCARD_SPILLED_WRITES;
+        case "close-before" -> Point.BEFORE_CLOSE;
+        default -> Point.AFTER_CLOSE;
+      };
+      final boolean storageFailure = failingStage.equals("spill") || failingStage.startsWith("close-");
+      if (storageFailure) {
+        injector.injectAt(point, 1);
+      }
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals("before-harden")) {
+          await(release);
+        }
+        if (!storageFailure && stage.equals(failingStage) && fired.compareAndSet(false, true)) {
+          throw new SimulatedCrashException(stage);
+        }
+      };
+      try {
+        writer.insertStringValueAsFirstChild("speculative");
+      } finally {
+        release.countDown();
+      }
+      assertDoesNotThrow(writer::awaitPendingAsyncCommit);
+      if (storageFailure) {
+        assertFalse(injector.isArmedFor(point));
+      } else {
+        assertTrue(fired.get());
+      }
+      assertTerminal(writer);
+      assertTrue(Files.exists(((InternalResourceSession<?, ?>) session).getCommitFile()));
+      assertThrows(SirixUsageException.class, writer::close);
+      assertDoesNotThrow(((InternalNodeTrx<?>) writer)::abort);
+    } finally {
+      release.countDown();
+    }
+    assertReopenedArray(databasePath, expectedRevision);
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = AfterCommitState.class, names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_COMMIT", "KEEP_OPEN_ASYNC_FLUSH"})
+  void successfulCommitStillAllowsTheNextRevision(final AfterCommitState mode) {
+    final Path databasePath = createDatabase();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeTrx writer = session.beginNodeTrx(1, mode)) {
+      writer.insertArrayAsFirstChild();
+      writer.insertStringValueAsFirstChild("next");
+      writer.commit();
+      assertEquals(mode == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH ? 1 : 2,
+          session.getMostRecentRevisionNumber());
+      writer.moveToDocumentRoot();
+      writer.moveToFirstChild();
+      assertEquals(1, writer.getChildCount());
+    }
+  }
+
+  private static void assertTerminal(final JsonNodeTrx writer) {
+    assertThrows(IllegalStateException.class, writer::commit);
+    assertThrows(IllegalStateException.class, writer::rollback);
+    assertThrows(IllegalStateException.class, () -> writer.revertTo(0));
+    assertThrows(IllegalStateException.class, () -> writer.truncateTo(0));
+  }
+
+  private static void await(final CountDownLatch latch) {
+    try {
+      assertTrue(latch.await(10, TimeUnit.SECONDS), "hardening was never released");
+    } catch (final InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(failure);
+    }
+  }
+
+  private static void assertReopenedArray(final Path databasePath) {
+    assertReopenedArray(databasePath, 1);
+  }
+
+  private static void assertReopenedArray(final Path databasePath, final int expectedRevision) {
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      assertEquals(expectedRevision, session.getMostRecentRevisionNumber());
+      try (final var reader = session.beginNodeReadOnlyTrx()) {
+        assertTrue(reader.moveToFirstChild());
+        assertTrue(reader.isArray());
+        assertEquals(0, reader.getChildCount(), "only the committed empty array may survive");
+      }
+    }
+  }
+
   private Path createDatabase() {
+    return createDatabase(false);
+  }
+
+  private Path createDatabase(final boolean storeDiffs) {
     final Path databasePath = workRoot.resolve("db");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(
-          ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
+          ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).storeDiffs(storeDiffs).build());
     }
     return databasePath;
   }

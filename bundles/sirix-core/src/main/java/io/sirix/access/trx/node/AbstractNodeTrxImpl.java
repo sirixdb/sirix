@@ -149,6 +149,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private volatile State state;
 
+  private volatile boolean postDurableFailureTerminal;
+
   private volatile @Nullable Throwable rollbackOnlyCause;
 
   /**
@@ -376,9 +378,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   private void assertNotRollbackOnly() {
+    assertNotTerminal();
     if (rollbackOnlyCause != null) {
       throw new SirixUsageException(
           "Transaction is rollback-only after a failed atomic operation; rollback is required");
+    }
+  }
+
+  private void assertNotTerminal() {
+    if (postDurableFailureTerminal) {
+      throw new IllegalStateException("Transaction is terminal after a durable commit cleanup failure");
     }
   }
 
@@ -474,6 +483,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       nodeReadOnlyTrx.assertNotClosed();
       assertRunning();
       awaitPendingAsyncCommit();
+      assertNotTerminal();
       if (publicationScopeDepth == 0) {
         publicationScopeOwner = Thread.currentThread();
       }
@@ -561,8 +571,14 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       }
       final Indexes predecessor = pendingIndexCatalogue;
       if (predecessor != null) {
-        indexController.getIndexes().acknowledgePersisted(predecessor);
         pendingIndexCatalogue = null;
+        try {
+          notifyAsyncCommitTestHook("before-catalogue-acknowledgement");
+          indexController.getIndexes().acknowledgePersisted(predecessor);
+        } catch (final RuntimeException | Error acknowledgementFailure) {
+          completeCommitAfterPostDurableCleanupFailure(resourceSession.getMostRecentRevisionNumber(),
+              acknowledgementFailure);
+        }
       }
     } finally {
       if (lock != null) {
@@ -594,6 +610,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         notifyAsyncCommitTestHook("attempt");
         notifyAsyncCommitTestHook("predecessor-wait");
         awaitPendingAsyncCommit();
+        assertNotTerminal();
         if (pathSummaryWriter != null) {
           pathSummaryWriter.flushPendingStats();
         }
@@ -646,10 +663,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
           asyncCommitPermit.release();
           state = State.COMMITTED;
         }
-        throw failure;
+        return;
       }
 
       try {
+        notifyAsyncCommitTestHook("before-submission");
         CompletableFuture.runAsync(() -> {
           try {
             hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs, committingHooks);
@@ -666,7 +684,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         } finally {
           asyncCommitPermit.release();
         }
-        throw failure;
       }
     });
   }
@@ -681,12 +698,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       ShardedPageCache.retainCleanupFailure(failure, hardeningFailure);
       asyncCommitFailure = failure;
       state = State.COMMITTED;
+      ShardedPageCache.rethrowCleanupFailure(failure);
     }
-    try {
-      resourceSession.requireCommitRecovery();
-    } catch (final RuntimeException | Error markerFailure) {
-      ShardedPageCache.retainCleanupFailure(failure, markerFailure);
-    }
+    modificationCount = 0L;
+    completeCommitAfterPostDurableCleanupFailure(pending.getRevisionNumber(), failure);
   }
 
   /**
@@ -697,23 +712,32 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @SuppressWarnings("java:S1181")
   private void hardenAndPublish(final StorageEngineWriter committingWriter, final UberPage pendingUberPage,
       final @Nullable Runnable publishUpdateDiffs, final List<PostCommitHook> hooks) {
+    boolean durable = false;
     try (committingWriter) {
       Throwable failure = null;
       try {
         notifyAsyncCommitTestHook("before-harden");
         committingWriter.hardenCommit(pendingUberPage, true);
+        durable = true;
+        failure = committingWriter.postCommitCleanupFailure();
         resourceSession.setLastCommittedUberPage(pendingUberPage);
+        notifyAsyncCommitTestHook("after-publication");
         enqueuePostCommitHooks(hooks, pendingUberPage.getRevisionNumber());
       } catch (final RuntimeException | Error hardeningFailure) {
-        failure = hardeningFailure;
+        failure = ShardedPageCache.retainCleanupFailure(failure, hardeningFailure);
       }
       try {
+        notifyAsyncCommitTestHook("before-pending-root-cleanup");
         resourceSession.clearPendingRevisionRoot(pendingUberPage.getRevisionNumber());
       } catch (final RuntimeException | Error cleanupFailure) {
         failure = ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
       }
       ShardedPageCache.rethrowCleanupFailure(failure);
     } catch (final RuntimeException | Error failure) {
+      if (durable) {
+        completeCommitAfterPostDurableCleanupFailure(pendingUberPage.getRevisionNumber(), failure);
+        return;
+      }
       try {
         resourceSession.requireCommitRecovery();
       } catch (final RuntimeException | Error markerFailure) {
@@ -723,10 +747,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
     if (publishUpdateDiffs != null) {
       try {
+        notifyAsyncCommitTestHook("before-diff-publication");
         publishUpdateDiffs.run();
       } catch (final RuntimeException | Error failure) {
-        LOGGER.error("Update-diff cache publication failed for pipelined revision {} — the diff file is missing.",
-            pendingUberPage.getRevisionNumber(), failure);
+        completeCommitAfterPostDurableCleanupFailure(pendingUberPage.getRevisionNumber(), failure);
       }
     }
   }
@@ -777,6 +801,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // hardened predecessor (and a poisoned pipeline must fail loudly, not commit on top of a
       // lost revision).
       awaitPendingAsyncCommit();
+      assertNotTerminal();
 
       state = State.COMMITTING;
 
@@ -823,27 +848,21 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // A cleanup step AFTER the commit point may have failed. Revision N exists, so the caller is
       // told the truth — the commit succeeded — and this writer goes terminal instead of back to
       // RUNNING, so the same change cannot be retried into a second revision (#1380). spec: TXN-307
-      final Throwable postDurableCleanupFailure = storageEngineWriter.postCommitCleanupFailure();
-      if (postDurableCleanupFailure != null) {
-        completeCommitAfterPostDurableCleanupFailure(uberPage, postDurableCleanupFailure);
-        return;
-      }
-
+      Throwable postDurableCleanupFailure = null;
       try {
+        postDurableCleanupFailure = storageEngineWriter.postCommitCleanupFailure();
         // Remember successfully committed uber page in resource session.
         resourceSession.setLastCommittedUberPage(uberPage);
+        notifyAsyncCommitTestHook("after-publication");
         enqueuePostCommitHooks(postCommitHooks, uberPage.getRevisionNumber());
+        if (postDurableCleanupFailure != null) {
+          completeCommitAfterPostDurableCleanupFailure(uberPage.getRevisionNumber(), postDurableCleanupFailure);
+          return;
+        }
 
         if (resourceSession.getResourceConfig().storeDiffs()) {
-          try {
-            serializeUpdateDiffs(preCommitRevision);
-          } catch (final RuntimeException | Error e) {
-            // Post-durability failure: the revision IS committed; a failed diff-sidecar write must
-            // neither strand the transaction in COMMITTING nor pretend the commit failed. Surface
-            // it loudly and keep the transaction alive.
-            LOGGER.error("Update-diff serialization failed after revision {} was durably committed — "
-                + "the diff file for this revision is missing.", preCommitRevision, e);
-          }
+          notifyAsyncCommitTestHook("before-diff-publication");
+          serializeUpdateDiffs(preCommitRevision);
         }
 
         // Reinstantiate everything.
@@ -859,58 +878,28 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
           state = State.COMMITTED;
         }
       } catch (final RuntimeException | Error e) {
-        // The data is durable but the transaction could not be re-bound to the new revision.
-        // Terminal COMMITTED (never stuck COMMITTING): further mutations are rejected with a
-        // truthful state, and close() is clean because nothing uncommitted remains.
-        state = State.COMMITTED;
-        try {
-          resourceSession.requireCommitRecovery();
-        } catch (final RuntimeException | Error markerFailure) {
-          ShardedPageCache.retainCleanupFailure(e, markerFailure);
-        }
-        throw e;
+        completeCommitAfterPostDurableCleanupFailure(uberPage.getRevisionNumber(),
+            requireNonNull(ShardedPageCache.retainCleanupFailure(postDurableCleanupFailure, e)));
       }
     });
 
     return self();
   }
 
-  /**
-   * Finish a commit whose revision is durable but whose post-durable cleanup failed: publish the
-   * revision, keep the repair flag the storage writer set, and leave this writer terminal.
-   *
-   * <p>
-   * The writer deliberately does NOT get re-bound to the new revision: its transaction-intent log,
-   * page guard or spill bookkeeping may be exactly what failed to tidy up, and a writer back in
-   * RUNNING is a writer whose caller may retry the change it already committed. Nothing dirty is
-   * left, so {@code close()} is clean. {@code spec: TXN-307}
-   *
-   * @param uberPage the uber page of the durable revision
-   * @param cleanupFailure the cleanup failure, already logged and flagged for repair by the storage
-   *        writer
-   */
   // Terminal bookkeeping must complete after an Error too; none of it may undo a known success.
   @SuppressWarnings("java:S1181")
-  private void completeCommitAfterPostDurableCleanupFailure(final UberPage uberPage, final Throwable cleanupFailure) {
-    final int revision = uberPage.getRevisionNumber();
-    // Terminal FIRST: no later bookkeeping failure may leave this writer RUNNING.
+  private void completeCommitAfterPostDurableCleanupFailure(final int revision, final Throwable cleanupFailure) {
+    postDurableFailureTerminal = true;
     state = State.COMMITTED;
-    try {
-      resourceSession.setLastCommittedUberPage(uberPage);
-      enqueuePostCommitHooks(postCommitHooks, revision);
-    } catch (final RuntimeException | Error publicationFailure) {
-      ShardedPageCache.retainCleanupFailure(cleanupFailure, publicationFailure);
-      LOGGER.error("Revision {} is durably committed, but publishing it to the resource session failed after a "
-          + "post-commit cleanup failure.", revision, publicationFailure);
-    }
-    // The storage writer already flagged the resource; repeat it here so a writer implementation
-    // that only reports the failure still leaves the repair responsibility behind.
     try {
       resourceSession.requireCommitRecovery();
     } catch (final RuntimeException | Error markerFailure) {
       ShardedPageCache.retainCleanupFailure(cleanupFailure, markerFailure);
-      LOGGER.error("Cannot flag the resource for repair after revision {} committed with a cleanup failure.", revision,
-          markerFailure);
+    }
+    try {
+      LOGGER.error("Revision {} is durably committed, but post-commit cleanup failed.", revision, cleanupFailure);
+    } catch (final RuntimeException | Error loggingFailure) {
+      ShardedPageCache.retainCleanupFailure(cleanupFailure, loggingFailure);
     }
   }
 
@@ -1148,6 +1137,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // A plain transaction keeps its mutation count: it still drives the count-based commit.
       flushIntermediateAsyncEpoch(false);
     }
+    assertNotTerminal();
   }
 
   /**
@@ -1243,6 +1233,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
           ? System.nanoTime()
           : 0;
 
+      notifyAsyncCommitTestHook("before-successor");
       storageEngineWriter = resourceSession.createPageTransaction(trxID, revNumber, revNumber,
           InternalResourceSession.Abort.NO, true, pendingBaseUberPage);
       storageEngineWriter.setStorageEpochSpilling(
@@ -1355,10 +1346,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @SuppressWarnings("java:S1181")
   private W rollbackInMemory() {
     nodeReadOnlyTrx.assertNotClosed();
+    assertNotTerminal();
     try {
       // Drain the async-commit pipeline: rolling back on top of an un-hardened (or failed)
       // predecessor epoch is unsound.
       awaitPendingAsyncCommit();
+      assertNotTerminal();
 
       // Retire maintenance state that intentionally spans successful intermediate commits before
       // the writer/TIL carrying its already-published units is discarded. Listener rebinding alone
@@ -1456,7 +1449,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     try {
       nodeReadOnlyTrx.assertNotClosed();
+      assertNotTerminal();
       awaitPendingAsyncCommit();
+      assertNotTerminal();
       resourceSession.assertAccess(revision);
 
       // Revert severs the current write lineage just like rollback; a load-time builder may not
@@ -1564,7 +1559,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     lockForLifecycle();
     try {
       nodeReadOnlyTrx.assertNotClosed();
+      assertNotTerminal();
       awaitPendingAsyncCommit();
+      assertNotTerminal();
       final @Nullable InternalNodeTrx<?> previous = resourceSession.enterHistoryRetirement(this);
       try {
         maintenance.run();
@@ -1707,17 +1704,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       return;
     }
     Throwable cleanupFailure = null;
-    if (abort) {
-      try {
-        rollbackInMemory();
-      } catch (final RuntimeException | Error e) {
-        cleanupFailure = e;
-      }
-    }
     try {
       awaitPendingAsyncCommit();
     } catch (final RuntimeException | Error e) {
-      cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+      cleanupFailure = e;
+    }
+    if (abort && !postDurableFailureTerminal) {
+      try {
+        rollbackInMemory();
+      } catch (final RuntimeException | Error e) {
+        cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+      }
     }
     if (!abort && modificationCount > 0) {
       final SirixUsageException dirty = new SirixUsageException("Must commit/rollback transaction first!");

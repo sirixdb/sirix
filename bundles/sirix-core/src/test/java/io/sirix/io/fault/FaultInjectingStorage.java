@@ -18,6 +18,8 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
+import io.sirix.io.fault.FaultInjectingWriter.SimulatedCrashException;
 
 /**
  * Test-only {@link IOStorage} that wraps the REAL built-in {@code FILE_CHANNEL} storage and hands
@@ -57,6 +59,9 @@ public final class FaultInjectingStorage implements IOStorage {
 
   @Override
   public Writer createWriter() {
+    if (FAIL_NEXT_WRITER.compareAndSet(true, false)) {
+      throw new SimulatedCrashException("successor writer creation");
+    }
     final FaultInjectingWriter writer = new FaultInjectingWriter(delegate.createWriter());
     LAST_WRITER.set(writer);
     return writer;
@@ -85,6 +90,16 @@ public final class FaultInjectingStorage implements IOStorage {
   // ---- provider installation ----
 
   private static final String PROVIDER_NAME = "FILE_CHANNEL";
+
+  private static final AtomicBoolean FAIL_NEXT_WRITER = new AtomicBoolean();
+
+  public static void failNextWriterCreation() {
+    FAIL_NEXT_WRITER.set(true);
+  }
+
+  public static boolean isWriterCreationFailureArmed() {
+    return FAIL_NEXT_WRITER.get();
+  }
 
   private static final AtomicReference<Path> INJECTING_ROOT = new AtomicReference<>();
 
@@ -142,6 +157,7 @@ public final class FaultInjectingStorage implements IOStorage {
     if (installed != null) {
       providersMap().remove(PROVIDER_NAME, installed);
     }
+    FAIL_NEXT_WRITER.set(false);
     INJECTING_ROOT.set(null);
     LAST_WRITER.set(null);
   }

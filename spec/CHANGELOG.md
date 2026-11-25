@@ -4,11 +4,13 @@
 
 - Implement and verify
   [TXN-307](TXN-transactions-durability.md#txn-307--known-durable-commit-survives-cleanup-failure)
-  for the synchronous commit path, and correct what the trace tables claim around it. No requirement
+  across synchronous and pipelined commit orchestration, and correct what the trace tables claim around it. No requirement
   text changes. Every step after the uber-page beacon write now runs independently of the others,
   the first failure is retained, logged and turned into a repair flag, and the commit returns the
-  durable revision with the writer terminal instead of rethrowing into the pre-durability
-  classification; the requirement moves to `partial` with an executed conformance case. The
+  durable revision with an irreversible terminal condition instead of rethrowing into the pre-durability
+  classification. Publication, sidecar publication, successor rebinding and retirement failures follow
+  the same rule; speculative successor edits remain uncommitted and are discarded only by internal abort.
+  Lifecycle and rotation regression tests extend the mapped evidence; the requirement moves to `partial` with an executed conformance case. The
   [TXN-305](TXN-transactions-durability.md#txn-305--known-pre-commit-point-failure) note loses the
   half of its gap that TXN-307 now owns and records a measured one in its place: after a storage
   failure between page serialization and the beacon write the writer reports running and refuses a
