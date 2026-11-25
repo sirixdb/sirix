@@ -62,9 +62,9 @@ import static java.util.Objects.requireNonNull;
  * semaphore the supported way: it opens a read-write transaction via
  * {@link ResourceSession#beginNodeTrx()}, performs <em>no</em> modifications, holds the transaction
  * open while that resource's files are copied, and afterwards closes the owning session, which
- * aborts and closes its transaction. Rolling back an empty transaction is purely in-memory (it clears the
- * transaction-intent log; verified against {@code NodeStorageEngineWriter#rollback}) — it never
- * writes to the resource files.
+ * aborts and closes its transaction. Rolling back an empty transaction is purely in-memory (it
+ * clears the transaction-intent log; verified against {@code NodeStorageEngineWriter#rollback}) —
+ * it never writes to the resource files.
  *
  * <p>
  * While the writer semaphore is held by our empty transaction:
@@ -387,7 +387,8 @@ public final class BackupManager {
    * @throws SirixIOException if maintenance does not become quiescent in time — the alternative would
    *         be a partial copy of a store that is being written
    */
-  // TXN-613: finishBackup restores interruption after writer/session/database/target cleanup, including
+  // TXN-613: finishBackup restores interruption after writer/session/database/target cleanup,
+  // including
   // cleanup failure. Re-interrupting here would prevent those interruptible lifetimes from closing.
   @SuppressWarnings("java:S2142")
   private static DerivedQuiescence quiesceDerivedResource(final ResourceSession<?, ?> session, final Path resourcePath,

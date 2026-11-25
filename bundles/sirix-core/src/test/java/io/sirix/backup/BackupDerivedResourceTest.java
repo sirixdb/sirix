@@ -353,8 +353,8 @@ final class BackupDerivedResourceTest {
         return invocation.callRealMethod();
       })) {
         if (failureMode.equals("cleanup-error")) {
-          assertSame(cleanupError, assertThrows(AssertionError.class,
-              () -> BackupManager.backupDatabase(sourceDb, backupDir)));
+          assertSame(cleanupError,
+              assertThrows(AssertionError.class, () -> BackupManager.backupDatabase(sourceDb, backupDir)));
         } else {
           final SirixIOException failure =
               assertThrows(SirixIOException.class, () -> BackupManager.backupDatabase(sourceDb, backupDir));
@@ -397,7 +397,9 @@ final class BackupDerivedResourceTest {
     }
     assertEquals(REVISIONS,
         BackupManager.restoreDatabase(backupDir, tempDir.resolve("completed-restore"))
-                     .resources().getFirst().mostRecentRevision(),
+                     .resources()
+                     .getFirst()
+                     .mostRecentRevision(),
         "the completed copy must remain a usable backup");
   }
 
