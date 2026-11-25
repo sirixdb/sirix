@@ -196,11 +196,6 @@ final class KeyValueLeafPageRegionDerivationCloseRaceTest {
       return liveAddresses.size() * (long) PageLayout.INITIAL_PAGE_SIZE;
     }
 
-    @Override
-    public void resetSegment(final MemorySegment segment) {
-      segment.fill((byte) 0);
-    }
-
     int allocationCount() {
       return allocationCount;
     }

@@ -44,20 +44,6 @@ final class PosixVirtualMemory implements VirtualMemory {
   private static final int MAP_NORESERVE = OS.isMacOSX()
       ? 0
       : 0x4000;
-  private static final int MADV_DONTNEED = 4;
-
-  /**
-   * Darwin's "I am done with these pages, you may reclaim them": the next read observes zeros and
-   * the resident size drops. {@code MADV_DONTNEED} exists on macOS too but is advisory there — it
-   * neither zeroes nor releases anonymous pages, so a discard through it leaves the previous
-   * contents readable, which a caller that relies on zeros cannot tell from a successful discard.
-   */
-  private static final int MADV_FREE_REUSABLE = 7;
-
-  /** The advice that actually discards on this platform. */
-  private static final int MADV_DISCARD = OS.isMacOSX()
-      ? MADV_FREE_REUSABLE
-      : MADV_DONTNEED;
   private static final int MADV_POPULATE_WRITE = 23;
   private static final int ENOMEM = 12;
   private static final int EINVAL = 22;
@@ -91,15 +77,6 @@ final class PosixVirtualMemory implements VirtualMemory {
 
   @Override
   public MemorySegment reserve(final long bytes) {
-    final MemorySegment segment = tryReserve(bytes);
-    if (segment == null) {
-      throw new OutOfMemoryError("mmap failed for " + bytes + " bytes");
-    }
-    return segment;
-  }
-
-  @Override
-  public @Nullable MemorySegment tryReserve(final long bytes) {
     if (MMAP == null) {
       throw new IllegalStateException("FrameSlotAllocator requires a POSIX libc (mmap); "
           + "on Windows the Windows virtual-memory backend is selected automatically");
@@ -109,7 +86,7 @@ final class PosixVirtualMemory implements VirtualMemory {
           MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0L);
       // mmap signals failure with MAP_FAILED (-1), not NULL.
       if (addr.address() == 0 || addr.address() == -1L) {
-        return null;
+        throw new OutOfMemoryError("mmap failed for " + bytes + " bytes");
       }
       return addr.reinterpret(bytes);
     } catch (final OutOfMemoryError oom) {
@@ -125,46 +102,24 @@ final class PosixVirtualMemory implements VirtualMemory {
   }
 
   @Override
-  public boolean tryCommitFresh(final MemorySegment slot) {
-    return true;
-  }
-
-  @Override
-  public void discardToZeros(final MemorySegment segment) {
-    if (MADVISE == null) {
-      return;
-    }
-    try {
-      final int rc = (int) MADVISE.invokeExact(segment, segment.byteSize(), MADV_DISCARD);
-      if (rc != 0) {
-        LOGGER.debug("discardToZeros advice {} rc={} on address 0x{}", MADV_DISCARD, rc,
-            Long.toHexString(segment.address()));
-      }
-    } catch (final Throwable t) {
-      LOGGER.debug("discardToZeros madvise failed: {}", t.getMessage());
-    }
-  }
-
-  @Override
-  public int tryPopulate(final MemorySegment segment) {
+  public boolean populate(final MemorySegment segment) {
     if (MADVISE == null || !OS.isLinux() || populateUnsupported) {
-      return POPULATE_UNAVAILABLE;
+      return false;
     }
     final int rc;
     try {
       rc = (int) MADVISE.invokeExact(segment, segment.byteSize(), MADV_POPULATE_WRITE);
-    } catch (final OutOfMemoryError failure) {
-      throw failure;
     } catch (final Throwable t) {
       LOGGER.debug("MADV_POPULATE_WRITE failed: {}", t.getMessage());
-      return POPULATE_UNAVAILABLE;
+      return false;
     }
     if (rc == 0) {
-      return POPULATED;
+      return true;
     }
     final int errno = errno();
     if (errno == ENOMEM) {
-      return POPULATE_REFUSED;
+      throw new OutOfMemoryError("madvise(MADV_POPULATE_WRITE) could not back " + segment.byteSize()
+          + " bytes of slab memory with physical pages (ENOMEM)");
     }
     if (errno == EINVAL) {
       markPopulateUnsupported();
@@ -173,7 +128,7 @@ final class PosixVirtualMemory implements VirtualMemory {
       LOGGER.debug("MADV_POPULATE_WRITE rc={} errno={} on address 0x{} ({} bytes)", rc, errno,
           Long.toHexString(segment.address()), segment.byteSize());
     }
-    return POPULATE_UNAVAILABLE;
+    return false;
   }
 
   /** Latches the refusal for the whole process: the kernel lacks the advice, not this instance. */

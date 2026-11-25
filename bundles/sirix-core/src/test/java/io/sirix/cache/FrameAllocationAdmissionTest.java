@@ -3,7 +3,6 @@
  */
 package io.sirix.cache;
 
-import io.sirix.cache.CompactImageStore.Block;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -11,8 +10,6 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.lang.foreign.MemorySegment;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -88,55 +85,6 @@ final class FrameAllocationAdmissionTest {
       FrameSlotAllocator.setPressureListener(previous);
       allocator.shutdown();
     }
-  }
-
-  @Test
-  void compactPoolSlabsChargeNoneOfTheFrameAllowance() {
-    final FrameSlotAllocator allocator = new FrameSlotAllocator(64 * MIB);
-    // A pool ceiling of one slab: its own share is the only thing that bounds it.
-    final CompactImageStore store = new CompactImageStore(allocator, 256 * KIB);
-    // Commit the whole permanent frame allowance, as a peak of page frames does.
-    final long frameAllowance = 64 * MIB - 8 * MIB - allocator.oversizedHeadroomBytes();
-    assertTrue(allocator.reserveSlabCommittedBytes(frameAllowance));
-    assertFalse(allocator.reserveSlabCommittedBytes(1), "the frame allowance is spent");
-    try {
-      final List<Block> images = new ArrayList<>(4);
-      try {
-        for (int i = 0; i < 4; i++) {
-          // Four 64 KiB blocks are one slab of the largest class: the pool serves them although no
-          // page frame could commit another byte, because it charges a different budget.
-          final Block image = store.acquire(65536);
-          assertNotNull(image, "a compact image does not compete with page frames for commitment");
-          images.add(image);
-        }
-        assertEquals(frameAllowance, allocator.nonExecutionCommittedBytes(),
-            "the pool's slab charged none of the allocator's commitment");
-        assertEquals(256 * KIB, store.mappedSlabBytes());
-        assertNull(store.acquire(65536), "the pool stops at its own ceiling");
-      } finally {
-        for (final Block image : images) {
-          image.run();
-        }
-      }
-      // A returned block is reused instead of growing, which is how the pool stays inside its
-      // ceiling without anything having to be handed back.
-      final Block reused = store.acquire(65536);
-      assertNotNull(reused);
-      assertEquals(256 * KIB, store.mappedSlabBytes(), "reuse, not growth");
-      reused.run();
-      // The headroom the frame allowance left is intact: nothing the pool did touched it.
-      final MemorySegment oversized = allocator.allocate(512 * KIB);
-      assertNotNull(oversized);
-      allocator.release(oversized);
-      final MemorySegment reclaimable = allocator.allocateSlab(512 * KIB);
-      assertNotNull(reclaimable, "reclaimable storage retains its existing admission allowance");
-      assertTrue(allocator.releaseSlab(reclaimable));
-    } finally {
-      allocator.refundCommittedBytes(frameAllowance);
-      assertTrue(store.releaseIdleSlabs());
-      allocator.shutdown();
-    }
-    assertEquals(0L, allocator.getPhysicalMemoryBytes());
   }
 
   @ParameterizedTest

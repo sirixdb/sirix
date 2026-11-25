@@ -53,9 +53,8 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
   }
 
   private ShardedPageCache<HOTLeafPage> cacheFor(final HOTLeafPage page) {
-    // The compact half holds what allocator pressure cannot reclaim: a compact decoded image (a
-    // pool block it owns outright, see HOTLeafPage#isCompactImage) and any heap-resident image. Its
-    // pool charges none of the allocator's budget, so evicting it would relieve no allocation.
+    // The compact half holds what allocator pressure cannot reclaim: a compact decoded image (native
+    // memory it owns outright, see HOTLeafPage#isCompactImage) and any heap-resident image.
     return page.isCompactImage() || !page.slots().isNative()
         ? compactImages
         : nativeImages;
@@ -228,10 +227,7 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
   }
 
   public void evictUnderPressure() {
-    // Allocator pressure concerns the resident half only: a compact image holds no frame, and its
-    // pool answers to the compact half's own ceiling rather than to this allocator's budget, so
-    // evicting it frees nothing the refused caller is waiting for. The compact half's own clock
-    // sweeper enforces its own ceiling.
+    // Allocator pressure concerns the resident half only; a compact image holds no frame to release.
     nativeImages.evictUnderPressure();
   }
 }

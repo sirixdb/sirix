@@ -86,31 +86,10 @@ public interface MemorySegmentAllocator {
   }
 
   /**
-   * Allocate a slab with the ownership and release protocol of {@link #allocateSlab(long)} whose
-   * bytes this allocator does NOT charge: the caller admitted them against its own byte ceiling and
-   * is the single owner of that budget.
+   * Release a slab obtained from {@link #allocateSlab(long)}. Idempotent: a stale or repeated release
+   * is rejected and returns {@code false}.
    *
-   * <p>
-   * Use it for storage a cache already bounds — a pool of blocks for that cache's entries — so the
-   * pool cannot take bytes a page frame needs, and so nothing has to be handed back under pressure.
-   * The slab is still tracked, released and reported like any other: only the commitment accounting
-   * is the owner's. Releasing it refunds nothing here and never recycles its backing.
-   * </p>
-   *
-   * @param bytes the positive requested size, rounded up to whole pages
-   * @return the slab, or {@code null} on native reservation, commitment, population or shutdown
-   *         refusal; heap and publication failures propagate
-   */
-  default @Nullable MemorySegment allocateOwnerBudgetedSlab(final long bytes) {
-    return null;
-  }
-
-  /**
-   * Release a slab obtained from {@link #allocateSlab(long)} or
-   * {@link #allocateOwnerBudgetedSlab(long)}.
-   * Idempotent: a stale or repeated release is rejected and returns {@code false}.
-   *
-   * @param slab the exact segment returned by either slab allocation method
+   * @param slab the exact segment returned by {@link #allocateSlab(long)}
    * @return whether this call returned the slab to the allocator and removed its live-slab charge;
    *         recycled backing may remain committed for reuse
    */
@@ -155,12 +134,4 @@ public interface MemorySegmentAllocator {
     return 0L;
   }
 
-  /**
-   * Reset a memory segment by clearing its contents. Implementations should use the most efficient
-   * approach available (e.g., madvise on Linux). Thread-safe: can be called concurrently on different
-   * segments.
-   * 
-   * @param segment the segment to reset
-   */
-  void resetSegment(MemorySegment segment);
 }

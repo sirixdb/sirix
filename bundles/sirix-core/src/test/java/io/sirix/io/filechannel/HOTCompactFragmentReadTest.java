@@ -77,13 +77,8 @@ final class HOTCompactFragmentReadTest {
     try (FileChannelReader reader = reader(contents, pipeline);
         HOTLeafPage compact = assertInstanceOf(HOTLeafPage.class, reader.readHOTLeafFragment(reference(), CONFIG))) {
       assertTrue(compact.isCompactImage(), "the raw image must not acquire a writable allocator frame");
-      assertTrue(compact.slots().isNative(), "a compact image owns a native block, never a heap segment");
-      // A compact image owns a pooled block (CompactImageStore), so its storage is its packed bytes
-      // rounded up to that pool's class granularity — never writable leaf capacity.
-      assertTrue(compact.slots().byteSize() >= compact.getUsedSlotsSize());
-      assertTrue(
-          compact.slots().byteSize() - compact.getUsedSlotsSize() <= Math.max(64, compact.getUsedSlotsSize() / 8),
-          "a compact image's storage must stay proportional to its image");
+      assertTrue(compact.slots().isNative(), "a compact image owns GC-managed native memory, never a heap segment");
+      assertEquals(compact.getUsedSlotsSize(), compact.slots().byteSize());
       assertEquals(count, compact.size());
       assertTrue(compact.isCompleteDump());
       assertEquals(9, compact.getRevision());

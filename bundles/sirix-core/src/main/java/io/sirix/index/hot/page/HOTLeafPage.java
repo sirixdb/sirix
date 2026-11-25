@@ -629,9 +629,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         ? new SideReferenceMap(COMPACT_SIDE_REFERENCE_CAPACITY)
         : new SideReferenceMap();
     final MemorySegment suppliedMemory = Objects.requireNonNull(slotMemory);
-    if (binarySearchOnly) {
-      validateCompactSlots(suppliedMemory, slotOffsets, entryCount, usedSlotMemorySize);
-    }
     // Compute the allocator binding before entering the seqlock publication window. A zero-copy
     // leaf then corrects the binding through setStampBaseSegment before it is published.
     final long coordinates = slotCoordinatesOf(suppliedMemory, null);
@@ -641,28 +638,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     // with the caller until this constructor returns; copy/deserialization cleanup relies on that.
     if (!binarySearchOnly) {
       buildPextIndex();
-    }
-  }
-
-  private static void validateCompactSlots(final MemorySegment memory, final int[] offsets, final int count,
-      final int used) {
-    if (count < 0 || count > MAX_ENTRIES || count > offsets.length || used < 0 || used > memory.byteSize()) {
-      throw new IllegalStateException("Invalid compact HOT image dimensions");
-    }
-    for (int i = 0; i < count; i++) {
-      final int offset = offsets[i];
-      if (offset < 0 || offset > used - 4) {
-        throw new IllegalStateException("Compact HOT slot offset outside packed image: " + offset);
-      }
-      final int suffixLength = Short.toUnsignedInt(memory.get(JAVA_SHORT_UNALIGNED, offset));
-      final long valueLengthOffset = (long) offset + 2 + suffixLength;
-      if (valueLengthOffset > used - 2L) {
-        throw new IllegalStateException("Compact HOT suffix outside packed image at slot " + i);
-      }
-      final int valueLength = Short.toUnsignedInt(memory.get(JAVA_SHORT_UNALIGNED, valueLengthOffset));
-      if (valueLength > used - valueLengthOffset - 2) {
-        throw new IllegalStateException("Compact HOT value outside packed image at slot " + i);
-      }
     }
   }
 
@@ -4720,12 +4695,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Whether this leaf is an immutable compact read image: its packed slot bytes in a native block
-   * this page owns ({@code CompactImageStore}, or GC-owned native memory when the pool refused), no
-   * allocator frame, no routing index, never mutated in place (writers copy it). The fragment cache
-   * keeps such images in the half allocator pressure cannot reclaim, with the heap-resident ones:
-   * every decoded HOT leaf image is native now, so that the segment accessors shared by all pages
-   * only ever see native receivers (see {@link io.sirix.page.PageLayout#getBitmapWord(byte[], int)}).
+   * Whether this leaf is an immutable compact read image: exactly its packed slot bytes on GC-owned
+   * native memory, no allocator frame, no routing index, never mutated in place (writers copy it).
+   * The fragment cache keeps such images in the half allocator pressure cannot reclaim, with the
+   * heap-resident ones: every decoded HOT leaf image is native now, so that the segment accessors
+   * shared by all pages only ever see native receivers (see
+   * {@link io.sirix.page.PageLayout#getBitmapWord(byte[], int)}).
    */
   public boolean isCompactImage() {
     return binarySearchOnly;

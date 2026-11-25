@@ -59,13 +59,11 @@ The newest image supplies the side-page reference even when an older fragment su
 Every raw image is guarded through its use, and raw images have a separate cache from complete
 leaves. A requested-slot result never becomes a complete-leaf swizzle.
 
-`FileChannelReader` decodes these raw images into a reusable native block the page owns and an
+`FileChannelReader` decodes these raw images into independently GC-owned packed native bytes and an
 exact-size offset directory, without allocating a writable native frame or building routing
-metadata. The [compact image storage contract](HOT_INDEX_SPECIFICATION.md#323-serialized-layout-pagekindhot_leaf_page)
-owns block lifetime, allocation and fallback guarantees. Scalar misses in one fragment-chain walk
-share one freshly captured committed file extent. Complete reconstruction retains coalesced batch
-I/O and copies older projection values straight into its private result. Compact images are
-immutable; copies restore full writable capacity.
+metadata. Scalar misses in one fragment-chain walk share one freshly captured committed file
+extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
+straight into its private result. Compact images are immutable; copies restore full writable capacity.
 A decoder-only image is never published as a canonical complete leaf: the complete-leaf cache only
 ever receives a fully built leaf, with its routing index, its off-heap frame accounting and its
 ordinary stamp binding. The persisted leaf layout and all four versioning policies are unchanged.
@@ -147,28 +145,25 @@ HOT cache sweepers skip guarded images.
 The raw-fragment cache is split by allocation ownership. A committed fragment decodes
 into an allocator frame on every backend that does not implement the compact reads — `MEMORY_MAPPED`,
 anything reached through a plain `Reader` default — and on any byte pipeline whose handler has no
-memory-segment support; on `FILE_CHANNEL` with a segment-capable pipeline, it uses the compact
-storage described above. `HOTFragmentCache` holds two separately weighted halves and consults both
-on lookup, routing compact images and any heap-backed
+memory-segment support; on `FILE_CHANNEL` with a segment-capable pipeline, it uses independently
+GC-owned packed native bytes. One budget cannot bound both honestly, so `HOTFragmentCache` holds two
+separately weighted halves and consults both on lookup, routing compact images and any heap-backed
 images to `compactImages()`, and allocator-frame images to `nativeImages()`. The allocator-frame half
 keeps the pre-existing off-heap fragment share in full, with the allocator pressure listener still
 behind it, so native capacity on `MEMORY_MAPPED` or a non-segment pipeline is
 unchanged. For a positive HOT allowance `q = maxRecordPageCacheWeight / 4`, the native fragment
 share is `min(q/2, max(q/4, 32 × 64 KiB))`; the remainder is the complete-leaf allowance before
-reserving mini pages and sorted payloads. The compact half retains native image storage plus heap
-metadata; the mini cache retains heap bytes. Each is charged its retained slot-storage capacity plus
-the page's conservative fixed per-page heap estimate. Compact images and mini pages have disjoint shares
+reserving mini pages and sorted payloads. The compact half retains GC-owned native bytes plus heap
+metadata; the mini cache retains heap bytes. Each is charged its packed bytes plus the page's
+conservative fixed per-page heap estimate. Compact images and mini pages have disjoint shares
 of the shared heap envelope; `sirix.hotHeapCache.maxBytes` bounds compact images and also caps
 the mini share. Overrides accept non-negative decimal byte counts, are capped by their shares,
 and zero disables retention. Malformed values fail configuration. See
 [Derived query-cache memory](DERIVED_QUERY_CACHES.md) for the allocation table. The compact half spends no native fragment allowance; the mini reservation comes from the
-complete-leaf share described above. This cache ceiling bounds retained images, not idle pool
-slabs, but the two answer to the same share: the pool's mapped slabs are admitted against this
-compact ceiling and charge none of the allocator's frame commitment, so a full pool refuses a lease
-— the decode then keeps its own GC-owned image — instead of taking bytes a page frame needs. An idle
-slab stays mapped as retained capacity for the next decode of its class. Neither compact fragments
-nor mini pages hold an allocator frame, so these caches have their own clock sweepers rather than
-relying on allocator pressure, and evicting an image is also what returns its pool block. Point fragment walks,
+complete-leaf share described above. Compact allocations have independent lifetimes, so retaining
+one image cannot pin unrelated images' storage. Neither compact fragments nor mini pages hold an
+allocator frame, so these caches have their own clock sweepers rather than relying on allocator
+pressure. Point fragment walks,
 including walks answered from cached raw images, contribute to `EngineWorkCounters.HOT_LEAF_LOADS`;
 older point fragments contribute to `HOT_FRAGMENTS_WALKED`, and complete-leaf or mini-page hits
 contribute neither. A FULL-versioned resource still bypasses the merge and contributes nothing.

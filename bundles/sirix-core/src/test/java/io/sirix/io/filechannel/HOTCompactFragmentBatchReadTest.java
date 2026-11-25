@@ -84,7 +84,7 @@ final class HOTCompactFragmentBatchReadTest {
       raw = assertInstanceOf(HOTLeafPage.class, new PagePersister().deserializeHOTLeafFragment(CONFIG,
           new MemorySegmentBytesIn(MemorySegment.ofArray(wire)), SerializationType.DATA));
       assertTrue(raw.isCompactImage());
-      assertTrue(raw.slots().isNative(), "a compact image owns a native block, never a heap segment");
+      assertTrue(raw.slots().isNative(), "a compact image owns GC-managed native memory, never a heap segment");
       copy = raw.copyForRead();
       assertTrue(copy.slots().isNative());
       assertEquals(completeDump, copy.isCompleteDump());
@@ -181,11 +181,7 @@ final class HOTCompactFragmentBatchReadTest {
           final HOTLeafPage newPage = assertInstanceOf(HOTLeafPage.class, compact[i]);
           assertTrue(oldPage.slots().isNative());
           assertTrue(newPage.isCompactImage(), "batch decode must avoid writable allocator frames");
-          // The pooled block a compact image owns is its packed bytes rounded up to the pool's
-          // class granularity, which is still far below writable leaf capacity.
-          assertTrue(newPage.slots().byteSize() >= newPage.getUsedSlotsSize());
-          assertTrue(
-              newPage.slots().byteSize() - newPage.getUsedSlotsSize() <= Math.max(64, newPage.getUsedSlotsSize() / 8));
+          assertEquals(newPage.getUsedSlotsSize(), newPage.slots().byteSize());
           assertArrayEquals(serialize(oldPage), serialize(ordinary[i]), "ordinary batch versus scalar fragment " + i);
           assertArrayEquals(serialize(oldPage), serialize(newPage), "fragment " + i);
           expected.add(oldPage);

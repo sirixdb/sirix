@@ -302,9 +302,8 @@ segment verdicts stay above 256, 64 and 128 MiB, and the per-store projection fi
 1.5 GiB. Each override accepts a non-negative decimal `long` byte count, is capped by its share and
 can disable retention with zero; invalid values fail configuration. The existing HOT entry-count
 limit and persisted-page allocation can further reduce the applicable HOT cache capacities.
-Compact native images are conservatively charged to this envelope under the
-[projection cache accounting](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads);
-allocator-frame pages retain their separate native allocation.
+GC-owned compact native images are conservatively charged to this envelope; allocator-frame pages
+retain their separate native allocation.
 
 These are retained payload-cache ceilings, not a process RSS guarantee. Operators must fit the
 native arena (which now also holds the derived slabs), runtime heap, other native/direct memory

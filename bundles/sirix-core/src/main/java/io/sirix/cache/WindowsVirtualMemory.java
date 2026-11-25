@@ -4,7 +4,6 @@
 package io.sirix.cache;
 
 import io.sirix.utils.OS;
-import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,8 +26,6 @@ import java.lang.invoke.MethodHandle;
  * has NO overcommit: touching reserved-but-uncommitted pages faults, so unlike POSIX this step is
  * mandatory. Commit charge is bounded by the allocator's physical budget, never the 32
  * GiB-per-class reservation.</li>
- * <li>{@code VirtualFree(MEM_DECOMMIT)} + recommit implements discard-to-zeros (Windows guarantees
- * committed pages start zeroed; {@code MEM_RESET} would NOT guarantee that).</li>
  * <li>{@code VirtualFree(MEM_RELEASE)} drops a whole region at shutdown.</li>
  * </ul>
  *
@@ -37,15 +34,17 @@ import java.lang.invoke.MethodHandle;
  */
 final class WindowsVirtualMemory implements VirtualMemory {
 
+  static final WindowsVirtualMemory INSTANCE = new WindowsVirtualMemory();
+
   private static final Logger LOGGER = LoggerFactory.getLogger(WindowsVirtualMemory.class);
 
   private static final long MEM_COMMIT = 0x1000;
   private static final long MEM_RESERVE = 0x2000;
-  private static final long MEM_DECOMMIT = 0x4000;
   private static final long MEM_RELEASE = 0x8000;
   private static final long PAGE_READWRITE = 0x04;
 
-  static final WindowsVirtualMemory INSTANCE;
+  private static final MethodHandle VIRTUAL_ALLOC;
+  private static final MethodHandle VIRTUAL_FREE;
 
   static {
     MethodHandle alloc = null;
@@ -65,37 +64,22 @@ final class WindowsVirtualMemory implements VirtualMemory {
           FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG,
               ValueLayout.JAVA_LONG));
     }
-    INSTANCE = new WindowsVirtualMemory(alloc, free);
+    VIRTUAL_ALLOC = alloc;
+    VIRTUAL_FREE = free;
   }
 
-  private final @Nullable MethodHandle virtualAlloc;
-  private final @Nullable MethodHandle virtualFree;
-
-  // Bind the syscall boundary once; tests can exercise Windows refusal semantics on any host.
-  WindowsVirtualMemory(final @Nullable MethodHandle virtualAlloc, final @Nullable MethodHandle virtualFree) {
-    this.virtualAlloc = virtualAlloc;
-    this.virtualFree = virtualFree;
-  }
+  private WindowsVirtualMemory() {}
 
   @Override
   public MemorySegment reserve(final long bytes) {
-    final MemorySegment segment = tryReserve(bytes);
-    if (segment == null) {
-      throw new OutOfMemoryError("VirtualAlloc(MEM_RESERVE) failed for " + bytes + " bytes");
-    }
-    return segment;
-  }
-
-  @Override
-  public @Nullable MemorySegment tryReserve(final long bytes) {
-    if (virtualAlloc == null) {
+    if (VIRTUAL_ALLOC == null) {
       throw new IllegalStateException("WindowsVirtualMemory requires Windows (kernel32 VirtualAlloc)");
     }
     try {
       final MemorySegment addr =
-          (MemorySegment) virtualAlloc.invokeExact(MemorySegment.NULL, bytes, MEM_RESERVE, PAGE_READWRITE);
+          (MemorySegment) VIRTUAL_ALLOC.invokeExact(MemorySegment.NULL, bytes, MEM_RESERVE, PAGE_READWRITE);
       if (addr.address() == 0) {
-        return null;
+        throw new OutOfMemoryError("VirtualAlloc(MEM_RESERVE) failed for " + bytes + " bytes");
       }
       return addr.reinterpret(bytes);
     } catch (final OutOfMemoryError oom) {
@@ -107,19 +91,14 @@ final class WindowsVirtualMemory implements VirtualMemory {
 
   @Override
   public boolean commitFresh(final MemorySegment slot) {
-    if (!tryCommitFresh(slot)) {
-      throw new OutOfMemoryError("VirtualAlloc(MEM_COMMIT) failed for slot of " + slot.byteSize()
-          + " bytes — physical memory (commit charge) exhausted");
-    }
-    return true;
-  }
-
-  @Override
-  public boolean tryCommitFresh(final MemorySegment slot) {
     try {
       final MemorySegment addr =
-          (MemorySegment) virtualAlloc.invokeExact(slot, slot.byteSize(), MEM_COMMIT, PAGE_READWRITE);
-      return addr.address() != 0;
+          (MemorySegment) VIRTUAL_ALLOC.invokeExact(slot, slot.byteSize(), MEM_COMMIT, PAGE_READWRITE);
+      if (addr.address() == 0) {
+        throw new OutOfMemoryError("VirtualAlloc(MEM_COMMIT) failed for slot of " + slot.byteSize()
+            + " bytes — physical memory (commit charge) exhausted");
+      }
+      return true;
     } catch (final OutOfMemoryError oom) {
       throw oom;
     } catch (final Throwable t) {
@@ -128,31 +107,9 @@ final class WindowsVirtualMemory implements VirtualMemory {
   }
 
   @Override
-  public void discardToZeros(final MemorySegment segment) {
-    try {
-      final int freed = (int) virtualFree.invokeExact(segment, segment.byteSize(), MEM_DECOMMIT);
-      if (freed == 0) {
-        LOGGER.debug("VirtualFree(MEM_DECOMMIT) failed on address 0x{}", Long.toHexString(segment.address()));
-        return;
-      }
-      // Recommit immediately: committed pages are guaranteed zeroed, and the slot must stay
-      // touch-safe for its next owner (nothing else in the allocator commits recycled slots).
-      final MemorySegment addr =
-          (MemorySegment) virtualAlloc.invokeExact(segment, segment.byteSize(), MEM_COMMIT, PAGE_READWRITE);
-      if (addr.address() == 0) {
-        throw new OutOfMemoryError("VirtualAlloc(MEM_COMMIT) failed re-committing a discarded slot");
-      }
-    } catch (final OutOfMemoryError oom) {
-      throw oom;
-    } catch (final Throwable t) {
-      throw new RuntimeException("Failed to discard slot contents", t);
-    }
-  }
-
-  @Override
   public boolean release(final MemorySegment region) {
     try {
-      final int freed = (int) virtualFree.invokeExact(region, 0L, MEM_RELEASE);
+      final int freed = (int) VIRTUAL_FREE.invokeExact(region, 0L, MEM_RELEASE);
       if (freed == 0) {
         LOGGER.warn("VirtualFree(MEM_RELEASE) failed for region size {}", region.byteSize());
       }

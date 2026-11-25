@@ -549,16 +549,6 @@ allocation checks, add `--tests 'io.sirix.index.hot.HOTCommitAllocationBudgetTes
 The same fork runs `CommitTimestampProbeAllocationBudgetTest` with blocking compilation (`-Xbatch`),
 so warmup completes before its unchanged zero-byte probe bound is measured on slower ARM runners.
 
-The normal core task also runs `CompactImageAllocatorLifecycleTest` in a clean JVM through
-`:sirix-core:compactImageAllocatorLifecycleTest`. It checks native refusal, heap-failure propagation,
-GC-owned decode fallback at the commitment ceiling, and restored pooled decoding after allocator
-shutdown rejects live slabs or foreign-owned oversized allocations. A separate JVM keeps unrelated
-global owners from masking the rejection being tested.
-PIT explicitly includes this ownership suite, which measures no allocation or startup policy, and
-maps the compact ownership and admission tests to all the production entry points they exercise.
-`WindowsVirtualMemoryTest` executes Windows return-code translation against injected syscall handles
-on every host; `PosixVirtualMemoryTest` checks real mapping and population results on POSIX hosts.
-
 The normal core task also runs `StorageEpochStoreIdentityTest`,
 `StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM
 with deterministic codec selection (`sirix.codecBakeoff.probeInterval=1`). Run them alone with

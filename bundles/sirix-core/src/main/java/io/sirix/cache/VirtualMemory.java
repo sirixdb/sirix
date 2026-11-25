@@ -4,7 +4,6 @@
 package io.sirix.cache;
 
 import io.sirix.utils.OS;
-import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 
@@ -26,27 +25,12 @@ import java.lang.foreign.MemorySegment;
  * reserved pages must be committed explicitly or the first touch faults.</li>
  * <li>Once committed, a slot STAYS committed across recycle cycles — nothing here decommits, so
  * recycled slots are always touch-safe on every platform.</li>
- * <li>{@link #discardToZeros} discards a segment's contents such that the next read observes zeros,
- * without invalidating the address (Linux: {@code MADV_DONTNEED}; macOS: {@code MADV_FREE_REUSABLE},
- * because Darwin's {@code MADV_DONTNEED} is advisory and leaves the old contents readable; Windows:
- * decommit + recommit).</li>
  * </ul>
  */
 public interface VirtualMemory {
 
-  int POPULATE_REFUSED = -1;
-  int POPULATE_UNAVAILABLE = 0;
-  int POPULATED = 1;
-
   /** Reserve {@code bytes} of stable virtual address space without committing physical memory. */
   MemorySegment reserve(long bytes);
-
-  /**
-   * Like {@link #reserve(long)}, but returns {@code null} for native reservation refusal. Java heap
-   * and backend failures still propagate.
-   */
-  @Nullable
-  MemorySegment tryReserve(long bytes);
 
   /**
    * Make a freshly handed-out slot writable.
@@ -56,17 +40,7 @@ public interface VirtualMemory {
   boolean commitFresh(MemorySegment slot);
 
   /**
-   * Make a fresh slot writable, returning {@code false} only for native commitment refusal. Returns
-   * {@code true} when writable, including POSIX's no-op; heap and backend failures propagate.
-   */
-  boolean tryCommitFresh(MemorySegment slot);
-
-  /** Discard contents so the next read observes zeros; the address stays valid and committed. */
-  void discardToZeros(MemorySegment segment);
-
-  /**
-   * Release a whole region reserved by {@link #reserve} or {@link #tryReserve}, once no reader can
-   * access it, including failed allocation rollback and slab reclamation.
+   * Release a whole region reserved by {@link #reserve} (shutdown only).
    *
    * @return {@code true} when this call performed a successful native release
    */
@@ -82,22 +56,7 @@ public interface VirtualMemory {
    * @throws OutOfMemoryError when the kernel reports it cannot back the pages ({@code ENOMEM})
    */
   default boolean populate(final MemorySegment segment) {
-    final int result = tryPopulate(segment);
-    if (result == POPULATE_REFUSED) {
-      throw new OutOfMemoryError("Could not back " + segment.byteSize() + " bytes with physical pages");
-    }
-    return result == POPULATED;
-  }
-
-  /**
-   * Like {@link #populate(MemorySegment)}, reporting native refusal without throwing.
-   *
-   * @return {@link #POPULATED}, {@link #POPULATE_UNAVAILABLE} for lazy first touch, or
-   *         {@link #POPULATE_REFUSED} when the kernel cannot back the pages; Java heap failures still
-   *         propagate
-   */
-  default int tryPopulate(final MemorySegment segment) {
-    return POPULATE_UNAVAILABLE;
+    return false;
   }
 
   /** The backend for the OS this JVM runs on. */

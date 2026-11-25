@@ -87,26 +87,6 @@ class FrameSlotAllocatorTest {
   }
 
   @Test
-  void resetSegmentDiscardsTheContentsItDocuments() {
-    // The contract is observable and platform-specific: the next read must observe zeros. On Darwin
-    // MADV_DONTNEED is advisory and leaves the old bytes readable, so this is the case that fails
-    // there when the POSIX layer picks one advice for every platform of the family.
-    final MemorySegment segment = allocator.allocate(64L * 1024L);
-    try {
-      segment.fill((byte) 0xA5);
-      assertEquals((byte) 0xA5, segment.get(ValueLayout.JAVA_BYTE, 0L));
-      allocator.resetSegment(segment);
-      for (long offset = 0; offset < segment.byteSize(); offset += 4096L) {
-        assertEquals((byte) 0, segment.get(ValueLayout.JAVA_BYTE, offset),
-            "a discarded segment must read as zeros at offset " + offset);
-      }
-      assertEquals((byte) 0, segment.get(ValueLayout.JAVA_BYTE, segment.byteSize() - 1));
-    } finally {
-      allocator.release(segment);
-    }
-  }
-
-  @Test
   void allocateReleaseRoundtrip() {
     final FrameSlot slot = allocator.allocateSlot(64 * 1024);
     assertNotNull(slot);
@@ -744,14 +724,6 @@ class FrameSlotAllocatorTest {
     // refuse beyond budget − headroom…
     assertTrue(allocator.reserveSlabCommittedBytes(budget - budget / 8 - headroom));
     assertFalse(allocator.reserveSlabCommittedBytes(1), "slab commitment must stop short of the oversized headroom");
-    // An owner-budgeted slab answers to its owner's ceiling instead, so a full frame allowance
-    // neither refuses it nor is charged by it.
-    final long committedAtPeak = allocator.nonExecutionCommittedBytes();
-    final MemorySegment ownerBudgeted = allocator.allocateOwnerBudgetedSlab(4096);
-    assertNotNull(ownerBudgeted, "an owner-budgeted slab is not admitted against the frame allowance");
-    assertEquals(committedAtPeak, allocator.nonExecutionCommittedBytes(), "an owner-budgeted slab charges no commitment");
-    assertTrue(allocator.releaseSlab(ownerBudgeted));
-    assertEquals(committedAtPeak, allocator.nonExecutionCommittedBytes(), "releasing it refunds no commitment either");
     // …while the oversized arm still admits inside the headroom — the retry that could never say
     // yes after a slab peak now can. It stops at the scratch reserve, the last quarter of the
     // headroom: oversized and slab commitment returns when released, but a reader must not have to

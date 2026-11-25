@@ -286,9 +286,9 @@ public final class BufferManagerImpl implements BufferManager {
     //
     // The record-page budget is derived from the allocator's OFF-HEAP budget, so it sizes every
     // cache of allocator frames correctly: the combined leaves, and the native half of the fragment
-    // cache, which keeps that share in full. Compact fragments and mini pages cannot release
-    // allocator frames; their separate heap-derived ceiling is documented with
-    // HOT_HEAP_CACHE_BYTES_PROPERTY. Compact storage commitment follows CompactImageStore's budget.
+    // cache, which keeps that share in full. Compact fragments own GC-managed native bytes and mini
+    // pages own heap bytes; neither can release allocator frames. Their separate heap-derived
+    // ceiling is documented with HOT_HEAP_CACHE_BYTES_PROPERTY and spends no allocator allowance.
     //
     // The split is 3:1 in favour of the combined leaves, not even. Combined leaves back every HOT
     // read, and their working set is the whole live index; fragments back only the copy-on-write

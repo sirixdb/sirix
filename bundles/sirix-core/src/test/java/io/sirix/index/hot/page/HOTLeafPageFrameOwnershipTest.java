@@ -221,10 +221,5 @@ final class HOTLeafPageFrameOwnershipTest {
     public long getPhysicalMemoryBytes() {
       return delegate.getPhysicalMemoryBytes();
     }
-
-    @Override
-    public void resetSegment(final MemorySegment segment) {
-      delegate.resetSegment(segment);
-    }
   }
 }

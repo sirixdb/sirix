@@ -1,7 +1,22 @@
 # Bug: an automatic arena per compact HOT-leaf decode
 
-- Fix / issue: this pull request; the defect was found while fixing the HOT leaf-codec gate's
-  allocation fixture (PR #1454's evidence round).
+> **Status (2026-11-26): the defect is OPEN and the fix is withdrawn.** This change carries the
+> measurement, this write-up and the lessons; it carries none of the pooled-storage implementation
+> the sections below describe. Read everything from "Fix" to "Review round 4" as the history of a
+> withdrawn attempt: the pool, its admission and accounting, the reclaimer and the regression suites
+> are not in the tree, and every sentence written in the present tense there described that attempt,
+> not the engine. What *is* in this change, besides the documents: the removal of
+> `MemorySegmentAllocator.resetSegment` and the virtual-memory layer's `discardToZeros`, a contract
+> no platform could honour and nothing in the engine called. The per-decode arena will be fixed by
+> the unified memory-pool work (step 3), specification first; the accounting design and the five
+> review rounds behind it are carried by
+> [issue #1503](https://github.com/sirixdb/sirix/issues/1503).
+
+- Fix: **none yet.** The pooled-storage fix this document describes was withdrawn before merge — see
+  [the outcome section](#outcome-the-pool-is-withdrawn-and-the-defect-stays-open) — and
+  [issue #1503](https://github.com/sirixdb/sirix/issues/1503) carries the accounting design the next
+  attempt needs. The defect was found while
+  fixing the HOT leaf-codec gate's allocation fixture (PR #1454's evidence round).
 - Symptom: every compact HOT-leaf fragment decode allocated Java heap for the *ownership* of its
   native image. `GcOwnedNativeMemory.allocate` is `Arena.ofAuto().allocate(used, 8)`, so each decode
   created an arena: a 24-byte `jdk.internal.foreign.ArenaImpl` whenever escape analysis did not
@@ -26,7 +41,8 @@
   suites count engine work (reads, slots, records), not heap bytes, and the only allocation budgets
   were on other paths. A JMH allocation profile found it, and only because an A/A comparison of two
   legs of identical code disagreed.
-- Regression test:
+- Regression test (**withdrawn with the fix**; recorded because the next attempt needs the same
+  witnesses):
   `:sirix-core:dictionaryReadViewAllocationTest --tests 'io.sirix.budget.CompactImageStorageAllocationBudgetTest'`
   bounds a warmed lease/release cycle at 0 bytes (100,000 rounds, smallest of three legs) and keeps
   the automatic arena as the positive control, which allocates; a third case ties the bound to the
@@ -415,3 +431,48 @@ the positive control.
 - Allocation audit: the per-read sites are unchanged from the table above, minus the reclaim-pass
   row, which no longer exists. `CompactImageStorageAllocationBudgetTest` still bounds a warmed
   lease and release at 0 bytes over 100,000 rounds with the automatic arena as the positive control.
+
+### Outcome: the pool is withdrawn and the defect stays open
+
+- Decision (maintainer, 2026-11-26): take the compact-image pool out of this change. Keep the
+  measurement, this write-up, the spec text that stays true and anything independent of the pool
+  that fixes a real defect; remove the pool, its admission and accounting, the reclaimer leftovers,
+  and `resetSegment`/`discardToZeros`.
+- Why, in one line: five consecutive review rounds were spent on **where the pooled bytes are
+  charged**, never on the defect or on the pooled-block mechanism, and the accounting was still open
+  at the end of the fifth.
+  1. Round 1 — slabs taken from the reclaimable ceiling would eat the oversized headroom that keeps
+     large-value buffers allocatable. Moved to the permanent frame allowance.
+  2. Round 2 — that allowance is the one page frames commit from, so retained compact images could
+     starve a frame with no way to recover. A reclaimer was added: a pass over idle slabs hooked
+     into the allocator's pressure path.
+  3. Round 3 — the unmap ordering, the pass's cost, the dead directory indices and the reclaim
+     target. Replaced by discard-and-revive (decommit keeping the mapping, Umbra/vmcache style).
+  4. Round 4 — the bounded pass could never reach an idle slab deeper in the free stack; the Windows
+     discard refunded the allocator while the OS commitment stayed charged; a failed discard
+     stranded both the blocks and the refund; the new span metadata was quadratic in slab count.
+     The reclaimer was removed and the pool given its owner's share instead.
+  5. Round 5 — that share is then granted twice, because the pool's slabs and the fragment cache's
+     own per-image charge are two accounts over one number; admission also undercounted the
+     page-rounded mapping, and an exception from the slab allocation consumed admission for good.
+- What the next attempt needs, and what [issue #1503](https://github.com/sirixdb/sirix/issues/1503)
+  carries: **one account**. The compact
+  half's effective retention ceiling minus the pool's mapped slab bytes, with a pooled image charged
+  only its heap metadata there and a GC-owned fallback image charged its storage, so pool, fallback
+  and metadata can never exceed the share together. That is RocksDB's shape — one capacity, charged
+  per entry whatever the memory's provenance, refusing the insert when full so the caller keeps its
+  own copy. The comparison that settled the shape is in
+  `firstmate/data/sirix-dbcompare-slab-reclaim/report.md`; the mapping and the parts with no
+  counterpart are in `firstmate/data/sirix-compact-decode-arena/reclaim-strategy.md`.
+- Kept in this change, as an independent defect: `resetSegment` and `discardToZeros` are **removed**.
+  Their documented contract is that the next read observes zeros while the address stays valid.
+  POSIX used `MADV_DONTNEED`, which is advisory on Darwin — it neither zeroes nor releases anonymous
+  pages — and the releasing variant `MADV_FREE_REUSABLE` only marks pages reclaimable, so the old
+  bytes stay readable until the kernel reclaims them; Apple documents neither. Nothing in the engine
+  called either method (recycled frame slots are deliberately left dirty), so the promise is gone
+  rather than fixed on one platform and broken on another.
+- Measurement that remains the reason to fix this: about 209 B/op of heap for the automatic arena
+  per compact decode, plus the 24-byte arena object whenever escape analysis does not remove it
+  (11 of 12 JMH forks at 994.5 B/op, one at 1018.4 — identical code, different compilation), and
+  ±1 B/op of jitter that follows GC timing through the `Cleaner`. Evidence:
+  `firstmate/data/sirix-fp-s1-leaf-codec/packed-049/gate-4pct/compactmaterialize-alloc.md`.

@@ -42,7 +42,6 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.Allocators;
-import io.sirix.cache.CompactImageStore;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.io.IOStorage;
 import io.sirix.index.IndexType;
@@ -7061,22 +7060,10 @@ public enum PageKind {
         // a point lookup. This is a complete raw image in the existing fragment cache;
         // ranges still reconstruct it and writers take their ordinary full-capacity copy.
         //
-        // The image's storage is a pooled block this page owns outright (CompactImageStore): the
-        // page's own teardown returns it, which costs no allocation per decode, where the automatic
-        // arena this used to take cost an arena object plus GC-timed Cleaner bookkeeping. A reader
-        // that holds no guard is covered by the page's optimistic stamp, which the teardown
-        // invalidates before the block can be re-leased. Native storage keeps the shared leaf
-        // accessors on the native-only path; see PageLayout#getBitmapWord(byte[], int).
-        final CompactImageStore.Block block = CompactImageStore.getInstance().acquire(usedSlotMemorySize);
-        final MemorySegment owned;
-        if (block == null) {
-          // No pooled block to be had (allocator budget spent, or shutting down): an independently
-          // GC-owned image still answers the read.
-          owned = GcOwnedNativeMemory.allocate(usedSlotMemorySize);
-        } else {
-          owned = block.segment();
-          acquiredFrameOwner = block;
-        }
+        // GcOwnedNativeMemory gives this image an independent lifetime: it stays readable while
+        // referenced, including by unguarded readers. Native storage keeps the shared leaf accessors
+        // on the native-only path; see PageLayout#getBitmapWord(byte[], int).
+        final MemorySegment owned = GcOwnedNativeMemory.allocate(usedSlotMemorySize);
         if (source instanceof MemorySegmentBytesIn segmentSource) {
           MemorySegment.copy(segmentSource.getSource(), source.position(), owned, 0L, usedSlotMemorySize);
           source.skip(usedSlotMemorySize);

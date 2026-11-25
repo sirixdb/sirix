@@ -13,14 +13,12 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiFunction;
 
@@ -70,9 +68,8 @@ import java.util.function.BiFunction;
  * frees <em>slots of their class</em>, never budget: a class that committed slots at a peak keeps
  * them, and another class cannot commit against them. The commitment limits below exist because of
  * this.</li>
- * <li><b>Recycled memory is dirty.</b> Nothing zeroes a slot between owners. The single exception
- * is {@link #resetSegment}, which discards pages on request and is not part of releasing or
- * recycling.</li>
+ * <li><b>Recycled memory is dirty.</b> Nothing zeroes a slot between owners, and nothing here
+ * discards a committed slot's pages.</li>
  * </ul>
  *
  * Only memory outside the slot regions returns its commitment when released: oversized allocations,
@@ -101,15 +98,14 @@ import java.util.function.BiFunction;
  * allocating thread.</li>
  * </ul>
  *
- * The budget is split by who may commit its last bytes. Page-frame slots have permanent
- * commitment; idle scratch and reclaimable cache slabs return their commitment
- * at shared admission. One eighth is an execution floor, usable only through exclusive aggregation
- * grants. Of the remaining seven eighths, fresh page frames leave
- * {@code oversizedHeadroom}, and reclaimable cache slabs and oversized allocations leave
- * {@code scratchReserve}. Ordinary scratch may use those seven eighths. Thus caches cannot consume
- * the execution floor or the read/serialization progress reserve, even when no scan is active. Idle
- * aggregation regions must transfer their charge out of the execution floor before being retained
- * for reuse.
+ * The budget is split by who may commit its last bytes. Page-frame slot commitment is permanent;
+ * idle scratch and cache slabs return their commitment at shared admission. One eighth is an
+ * execution floor, usable only through exclusive aggregation grants. Of the remaining seven
+ * eighths, fresh page frames leave {@code oversizedHeadroom}, and cache slabs and oversized
+ * allocations leave {@code scratchReserve}. Ordinary scratch may use those seven eighths. Thus
+ * caches cannot consume the execution floor or the read/serialization progress reserve, even when
+ * no scan is active. Idle aggregation regions must transfer their charge out of the execution floor
+ * before being retained for reuse.
  *
  * <h2>Sirix's persistent tree-of-tries, and why it fits this allocator</h2>
  *
@@ -198,23 +194,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // All syscall-shaped work (reserve / commit-fresh / discard / release) lives behind the
   // per-platform VirtualMemory backend; everything below is portable Java.
   private static final VirtualMemory VM = VirtualMemory.forCurrentPlatform();
-
-  // The backend is stateless, and an atomic holder publishes the test replacement (whose counters
-  // are isolated) without a volatile field whose type would suggest the backend itself is shared
-  // mutable state.
-  private final AtomicReference<VirtualMemory> slabMemory = new AtomicReference<>(VM);
-
-  /**
-   * The compact-image pool holding owner-budgeted slabs of THIS allocator, or none. Instance-scoped
-   * on purpose: shutdown must check its own pool's leases, never the process-wide one's, whose slabs
-   * belong to another allocator entirely.
-   */
-  private final AtomicReference<CompactImageStore> compactImages = new AtomicReference<>();
-
-  /** Called by a pool that maps its owner-budgeted slabs through this allocator. */
-  void registerCompactImages(final CompactImageStore store) {
-    compactImages.set(Objects.requireNonNull(store));
-  }
 
   /**
    * Fixed, eagerly materialized chunks for per-slot optimistic versions.
@@ -347,8 +326,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private volatile long budgetBytes;
 
   /**
-   * Budget share fresh page-frame slots and permanent slabs may not commit — see
-   * {@link #initInternal}. Oversized allocations, reclaimable slabs and scratch buffers share it.
+   * Budget share fresh page-frame slots may not commit — see {@link #initInternal}. Oversized
+   * allocations, slabs and scratch buffers share it.
    */
   private volatile long oversizedHeadroomBytes;
 
@@ -476,11 +455,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * leases decide when nothing can still dereference it, and a global-scope segment carries no
    * per-access liveness check. Release may come from any thread.
    */
-  private record SlabAllocation(MemorySegment segment, long bytes, boolean charged) {
-
-    SlabAllocation(final MemorySegment segment, final long bytes) {
-      this(segment, bytes, true);
-    }
+  private record SlabAllocation(MemorySegment segment, long bytes) {
   }
 
   private static final long SLAB_PAGE_BYTES = 4096L;
@@ -606,7 +581,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       SlabAllocation recycled;
       while (freed < wanted && (recycled = free.pollLast()) != null) {
         recycledSlabBytes.addAndGet(-recycled.bytes());
-        unmapSlab(recycled.segment(), recycled.bytes(), true);
+        unmapSlab(recycled.segment(), recycled.bytes());
         freed += recycled.bytes();
       }
       if (freed >= wanted) {
@@ -644,10 +619,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     recycledSlabBytes.addAndGet(-bytes);
   }
 
-  void setSlabMemoryForTesting(final VirtualMemory memory) {
-    slabMemory.set(Objects.requireNonNull(memory));
-  }
-
   void setSlabPublicationHookForTesting(final @Nullable Runnable hook) {
     slabPublicationHook = hook;
   }
@@ -664,12 +635,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // failure is rethrown.
   @SuppressWarnings("java:S1181")
   private void publishSlab(final MemorySegment segment, final long mapped) {
-    publishSlab(segment, mapped, true);
-  }
-
-  private void publishSlab(final MemorySegment segment, final long mapped, final boolean charged) {
     final Long address = segment.address();
-    final SlabAllocation allocation = new SlabAllocation(segment, mapped, charged);
+    final SlabAllocation allocation = new SlabAllocation(segment, mapped);
     try {
       beforeSlabPublication();
       if (slabsByAddress.putIfAbsent(address, allocation) != null) {
@@ -686,43 +653,25 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   @Override
   public @Nullable MemorySegment allocateSlab(final long bytes) {
-    return allocateSlab(bytes, false);
-  }
-
-  @Override
-  public @Nullable MemorySegment allocateOwnerBudgetedSlab(final long bytes) {
-    return allocateSlab(bytes, true);
-  }
-
-  private @Nullable MemorySegment allocateSlab(final long bytes, final boolean ownerBudgeted) {
     if (bytes <= 0) {
       throw new IllegalArgumentException("slab size must be positive: " + bytes);
     }
+    ensureInitialized();
     slabOperations.incrementAndGet();
     try {
-      if (ownerBudgeted) {
-        if (!tryEnsureInitialized()) {
-          return null;
-        }
-      } else {
-        ensureInitialized();
+      if (terminated.get()) {
+        throw new IllegalStateException("FrameSlotAllocator has been shut down");
       }
-      // Admission precedes the terminal check in initialization: shutdown cannot unmap anything
-      // while this operation is counted, so no second terminal check is needed before mapping.
       final long mapped = bytes > Long.MAX_VALUE - SLAB_PAGE_BYTES
           ? Long.MAX_VALUE
           : (bytes + SLAB_PAGE_BYTES - 1) & -SLAB_PAGE_BYTES;
-      // An owner-budgeted slab answers to its owner's ceiling, not to this allocator's: it is
-      // admitted there and charges nothing here, so it cannot take bytes a page frame needs.
-      if (!ownerBudgeted && mapped > contentCommitLimit()) {
+      if (mapped > contentCommitLimit()) {
         return null;
       }
-      final MemorySegment reused = ownerBudgeted
-          ? null
-          : reuseRecycledSlab(mapped);
+      final MemorySegment reused = reuseRecycledSlab(mapped);
       return reused != null
           ? reused
-          : mapFreshSlab(mapped, ownerBudgeted);
+          : mapFreshSlab(mapped);
     } finally {
       slabOperations.decrementAndGet();
     }
@@ -755,69 +704,46 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       publishSlab(reused, mapped);
       return reused;
     } catch (final RuntimeException | Error failure) {
-      unmapSlab(recycled.segment(), mapped, true);
+      unmapSlab(recycled.segment(), mapped);
       throw failure;
     }
   }
 
   /**
    * A freshly mapped and committed slab of {@code mapped} bytes, or {@code null} when the budget or
-   * the kernel refuses it. A reclaimable slab is charged against the whole budget like an oversized
-   * allocation and its bytes return on release; an owner-budgeted one is charged by its owner and
-   * nothing here, which is why no refund path runs for it. A refusal is reported, never retried
-   * through page-cache pressure: the caller owns reclaimable images of its own and must give those
-   * up before a persisted page loses its frame. Recycled slabs that would not fit beside the request
-   * are unmapped first (reserveCommittedBytesUpTo).
+   * the kernel refuses it. Charged against the whole budget like an oversized allocation: slab bytes
+   * return on release. A refusal is reported, never retried through page-cache pressure: the caller
+   * owns reclaimable images of its own and must give those up before a persisted page loses its
+   * frame. Recycled slabs that would not fit beside the request are unmapped first
+   * (reserveCommittedBytesUpTo).
    */
   // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
   // failure is rethrown.
   @SuppressWarnings("java:S1181")
-  private @Nullable MemorySegment mapFreshSlab(final long mapped, final boolean ownerBudgeted) {
-    if (!ownerBudgeted && !reserveCommittedBytes(mapped)) {
+  private @Nullable MemorySegment mapFreshSlab(final long mapped) {
+    if (!reserveCommittedBytes(mapped)) {
       return null;
     }
-    final VirtualMemory memory = slabMemory.get();
     final MemorySegment segment;
     try {
-      segment = ownerBudgeted
-          ? memory.tryReserve(mapped)
-          : memory.reserve(mapped);
-      if (segment == null) {
-        if (!ownerBudgeted) {
-          refundCommittedBytes(mapped);
-        }
-        return null;
-      }
+      segment = VM.reserve(mapped);
     } catch (final RuntimeException | Error failure) {
-      if (!ownerBudgeted) {
-        refundCommittedBytes(mapped);
-      }
+      refundCommittedBytes(mapped);
       throw failure;
     }
     try {
-      if (ownerBudgeted) {
-        if (!memory.tryCommitFresh(segment)) {
-          memory.release(segment);
-          return null;
-        }
-      } else {
-        memory.commitFresh(segment);
-      }
-      if (!prepareSlabPages(memory, segment, mapped)) {
+      VM.commitFresh(segment);
+      if (!prepareSlabPages(segment, mapped)) {
         // The kernel cannot back the pages: reported like a budget refusal, never thrown.
-        memory.release(segment);
-        if (!ownerBudgeted) {
-          refundCommittedBytes(mapped);
-        }
+        VM.release(segment);
+        refundCommittedBytes(mapped);
         return null;
       }
       HftBoundaryTelemetry.nativeAllocation();
-      publishSlab(segment, mapped, !ownerBudgeted);
+      publishSlab(segment, mapped);
     } catch (final RuntimeException | Error failure) {
-      memory.release(segment);
-      if (!ownerBudgeted) {
-        refundCommittedBytes(mapped);
-      }
+      VM.release(segment);
+      refundCommittedBytes(mapped);
       throw failure;
     }
     return segment;
@@ -829,15 +755,19 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *
    * @return {@code false} when the kernel cannot back the slab's pages; the caller releases the slab
    */
-  private boolean prepareSlabPages(final VirtualMemory memory, final MemorySegment segment, final long mapped) {
+  private boolean prepareSlabPages(final MemorySegment segment, final long mapped) {
     if (!populateSlabs) {
       return true;
     }
-    final int result = memory.tryPopulate(segment);
-    if (result == VirtualMemory.POPULATED) {
-      populatedSlabBytes.addAndGet(mapped);
+    try {
+      if (VM.populate(segment)) {
+        populatedSlabBytes.addAndGet(mapped);
+      }
+      return true;
+    } catch (final OutOfMemoryError refused) {
+      LOGGER.debug("slab of {} bytes refused while populating its pages: {}", mapped, refused.getMessage());
+      return false;
     }
-    return result != VirtualMemory.POPULATE_REFUSED;
   }
 
   // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
@@ -859,15 +789,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       }
       final long bytes = allocation.bytes();
       activeBytes.addAndGet(-bytes);
-      // An owner-budgeted slab charged none of this allocator's commitment, so releasing it must
-      // refund none and must not park it among the recycled slabs, whose bytes are counted as
-      // committed-but-unread here.
-      final boolean charged = allocation.charged();
       try {
         boolean recycled = false;
         try {
           HftBoundaryTelemetry.allocatorRelease();
-          if (charged && !terminated.get() && tryReserveRecycledBytes(bytes)) {
+          if (!terminated.get() && tryReserveRecycledBytes(bytes)) {
             recycled = true;
             beforeSlabPublication();
             recycledSlabs.computeIfAbsent(bytes, size -> new ConcurrentLinkedDeque<>()).addFirst(allocation);
@@ -877,10 +803,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
           if (recycled) {
             recycledSlabBytes.addAndGet(-bytes);
           }
-          unmapSlab(allocation.segment(), bytes, charged);
+          unmapSlab(allocation.segment(), bytes);
           throw failure;
         }
-        return unmapSlab(allocation.segment(), bytes, charged);
+        return unmapSlab(allocation.segment(), bytes);
       } finally {
         slabBytes.addAndGet(-bytes);
       }
@@ -889,11 +815,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
   }
 
-  private boolean unmapSlab(final MemorySegment segment, final long bytes, final boolean charged) {
+  private boolean unmapSlab(final MemorySegment segment, final long bytes) {
     final boolean released = VM.release(segment);
-    if (charged) {
-      refundCommittedBytes(bytes);
-    }
+    refundCommittedBytes(bytes);
     HftBoundaryTelemetry.nativeRelease();
     return released;
   }
@@ -959,8 +883,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
     this.budgetBytes = budgetBytes;
     final long configuredHeadroom = Long.getLong("sirix.allocator.oversizedHeadroomBytes", -1L);
-    // Frame-slot and permanent-slab commitment lasts until shutdown. Leave headroom for oversized
-    // allocations, reclaimable slabs and scratch; the class budget contract owns their limits.
+    // Frame-slot commitment lasts until shutdown. Leave headroom for oversized allocations,
+    // slabs and scratch; the class budget contract specifies their separate commitment limits.
     // Default: 1/16th of the budget, capped at 1 GiB, zero for tiny test budgets.
     // Only budgets comfortably above embedded/test scale reserve headroom by default: an
     // allocator budgeted EXACTLY for its frame slots (focused tests, tiny embedded configs) must
@@ -1348,7 +1272,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return false;
     }
     long waitedNanos = 0L;
-    firePressure(bytes);
+    firePressure();
     long parkNanos = INITIAL_PARK_NANOS;
     while (waitedNanos < MAX_WAIT_NANOS) {
       if (reserveScratchCommittedBytes(bytes)) {
@@ -1357,7 +1281,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       LockSupport.parkNanos(parkNanos);
       waitedNanos += parkNanos;
       parkNanos = Math.min(parkNanos * 2, MAX_PARK_NANOS);
-      firePressure(bytes);
+      firePressure();
     }
     if (reserveScratchCommittedBytes(bytes)) {
       return true;
@@ -1392,7 +1316,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       // First shot at relief before parking: the cache is the most likely
       // owner of the bytes we need, so ask it to evict synchronously. Skips
       // the 500 ms ClockSweeper cadence in the common hot-scan case.
-      firePressure(c.slotSize);
+      firePressure();
       slotIdx = acquireSlot(c);
     }
     if (slotIdx < 0) {
@@ -1404,7 +1328,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         parkNanos = Math.min(parkNanos * 2, MAX_PARK_NANOS);
         slotIdx = acquireSlot(c);
         if (slotIdx < 0) {
-          firePressure(c.slotSize);
+          firePressure();
           slotIdx = acquireSlot(c);
         }
       }
@@ -1471,21 +1395,20 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // tests construct pages directly. Initialize lazily for them, without allowing a concurrent
   // caller to observe classes before all per-class metadata is published.
   private void ensureInitialized() {
-    if (!tryEnsureInitialized()) {
+    if (terminated.get()) {
       throw new IllegalStateException("FrameSlotAllocator has been shut down");
     }
-  }
-
-  private boolean tryEnsureInitialized() {
     if (classes == null) {
       synchronized (this) {
-        if (classes == null && !terminated.get()) {
+        if (terminated.get()) {
+          throw new IllegalStateException("FrameSlotAllocator has been shut down");
+        }
+        if (classes == null) {
           LOGGER.warn("FrameSlotAllocator not initialized — auto-initializing with default 16 GiB budget");
           init(16L * 1024 * 1024 * 1024);
         }
       }
     }
-    return !terminated.get();
   }
 
   /**
@@ -1533,11 +1456,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         // path allocates and releases on the same thread; a cross-thread caller fails loudly with
         // WrongThreadException rather than leaking or deferring reclaim to GC.
         if (!reserveCommittedBytes(size)) {
-          firePressure(size);
-          // The retry can observe relief from concurrent OVERSIZED releases (their bytes return to
-          // committedBytes on close) and from reclaimable cache slabs a listener released. A
-          // page-cache eviction on its own returns frame SLOTS, not budget — report the split so a
-          // post-peak OOM here is diagnosable as slab pressure, not a leak.
+          firePressure();
+          // The retry can only observe relief from concurrent OVERSIZED releases (their bytes
+          // return to committedBytes on close). Page eviction returns frame SLOTS, and
+          // slab-region commitments never leave committedBytes before shutdown — report the
+          // split so a post-peak OOM here is diagnosable as slab pressure, not a leak.
           if (!reserveCommittedBytes(size)) {
             throw new OutOfMemoryError("FrameSlotAllocator: oversized allocation of " + size + " bytes exceeds the "
                 + budgetBytes + "-byte physical budget (committed=" + committedBytes.get()
@@ -1685,24 +1608,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Discard ({@code MADV_DONTNEED}) the physical pages backing {@code segment} without releasing the
-   * slot, so that the caller, who must own the segment, reads zeros from it next and the pages fault
-   * back in on the next write.
-   *
-   * <p>
-   * This is <em>not</em> how a slot is recycled: {@link #release} keeps the pages, and nothing in the
-   * allocator calls this. It is unsafe on memory another thread may still read optimistically, since
-   * that reader would observe zeros with an unchanged version.
-   */
-  @Override
-  public void resetSegment(final MemorySegment segment) {
-    if (segment == null) {
-      return;
-    }
-    VM.discardToZeros(segment);
-  }
-
-  /**
    * Dumps per-class allocator state when an allocation saturates — live slot count, total lifetime
    * allocates/releases, live interface scopes, and committed/active-byte accounting. Emitted to
    * stderr so it lands even when logback config swallows WARN. Diagnostic tool for cases where the
@@ -1733,19 +1638,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     System.err.flush();
   }
 
-  /**
-   * Ask for relief, then let the caller's own retry observe it.
-   *
-   * <p>
-   * The listener evicts the page caches synchronously, which returns frame slots and the commitment
-   * of reclaimable slabs. The compact-image pool is not asked for anything: its slabs are admitted
-   * against their owner's own ceiling and hold none of this budget, so nothing it could give back
-   * is what this caller is short of.
-   * </p>
-   *
-   * @param wantedBytes the bytes the refused caller is trying to satisfy
-   */
-  private void firePressure(final long wantedBytes) {
+  private static void firePressure() {
     final PressureListener l = pressureListener;
     if (l != null) {
       try {
@@ -2118,10 +2011,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       closeOversizedAllocations();
     } catch (final RuntimeException | Error failure) {
       terminated.set(false);
-      final CompactImageStore pool = compactImages.get();
-      if (pool != null) {
-        pool.resumeAfterRejectedShutdown();
-      }
       throw failure;
     }
 
@@ -2178,16 +2067,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       throw new IllegalStateException("FrameSlotAllocator shutdown raced " + pendingSlabOperations
           + " slab operation(s); retry after admission completes");
     }
-    // The compact-image blocks are slabs of THIS allocator, held by the pool registered with it —
-    // the process-wide store in production, a test's own pool otherwise. Idle ones are read by
-    // nobody, so give them back before the live-slab check below. Refuse shutdown while that store
-    // still has a lease or acquisition, before any pool slab can be unmapped.
-    final CompactImageStore pool = compactImages.get();
-    if (pool != null && !pool.releaseIdleSlabs()) {
-      throw new IllegalStateException(
-          "FrameSlotAllocator shutdown with compact-image leases or acquisitions in flight: "
-              + pool.describeInFlight());
-    }
     // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
     // lease; unmapping it here would be a use-after-free.
     drainRecycledSlabs(Long.MAX_VALUE, true);
@@ -2237,7 +2116,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
   }
 
-  static Throwable retainCleanupFailure(final Throwable primary, final Throwable secondary) {
+  private static Throwable retainCleanupFailure(final Throwable primary, final Throwable secondary) {
     if (primary == null) {
       return secondary;
     }
@@ -2252,7 +2131,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   @SuppressWarnings("unchecked")
-  static <T extends Throwable> void rethrowCleanupFailure(final Throwable failure) throws T {
+  private static <T extends Throwable> void rethrowCleanupFailure(final Throwable failure) throws T {
     throw (T) failure;
   }
 

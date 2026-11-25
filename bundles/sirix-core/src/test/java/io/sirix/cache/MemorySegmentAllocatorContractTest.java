@@ -323,10 +323,5 @@ final class MemorySegmentAllocatorContractTest {
     public long getMaxBufferSize() {
       return MIB;
     }
-
-    @Override
-    public void resetSegment(final MemorySegment segment) {
-      segment.fill((byte) 0);
-    }
   }
 }
