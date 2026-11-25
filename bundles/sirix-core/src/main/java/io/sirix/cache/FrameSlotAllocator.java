@@ -198,6 +198,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // per-platform VirtualMemory backend; everything below is portable Java.
   private static final VirtualMemory VM = VirtualMemory.forCurrentPlatform();
 
+  // The backend is stateless; volatile publishes the test replacement, whose counters are isolated.
+  @SuppressWarnings("java:S3077")
   private volatile VirtualMemory slabMemory = VM;
 
   /**
@@ -674,21 +676,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     if (bytes <= 0) {
       throw new IllegalArgumentException("slab size must be positive: " + bytes);
     }
-    if (permanent) {
-      if (!tryEnsureInitialized()) {
-        return null;
-      }
-    } else {
-      ensureInitialized();
-    }
     slabOperations.incrementAndGet();
     try {
-      if (terminated.get()) {
-        if (permanent) {
+      if (permanent) {
+        if (!tryEnsureInitialized()) {
           return null;
         }
-        throw new IllegalStateException("FrameSlotAllocator has been shut down");
+      } else {
+        ensureInitialized();
       }
+      // Admission precedes the terminal check in initialization: shutdown cannot unmap anything
+      // while this operation is counted, so no second terminal check is needed before mapping.
       final long mapped = bytes > Long.MAX_VALUE - SLAB_PAGE_BYTES
           ? Long.MAX_VALUE
           : (bytes + SLAB_PAGE_BYTES - 1) & -SLAB_PAGE_BYTES;
@@ -1445,21 +1443,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   private boolean tryEnsureInitialized() {
-    if (terminated.get()) {
-      return false;
-    }
     if (classes == null) {
       synchronized (this) {
-        if (terminated.get()) {
-          return false;
-        }
-        if (classes == null) {
+        if (classes == null && !terminated.get()) {
           LOGGER.warn("FrameSlotAllocator not initialized — auto-initializing with default 16 GiB budget");
           init(16L * 1024 * 1024 * 1024);
         }
       }
     }
-    return true;
+    return !terminated.get();
   }
 
   /**

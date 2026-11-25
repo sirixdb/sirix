@@ -5,6 +5,7 @@ package io.sirix.cache;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -49,6 +50,40 @@ final class CompactImageAllocatorLifecycleTest {
 
   private enum Failure {
     RESERVE, COMMIT, POPULATE, HEAP_RESERVE, HEAP_COMMIT, HEAP_POPULATE
+  }
+
+  private enum FirstAllocation {
+    FRAME, RECLAIMABLE_SLAB, PERMANENT_SLAB
+  }
+
+  @ParameterizedTest
+  @EnumSource(FirstAllocation.class)
+  void firstAllocationInitializesAndProvidesWritableStorage(final FirstAllocation kind) {
+    // The standalone page/fragment contract permits an allocation before Databases startup.
+    // Observe initialization and usable bytes, independently of the lazy-init implementation.
+    final FrameSlotAllocator allocator = new FrameSlotAllocator();
+    assertFalse(allocator.isInitialized());
+    try {
+      final MemorySegment segment = switch (kind) {
+        case FRAME -> allocator.allocate(4096);
+        case RECLAIMABLE_SLAB -> allocator.allocateSlab(4096);
+        case PERMANENT_SLAB -> allocator.allocatePermanentSlab(4096);
+      };
+      assertNotNull(segment);
+      try {
+        assertTrue(allocator.isInitialized());
+        segment.set(ValueLayout.JAVA_LONG, 0L, 42L);
+        assertEquals(42L, segment.get(ValueLayout.JAVA_LONG, 0L));
+      } finally {
+        if (kind == FirstAllocation.FRAME) {
+          allocator.release(segment);
+        } else {
+          assertTrue(allocator.releaseSlab(segment));
+        }
+      }
+    } finally {
+      allocator.shutdown();
+    }
   }
 
   @Test

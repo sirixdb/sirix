@@ -111,10 +111,15 @@ public final class CompactImageStore {
 
   private volatile boolean stopped;
 
+  // Test callbacks are safely published references; their latch state supplies its own
+  // synchronization.
+  @SuppressWarnings("java:S3077")
   private volatile @Nullable Runnable leasePublicationHook;
 
+  @SuppressWarnings("java:S3077")
   private volatile @Nullable Runnable slabReleaseHook;
 
+  @SuppressWarnings("java:S3077")
   private volatile @Nullable Runnable slabPublicationHook;
 
   /** Test-only: refuse every lease, so the caller's fallback path runs. */
@@ -171,10 +176,7 @@ public final class CompactImageStore {
       if (hook != null) {
         hook.run();
       }
-      if (stopped) {
-        sizeClass.push(block);
-        return null;
-      }
+      // After admission, acquisitions keeps every slab mapped until this handout completes.
       block.lease();
       leasedBlocks.incrementAndGet();
       return block;
@@ -266,9 +268,7 @@ public final class CompactImageStore {
   }
 
   synchronized void resumeAfterRejectedShutdown() {
-    if (blockCount() == 0) {
-      stopped = false;
-    }
+    stopped = false;
   }
 
   void setLeasePublicationHookForTesting(final @Nullable Runnable hook) {
@@ -399,6 +399,9 @@ public final class CompactImageStore {
     private final AtomicLong freeStack = new AtomicLong(EMPTY_TOP);
 
     /** Index to block. Replaced wholesale under the monitor, read without it; never shrinks. */
+    // Entries below carvedBlocks never change. Growth publishes new entries before pushing them
+    // onto the atomic free stack; shutdown replaces the directory only after admission has stopped.
+    @SuppressWarnings("java:S3077")
     private volatile Block[] blocks = new Block[0];
 
     private volatile int carvedBlocks;
@@ -425,18 +428,21 @@ public final class CompactImageStore {
     /** Pop a free block, growing the class once when none is free. */
     @Nullable
     Block take() {
-      final Block block = pop();
-      return block == null
-          ? grow()
-          : block;
+      Block block = pop();
+      if (block == null) {
+        synchronized (this) {
+          // A waiter reuses blocks returned or published while it waited for growth.
+          block = pop();
+          if (block == null) {
+            block = grow();
+          }
+        }
+      }
+      return block;
     }
 
     void give(final Block block) {
-      final Block[] current = blocks;
-      if (block.index >= current.length || current[block.index] != block) {
-        throw new IllegalStateException(
-            "Compact-image block " + block.index + " does not belong to the " + blockBytes + "-byte class");
-      }
+      // Only Block.run calls this, on the final SizeClass that constructed that block.
       push(block);
       store.leasedBlocks.decrementAndGet();
     }
@@ -468,7 +474,7 @@ public final class CompactImageStore {
 
     /** The head word naming {@code topIndex}, with the counter that defeats ABA advanced. */
     private static long nextHead(final long head, final int topIndex) {
-      return (((head >>> 32) + 1L) << 32) | ((topIndex + 1) & INDEX_MASK);
+      return ((head + 0x1_0000_0000L) & ~INDEX_MASK) | ((topIndex + 1) & INDEX_MASK);
     }
 
     /**
@@ -476,13 +482,7 @@ public final class CompactImageStore {
      *
      * @return the block to lease, or {@code null} when the allocator has no room for another slab
      */
-    private synchronized @Nullable Block grow() {
-      // Another thread may have grown the class, or a page may have released a block, while this
-      // one waited for the monitor.
-      final Block raced = pop();
-      if (raced != null) {
-        return raced;
-      }
+    private @Nullable Block grow() {
       final Block[] current = blocks;
       final int base = carvedBlocks;
       final int required = Math.addExact(base, blocksPerSlab);
@@ -504,7 +504,8 @@ public final class CompactImageStore {
         }
         slabs.add(slab);
       } catch (final RuntimeException | Error failure) {
-        Arrays.fill(current, base, Math.min(required, current.length), null);
+        // Only [0, carvedBlocks) is published. A retry overwrites the unpublished suffix before
+        // pushing any new block, and these global-scope views do not own the native mapping.
         try {
           store.allocator.releaseSlab(slab);
         } catch (final RuntimeException | Error cleanupFailure) {

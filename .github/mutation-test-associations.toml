@@ -86,6 +86,7 @@ tests = ["io.sirix.rest.CommitTimestampOutputTest"]
 class = "io.sirix.utils.ReplayWorkDiagnostics"
 tests = ["io.sirix.budget.LifecycleWorkBudgetTest"]
 
+<<<<<<< HEAD
 # REST-203 document contexts are exercised through the factory and query serialization boundary.
 [[association]]
 class = "io.sirix.query.json.JsonItemFactory"
@@ -198,3 +199,33 @@ tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
 [[association]]
 class = "io.sirix.index.name.NameIndexRecheck"
 tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest", "io.sirix.budget.NameIndexRecheckWorkBudgetTest"]
+=======
+# HOT packed-image ownership and allocator refusal span the store, decoder and native backend.
+[[association]]
+class = "io.sirix.cache.CompactImageStore"
+tests = ["io.sirix.cache.CompactImageStoreTest", "io.sirix.cache.CompactImageAllocatorLifecycleTest", "io.sirix.page.CompactImageOwnershipTest"]
+
+[[association]]
+class = "io.sirix.cache.FrameSlotAllocator"
+tests = ["io.sirix.cache.FrameSlotAllocatorTest", "io.sirix.cache.FrameAllocationAdmissionTest", "io.sirix.cache.CompactImageAllocatorLifecycleTest"]
+
+[[association]]
+class = "io.sirix.index.hot.page.HOTLeafPage"
+tests = ["io.sirix.index.hot.page.HOTLeafPageTest", "io.sirix.page.CompactImageOwnershipTest", "io.sirix.io.filechannel.HOTCompactFragmentReadTest", "io.sirix.io.filechannel.HOTCompactFragmentBatchReadTest"]
+
+[[association]]
+class = "io.sirix.page.PageKind"
+tests = ["io.sirix.page.PageKindTest", "io.sirix.page.CompactImageOwnershipTest", "io.sirix.cache.CompactImageAllocatorLifecycleTest", "io.sirix.io.filechannel.HOTCompactFragmentReadTest", "io.sirix.io.filechannel.HOTCompactFragmentBatchReadTest"]
+
+[[association]]
+class = "io.sirix.cache.PosixVirtualMemory"
+tests = ["io.sirix.cache.PosixVirtualMemoryTest", "io.sirix.cache.CompactImageAllocatorLifecycleTest", "io.sirix.cache.ReadScratchPopulateTest"]
+
+[[association]]
+class = "io.sirix.cache.WindowsVirtualMemory"
+tests = ["io.sirix.cache.WindowsVirtualMemoryTest", "io.sirix.cache.CompactImageAllocatorLifecycleTest"]
+
+[[association]]
+class = "io.sirix.cache.VirtualMemory"
+tests = ["io.sirix.cache.VirtualMemoryTest", "io.sirix.cache.CompactImageAllocatorLifecycleTest", "io.sirix.cache.ReadScratchPopulateTest"]
+>>>>>>> d8702c395 (no-mistakes(ci): Fixed ARM allocation-test stability, PIT coverage gaps, and Sonar publication warnings. Local validation passed: 459 core tests, 19 lifecycle cases, 19 allocation checks, Spotless, and blocking PIT (194 killed, 3 timed out, 5 documented equivalents; zero uncovered mutants). Remote ARM/Sonar reruns remain with the outer executor)

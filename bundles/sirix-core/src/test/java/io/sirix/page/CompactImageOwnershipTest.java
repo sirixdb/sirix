@@ -24,6 +24,7 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.settings.VersioningType;
 import io.sirix.node.Utils;
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteOrder;
@@ -166,6 +167,29 @@ final class CompactImageOwnershipTest {
   }
 
   @ParameterizedTest
+  @CsvSource({"0,0,0", "4,0,1", "8,4,1", "64,60,1"})
+  void emptySuffixAndValueMayEndExactlyAtThePackedBoundary(final int used, final int offset, final int count) {
+    // HOT wire layout: u16 suffix length, suffix, u16 value length, value. Both may be empty;
+    // a zero-entry image needs no slot bytes. Neither case may be rejected by a strict boundary.
+    try (Arena arena = Arena.ofConfined()) {
+      final MemorySegment slots = arena.allocate(64, 8);
+      final int[] offsets = count == 0
+          ? new int[0]
+          : new int[] {offset};
+      try (HOTLeafPage compact =
+          new HOTLeafPage(1, 7, IndexType.PROJECTION, slots, null, offsets, count, used, new byte[] {7}, 1, true)) {
+        assertTrue(compact.isCompactImage());
+        assertEquals(used, compact.getUsedSlotsSize());
+        if (count != 0) {
+          assertArrayEquals(new byte[] {7}, compact.getKey(0));
+          assertArrayEquals(new byte[0], compact.copyStoredValue(0));
+          assertEquals(4, compact.getSlotSize(0));
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
   @CsvSource({"true,32,1,1", "false,32,1,1", "true,-1,1,1", "false,-1,1,1", "true,7,1,1", "false,7,1,1", "true,0,7,1",
       "false,0,7,1", "true,0,1,4", "false,0,1,4", "true,2147483647,1,1", "false,2147483647,1,1"})
   void packedExtentRejectsSlackFromAnEarlierImage(final boolean segmentInput, final int offset, final int suffixLength,
@@ -221,6 +245,17 @@ final class CompactImageOwnershipTest {
       out.write(payload);
       return out.toByteArray();
     }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"true,7,1", "false,7,1", "true,0,7", "false,0,7"})
+  void fallbackRejectsMalformedExtentsBeforeAccessingOutsideTheImage(final boolean segmentInput, final int offset,
+      final int suffixLength) throws IOException {
+    // The same malformed wire image must report corruption when the pool is refused: the exact
+    // fallback segment must never turn a slot validation error into a foreign-memory bounds error.
+    CompactImageStore.getInstance().setRefuseLeasesForTesting(true);
+    final byte[] wire = rawCompactWire(8, offset, suffixLength, 1);
+    assertThrows(IllegalStateException.class, () -> decode(wire, segmentInput));
   }
 
   private static HOTLeafPage decode(final byte[] wire, final boolean segmentInput) throws IOException {

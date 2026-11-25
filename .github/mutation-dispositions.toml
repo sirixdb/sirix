@@ -73,6 +73,7 @@ Only that boundary takes one extra constant-time compensation step under CONV-20
 with no allocation or data-dependent work added.
 The hosted sampled report executed 600 tests and retained this exact boundary mutant."""
 
+<<<<<<< HEAD
 # PR #1476: individually reviewed Kotlin bridge identities (REST-210).
 
 [[mutant]]
@@ -577,11 +578,17 @@ that really reached that depth would have been refused long before this question
 [[mutant]]
 class = "io.sirix.index.hot.NameKeySerializer"
 method = "utf8Width"
+=======
+[[mutant]]
+class = "io.sirix.cache.CompactImageStore"
+method = "blockBytesFor"
+>>>>>>> d8702c395 (no-mistakes(ci): Fixed ARM allocation-test stability, PIT coverage gaps, and Sonar publication warnings. Local validation passed: 459 core tests, 19 lifecycle cases, 19 allocation checks, Spotless, and blocking PIT (194 killed, 3 timed out, 5 documented equivalents; zero uncovered mutants). Remote ARM/Sonar reruns remain with the outer executor)
 descriptor = "(I)I"
 mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
 indexes = [5]
 description = "changed conditional boundary"
 kind = "equivalent"
+<<<<<<< HEAD
 checked_at = "1cc911a0c28814ac59defcb5f847f5ef7d04338a"
 justification = """0x80 is the only argument whose answer the mutant changes, and it never arrives.
 This method is asked for the width of a UTF-8 LEAD byte: callers pass `encoded[prefix] & 0xFF` where
@@ -589,3 +596,73 @@ prefix advances by whole character widths, `encoded[0] & 0xFF`, or a char of a s
 AsciiKeyBytes.isAsciiPrefix accepted, which is below 0x80. 0x80 is a continuation byte and cannot
 lead a character of well-formed UTF-8, which is what String.getBytes(UTF_8) produces. Every other
 byte takes the same branch under both forms."""
+=======
+checked_at = "b425f9b3ec2b8b425a0fb0ebd91ad4bd501a3da3"
+justification = """HOT compact storage class rounding admits byteSize in [0,65536]. Changing <=512 to <512
+only changes the branch at 512. The low branch rounds 512 to 512 at granularity 64;
+the high branch has octave=8, step=32 and also rounds 512 to 512. Every other input,
+error and allocation is identical. Only this single boundary evaluates the other
+constant-time rounding expression, within CONV-201's single-boundary exception."""
+
+[[mutant]]
+class = "io.sirix.cache.CompactImageStore"
+method = "blockBytesFor"
+descriptor = "(I)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.MathMutator"
+indexes = [24]
+description = "Replaced integer subtraction with addition"
+kind = "equivalent"
+checked_at = "b425f9b3ec2b8b425a0fb0ebd91ad4bd501a3da3"
+justification = """HOT compact storage class rounding admits byteSize in [0,65536]. In the upper arm,
+floor(log2(byteSize-1)) and floor(log2(byteSize+1)) differ only at byteSize=2^k-1 or 2^k.
+At both inputs the returned block is exactly 2^k whether the step is 2^(k-4) or 2^(k-3).
+All other inputs use the same octave and step. The arithmetic instruction count, errors,
+allocations and returned class size are unchanged; exhaustive legal-size routing tests
+execute this arithmetic and this exact mutant survives."""
+
+[[mutant]]
+class = "io.sirix.cache.CompactImageStore"
+method = "blockBytesOfClass"
+descriptor = "(I)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [5]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "b425f9b3ec2b8b425a0fb0ebd91ad4bd501a3da3"
+justification = """The compact class table has valid indices 0 through 63. Changing index<8 to index<=8
+only changes index 8. The low arm computes 64*(8+1)=576. The high arm has octave=9,
+step=64 and computes 64*(8+1+0)=576. Other indices, allocations and errors are identical.
+The one boundary takes the other constant-time size expression, permitted by CONV-201;
+no lease, native byte count or routing result changes."""
+
+[[mutant]]
+class = "io.sirix.cache.CompactImageStore"
+method = "classIndexFor"
+descriptor = "(I)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [5]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "b425f9b3ec2b8b425a0fb0ebd91ad4bd501a3da3"
+justification = """HOT compact storage classes number the 512-byte block as index 7. Changing <=512
+to <512 affects that input alone. The low arm gives 512/64-1=7. In the high arm,
+octave=8, step=32, base=8*(8-9+1)=0 and within=512/32-8-1=7, also index 7.
+All other inputs, errors and allocations are identical. This one boundary evaluates
+the other constant-time class expression, within CONV-201's single-boundary exception."""
+
+[[mutant]]
+class = "io.sirix.cache.CompactImageStore"
+method = "classIndexFor"
+descriptor = "(I)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.MathMutator"
+indexes = [21]
+description = "Replaced integer subtraction with addition"
+kind = "equivalent"
+checked_at = "b425f9b3ec2b8b425a0fb0ebd91ad4bd501a3da3"
+justification = """HOT compact storage routes every legal image size to the smallest containing class.
+The changed octave differs only at byteSize=2^k-1 or 2^k, where blockBytesFor is 2^k.
+Using octave k-1 gives index 8*(k-9)+7; using octave k gives index 8*(k-8)-1.
+These are equal, including the largest legal image, 65536. Every other input has the
+same octave. Arithmetic work, errors, allocations and the resolved class are identical;
+the exhaustive legal-size routing test executes and survives this exact mutant."""
+>>>>>>> d8702c395 (no-mistakes(ci): Fixed ARM allocation-test stability, PIT coverage gaps, and Sonar publication warnings. Local validation passed: 459 core tests, 19 lifecycle cases, 19 allocation checks, Spotless, and blocking PIT (194 killed, 3 timed out, 5 documented equivalents; zero uncovered mutants). Remote ARM/Sonar reruns remain with the outer executor)

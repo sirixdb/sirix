@@ -37,8 +37,6 @@ import java.lang.invoke.MethodHandle;
  */
 final class WindowsVirtualMemory implements VirtualMemory {
 
-  static final WindowsVirtualMemory INSTANCE = new WindowsVirtualMemory();
-
   private static final Logger LOGGER = LoggerFactory.getLogger(WindowsVirtualMemory.class);
 
   private static final long MEM_COMMIT = 0x1000;
@@ -47,8 +45,7 @@ final class WindowsVirtualMemory implements VirtualMemory {
   private static final long MEM_RELEASE = 0x8000;
   private static final long PAGE_READWRITE = 0x04;
 
-  private static final MethodHandle VIRTUAL_ALLOC;
-  private static final MethodHandle VIRTUAL_FREE;
+  static final WindowsVirtualMemory INSTANCE;
 
   static {
     MethodHandle alloc = null;
@@ -68,11 +65,17 @@ final class WindowsVirtualMemory implements VirtualMemory {
           FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG,
               ValueLayout.JAVA_LONG));
     }
-    VIRTUAL_ALLOC = alloc;
-    VIRTUAL_FREE = free;
+    INSTANCE = new WindowsVirtualMemory(alloc, free);
   }
 
-  private WindowsVirtualMemory() {}
+  private final @Nullable MethodHandle virtualAlloc;
+  private final @Nullable MethodHandle virtualFree;
+
+  // Bind the syscall boundary once; tests can exercise Windows refusal semantics on any host.
+  WindowsVirtualMemory(final @Nullable MethodHandle virtualAlloc, final @Nullable MethodHandle virtualFree) {
+    this.virtualAlloc = virtualAlloc;
+    this.virtualFree = virtualFree;
+  }
 
   @Override
   public MemorySegment reserve(final long bytes) {
@@ -85,12 +88,12 @@ final class WindowsVirtualMemory implements VirtualMemory {
 
   @Override
   public @Nullable MemorySegment tryReserve(final long bytes) {
-    if (VIRTUAL_ALLOC == null) {
+    if (virtualAlloc == null) {
       throw new IllegalStateException("WindowsVirtualMemory requires Windows (kernel32 VirtualAlloc)");
     }
     try {
       final MemorySegment addr =
-          (MemorySegment) VIRTUAL_ALLOC.invokeExact(MemorySegment.NULL, bytes, MEM_RESERVE, PAGE_READWRITE);
+          (MemorySegment) virtualAlloc.invokeExact(MemorySegment.NULL, bytes, MEM_RESERVE, PAGE_READWRITE);
       if (addr.address() == 0) {
         return null;
       }
@@ -115,7 +118,7 @@ final class WindowsVirtualMemory implements VirtualMemory {
   public boolean tryCommitFresh(final MemorySegment slot) {
     try {
       final MemorySegment addr =
-          (MemorySegment) VIRTUAL_ALLOC.invokeExact(slot, slot.byteSize(), MEM_COMMIT, PAGE_READWRITE);
+          (MemorySegment) virtualAlloc.invokeExact(slot, slot.byteSize(), MEM_COMMIT, PAGE_READWRITE);
       return addr.address() != 0;
     } catch (final OutOfMemoryError oom) {
       throw oom;
@@ -127,7 +130,7 @@ final class WindowsVirtualMemory implements VirtualMemory {
   @Override
   public void discardToZeros(final MemorySegment segment) {
     try {
-      final int freed = (int) VIRTUAL_FREE.invokeExact(segment, segment.byteSize(), MEM_DECOMMIT);
+      final int freed = (int) virtualFree.invokeExact(segment, segment.byteSize(), MEM_DECOMMIT);
       if (freed == 0) {
         LOGGER.debug("VirtualFree(MEM_DECOMMIT) failed on address 0x{}", Long.toHexString(segment.address()));
         return;
@@ -135,7 +138,7 @@ final class WindowsVirtualMemory implements VirtualMemory {
       // Recommit immediately: committed pages are guaranteed zeroed, and the slot must stay
       // touch-safe for its next owner (nothing else in the allocator commits recycled slots).
       final MemorySegment addr =
-          (MemorySegment) VIRTUAL_ALLOC.invokeExact(segment, segment.byteSize(), MEM_COMMIT, PAGE_READWRITE);
+          (MemorySegment) virtualAlloc.invokeExact(segment, segment.byteSize(), MEM_COMMIT, PAGE_READWRITE);
       if (addr.address() == 0) {
         throw new OutOfMemoryError("VirtualAlloc(MEM_COMMIT) failed re-committing a discarded slot");
       }
@@ -149,7 +152,7 @@ final class WindowsVirtualMemory implements VirtualMemory {
   @Override
   public boolean release(final MemorySegment region) {
     try {
-      final int freed = (int) VIRTUAL_FREE.invokeExact(region, 0L, MEM_RELEASE);
+      final int freed = (int) virtualFree.invokeExact(region, 0L, MEM_RELEASE);
       if (freed == 0) {
         LOGGER.warn("VirtualFree(MEM_RELEASE) failed for region size {}", region.byteSize());
       }

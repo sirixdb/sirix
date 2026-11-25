@@ -546,12 +546,18 @@ inline Mockito mocks in other suites cannot affect their allocation measurements
 alone with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`. For only the HOT commit
 allocation checks, add `--tests 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'`; the
 [HOT specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing) owns their allocation contract.
+The same fork runs `CommitTimestampProbeAllocationBudgetTest` with blocking compilation (`-Xbatch`),
+so warmup completes before its unchanged zero-byte probe bound is measured on slower ARM runners.
 
 The normal core task also runs `CompactImageAllocatorLifecycleTest` in a clean JVM through
 `:sirix-core:compactImageAllocatorLifecycleTest`. It checks native refusal, heap-failure propagation,
 GC-owned decode fallback at the commitment ceiling, and restored pooled decoding after allocator
 shutdown rejects live slabs or foreign-owned oversized allocations. A separate JVM keeps unrelated
 global owners from masking the rejection being tested.
+PIT explicitly includes this ownership suite, which measures no allocation or startup policy, and
+maps the compact ownership and admission tests to all the production entry points they exercise.
+`WindowsVirtualMemoryTest` executes Windows return-code translation against injected syscall handles
+on every host; `PosixVirtualMemoryTest` checks real mapping and population results on POSIX hosts.
 
 The normal core task also runs `StorageEpochStoreIdentityTest`,
 `StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM

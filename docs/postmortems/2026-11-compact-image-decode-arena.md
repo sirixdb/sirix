@@ -161,3 +161,53 @@ performance measurement and mutation gates remain owned by the outer pipeline.
   in a rejected shutdown. These restore the existing safety and cost contracts without changing
   persisted bytes, revision behavior, public results or writable-leaf routing; the vision verdicts
   above remain applicable.
+
+## CI: allocation measurement, mutation selection and publication diagnostics
+
+- Symptom: the ARM non-index lane measured 896 bytes in 16,384 timestamp conversions; PIT
+  reported 72 undetected changed-line mutants; Sonar's reliability gate rejected five volatile
+  references.
+- Root cause: the timestamp budget remained in the ordinary, asynchronously compiled test fork;
+  the compact ownership, lifecycle, admission and native-page-preparation suites had no explicit
+  mutation associations, and the lifecycle suite also inherited its ordinary-test exclusion in
+  PIT. The volatile diagnostics did not account for the reference-publication protocol: callbacks
+  synchronize their own latch state, the stateless native backend is replaced only by isolated
+  tests, and directory entries are published through the atomic free stack before any reader
+  receives them.
+- Correction: run the unchanged timestamp zero bound and allocating reverse control in the existing
+  clean `-Xbatch` allocation fork. Associate the existing contract tests with their production
+  consumers, and let PIT execute the non-allocation lifecycle suite. Exercise Windows' native
+  return-code translation through injected syscall handles on every host, and POSIX reservation
+  and population through actual kernel calls. Assert legal empty slots and exact packed boundaries,
+  as well as corrupt extents. Keep directory-growth accounting's positive witness alongside its
+  upper bound. Explain the five publication protocols at narrowly suppressed Sonar diagnostics.
+- Simplification: after the second admission check, the in-flight acquisition count already protects
+  slabs until handout, so there is no need for a third stop check after the pop. Allocator rollback
+  always reopens compact admission; it need not inspect the directory a second time.
+  Slab admission now counts the operation before initialization checks terminal state. Free blocks
+  are rechecked under the growth monitor and returned through one path. Only the carved directory
+  prefix is published; retry overwrites any unpublished views after native ownership is rolled back.
+- Mutation review: five surviving size-class arithmetic mutants have individual equivalence proofs
+  in [the dispositions file](../../.github/mutation-dispositions.toml). The proofs cover every legal
+  image size and identify the single-boundary cases allowed by CONV-201. No uncovered mutant is waived.
+- Regression evidence: the failing CI artifact is run `45501472399`; local verification commands
+  and their outcomes are recorded by this CI phase. No allocation bound was widened. The native
+  tests use the documented syscall result contract as their independent oracle; they reject
+  treating NULL as success, losing a mapped address, and swallowing heap failures.
+- Vision check: these corrections preserve revision bytes and answers, retain the zero-allocation
+  compact lease requirement, and add no storage format or production policy.
+- Lesson: map cross-cutting ownership tests explicitly into mutation analysis, including the
+  runner's exclusions, and complete warmup compilation before enforcing exact allocation budgets.
+
+### Local CI verification
+
+- Core regression/work-budget selection: 459 tests, no failures or skips. Clean allocation fork:
+  19 tests passed; allocator lifecycle fork: 19 cases passed, including first frame, reclaimable-slab
+  and permanent-slab allocation before explicit initialization. `:sirix-core:spotlessCheck` passed.
+- Blocking changed-line PIT: 202 mutants, 194 killed, three detected by timeout, five individually
+  dispositioned equivalents, zero uncovered or failing mutants; all disposition/association checks
+  passed. Report: `build/ci-evidence/pit-verified/summary.md` (generated local evidence).
+- The normal Gradle tasks and repository mutation runner were used with smaller local heaps and
+  one mutation worker on the shared host. No production setting, assertion or budget was widened.
+  Compiling `:sirix-kotlin-cli:classes` supplied the unchanged CLI bytecode the disposition checker
+  also validates. Remote ARM and Sonar analysis still require the outer executor's updated CI run.

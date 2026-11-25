@@ -88,7 +88,11 @@ configure(mutationProject) {
             // Isolated startup/allocation suites need their dedicated JVMs, just as for test.
             excludedTestClasses = ['io.sirix.property.*', '*JsonModelBasedOracleRandomTest',
                                    '*HOTStructuralPropertyTest*', '*SoakTest*'] +
-                    standardTest.excludes.collect { it.replace('/', '.').replace('.class', '') }
+                    standardTest.excludes.findAll {
+                        // This ownership suite needs no allocation measurement or startup policy.
+                        // Its @Isolated contract also applies in PIT's baseline JVM.
+                        it != 'io/sirix/cache/CompactImageAllocatorLifecycleTest*.class'
+                    }.collect { it.replace('/', '.').replace('.class', '') }
             threads = 2
             timestampedReports = false
             // The controlling-JVM agent drains units in completion order: PIT 1.25.5

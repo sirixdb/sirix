@@ -4,6 +4,7 @@
 package io.sirix.cache;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -16,6 +17,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -30,6 +32,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * The lease contract of the reusable blocks a compact page image owns: one owner, exact reuse, a
@@ -86,6 +89,34 @@ final class CompactImageStoreTest {
       assertNull(storeOver(allocator).acquire(CompactImageStore.MAX_BLOCK_BYTES + 1L));
       assertEquals(0, allocator.slabCount());
     } finally {
+      allocator.closeArena();
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {64, 576, 4096, 65536})
+  void liveImagesKeepIndependentBytes(final int size) {
+    // The ownership contract concerns bytes as well as Block identities: four simultaneously
+    // retained images must preserve four different payloads even when carved from the same slab.
+    final SlabRecordingAllocator allocator = new SlabRecordingAllocator();
+    final List<Block> held = new ArrayList<>(4);
+    try {
+      final CompactImageStore store = storeOver(allocator);
+      for (int i = 0; i < 4; i++) {
+        final Block block = store.acquire(size);
+        assertNotNull(block);
+        held.add(block);
+        block.segment().fill((byte) (i + 1));
+      }
+      for (int i = 0; i < held.size(); i++) {
+        final byte[] expected = new byte[size];
+        Arrays.fill(expected, (byte) (i + 1));
+        assertArrayEquals(expected, held.get(i).segment().toArray(ValueLayout.JAVA_BYTE));
+      }
+    } finally {
+      for (final Block block : held) {
+        block.run();
+      }
       allocator.closeArena();
     }
   }
@@ -202,6 +233,9 @@ final class CompactImageStoreTest {
       assertEquals(allocator.slabCount(), allocator.releasedSlabCount());
       assertEquals(0, store.blockCount());
       assertEquals(0L, store.pooledBytes());
+      final int released = allocator.releasedSlabCount();
+      assertTrue(store.releaseIdleSlabs());
+      assertEquals(released, allocator.releasedSlabCount(), "an empty stopped store cannot release a slab twice");
     } finally {
       allocator.closeArena();
     }
@@ -337,7 +371,7 @@ final class CompactImageStoreTest {
       }
       assertEquals(count, store.blockCount());
       assertEquals((long) count * 4096, store.pooledBytes());
-      assertTrue(store.directoryGrowthCount() <= 14,
+      assertTrue(store.directoryGrowthCount() > 0 && store.directoryGrowthCount() <= 14,
           "32768 blocks need at most fourteen geometric directory allocations, not 8192");
       for (final Block block : held) {
         block.run();
@@ -446,6 +480,9 @@ final class CompactImageStoreTest {
       if (refuse) {
         return null;
       }
+      // The documented pool classes need at most four 64 KiB blocks per slab. Reject a broken
+      // request at this external boundary instead of letting a mutant exhaust the host's RAM.
+      assertTrue(bytes <= 256 * 1024L, "a compact-image slab exceeds its largest class's slab size");
       final MemorySegment slab = arena.allocate(bytes, 8L);
       slabs.add(slab);
       return slab;
