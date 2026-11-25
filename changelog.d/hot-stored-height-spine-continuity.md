@@ -10,7 +10,7 @@ section: Changed
   and the structural
   invariant validator now rejects it by comparing every walked node's height with the structure
   below it. A shape test and a lookup work budget pin the committed trie over eight full leaves at
-  one indirect level and one routing step per point lookup, whatever the insertion order. The repair
+  one indirect level and one routing step per sampled point lookup for both insertion orders. The repair
   this guards shipped earlier (issue
   [#1457](https://github.com/sirixdb/sirix/issues/1457)); height minimality remains out of scope
   under FMT-302.

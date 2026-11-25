@@ -1,6 +1,7 @@
 # Bug: HOT subtree insertion loses its outer spine
 
-- Fix / issue: https://github.com/sirixdb/sirix/issues/1457. The merged fix referenced #1452,
+- Fix / issue: [#1460](https://github.com/sirixdb/sirix/pull/1460) /
+  [#1457](https://github.com/sirixdb/sirix/issues/1457). The merged fix referenced #1452,
   a number this repository has no issue for; #1457 is the issue this bug was filed as.
 - Symptom: descending 2,048/4,096 sequential keys produced structural inner height 2/3
   while ascending produced height 1 with identical four/eight full leaves. Descending
@@ -358,7 +359,7 @@ What the repair lacked was anywhere for the next change to trip over it. Three a
 routing independent of the field, and the validator's duty); `HOTInvariantValidator` compares every
 walked node's stored height with the structure below it as `I13-stored-height-exact`, so every HOT
 test that validates a trie now enforces it; and `HOTLookupShapeWorkBudgetTest` counts the routing
-steps of a point lookup, which equal the trie's height, pinning the committed shape at one level for
+steps of a point lookup, pinning each sampled path in the committed shape at one level for
 both insertion orders. `HOTStoredHeightSpineTest` carries the spec's clauses as behaviour,
 including that a deliberately wrong stored height misroutes no key and is still rejected.
 
@@ -380,4 +381,4 @@ repartitioning across block boundaries rather than a larger fold.
   Focused command: `./gradlew :sirix-core:test --tests io.sirix.index.hot.HOTStoredHeightSpineTest
   -PtestHeapMin=128m -PtestHeapMax=2g`.
 - Lesson: reacquire transaction-owned storage handles after commit or rollback before checking
-  the next state; see the [lesson fragment](../lessons.d/hot-stored-height-spine-continuity.md).
+  the next state; see [Lessons from failures](../LESSONS.md).

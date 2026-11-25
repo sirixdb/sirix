@@ -34,8 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * A point lookup pays one routing step per indirect level, so its counted steps are the trie's
- * height — the figure a lost outer spine inflates (FMT-306, issue
+ * A point lookup pays one routing step per indirect level on its path, so its counted steps measure
+ * path depth — the figure a lost outer spine inflates (FMT-306, issue
  * <a href="https://github.com/sirixdb/sirix/issues/1457">1457</a>).
  *
  * <p>

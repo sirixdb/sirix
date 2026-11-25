@@ -91,7 +91,8 @@ public final class HOTInvariantValidator {
   public static final int DEFAULT_MAX_HEIGHT = 32;
 
   /**
-   * A subtree whose height the walk could not establish, because a child was missing or unloadable.
+   * A subtree whose height the walk could not establish because of a structural defect or depth
+   * limit.
    */
   private static final int HEIGHT_UNKNOWN = -1;
 
@@ -226,8 +227,8 @@ public final class HOTInvariantValidator {
    * Walk the subtree rooted at {@code page}.
    *
    * @return the structural height of that subtree — 0 for a leaf page, one more than its tallest
-   *         child for an indirect node — or {@link #HEIGHT_UNKNOWN} when a child could not be walked,
-   *         so an ancestor does not report a height defect on top of the structural one
+   *         child for an indirect node — or {@link #HEIGHT_UNKNOWN} when a subtree could not be
+   *         walked, so an ancestor does not report a height defect on top of the structural one
    */
   private int walk(Page page, int depth, List<HOTIndirectPage> ancestorIndirects) {
     if (depth > maxHeight) {

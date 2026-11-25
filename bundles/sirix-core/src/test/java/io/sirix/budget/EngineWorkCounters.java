@@ -255,10 +255,9 @@ public final class EngineWorkCounters {
   public static final List<WorkCounter> HOT_LEAVES = List.of(HOT_LEAF_LOADS, HOT_FRAGMENTS_WALKED);
 
   /**
-   * Routing steps through HOT indirect nodes. One successful point descent takes exactly one step per
-   * indirect level, so over a single captured lookup this counter is that lookup's trie height, which
-   * is what a budget needs to see a degraded spine (FMT-306). Writer descents and range cursors route
-   * through the same method, so a budget using it fixes the work it captures to one route.
+   * Routing steps through HOT indirect nodes; see {@link HOTIndirectPage#indirectRoutingSteps()} for
+   * the counted operations. Capture one lookup to measure its path depth and detect a degraded spine
+   * (FMT-306).
    */
   public static final WorkCounter HOT_INDIRECT_ROUTING_STEPS =
       WorkCounter.gated("hot.indirectRoutingSteps", "one routing step through a HOT indirect node",

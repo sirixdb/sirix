@@ -606,10 +606,10 @@ and after commit. Descending skewed
 is H<=3 after commit (live H=9), with the attainable H=2 remaining a known gap under issue #1457;
 it needs repartitioning across block boundaries, because the only remaining height-3 edge joins a
 fanout-32 parent to a fanout-32 child and a direct fold would need 63 children against the limit of 32.
-FMT-306 requires the stored heights and the spine continuity these bounds depend on, and the
-invariant validator enforces the heights (I13).
-All stored heights must equal independently walked child-reference heights. Check live and cold-reopened
-snapshots and historical revisions. These checks do not establish global minimality.
+[FMT-306](../spec/FMT-disk-format.md#fmt-306--hot-stored-height-and-spine-continuity) owns the
+stored-height and spine-continuity contract these bounds depend on, including lifecycle coverage;
+the invariant validator checks heights as [I13](HOT_INVARIANTS_CATALOG.md#i13--stored-height-exact).
+These workload bounds do not establish global minimality.
 Bulk SMHP construction and rebuilding from leaf minima are separate follow-ups; minima alone
 are insufficient to establish routing equivalence for multi-entry leaves.
 
@@ -2166,7 +2166,7 @@ SLIDING_SNAPSHOT, 3) govern leaf chains (§3.5). HOT cache budgets and their con
 | `hot.diag.directionOneFallback` | dump the shape when a Direction-1 fallback is taken | `:4159-4162`, `:4310-4313` |
 | `hot.diag.branchFallback` | dump a malformed combo-add candidate | `:4172-4174` |
 | `hot.localize.i8`, `hot.localize.fromRev` (0) | after each dispatch, locate the first I4/I7/I8 violation from the root and report the handler (≤ 60 reports) | `:282-286`, `:1966-1985`, `:2149-2195` |
-| `sirix.hot.mergeDiag` | HOT work counters: [diagnostics inventory](SEGMENT_PROJECTION_INDEXES.md#a6-diagnostics-no-intended-effect-on-results); **on in the sirix-core and sirix-query test JVMs**; read-counter semantics: [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads); posting-counter semantics below | `set/VersioningType.java`, `hot/page/HOTLeafPage.java`, `hot/HOTIndexWriter.java`, `hot/AbstractHOTIndexWriter.java` |
+| `sirix.hot.mergeDiag` | HOT work counters: [diagnostics inventory](SEGMENT_PROJECTION_INDEXES.md#a6-diagnostics-no-intended-effect-on-results); **on in the sirix-core and sirix-query test JVMs**; read-counter semantics: [Projection read performance](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads); posting-counter semantics below | `set/VersioningType.java`, `hot/page/HOTLeafPage.java`, `hot/page/HOTIndirectPage.java`, `hot/HOTIndexWriter.java`, `hot/AbstractHOTIndexWriter.java` |
 
 **Posting counters** (enabled only by `-Dsirix.hot.mergeDiag=true`):
 `HOTIndexWriter.postingDeltaWrites()` counts single-posting delta slots, excluding the operation

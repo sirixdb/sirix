@@ -348,9 +348,10 @@ public final class HOTIndirectPage implements Page {
   /**
    * Routing steps taken through indirect nodes by {@link #findChildIndex(byte[], int)}, including a
    * step that routes to no child. One successful point descent takes exactly one step per indirect
-   * level it passes, so this counter reads that descent's trie height — the shape a lost outer spine
-   * used to inflate (FMT-306). Writer descents and range cursors route through the same method and
-   * also count, so a budget reading this must fix the work it captures.
+   * level it passes, so this counter reads that descent's path depth — the shape a lost outer spine
+   * used to inflate (FMT-306). This equals the trie's height only on a deepest path. Writer descents
+   * and range cursors route through the same method and also count, so a budget reading this must fix
+   * the work it captures.
    *
    * <p>
    * Collected only while {@code sirix.hot.mergeDiag} is set, like the HOT leaf counters, so a test

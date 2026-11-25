@@ -111,6 +111,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `JsonHashingWorkBudgetTest` | ROLLING hash/count maintenance after a skipped-root append | hash repair walks the unchanged array prefix or hashes only the final inserted root; 16/4096-element prefixes both require 18 record reads, one existing boundary child and three new root writes |
 | `sirix-core` `JsonStructuralHashingWorkBudgetTest` | cold boundary moves in both directions and exclusive array/object renames, 16/4096 unchanged descendants, all versioning types | hashing captures or prepares unchanged descendants, writes their document pages or grows scratch state; untouched records and canonical hashes must survive the mutation and cold reopening |
 | `sirix-core` `HOTHistoricalBlobReadWorkBudgetTest` | warm first/last blob lookups at revision 65 of 130, all four versioning types (also revisions 1 and 130) | native eight-byte key probes read suffixes a byte at a time, or inline blobs probe the overflow-reference map; a referenced blob also proves that provenance still resolves |
+| `sirix-core` `HOTLookupShapeWorkBudgetTest` | point lookups after cold reopen of ascending/descending 4,096-key CAS indexes, FULL and DIFFERENTIAL | a lost outer spine or skipped commit normalization adds indirect routing steps; see the test's mutation evidence |
 | `sirix-core` `PostingDeltaWorkBudgetTest` | hot VALIDTIME posting updates | delta writes and folds depart from one bounded sequence, or duplicate operations write slots; exact counters and postings are checked across all four versioning types |
 | `sirix-core` `HOTPostingFragmentMergeWorkBudgetTest` | CAS/VALIDTIME reconstruction with 500 older delta slots, all four versioning types | filling absent physical keys repeats their search; stored bytes and newer tombstones must survive unchanged |
 | `sirix-core` `JsonIdentityReplayWorkBudgetTest` | identity import: append/no-op/deep/sparse epochs, all four versioning types | replay walks unchanged prefixes or numeric key gaps, restages unchanged identities, repeats shared ancestor proofs, reads presentation sidecars, or stops pruning identical durable regions; capture includes cursor/storage calls and commit-time path-cache initialization |
@@ -210,7 +211,7 @@ All four belong to the timed layer.
 Almost nothing in this package counts anything. Each `WorkCounter` reads a figure the engine already
 maintains, so a budget quotes the same numbers an investigation would:
 
-- `EngineWorkCounters`: HOT leaf loads and fragments walked, coalesced read runs / span bytes /
+- `EngineWorkCounters`: HOT leaf loads, fragments walked and indirect routing steps, coalesced read runs / span bytes /
   fallbacks / singletons, projection payload materialization (`lazyLoads`,
   `chunkMaterializations`, `eagerFallbacks`), intent-log promotions, index-catalogue directory
   listings and files written, data-file forces, native HOT suffix lanes, overflow-reference map probes,
