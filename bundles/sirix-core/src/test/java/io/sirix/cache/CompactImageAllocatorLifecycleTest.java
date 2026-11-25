@@ -260,6 +260,8 @@ final class CompactImageAllocatorLifecycleTest {
         ? OutOfMemoryError.class
         : IllegalStateException.class;
     when(allocator.allocatePermanentSlab(anyLong())).thenAnswer(invocation -> {
+      // Ownership transfers to releaseSlab, which closes the arena.
+      @SuppressWarnings("MustBeClosedChecker")
       final Arena arena = Arena.ofConfined();
       final MemorySegment slab = arena.allocate(invocation.<Long>getArgument(0), 8);
       arenas.put(slab, arena);
