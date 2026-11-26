@@ -15,6 +15,8 @@
   opened between 04:00 and 17:30 Europe/Berlin on a weekday, and the publishing code enforces it.
   The ledger of the nightly tier is the one ledger that is committed, on the `nightly-data` branch.
   Making Otava the judge is not decided here.
+  Decided by the maintainer on 2026-11-26: a hosted runner is fingerprinted by its class, not by its
+  kernel or image.
 
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from
