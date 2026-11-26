@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "warmup_iterations": 2,
+  "measurement_iterations": 3,
+  "iteration_seconds": 1,
+  "allocation_warmup_iterations": 2,
+  "allocation_iterations": 3,
+  "allocation_heap": "3g",
+  "timed_jvm_args": ["-Xms1g", "-Xmx2g", "-XX:+UseSerialGC"],
+  "benchmarks": [
+    {"benchmark": "PageCodecEncodeBenchmark.lz77Encode", "params": {"shape": "RECORD_HEAP"}, "batch": 1000},
+    {"benchmark": "PageCodecEncodeBenchmark.lz77Encode", "params": {"shape": "INCOMPRESSIBLE"}, "batch": 1000},
+    {"benchmark": "PageCodecEncodeBenchmark.zeroRunEncodeFromArray", "params": {"shape": "ZERO_RUNS"}, "batch": 5000},
+    {"benchmark": "SegmentVarIntDecodeBenchmark.bulkEightByte", "params": {"widths": "MIXED"}, "batch": 150},
+    {"benchmark": "SegmentVarIntDecodeBenchmark.byteWise", "params": {"widths": "MIXED"}, "batch": 200},
+    {"benchmark": "HotIndirectPageLookupBenchmark.lookupFound", "params": {"numChildren": "16", "discBitCount": "16"}, "batch": 1000000, "allocation": false},
+    {"benchmark": "HotIndirectPageLookupBenchmark.lookupMissingEquality", "params": {"numChildren": "16", "discBitCount": "16"}, "batch": 1000000, "allocation": false},
+    {"benchmark": "NodeReferencesMergeBenchmark.mergeAdoptingBitmap", "params": {"setSize": "4096", "distribution": "STRIDED"}, "batch": 5000},
+    {"benchmark": "NodeReferencesMergeBenchmark.mergeCopyingBitmap", "params": {"setSize": "4096", "distribution": "STRIDED"}, "batch": 5000},
+    {"benchmark": "PageSerializeBenchmark.serialize", "params": {"slots": "1000"}, "batch": 500},
+    {"benchmark": "PageSerializeBenchmark.deserialize", "params": {"slots": "1000"}, "batch": 500},
+    {"benchmark": "StringRegionDictionaryBenchmark.addValues", "params": {"lengths": "SHORT", "distinct": "1024"}, "batch": 1000},
+    {"benchmark": "BitmapReferencesPageBenchmark.randomLookup", "params": {"populationCount": "500", "populationPattern": "dense"}, "batch": 5000000}
+  ]
+}

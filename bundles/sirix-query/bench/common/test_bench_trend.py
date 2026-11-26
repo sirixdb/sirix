@@ -506,5 +506,97 @@ class ReportTest(TrendTestCase):
         self.assertEqual(2, cli("--ledger", str(ledger))[0])
 
 
+class ZeroLevelTest(TrendTestCase):
+    """An allocation figure can be zero; the drift is then taken one byte up, and stays finite."""
+
+    ALLOC = bench_ledger.timed_gate.ALLOCATION_METRIC
+
+    def test_a_zero_allocation_series_is_steady(self) -> None:
+        self.builder.nights([0.0] * 20, metric=self.ALLOC, exact=True)
+        self.assertEqual("steady", self.state(19).state)
+        self.assertEqual(0.0, self.state(19).drift)
+
+    def test_a_path_that_starts_to_allocate_is_unconfirmed_then_drift(self) -> None:
+        self.builder.nights([0.0] * 16 + [40.0] * 4, metric=self.ALLOC, exact=True)
+        first, second = self.state(16), self.state(17)
+        self.assertEqual(("unconfirmed", "drift"), (first.state, second.state))
+        self.assertAlmostEqual(math.log(41.0), second.drift, places=12)
+        self.assertEqual(night_name(15), second.since.night)
+
+    def test_a_series_that_stops_allocating_is_faster(self) -> None:
+        self.builder.nights([40.0] * 16 + [0.0] * 4, metric=self.ALLOC, exact=True)
+        self.assertEqual("faster", self.state(17).state)
+
+    def test_a_zero_only_in_the_window_still_shifts_every_level_the_same_way(self) -> None:
+        # One zero night inside the window: the baseline is the median of the first seven, all 100 here.
+        self.builder.nights([100.0] * 7 + [0.0] + [100.0] * 8 + [100.0], metric=self.ALLOC, exact=True)
+        self.assertAlmostEqual(0.0, self.state(16).drift, places=12)
+
+    def test_levels_without_a_zero_are_not_shifted(self) -> None:
+        self.builder.nights([100.0] * 16 + [110.0], metric=self.ALLOC, exact=True)
+        self.assertAlmostEqual(math.log(1.1), self.state(16).drift, places=12)
+
+
+class HostedRunnerTest(TrendTestCase):
+    """On a hosted runner only CPU time and allocation are judged; wall-clock series are informational."""
+
+    def hosted(self) -> None:
+        for row in self.builder.rows:
+            if row["kind"] == "run":
+                row["runner"] = {"kind": "hosted", "provider": "github", "label": "ubuntu-24.04"}
+
+    def test_a_hosted_wall_clock_series_is_reported_but_never_alarms(self) -> None:
+        self.builder.nights(quiet(16) + quiet(4, level=1.2, start=16), metric="ns_per_op")
+        self.hosted()
+        trend = bench_trend.report(self.builder.rows, night_name(19))
+        (key,) = trend.states
+        self.assertEqual("drift", trend.states[key].state)
+        self.assertTrue(bench_trend.is_informational(key))
+        self.assertEqual([], trend.drifting)
+        text = bench_trend.format_report(trend)
+        self.assertIn("(informational, not judged)", text)
+        self.assertNotIn("alarm", text)
+
+    def test_hosted_cpu_time_and_allocation_are_judged(self) -> None:
+        for metric in ("cpu_ns_per_op", bench_ledger.timed_gate.ALLOCATION_METRIC):
+            with self.subTest(metric):
+                self.setUp()
+                self.builder.nights(quiet(16) + quiet(4, level=1.2, start=16), metric=metric)
+                self.hosted()
+                trend = bench_trend.report(self.builder.rows, night_name(19))
+                self.assertEqual(1, len(trend.drifting))
+                self.assertFalse(bench_trend.is_informational(trend.drifting[0]))
+
+    def test_the_same_wall_clock_series_on_a_dedicated_machine_is_judged(self) -> None:
+        self.builder.nights(quiet(16) + quiet(4, level=1.2, start=16), metric="ns_per_op")
+        trend = bench_trend.report(self.builder.rows, night_name(19))
+        self.assertEqual(1, len(trend.drifting))
+        self.assertNotIn("informational", bench_trend.format_report(trend))
+
+    def test_hosted_and_dedicated_runs_of_one_benchmark_are_separate_series(self) -> None:
+        self.builder.nights(quiet(16), metric="cpu_ns_per_op")
+        self.hosted()
+        self.builder.nights(quiet(16, level=3.0), start=16, benchmark="q1", metric="cpu_ns_per_op")
+        series = bench_trend.nightly_series(self.builder.rows)
+        self.assertEqual({"hosted", "dedicated"}, {key[7] for key in series})
+
+    def test_a_hosted_series_is_described_with_its_runner_and_a_dedicated_one_is_not(self) -> None:
+        self.builder.nights(quiet(16), metric="cpu_ns_per_op")
+        (dedicated,) = bench_trend.nightly_series(self.builder.rows)
+        self.assertTrue(bench_trend.describe(dedicated).endswith("[native, box-1]"))
+        self.hosted()
+        (hosted,) = bench_trend.nightly_series(self.builder.rows)
+        self.assertTrue(bench_trend.describe(hosted).endswith("[native, box-1, hosted]"))
+
+    def test_the_exit_status_ignores_an_informational_drift(self) -> None:
+        self.builder.nights(quiet(16) + quiet(4, level=1.2, start=16), metric="ns_per_op")
+        self.hosted()
+        ledger = self.base / "ledger.jsonl"
+        ledger.write_text("".join(json.dumps(row) + "\n" for row in self.builder.rows), encoding="utf-8")
+        with mock.patch.object(bench_ledger, "read_ledger", return_value=self.builder.rows):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, bench_trend.main(["report", "--ledger", str(ledger)]))
+
+
 if __name__ == "__main__":
     unittest.main()
