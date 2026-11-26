@@ -13,7 +13,10 @@ import io.sirix.io.StorageType;
 import io.sirix.io.Writer;
 import io.sirix.io.bytepipe.ByteHandler;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
@@ -117,7 +120,7 @@ public final class FaultInjectingStorage implements IOStorage {
    * @throws IllegalStateException if a FILE_CHANNEL provider is already registered
    */
   public static void install(final Path injectingRoot) {
-    INJECTING_ROOT.set(injectingRoot.toAbsolutePath().normalize());
+    INJECTING_ROOT.set(resolveReal(injectingRoot));
     LAST_WRITER.set(null);
 
     final StorageProvider provider = new StorageProvider() {
@@ -135,7 +138,7 @@ public final class FaultInjectingStorage implements IOStorage {
       public IOStorage createStorage(final ResourceConfiguration resourceConfig) {
         final Path root = INJECTING_ROOT.get();
         final IOStorage builtIn = StorageType.FILE_CHANNEL.getInstance(resourceConfig);
-        if (root != null && resourceConfig.resourcePath.toAbsolutePath().normalize().startsWith(root)) {
+        if (root != null && resolveReal(resourceConfig.resourcePath).startsWith(root)) {
           return new FaultInjectingStorage(builtIn);
         }
         return builtIn;
@@ -174,6 +177,41 @@ public final class FaultInjectingStorage implements IOStorage {
       throw new IllegalStateException("No injecting writer has been created yet");
     }
     return writer;
+  }
+
+  /**
+   * The path with every symbolic link in it resolved, so that a root and a resource path can be
+   * compared as prefixes. {@link Path#normalize()} alone cannot do this: it is purely lexical, and
+   * macOS hands out temporary directories under {@code /var}, which is a symlink to
+   * {@code /private/var}. {@link io.sirix.access.Databases} stores the resolved form, so a root left
+   * unresolved never prefixes it and every resource would silently get a non-injecting storage.
+   *
+   * <p>
+   * The path need not exist yet: this resolves the nearest existing ancestor and re-appends the
+   * remainder, the same way {@code MutationGate} keys a database path.
+   *
+   * @param path the path to resolve
+   * @return the resolved absolute path, or its lexically normalized form if resolution fails
+   */
+  private static Path resolveReal(final Path path) {
+    Path ancestor = Objects.requireNonNull(path, "path").toAbsolutePath();
+    Path remaining = ancestor.getFileSystem().getPath("");
+    try {
+      while (true) {
+        try {
+          return ancestor.toRealPath().resolve(remaining).normalize();
+        } catch (final NoSuchFileException missing) {
+          final Path parent = ancestor.getParent();
+          if (parent == null) {
+            throw missing;
+          }
+          remaining = ancestor.getFileName().resolve(remaining);
+          ancestor = parent;
+        }
+      }
+    } catch (final IOException failure) {
+      return path.toAbsolutePath().normalize();
+    }
   }
 
   @SuppressWarnings("unchecked")
