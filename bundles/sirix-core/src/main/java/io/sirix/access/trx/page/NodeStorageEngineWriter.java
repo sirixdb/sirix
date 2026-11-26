@@ -6790,10 +6790,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     storagePageReaderWriter.requireCompatibleRevisionRoots(revision);
     storagePageReaderWriter.readRevisionRootPage(revision, getResourceSession().getResourceConfig());
-    // FMT-209 / TXN-404: durably publish a fresh incarnation id BEFORE removing anything. A crash
+    // FMT-209 / TXN-404: publish a fresh incarnation id BEFORE removing anything. A crash
     // between the two leaves the new id with the old data, which only rejects conditional-write
     // tokens that would otherwise have been accepted; the opposite order could accept a token from
-    // the destroyed timeline once later commits reissue its revision numbers.
+    // the destroyed timeline once later commits reissue its revision numbers. Platform durability
+    // limits are documented by ResourceConfiguration.publishFreshIncarnationId().
     getResourceSession().getResourceConfig().publishFreshIncarnationId();
 
     // Rollback semantics: any buffered (uncommitted) page writes refer to the world being

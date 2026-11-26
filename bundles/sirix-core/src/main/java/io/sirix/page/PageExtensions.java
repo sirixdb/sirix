@@ -65,7 +65,7 @@ public final class PageExtensions {
       if (length > end - source.position()) {
         throw new IllegalStateException("Corrupt page extension entry length " + length + " for tag " + tag);
       }
-      // No shared or kind-local tags are assigned yet. Add their decoders here when assigned.
+      // This generic reader knows no entries; kind-specific readers decode their assigned tags.
       if ((tag & REQUIRED) != 0) {
         throw new IllegalStateException(
             "Unknown required page extension " + tag + " — page written by a newer version");

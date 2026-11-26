@@ -640,12 +640,8 @@ public final class ResourceConfiguration {
   }
 
   /**
-   * Makes the rename durable where a directory barrier is available. On Windows MoveFileEx runs
-   * without MOVEFILE_WRITE_THROUGH and no directory handle is flushed, so a crash after return can
-   * lose the new id. This is part of the engine-wide directory-metadata durability gap, including the
-   * commit path's index catalogue and .commit marker, tracked as sirix-durable-file-metadata.
-   * Accepted for FMT-209 by the captain decision of 2026-11-26 (option C); TXN-616 closes it before
-   * 1.0 with a shared DurableFiles helper that this method will delegate to.
+   * Makes the rename durable where a directory barrier is available. Windows skips the barrier; the
+   * accepted limitation and its follow-up are owned by {@code docs/KNOWN_LIMITATIONS.md#platform}.
    */
   private static void forceDirectory(final Path directory) throws IOException {
     if (System.getProperty("os.name", "").startsWith("Windows")) {

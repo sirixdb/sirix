@@ -436,6 +436,10 @@ public final class BackupManager {
    * every restored resource read-only.
    *
    * <p>
+   * Before verification, each restored resource receives a fresh incarnation id under FMT-209,
+   * including copied hidden derived resources; copied history and last-revert metadata are retained.
+   *
+   * <p>
    * The target must either not exist or be an empty directory. Failure cleanup follows the
    * best-effort policy in {@code docs/BACKUP.md}.
    *
@@ -450,7 +454,7 @@ public final class BackupManager {
    * @return a summary (resources restored, bytes, most recent revision per resource)
    * @throws SirixUsageException if {@code backupDir} is not a valid database/backup directory, or the
    *         target exists and is not an empty directory, or the target lies inside the backup
-   * @throws SirixIOException if copying or verification fails
+   * @throws SirixIOException if copying, incarnation-id publication or verification fails
    */
   public static BackupSummary restoreDatabase(final Path backupDir, final Path targetDir) {
     requireNonNull(backupDir);
@@ -508,9 +512,9 @@ public final class BackupManager {
   }
 
   /**
-   * Draws and durably publishes a fresh incarnation id (FMT-209) for every restored resource
-   * directory, hidden {@code $derived} resources included, so neither a repeated restore of one
-   * backup nor a restore of an older backup can resurrect an id whose tokens it would satisfy.
+   * Publishes a fresh incarnation id (FMT-209) for every restored resource directory, hidden
+   * {@code $derived} resources included. Publication guarantees belong to
+   * {@link ResourceConfiguration#publishFreshIncarnationId(Path)}.
    */
   private static void drawRestoredIncarnationIds(final Path target) {
     final Path resources = target.resolve(RESOURCES_DIR);

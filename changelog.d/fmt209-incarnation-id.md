@@ -4,7 +4,8 @@ section: Added
 - **Resources carry an incarnation id and a last-revert revision (FMT-209).** Every resource's
   settings now hold `incarnationId`, 16 lowercase hexadecimal digits of a cryptographically secure
   64-bit draw. A new id is drawn when a resource is created or recreated, replaced through `PUT`,
-  restored from a backup, and on `truncateTo`, which writes it durably before removing any data.
+  restored from a backup, and on `truncateTo`, which publishes it before removing any data
+  (subject to the [platform durability limitation](docs/KNOWN_LIMITATIONS.md#platform)).
   Settings without a valid `incarnationId` are refused, never given a default. A commit that
   publishes a revert records its revision number in the revision root, every later revision
   carries it forward, and the store then sets the conditional-write feature bit, so an engine that
