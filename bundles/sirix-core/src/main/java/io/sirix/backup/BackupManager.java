@@ -521,8 +521,9 @@ public final class BackupManager {
     if (!Files.isDirectory(resources)) {
       return;
     }
-    try (final DirectoryStream<Path> directories = Files.newDirectoryStream(resources, Files::isDirectory)) {
-      for (final Path resource : directories) {
+    try (final DirectoryStream<Path> entries = Files.newDirectoryStream(resources)) {
+      for (final Path resource : entries) {
+        // A settings file already proves this entry is a resource directory; avoid a second stat.
         if (Files.exists(resource.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()))) {
           ResourceConfiguration.publishFreshIncarnationId(resource);
         }

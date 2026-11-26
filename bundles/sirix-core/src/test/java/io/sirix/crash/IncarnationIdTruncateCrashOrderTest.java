@@ -76,7 +76,8 @@ final class IncarnationIdTruncateCrashOrderTest {
   @DisplayName("FMT-209, TXN-404: the new incarnation id is published before any data is removed")
   void txn404TruncatePublishesTheIncarnationIdBeforeRemovingData() throws Exception {
     final PowerLossRecorder recorder = new PowerLossRecorder();
-    final Path recordDb = workRoot.resolve("record-db");
+    // Database opens canonicalize paths; the recording provider must see the same root on macOS.
+    final Path recordDb = workRoot.toRealPath().resolve("record-db");
     final Map<String, Path> snapshots = new LinkedHashMap<>();
     final String[] observed = new String[3]; // [0] old id, [1] id at first removal, [2] id at first change
 
@@ -130,6 +131,8 @@ final class IncarnationIdTruncateCrashOrderTest {
     // between.
     for (final Map.Entry<String, Path> snapshot : snapshots.entrySet()) {
       final Path state = snapshot.getValue();
+      assertTrue(Files.notExists(state.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile())),
+          "crash snapshots contain persisted content, not the live process lock");
       Files.deleteIfExists(commitMarker(state));
       assertEquals(observed[1], persistedId(state), "crash state '" + snapshot.getKey() + "' lost the published id");
       Databases.clearGlobalCaches();
@@ -167,7 +170,8 @@ final class IncarnationIdTruncateCrashOrderTest {
         final Path destination = target.resolve(database.relativize(path));
         if (Files.isDirectory(path)) {
           Files.createDirectories(destination);
-        } else {
+        } else if (!path.equals(database.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()))) {
+          // The live process holds this file locked; Windows forbids reading it even for a copy.
           Files.createDirectories(destination.getParent());
           Files.copy(path, destination, StandardCopyOption.REPLACE_EXISTING);
         }

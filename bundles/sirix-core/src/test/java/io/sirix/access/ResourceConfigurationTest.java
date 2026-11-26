@@ -28,29 +28,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 
 final class ResourceConfigurationTest {
   @TempDir
   Path directory;
 
   enum PublicationFailure {
-    TEMPORARY_OPEN, DIRECTORY_OPEN, DIRECTORY_FORCE, DIRECTORY_CLOSE
+    TEMPORARY_OPEN, TEMPORARY_FORCE, DIRECTORY_OPEN, DIRECTORY_FORCE, DIRECTORY_CLOSE
   }
 
   @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void fmt209FailureBeforeRenamePreservesBothIds(final boolean restore) throws Exception {
-    final ResourceConfiguration config = persist(false);
-    final long original = config.getIncarnationId();
-    final byte[] settings = Files.readAllBytes(config.getConfigFile());
-    final IOException failure = new IOException("temporary file unavailable");
-    try (final MockedStatic<FileChannel> channels =
-        failPublication(config, PublicationFailure.TEMPORARY_OPEN, failure)) {
-      assertSame(failure, assertThrows(SirixIOException.class, () -> publish(config, restore)).getCause());
+  @EnumSource(value = PublicationFailure.class, names = {"TEMPORARY_OPEN", "TEMPORARY_FORCE"})
+  void fmt209FailureBeforeRenamePreservesBothIds(final PublicationFailure point) throws Exception {
+    for (final boolean restore : new boolean[] {false, true}) {
+      final ResourceConfiguration config = persist(false);
+      final long original = config.getIncarnationId();
+      final byte[] settings = Files.readAllBytes(config.getConfigFile());
+      final IOException failure = new IOException("temporary file unavailable");
+      try (final MockedStatic<FileChannel> channels = failPublication(config, point, failure)) {
+        assertSame(failure, assertThrows(SirixIOException.class, () -> publish(config, restore)).getCause());
+      }
+      assertArrayEquals(settings, Files.readAllBytes(config.getConfigFile()));
+      assertEquals(original, config.getIncarnationId());
+      assertEquals(original, ResourceConfiguration.deserialize(config.getResource()).getIncarnationId());
     }
-    assertArrayEquals(settings, Files.readAllBytes(config.getConfigFile()));
-    assertEquals(original, config.getIncarnationId());
-    assertEquals(original, ResourceConfiguration.deserialize(config.getResource()).getIncarnationId());
   }
 
   @ParameterizedTest
@@ -124,8 +126,16 @@ final class ResourceConfigurationTest {
           }
           return directoryChannel;
         }
-        if (point == PublicationFailure.TEMPORARY_OPEN && path.getFileName().toString().endsWith(".tmp")) {
-          throw failure;
+        if (path.getFileName().toString().endsWith(".tmp")) {
+          if (point == PublicationFailure.TEMPORARY_OPEN) {
+            throw failure;
+          }
+          if (point == PublicationFailure.TEMPORARY_FORCE) {
+            final FileChannel realChannel = (FileChannel) invocation.callRealMethod();
+            final FileChannel failingChannel = mock(FileChannel.class, delegatesTo(realChannel));
+            doThrow(failure).when(failingChannel).force(true);
+            return failingChannel;
+          }
         }
       }
       return invocation.callRealMethod();

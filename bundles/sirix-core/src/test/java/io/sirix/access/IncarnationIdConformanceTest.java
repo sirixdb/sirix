@@ -11,6 +11,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.backup.BackupManager;
+import io.sirix.exception.SirixIOException;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.xml.shredder.XmlShredder;
@@ -275,20 +276,22 @@ final class IncarnationIdConformanceTest {
   @DisplayName("FMT-209: recreating a removed resource under the same name draws a fresh id")
   void fmt209RecreationAfterResourceRemovalDrawsAFreshId(final Model model) {
     final Path database = newDatabase(model);
-    model.createResource(database, RESOURCE);
+    // Creation, not configuration construction, owns the fresh draw even when this object is reused.
+    final ResourceConfiguration configuration = ResourceConfiguration.newBuilder(RESOURCE).build();
+    model.createResource(database, configuration);
     model.commit(database, RESOURCE, 2);
     final String first = incarnationId(database, RESOURCE);
 
     // Whole-resource replacement is removal followed by creation of the same name (REST-210).
     model.removeResource(database, RESOURCE);
-    model.createResource(database, RESOURCE);
+    model.createResource(database, configuration);
     final String second = incarnationId(database, RESOURCE);
 
     assertNotEquals(first, second, "a recreated resource restarts history and MUST carry a new incarnation id");
     assertTrue(INCARNATION_ID.matcher(second).matches());
     assertEquals(0, model.mostRecentRevision(database, RESOURCE), "recreation restarts revision numbering");
     model.removeResource(database, RESOURCE);
-    model.createResource(database, RESOURCE);
+    model.createResource(database, configuration);
     final String third = incarnationId(database, RESOURCE);
     assertNotEquals(second, third);
     assertNotEquals(first, third);
@@ -404,12 +407,17 @@ final class IncarnationIdConformanceTest {
     Files.writeString(file, settings.toString());
     final byte[] withoutMember = Files.readAllBytes(file);
 
-    assertThrows(RuntimeException.class, () -> ResourceConfiguration.deserialize(file.getParent()),
-        "absence MUST NOT default to a reusable sentinel identity");
-    assertThrows(RuntimeException.class, () -> model.open(database, RESOURCE),
-        "a resource whose settings lack the member MUST NOT open");
-    assertThrows(RuntimeException.class, () -> ResourceConfiguration.serialize(original),
-        "a retained configuration MUST NOT replace a missing installed id");
+    assertTrue(
+        assertThrows(SirixIOException.class, () -> ResourceConfiguration.deserialize(file.getParent())).getMessage()
+                                                                                                       .contains(
+                                                                                                           MEMBER));
+    assertTrue(
+        assertThrows(SirixIOException.class, () -> model.open(database, RESOURCE)).getMessage().contains(MEMBER));
+    assertTrue(assertThrows(SirixIOException.class, () -> ResourceConfiguration.serialize(original)).getMessage()
+                                                                                                    .contains(MEMBER));
+    assertTrue(assertThrows(SirixIOException.class, original::publishFreshIncarnationId).getMessage().contains(MEMBER));
+    assertTrue(assertThrows(SirixIOException.class,
+        () -> ResourceConfiguration.publishFreshIncarnationId(file.getParent())).getMessage().contains(MEMBER));
     assertArrayEquals(withoutMember, Files.readAllBytes(file),
         "the refusal MUST NOT repair the document by writing a default or a freshly drawn id");
   }
@@ -448,12 +456,24 @@ final class IncarnationIdConformanceTest {
     Files.writeString(file, settings.toString());
     final byte[] malformed = Files.readAllBytes(file);
 
-    assertThrows(RuntimeException.class, () -> ResourceConfiguration.deserialize(file.getParent()),
-        description + " MUST be refused");
-    assertThrows(RuntimeException.class, () -> Model.JSON.open(database, RESOURCE),
-        "a resource with a malformed incarnationId (" + description + ") MUST NOT open");
-    assertThrows(RuntimeException.class, () -> ResourceConfiguration.serialize(original),
-        "a retained configuration MUST NOT replace a malformed installed id");
+    assertTrue(
+        assertThrows(SirixIOException.class, () -> ResourceConfiguration.deserialize(file.getParent())).getMessage()
+                                                                                                       .contains(
+                                                                                                           MEMBER),
+        description);
+    assertTrue(
+        assertThrows(SirixIOException.class, () -> Model.JSON.open(database, RESOURCE)).getMessage().contains(MEMBER),
+        description);
+    assertTrue(
+        assertThrows(SirixIOException.class, () -> ResourceConfiguration.serialize(original)).getMessage()
+                                                                                             .contains(MEMBER),
+        description);
+    assertTrue(assertThrows(SirixIOException.class, original::publishFreshIncarnationId).getMessage().contains(MEMBER),
+        description);
+    assertTrue(
+        assertThrows(SirixIOException.class,
+            () -> ResourceConfiguration.publishFreshIncarnationId(file.getParent())).getMessage().contains(MEMBER),
+        description);
     assertArrayEquals(malformed, Files.readAllBytes(file), "the refusal MUST NOT rewrite the document");
   }
 
@@ -556,7 +576,7 @@ final class IncarnationIdConformanceTest {
   @ParameterizedTest
   @EnumSource(Model.class)
   @DisplayName("FMT-209, TXN-613/614: a backup retains the copied id and each restore draws a fresh id per resource")
-  void txn613RestoreDrawsAFreshIdForEveryRestoredResource(final Model model) {
+  void txn613RestoreDrawsAFreshIdForEveryRestoredResource(final Model model) throws IOException {
     final Path source = newDatabase(model);
     final String[] names = {"alpha", "beta", "gamma"};
     for (final String name : names) {
@@ -567,9 +587,11 @@ final class IncarnationIdConformanceTest {
     for (int i = 0; i < names.length; i++) {
       original[i] = incarnationId(source, names[i]);
     }
-
     final Path backup = temporary.resolve("backup");
     BackupManager.backupDatabase(source, backup);
+    // Restore also accepts cold copies; a stray file in that input is not a resource to publish.
+    final Path note = Path.of("resources", "note.txt");
+    Files.writeString(backup.resolve(note), "not a resource");
     for (int i = 0; i < names.length; i++) {
       assertEquals(original[i], incarnationId(backup, names[i]),
           "the backup retains the copied metadata, including the id of '" + names[i] + "'");
@@ -579,6 +601,8 @@ final class IncarnationIdConformanceTest {
     final Path secondRestore = temporary.resolve("restore-2");
     BackupManager.restoreDatabase(backup, firstRestore);
     BackupManager.restoreDatabase(backup, secondRestore);
+    assertEquals("not a resource", Files.readString(firstRestore.resolve(note)));
+    assertEquals("not a resource", Files.readString(secondRestore.resolve(note)));
 
     final Set<String> allIds = new HashSet<>(List.of(original));
     for (int i = 0; i < names.length; i++) {

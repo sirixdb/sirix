@@ -546,8 +546,9 @@ inline Mockito mocks in other suites cannot affect their allocation measurements
 alone with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`. For only the HOT commit
 allocation checks, add `--tests 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'`; the
 [HOT specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing) owns their allocation contract.
-The same fork runs `CommitTimestampProbeAllocationBudgetTest` with blocking compilation (`-Xbatch`),
-so warmup completes before its unchanged zero-byte probe bound is measured on slower ARM runners.
+The same fork runs `CommitTimestampProbeAllocationBudgetTest` and `PageEnvelopeAllocationTest`
+with blocking compilation (`-Xbatch`), so warmup completes before their unchanged allocation
+bounds are measured on slower ARM runners.
 
 The normal core task also runs `StorageEpochStoreIdentityTest`,
 `StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM

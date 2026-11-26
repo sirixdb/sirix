@@ -608,7 +608,7 @@ public final class ResourceConfiguration {
       throw new SirixIOException(configFile + ": cannot read the resource settings", e);
     }
     // The member already exists, so the replacement keeps its position in the document.
-    parseIncarnationId(settings.get(INCARNATION_ID_NAME), configFile);
+    validateIncarnationId(settings.get(INCARNATION_ID_NAME), configFile);
     settings.addProperty(INCARNATION_ID_NAME, formatIncarnationId(incarnationId));
     Path tmpFile = null;
     try {
@@ -657,7 +657,7 @@ public final class ResourceConfiguration {
    * lowercase hexadecimal digits. Absence, any other JSON type and any other spelling are refused;
    * nothing defaults to a sentinel (FMT-209).
    */
-  private static long parseIncarnationId(final @Nullable JsonElement member, final Path configFile) {
+  private static void validateIncarnationId(final @Nullable JsonElement member, final Path configFile) {
     if (member == null) {
       throw missingIncarnationId(configFile);
     }
@@ -665,7 +665,7 @@ public final class ResourceConfiguration {
       throw new SirixIOException(configFile + ": settings field '" + INCARNATION_ID_NAME
           + "' must be a string of 16 lowercase hexadecimal digits");
     }
-    return parseIncarnationId(member.getAsString(), configFile);
+    parseIncarnationId(member.getAsString(), configFile);
   }
 
   private static long parseIncarnationId(final String value, final Path configFile) {

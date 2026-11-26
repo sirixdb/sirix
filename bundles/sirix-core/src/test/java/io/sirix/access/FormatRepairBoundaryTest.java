@@ -332,7 +332,8 @@ final class FormatRepairBoundaryTest {
           // FMT-101: kind, version, extension flag, extension length, tag, payload length,
           // three feature words, revision count. Hash byte order is FMT-103's big endian.
           final byte[] payload =
-              new byte[] {3, 0, (byte) 0x80, 14, (byte) 0xc1, 12, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0};
+              new byte[] {3, 0, (byte) 0x80, 14, (byte) 0xc1, 12, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0};
+          // FMT-204/209: readOnlyCompat bit 0 is known; bit 1 remains unsupported.
           if (defect.equals("incompat")) {
             payload[6] = 1;
             payload[10] = 0;
@@ -351,7 +352,7 @@ final class FormatRepairBoundaryTest {
             () -> ResourceFormatCompatibility.verify(ResourceConfiguration.deserialize(resource)));
       } else if (defect.equals("features")) {
         final var proof = ResourceFormatCompatibility.verify(ResourceConfiguration.deserialize(resource));
-        assertEquals(1, proof.uberPage().getFeatures().readOnlyCompat());
+        assertEquals(2, proof.uberPage().getFeatures().readOnlyCompat());
       }
       try (final FileChannel data = FileChannel.open(file(resource, "data"), StandardOpenOption.READ);
           final FileChannel revisions = FileChannel.open(file(resource, "revisions"), StandardOpenOption.READ);

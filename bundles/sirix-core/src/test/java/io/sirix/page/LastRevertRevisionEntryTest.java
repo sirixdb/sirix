@@ -1,6 +1,8 @@
 package io.sirix.page;
 
 import io.sirix.node.Bytes;
+import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.BytesIn;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -9,10 +11,12 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.HexFormat;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * FMT-209 wire table: the revision root's last-revert revision is one optional kind-local
@@ -119,6 +123,59 @@ final class LastRevertRevisionEntryTest {
         "entries out of ascending tag order");
     assertEquals(0, decode(withBlock(valid, laterOptional)).getLastRevertRevision(),
         "an unknown optional entry alone carries no last-revert revision");
+  }
+
+  /** FMT-203/209: the extension reader owns exactly one length-delimited block. */
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void completeBlockNeedsNoFollowingBodyBytes(final boolean arrayInput) {
+    // block length 6, tag 0x41, payload length 4, little-endian revision 0x01020304.
+    final BytesIn<?> source = input(HexFormat.of().parseHex("06410404030201"), arrayInput);
+    assertEquals(0x01020304, PageExtensions.readRevisionRootLastRevert(source, (byte) 0x80));
+    assertEquals(0, source.remaining());
+  }
+
+  /** FMT-203: neither a length nor a payload may consume bytes outside its entry block. */
+  @ParameterizedTest
+  @ValueSource(strings = {"014155", "02410455"})
+  void malformedEntryLeavesFollowingBodyUntouched(final String wire) {
+    for (final boolean arrayInput : new boolean[] {false, true}) {
+      final byte[] bytes = HexFormat.of().parseHex(wire);
+      final BytesIn<?> source = input(bytes, arrayInput);
+      // The block either lacks the entry length or advertises a payload beyond its boundary.
+      // 0x55 is the first byte of the following body, not part of the malformed block.
+      assertThrows(IllegalStateException.class, () -> PageExtensions.readRevisionRootLastRevert(source, (byte) 0x80));
+      assertEquals(bytes.length - 1, source.position());
+      assertEquals(0x55, source.readByte());
+    }
+  }
+
+  /** The shared envelope diagnostic contract names the actual unsigned flag byte. */
+  @ParameterizedTest
+  @ValueSource(ints = {0x01, 0x81, 0xFF})
+  void unsupportedFlagsNameTheirUnsignedValueBeforeReadingTheBody(final int flags) throws IOException {
+    final byte[] image = encode(root(7, 3));
+    image[FLAGS] = (byte) flags;
+    for (final boolean arrayInput : new boolean[] {false, true}) {
+      final BytesIn<?> source = input(image, arrayInput);
+      final IllegalStateException error = assertThrows(IllegalStateException.class,
+          () -> new PagePersister().deserializePage(null, source, SerializationType.DATA));
+      assertTrue(error.getMessage().contains("flags 0x" + Integer.toHexString(flags)));
+      assertEquals(FLAGS + 1, source.position());
+    }
+  }
+
+  /** FMT-209: a last-revert entry represents a positive published revision; 0 means absence. */
+  @ParameterizedTest
+  @ValueSource(ints = {0, -1, Integer.MIN_VALUE})
+  void entryWriterRefusesNonpositiveRevisions(final int revision) {
+    assertThrows(IllegalArgumentException.class, () -> PageExtensions.lastRevertRevision(revision));
+  }
+
+  private static BytesIn<?> input(final byte[] bytes, final boolean arrayInput) {
+    return arrayInput
+        ? new ByteArrayBytesIn(bytes)
+        : Bytes.wrapForRead(bytes);
   }
 
   /** A fixed past commit time, so two images differ only in what the test varies. */
