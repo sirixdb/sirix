@@ -27,6 +27,17 @@
   keys past it are truncated with an unambiguous marker and read through an exact candidate
   re-check, without insert failure. Names inside the bound pay no re-check record reads. CAS and
   VALIDTIME retain their existing smaller bounds. The cross-kind conformance sweep remains planned.
+- Add [FMT-306](FMT-disk-format.md#fmt-306--hot-stored-height-and-spine-continuity): a HOT
+  indirect node's stored height MUST equal the structural height below it, live in the writing
+  transaction, in every published revision and after cold decode; a structural change below a node
+  MUST be carried back along the whole parent chain, so no reachable ancestor keeps describing the
+  subtree it replaced, including when the ancestor's own height does not change, and a mutation that
+  cannot complete that propagation MUST fail the transaction. Locating a key MUST NOT depend on a
+  stored height, while maintenance MAY read it, so an inexact height is a malformed subtree rather
+  than a cost matter, and the invariant validator MUST compare stored heights with the structure it
+  walks. Height minimality stays out of scope: FMT-302 remains the only height guarantee, and a
+  committed trie MAY exceed the smallest height admissible for its leaf partitioning.
+  [#1457](https://github.com/sirixdb/sirix/issues/1457).
 
 - Make the PR mutation lane's unit of work its blocking criterion. New
   [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant
