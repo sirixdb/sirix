@@ -268,3 +268,51 @@ censuses, with the original PR base; no registry entry was changed. Java formatt
 `git diff --check` passed. Evidence is under `build/ci-pr1499-followup/`, including the raw runner
 result and the final successful disposition check. Authenticated SonarCloud reanalysis is left to
 the outer executor; no local Sonar credential was available, and no hosted rerun is claimed.
+
+
+## Canonical paths in cancellation fault injection
+
+- Symptom: hosted macOS `BackupDerivedResourceTest.interruptedCopyReleasesOwnershipEvenWhenTargetCleanupFails`
+  returned successfully in all three cases instead of throwing the injected copy/cleanup failure.
+- Trigger: the temporary source path passes through macOS's `/var` symlink; database ownership
+  resolves it to `/private/var` before listing resources.
+- Root cause: the filesystem fault injector matched resource-copy paths against the lexical input
+  prefix. The copier received the canonical resource path, so the fault never fired. This was a
+  test-boundary identity error, not a production lifetime or eviction failure.
+- Requirement and oracle: TXN-613 requires cancellation to preserve the original refusal and
+  interruption while releasing writer/session/database ownership, including failed target cleanup.
+  The test observes those errors, the interrupt flag, subsequent writer admission and OS lock
+  acquisition. A backup that swallows cancellation or retains ownership must fail these assertions.
+- Fix: resolve the expected source-resource prefix with `toRealPath()` before installing the
+  filesystem mock. Cover all three failure modes through both direct and noncanonical `.` source
+  paths, without needing symlink privileges on Windows. Target cleanup and successful publication
+  use the supplied target path and do not pass through database ownership canonicalization.
+- Regression: the noncanonical cases reproduce the missing fault locally with the old matcher.
+  Run `./gradlew :sirix-core:test --tests 'io.sirix.backup.BackupDerivedResourceTest'`.
+- Lesson: identify filesystem fault targets in the same path representation as the real boundary;
+  exercise noncanonical inputs without weakening the behavior oracle.
+- Vision check: the correction preserves cancellation and immutable-history assertions across
+  platforms; no production behavior, defaults, work budgets or mutation scope changes.
+
+The other failure in hosted run 45717237032 was external to this head's source: its checkout was
+synthetic merge 4c1a1345c (head 5d5173c5 merged into newer base bf3e95c7), but mutation selection
+compared dispositions with the event base 7f8fb8e7. Fourteen REST dispositions from that newer
+base appeared new without a corresponding REST source change in this PR's mutation scope.
+Both hosted mutation modules completed; core detected all 113 changed-line mutants and the CLI's
+four survivors had accepted dispositions. The disposition helper passes for the stated head/base
+using both hosted reports and censuses. No registry waiver or lane-selection change is warranted;
+the outer executor must obtain fresh hosted evidence with consistent merge/base revisions.
+
+Local verification passed 401 selected core tests (364 budget cases and 37 backup/ownership
+cases), the isolated allocation/startup/ownership tasks, and `spotlessJavaCheck`. The default
+workstation-sized run was killed with exit 137 during budgets; the complete retry passed with
+`-Dorg.gradle.jvmargs=-Xmx1g -PtestHeapMin=256m -PtestHeapMax=1g
+-Dsirix.allocator.maxSize=512M --max-workers=1`, without changing the selected tests or any work bound.
+
+The complete blocking PIT rerun also passed with Error Prone enabled and a local 512 MiB
+allocator cap: core detected all 113 mutants (109 killed, two timed out, two runtime errors);
+CLI killed five and accepted its four existing equivalent mutants. Neither module has an
+uncovered or unresolved surviving changed-line mutant. The disposition helper passed with both
+complete reports and censuses; no disposition, selection setting or mutation time budget changed.
+Evidence, including the three failing noncanonical cases before correction and the final reports,
+is under `build/ci-pr1499-canonical-paths/`. Hosted CI refresh remains the outer executor's task.

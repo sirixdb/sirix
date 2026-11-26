@@ -28,6 +28,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 
@@ -326,9 +327,15 @@ final class BackupDerivedResourceTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"copy", "cleanup-runtime", "cleanup-error"})
+  @CsvSource({"copy, false", "cleanup-runtime, false", "cleanup-error, false", "copy, true", "cleanup-runtime, true",
+      "cleanup-error, true"})
   @DisplayName("TXN-613: copy cancellation releases ownership and restores interruption even if cleanup fails")
-  void interruptedCopyReleasesOwnershipEvenWhenTargetCleanupFails(final String failureMode) throws IOException {
+  void interruptedCopyReleasesOwnershipEvenWhenTargetCleanupFails(final String failureMode,
+      final boolean nonCanonicalSource) throws IOException {
+    if (nonCanonicalSource) {
+      sourceDb = sourceDb.resolve(".");
+    }
+    final Path sourceResource = sourceDb.toRealPath().resolve("resources").resolve(RESOURCE);
     final Path backupDir = tempDir.resolve("interrupted-copy");
     final IOException copyFailure = new IOException("interrupted resource copy");
     final AssertionError cleanupError = new AssertionError("target cleanup failed");
@@ -338,7 +345,7 @@ final class BackupDerivedResourceTest {
         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       try (final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
         if (invocation.getMethod().getName().equals("copy")
-            && invocation.getArgument(0, Path.class).startsWith(sourceDb.resolve("resources").resolve(RESOURCE))) {
+            && invocation.getArgument(0, Path.class).startsWith(sourceResource)) {
           Thread.currentThread().interrupt();
           throw copyFailure;
         }
