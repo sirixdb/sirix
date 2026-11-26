@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.Marker;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -442,6 +443,19 @@ final class PostDurableCleanupFailureTest {
         if (site.equals("spill")) {
           injector.injectAt(Point.BEFORE_DISCARD_SPILLED_WRITES, 1);
         }
+        if (site.equals("marker")) {
+          // Replace the marker only after its creation and the durable beacon, in both commit modes.
+          // A directory present before commit can fail marker creation on Windows instead.
+          injector.beforeDiscardSpilledWrites(() -> {
+            try {
+              Files.delete(marker);
+              Files.createDirectory(marker);
+              Files.createFile(marker.resolve("blocker"));
+            } catch (final IOException failure) {
+              throw new UncheckedIOException(failure);
+            }
+          });
+        }
         if (asynchronous) {
           AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
             if (stage.equals("before-harden")) {
@@ -450,15 +464,7 @@ final class PostDurableCleanupFailureTest {
           };
           writer.insertStringValueAsFirstChild("speculative");
         }
-        try {
-          if (site.equals("marker")) {
-            Files.deleteIfExists(marker);
-            Files.createDirectory(marker);
-            Files.createFile(marker.resolve("blocker"));
-          }
-        } finally {
-          release.countDown();
-        }
+        release.countDown();
         if (asynchronous) {
           assertDoesNotThrow(writer::awaitPendingAsyncCommit);
         } else {

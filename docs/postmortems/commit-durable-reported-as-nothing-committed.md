@@ -90,3 +90,42 @@ escape in the two new async marker cases and both existing JSON/XML marker-delet
 same four cases passed after the direct-consumption correction. Gradle's required startup/storage
 prerequisites also passed. The reporting guards themselves were not tested counterfactually against
 the preceding commit, and mutation evidence remains with the outer pipeline.
+
+CI exposed two test defects in this change. The catalogue, construction-cleanup and notification
+regressions still expected a post-durable construction/submission error and same-writer rollback.
+That expectation predates TXN-307's irreversible terminal lifecycle. All four platform lanes failed
+those same 15 cases; PIT stopped on seven of them during its unmutated baseline. The revised tests
+derive the result from TXN-307: explicit commit succeeds, automatic rotation refuses the next edit,
+commit/rollback/revert remain refused, and closing then opening a fresh writer preserves the durable
+values, index lookups, historical revisions, projection-owner retirement and notification delivery.
+The obsolete duplicate rollback-recovery branches are removed; ordinary successful revert and
+rollback coverage remains.
+
+The Windows-only reporting failures had a separate trigger: the synchronous fixture replaced
+`.commit` with a nonempty directory before `commitWritePages` tried to create the marker. Windows
+reports `AccessDeniedException` for that creation, before durability; Linux accepted it as an existing
+path. Both synchronous and async fixtures now replace the real marker through a one-shot test-writer
+action at spill cleanup, after the beacon returned. The independent oracle remains the durable
+revision and its recovered data, plus the recorded marker-deletion `IOException` and an observed
+reporting failure. A pre-point exception, a skipped injection, a retried revision or lost catalogue
+must fail these tests. No production behavior or default changes in this CI correction.
+
+The focused CI correction command selected `PostDurableCleanupFailureTest`,
+`WriterCatalogueRecoveryTest`, `WriterConstructionFailureCleanupTest` and
+`DatabaseNotificationLifecycleTest.inlineHardeningFallbackStillDeliversDurableHooks` through
+`:sirix-core:test --max-workers=2 --tests ...`. It reproduced the 15 shared failures before the test
+correction, then passed all 60 cases (42 durability, 10 catalogue, six construction, two notification),
+along with Gradle's required isolated prerequisites. Formatting passed and all 266 mutation-tooling
+tests passed. The Windows diagnosis uses the CI stack trace; no local Windows execution is claimed.
+
+PIT's original selection omitted the requirement-owned durability and catalogue regression suites.
+Explicit associations now include both for the transaction and storage writers, so the changed-line
+lane measures their existing behavior checks too.
+
+The local changed-line PIT run completed with a green unmutated baseline: 59 mutants, 33 killed,
+20 survived and six uncovered. Thus the original seven failing baseline cases are fixed, but the
+mutation verdict remains unclean; no equivalence or coverage claim is made for the remaining 26.
+The reports are under `build/ci-mutation-fixed/` for the outer executor's mutation review. The local
+checker also flagged 40 existing dispositions in other modules because those modules' classes were
+not compiled in this core-only workspace run; their entries were left unchanged. No guard removal,
+waiver or mutant-directed test was used to suppress either result.

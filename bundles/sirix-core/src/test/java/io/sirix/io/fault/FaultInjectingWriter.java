@@ -75,6 +75,7 @@ public final class FaultInjectingWriter implements Writer {
   private final Writer delegate;
   private volatile Point activePoint;
   private final AtomicInteger countdown = new AtomicInteger();
+  private Runnable beforeDiscardSpilledWrites;
 
   public FaultInjectingWriter(final Writer delegate) {
     this.delegate = Objects.requireNonNull(delegate, "delegate");
@@ -108,6 +109,11 @@ public final class FaultInjectingWriter implements Writer {
   /** Whether the injector is armed for {@code point}. */
   public boolean isArmedFor(final Point point) {
     return this.activePoint == point;
+  }
+
+  /** Run a one-shot fixture action before spill cleanup (post-beacon in the commit path). */
+  public void beforeDiscardSpilledWrites(final Runnable action) {
+    beforeDiscardSpilledWrites = Objects.requireNonNull(action, "action");
   }
 
   /**
@@ -181,6 +187,11 @@ public final class FaultInjectingWriter implements Writer {
    */
   @Override
   public void discardSpilledWrites() {
+    final Runnable action = beforeDiscardSpilledWrites;
+    beforeDiscardSpilledWrites = null;
+    if (action != null) {
+      action.run();
+    }
     maybeFire(Point.BEFORE_DISCARD_SPILLED_WRITES);
     delegate.discardSpilledWrites();
     maybeFire(Point.AFTER_DISCARD_SPILLED_WRITES);
