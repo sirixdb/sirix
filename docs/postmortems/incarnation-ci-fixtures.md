@@ -12,6 +12,11 @@
     remain a valid independent reader oracle, but its settings are not the current schema.
   - The repair fixture used readOnlyCompat bit 0 after FMT-209 assigned and implemented that
     bit. The writer's acceptance was correct; the unknown-bit test input was wrong.
+    The isolated tool-reader fixture retained the same stale literal after the other refusal
+    fixtures were corrected. Targeted Test validation reproduced its failure on both persistent
+    backends. It now uses the shared unassigned-bit fixture constant; its exception and whole-file
+    preservation assertions are unchanged. The oracle is FMT-204/209's feature registry, not the
+    engine's implementation of known bits.
   - The new recording test registered a lexical temporary path while database open resolves
     symlinks. macOS's temporary-directory alias therefore bypassed the recording provider.
     Both older recording tests already resolve their temporary roots with `toRealPath()`.
@@ -105,6 +110,11 @@
   CLI inventory; none was edited. The native platform CI rerun remains with the outer executor.
   Evidence and commands are retained under `build/ci-diagnosis/`, including the complete broad
   report, the focused lifecycle report and their separate logs.
+  The later targeted Test-phase run reproduced two failures in
+  `InterruptedFirstCommitRecoveryStoreFeaturesTest.isolatedToolRefusesUnknownFeaturesWithoutChangingBytes`
+  before correcting its remaining bit-0 literal. Both persistent-backend cases and the complete
+  selected core conformance/work-budget run passed afterward; no production behavior or assertion
+  was changed by that fixture correction.
 - Lesson: fixtures must continue to express the contract they claim to exercise as the format
   grows; crash observers must use the engine's path identity and omit process-only locks.
   Measure allocation after warming both probe and workload in the existing isolated fork.

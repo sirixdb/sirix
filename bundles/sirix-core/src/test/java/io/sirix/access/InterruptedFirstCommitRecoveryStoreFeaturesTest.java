@@ -703,8 +703,8 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void isolatedToolRefusesUnknownFeaturesWithoutChangingBytes(final StorageType backend) throws IOException {
     createStore(backend);
-    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0),
-        new StoreFeatures(0, 0, 1)}) {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0),
+        new StoreFeatures(0, UNKNOWN_READ_ONLY_COMPAT, 0), new StoreFeatures(0, 0, 1)}) {
       replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
       replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
       final byte[] dataBefore = Files.readAllBytes(dataFile());
