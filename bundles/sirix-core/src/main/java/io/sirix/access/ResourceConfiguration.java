@@ -28,6 +28,7 @@
 
 package io.sirix.access;
 
+import io.sirix.exception.UnsupportedFormatVersionException;
 import io.sirix.utils.ToStringHelper;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
@@ -56,6 +57,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -432,8 +434,8 @@ public final class ResourceConfiguration {
    * Per-resource identity UUID, generated at resource creation and written into both files'
    * superblocks (reserved bytes [40, 56)). Cross-links the binary files to this settings file:
    * opening a data file with a different resource's settings — the classic "restored the JSON from
-   * the wrong backup" corruption — fails fast instead of misreading. {@code null} for resources
-   * created before the field existed (their superblock UUID is zero, accepted as legacy).
+   * the wrong backup" corruption — fails fast instead of misreading. Never {@code null} and never the
+   * all-zero UUID: 1.0 settings must identify their resource (FMT-102).
    */
   public final UUID resourceUuid;
 
@@ -736,10 +738,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[24]).value(config.withPathStatistics);
       // Retained bulk-loader tuning request.
       jsonWriter.name(JSONNAMES[25]).value(config.repairBulkInsertHashes);
-      // Resource identity UUID (cross-linked to both superblocks).
-      if (config.resourceUuid != null) {
-        jsonWriter.name(JSONNAMES[26]).value(config.resourceUuid.toString());
-      }
+      // Resource identity UUID (cross-linked to both superblocks); always written (FMT-102).
+      jsonWriter.name(JSONNAMES[26]).value(config.resourceUuid.toString());
       // Region wire compression (speed/size dial).
       jsonWriter.name(JSONNAMES[27]).value(config.regionCompressionType.name());
       jsonWriter.name(JSONNAMES[28]).value(config.aggregateKernel);
@@ -756,8 +756,8 @@ public final class ResourceConfiguration {
   /**
    * Reads the next field name and fails fast when it is not the expected one. The resource settings
    * are format identity: required fields must not be silently misparsed (this used to be an
-   * {@code assert}, a no-op in production). Optional tail fields are dispatched separately by name;
-   * see {@code docs/DISK_FORMAT.md} for the settings contract.
+   * {@code assert}, a no-op in production). Tail fields are dispatched separately by name; see
+   * {@code spec/CONF-configuration.md} for the settings contract.
    */
   private static void expectField(final JsonReader jsonReader, final String expected, final Path configFile)
       throws IOException {
@@ -774,7 +774,8 @@ public final class ResourceConfiguration {
    *
    * @param file where the resource lies in.
    * @return a complete {@link ResourceConfiguration} instance
-   * @throws SirixIOException if an I/O error occurs
+   * @throws SirixIOException if an I/O error occurs or the resource identity is missing or zero
+   * @throws UnsupportedFormatVersionException if the persisted binary encoding is not supported
    */
   public static ResourceConfiguration deserialize(final Path file) throws SirixIOException {
     return deserialize(file, false);
@@ -791,7 +792,7 @@ public final class ResourceConfiguration {
       jsonReader.beginObject();
       // Binary encoding version.
       expectField(jsonReader, JSONNAMES[0], configFile);
-      final BinaryEncodingVersion binaryEncodingVersion = BinaryEncodingVersion.valueOf(jsonReader.nextString());
+      final BinaryEncodingVersion binaryEncodingVersion = readBinaryEncodingVersion(jsonReader, configFile);
       // Versioning.
       expectField(jsonReader, JSONNAMES[1], configFile);
       jsonReader.beginObject();
@@ -855,17 +856,15 @@ public final class ResourceConfiguration {
       expectField(jsonReader, JSONNAMES[16], configFile);
       final boolean storeChildCount = jsonReader.nextBoolean();
 
-      // Optional settings are dispatched by name, so an omitted legacy field cannot desynchronize
-      // the reader. Unknown names are refused; only the extensions object is safe to skip.
+      // Tail fields use names so omissions cannot shift decoding; CONF-102 owns required members
+      // and read defaults. Unknown names are refused; only the extensions object is safe to skip.
       StringCompressionType stringCompressionType = StringCompressionType.NONE;
       int deweyIdSiblingDistance = 16;
       boolean verifyChecksumsOnRead = true;
       HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3;
       String name;
 
-      // Valid time configuration (optional for backward compatibility with older configs)
       ValidTimeConfig validTimeConfig = null;
-      // Path statistics flag (optional for backward compatibility with older configs)
       boolean pathStatistics = false;
       boolean repairBulkInsertHashes = false;
       UUID resourceUuid = null;
@@ -924,6 +923,8 @@ public final class ResourceConfiguration {
 
       jsonReader.endObject();
 
+      requireResourceIdentity(resourceUuid, configFile);
+
       // Deserialize database config.
       final Path database = file.getParent().getParent();
       final DatabaseConfiguration dbConfig = forTool
@@ -965,6 +966,56 @@ public final class ResourceConfiguration {
     } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException
         | IllegalAccessException | InvocationTargetException e) {
       throw new SirixIOException(e);
+    }
+  }
+
+  public static void requireSupportedBinaryEncoding(final Path resource) {
+    final Path configFile = resource.resolve(ResourcePaths.CONFIG_BINARY.getPath());
+    try (final FileReader fileReader = new FileReader(configFile.toFile(), Charset.defaultCharset());
+        final JsonReader reader = new JsonReader(fileReader)) {
+      reader.beginObject();
+      while (reader.hasNext()) {
+        final String name = reader.nextName();
+        if (name.equals(JSONNAMES[0])) {
+          readBinaryEncodingVersion(reader, configFile);
+        } else {
+          reader.skipValue();
+        }
+      }
+    } catch (final IOException | IllegalStateException unreadable) {
+      return;
+    }
+  }
+
+  private static BinaryEncodingVersion readBinaryEncodingVersion(final JsonReader reader, final Path configFile)
+      throws IOException {
+    final JsonToken token = reader.peek();
+    if (token != JsonToken.STRING && token != JsonToken.NUMBER) {
+      throw new UnsupportedFormatVersionException(configFile + ": unsupported format version '" + token + "'");
+    }
+    return parseBinaryEncodingVersion(reader.nextString(), configFile);
+  }
+
+  /**
+   * Resolves the persisted format version. 1.0 is the only on-disk format (FMT-401), so any other
+   * name is refused with a plain message instead of the raw enum lookup failure.
+   */
+  private static BinaryEncodingVersion parseBinaryEncodingVersion(final String name, final Path configFile) {
+    for (final BinaryEncodingVersion version : BinaryEncodingVersion.values()) {
+      if (version.name().equals(name)) {
+        return version;
+      }
+    }
+    throw new UnsupportedFormatVersionException(configFile + ": unsupported format version '" + name + "'");
+  }
+
+  /** 1.0 settings MUST identify their resource with a nonzero UUID (FMT-102); there is no default. */
+  private static void requireResourceIdentity(final UUID resourceUuid, final Path configFile) {
+    if (resourceUuid == null) {
+      throw new SirixIOException(configFile + ": missing required resource settings field '" + JSONNAMES[26] + "'");
+    }
+    if (resourceUuid.getMostSignificantBits() == 0 && resourceUuid.getLeastSignificantBits() == 0) {
+      throw new SirixIOException(configFile + ": zero resource UUID in settings field '" + JSONNAMES[26] + "'");
     }
   }
 
@@ -1106,8 +1157,7 @@ public final class ResourceConfiguration {
 
     /**
      * Per-resource identity UUID. A fresh random UUID for new resources; overwritten with the persisted
-     * value when deserializing an existing configuration ({@code null} = legacy config without the
-     * field).
+     * value when deserializing an existing configuration, which must carry a nonzero one (FMT-102).
      */
     private UUID resourceUuid = UUID.randomUUID();
 
@@ -1474,14 +1524,18 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Sets the resource identity UUID. Deserialization passes the persisted value ({@code null} for
-     * legacy configs, which disables the superblock cross-check); new resources keep the generated
-     * random default.
+     * Sets the resource identity UUID. Deserialization passes the persisted value; new resources keep
+     * the generated random default. The all-zero UUID is not an identity (FMT-102).
      *
-     * @param resourceUuid the persisted UUID, or {@code null} for a legacy configuration
+     * @param resourceUuid the persisted nonzero UUID
      * @return reference to the builder object
+     * @throws NullPointerException if {@code resourceUuid} is {@code null}
+     * @throws IllegalArgumentException if {@code resourceUuid} is the all-zero UUID
      */
     public Builder resourceUuid(final UUID resourceUuid) {
+      requireNonNull(resourceUuid);
+      checkArgument(resourceUuid.getMostSignificantBits() != 0 || resourceUuid.getLeastSignificantBits() != 0,
+          "The resource identity UUID must not be the all-zero UUID.");
       this.resourceUuid = resourceUuid;
       return this;
     }

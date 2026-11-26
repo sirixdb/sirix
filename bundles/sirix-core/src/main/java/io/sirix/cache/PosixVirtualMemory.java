@@ -44,7 +44,6 @@ final class PosixVirtualMemory implements VirtualMemory {
   private static final int MAP_NORESERVE = OS.isMacOSX()
       ? 0
       : 0x4000;
-  private static final int MADV_DONTNEED = 4;
   private static final int MADV_POPULATE_WRITE = 23;
   private static final int ENOMEM = 12;
   private static final int EINVAL = 22;
@@ -100,21 +99,6 @@ final class PosixVirtualMemory implements VirtualMemory {
   @Override
   public boolean commitFresh(final MemorySegment slot) {
     return false;
-  }
-
-  @Override
-  public void discardToZeros(final MemorySegment segment) {
-    if (MADVISE == null) {
-      return;
-    }
-    try {
-      final int rc = (int) MADVISE.invokeExact(segment, segment.byteSize(), MADV_DONTNEED);
-      if (rc != 0) {
-        LOGGER.debug("discardToZeros MADV_DONTNEED rc={} on address 0x{}", rc, Long.toHexString(segment.address()));
-      }
-    } catch (final Throwable t) {
-      LOGGER.debug("discardToZeros madvise failed: {}", t.getMessage());
-    }
   }
 
   @Override

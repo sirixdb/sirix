@@ -590,6 +590,7 @@ AsciiKeyBytes.isAsciiPrefix accepted, which is below 0x80. 0x80 is a continuatio
 lead a character of well-formed UTF-8, which is what String.getBytes(UTF_8) produces. Every other
 byte takes the same branch under both forms."""
 
+
 [[mutant]]
 class = "io.sirix.cli.commands.BackupKt"
 method = "printBackupSummary"

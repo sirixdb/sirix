@@ -33,7 +33,7 @@ Resource creation MUST persist the selected configuration in ressetting.obj. Reo
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** extensions is an optional metadata escape hatch and is not retained by this reader. It cannot carry required decoding semantics; use FMT feature negotiation. Partial valid-time pairs currently become disabled; stricter valid-time schema policy is deferred with the broader P1 valid-time contract. The required `incarnationId` member and its validation are unimplemented (FMT-209).
 
-The resource-settings writer MUST emit the names, nesting and types in the table below, including the historical spelling `numbersOfRevisiontoRestore`. Required fields MUST be read in the established prefix order; supported tail fields may be omitted with their documented defaults. Unknown fields MUST fail with their name except an object-valued `extensions` field, whose contents are skipped. Unknown nested revisioning/valid-time fields MUST fail. The `incarnationId` member MUST be persisted as a 16-digit lowercase hexadecimal string, because JSON numbers cannot safely represent every unsigned 64-bit value; its generation and lifecycle follow FMT-209.
+The resource-settings writer MUST emit the names, nesting and types in the table below, including the historical spelling `numbersOfRevisiontoRestore`. Required fields MUST be read in the established prefix order; only tail fields with a documented read default may be omitted. Unknown fields MUST fail with their name except an object-valued `extensions` field, whose contents are skipped. Unknown nested revisioning/valid-time fields MUST fail. The `incarnationId` member MUST be persisted as a 16-digit lowercase hexadecimal string, because JSON numbers cannot safely represent every unsigned 64-bit value; its generation and lifecycle follow FMT-209.
 
 ### CONF-103 — Database settings
 
@@ -162,7 +162,7 @@ Prefix fields appear in this order. Names are exact, including legacy spelling.
 | validTimeConfig | object with string validFromPath and validToPath | absent/disabled |
 | pathStatistics | boolean | false |
 | repairBulkInsertHashes | boolean | false |
-| resourceUuid | nonzero UUID string | required for 1.0; current absent/null beta fallback is rejected by FMT-102/401 |
+| resourceUuid | nonzero UUID string | required for 1.0; an absent or zero value is refused under FMT-102/401, with no read default |
 | regionCompression | enum name | LZ77 |
 | aggregateKernel | boolean | false |
 | saltRecordPages | boolean | true |

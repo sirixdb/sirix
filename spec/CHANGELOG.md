@@ -96,6 +96,15 @@
   cumulative drift above 2%. The development strategy states the reasons in
   [The benchmark protocol](../docs/DEVELOPMENT.md#the-benchmark-protocol).
 
+- Make 1.0 the only on-disk format under
+  [FMT-401](FMT-disk-format.md#fmt-401--10-format-baseline), with strict identity checks under
+  FMT-102/CONF-102 and history-preserving export/import under
+  [FMT-402](FMT-disk-format.md#fmt-402--history-preserving-export-and-import).
+  FMT-401 remains partial: beaconless framed-prefix and bounded historical-root checks
+  do not replace the complete envelope scan deferred to `sirix-repair-format-gate`. Explicit
+  truncate checks the target and its bounded root window before publishing beacons; absent revisions headers remain
+  recoverable with validated data identity and tail-log evidence.
+
 - Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
   [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).
 
@@ -153,8 +162,10 @@
 
 - Apply the final review decisions: known durable cleanup failures return success;
   unknown durability stops writes and throws CommitOutcomeUnknownException without
-  fsync retry. Reject beta stores with history-preserving export/import guidance; require an
-  immutable 1.0 corpus in CI. Truncate fails fast for affected open readers. Backups
+  fsync retry.
+  The format baseline and export/import policy follow
+  [FMT-401–402](FMT-disk-format.md#fmt-401--10-format-baseline).
+  Truncate fails fast for affected open readers. Backups
   pin startup resource/revision membership; dropping a pinned resource fails fast.
 
 - Classify Java declarations into the decided small stable core, labelled expert tier

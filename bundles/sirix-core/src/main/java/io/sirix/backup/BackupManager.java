@@ -69,10 +69,10 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * While the writer semaphore is held by our empty transaction:
  * <ul>
- * <li>no other transaction exists, so no bytes of {@code sirix.data} are appended, the dual
- * uber-page beacon slots (offsets 4096/8192) are not rewritten, and no revision slot is added to
- * {@code sirix.revisions} — the (data, revisions) pair is <b>byte-stable</b> and mutually
- * consistent at the last committed revision;</li>
+ * <li>no other read-write transaction exists for that resource, so no bytes of {@code sirix.data}
+ * are appended, the dual uber-page beacon slots (offsets 4096/8192) are not rewritten, and no
+ * revision slot is added to {@code sirix.revisions} — the (data, revisions) pair is
+ * <b>byte-stable</b> and mutually consistent at the last committed revision;</li>
  * <li>{@code beginNodeTrx} has already executed the leftover-{@code .commit}-marker crash recovery
  * (truncation to the last durable revision) <em>before</em> we start copying, so the image we copy
  * is a recovered, consistent state;</li>
@@ -182,8 +182,8 @@ public final class BackupManager {
    * {@code targetDir}.
    *
    * <p>
-   * The target must either not exist or be an empty directory. On failure, everything written to the
-   * target is removed again.
+   * The target must either not exist or be an empty directory. Failure cleanup follows the
+   * best-effort policy in {@code docs/BACKUP.md}.
    *
    * @param databaseDir the database directory to back up
    * @param targetDir the directory to copy the database into
@@ -276,7 +276,7 @@ public final class BackupManager {
 
   private static void finishBackup(final Path target, final boolean targetExisted, final boolean success,
       final boolean deferredInterruption) {
-    final boolean interrupted = Thread.interrupted() | deferredInterruption;
+    final boolean interrupted = Thread.interrupted() || deferredInterruption;
     try {
       if (!success) {
         cleanupTarget(target, targetExisted);
@@ -436,8 +436,8 @@ public final class BackupManager {
    * every restored resource read-only.
    *
    * <p>
-   * The target must either not exist or be an empty directory. If the copy or the verification pass
-   * fails, the partial target is deleted.
+   * The target must either not exist or be an empty directory. Failure cleanup follows the
+   * best-effort policy in {@code docs/BACKUP.md}.
    *
    * <p>
    * Note: the verification pass opens the restored database; if the database it was copied from is
@@ -623,7 +623,9 @@ public final class BackupManager {
     }
   }
 
-  /** Removes a partially written target; recreates the bare directory if it pre-existed. */
+  /**
+   * Attempts to remove a partially written target and recreate the bare directory if it pre-existed.
+   */
   private static void cleanupTarget(final Path target, final boolean targetExisted) {
     try {
       SirixFiles.recursiveRemove(target);

@@ -30,8 +30,10 @@ import io.sirix.cache.ScratchLease;
 import io.sirix.cache.ScratchUse;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.AbstractReader;
 import io.sirix.io.IOStorage;
+import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -1133,6 +1135,39 @@ public final class FileChannelReader extends AbstractReader {
 
   @Override
   public RevisionFileData[] getRevisionFileData(final int fromRevision, final int count) {
+    return getRevisionFileData(fromRevision, count, true);
+  }
+
+  /** Discovery must be able to use tail-log copies without changing the revisions file. */
+  public RevisionFileData getRevisionFileDataWithoutHealing(final int revision) {
+    return getRevisionFileData(revision, 1, false)[0];
+  }
+
+  /** Validate every record the bounded tail log could heal before any of them is written. */
+  public void requireCompatibleRevisionRoots(final int lastRevision) throws IOException {
+    final int first = Math.max(0, lastRevision - IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY + 1);
+    final int count = lastRevision - first + 1;
+    try (final ScratchLease lease =
+        borrow(IOStorage.REVISION_RECORD_TAIL_LOG_CAPACITY * IOStorage.REVISIONS_FILE_RECORD_SIZE)) {
+      final ByteBuffer records = lease.buffer();
+      records.clear().limit(count * IOStorage.REVISIONS_FILE_RECORD_SIZE);
+      final int bytesRead = readRevisionRecords(records, IOStorage.revisionsFileOffset(first));
+      for (int i = 0; i < count; i++) {
+        final int base = i * IOStorage.REVISIONS_FILE_RECORD_SIZE;
+        RevisionFileData record = base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= bytesRead
+            ? storedRevisionRecord(records, base, first + i)
+            : null;
+        if (record == null) {
+          record = getRevisionFileDataWithoutHealing(first + i);
+        }
+        if (!record.isPruned()) {
+          ResourceFormatCompatibility.requireRootEnvelope(dataFileChannel, record.offset(), byteHandler);
+        }
+      }
+    }
+  }
+
+  private RevisionFileData[] getRevisionFileData(final int fromRevision, final int count, final boolean heal) {
     if (count <= 0) {
       return new RevisionFileData[0];
     }
@@ -1169,9 +1204,12 @@ public final class FileChannelReader extends AbstractReader {
         }
         final RevisionFileData ringRecord = tailLogRecord(slots, revision);
         if (ringRecord != null) {
-          LOGGER.warn("Revision record {} was missing or torn in the revisions file — salvaged from "
-              + "the uber-beacon tail-log, healing the file", revision);
-          healRevisionRecord(revision, ringRecord);
+          if (heal && permitsRevisionRecordHealing()) {
+            LOGGER.warn("Revision record {} was missing or torn in the revisions file — salvaged from "
+                + "the uber-beacon tail-log, healing the file", revision);
+            ResourceFormatCompatibility.requireRootEnvelope(dataFileChannel, ringRecord.offset(), byteHandler);
+            healRevisionRecord(revision, ringRecord);
+          }
           result[i] = ringRecord;
           continue;
         }
@@ -1292,6 +1330,7 @@ public final class FileChannelReader extends AbstractReader {
       if (!Arrays.equals(magic, Superblock.MAGIC)) {
         return;
       }
+      ResourceFormatCompatibility.verifyRepair(dataFileChannel, revisionsOffsetFileChannel, this);
       final long recordOffset = IOStorage.revisionsFileOffset(revision);
       final long offset = ringRecord.offset();
       final long timestampMicros = CommitTimestamps.toEpochMicros(ringRecord.timestamp());
@@ -1337,6 +1376,8 @@ public final class FileChannelReader extends AbstractReader {
         }
         HftBoundaryTelemetry.storageWrite(written);
       }
+    } catch (final UnsupportedStoreFeatureException incompatible) {
+      throw incompatible;
     } catch (final IOException | RuntimeException healFailure) {
       LOGGER.warn("Salvaged revision record {} could not be healed back into the revisions file", revision,
           healFailure);

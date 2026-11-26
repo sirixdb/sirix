@@ -12,13 +12,14 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Superblock validation with cached session opens and fresh tool verification.
+ * Superblock validation with cached channel opens and fresh compatibility and tool verification.
  * <p>
- * Storage instances are request-scoped (a REST request opens and closes its own storage), so a
- * per-instance "validated" flag re-paid two file opens + header reads on every request. The
- * superblock is immutable after the first commit, so {@link #validateOnce(Path, byte)} caches
- * successful validation per canonical path. Tool verification uses {@link #validate} to inspect the
- * current bytes even when a previous copy occupied the same path.
+ * Storage instances are request-scoped; {@link #validateOnce(Path, byte)} caches successful
+ * validation per canonical path to avoid repeated file opens and header reads for further channels.
+ * The shared {@link ResourceFormatCompatibility} gate checks persistent storage initialization and
+ * destructive recovery independently of this cache. Cached headers alone are not compatibility
+ * evidence for a repair. Tool verification uses {@link #validate} to inspect the current bytes even
+ * when a previous copy occupied the same path.
  * <p>
  * Invalidation: resource removal drops the resource's paths ({@link #invalidateUnder(Path)}); tests
  * that mutate files out-of-band simulate a cold process via {@code Databases.clearGlobalCaches()},
@@ -51,8 +52,8 @@ public final class SuperblockValidator {
 
   /**
    * Validates like {@link #validateOnce(Path, byte)} and additionally cross-checks the superblock's
-   * resource UUID against the resource-settings identity (zero expected UUID = legacy config,
-   * cross-check skipped).
+   * resource UUID against the resource-settings identity. A zero EXPECTED UUID means the caller does
+   * not know that identity yet and skips only the cross-check; a zero STORED UUID is refused.
    */
   public static void validateOnce(final Path path, final byte role, final long expectedUuidMsb,
       final long expectedUuidLsb) {

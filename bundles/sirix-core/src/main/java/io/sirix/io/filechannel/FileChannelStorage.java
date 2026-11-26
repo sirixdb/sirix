@@ -1,14 +1,16 @@
 package io.sirix.io.filechannel;
 
+import io.sirix.io.ResourceFormatCompatibility.Proof;
+
 import org.jspecify.annotations.Nullable;
 import io.sirix.page.UberPage;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.page.PagePersister;
 import io.sirix.page.SerializationType;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
+import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.RevisionIndexHolder;
@@ -213,22 +215,21 @@ public final class FileChannelStorage implements IOStorage {
 
   public FileChannelStorage(final ResourceConfiguration resourceConfig,
       final AsyncCache<Integer, RevisionFileData> cache, final RevisionIndexHolder revisionIndexHolder,
-      final @Nullable UberPage openingUberPage) {
+      final @Nullable Proof compatibility) {
     assert resourceConfig != null : "resourceConfig must not be null!";
-    this.openingUberPage = openingUberPage != null
-        ? openingUberPage
-        : InterruptedFirstCommitRecovery.probeUberPage(resourceConfig);
+    final Proof verified = compatibility == null
+        ? ResourceFormatCompatibility.verify(resourceConfig)
+        : compatibility;
+    verified.requireResource(resourceConfig.resourcePath);
+    this.openingUberPage = verified.uberPage();
     this.openingUberPage.getFeatures().requireReadable();
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
-    resourceUuidMsb = resourceConfig.resourceUuid != null
-        ? resourceConfig.resourceUuid.getMostSignificantBits()
-        : 0L;
-    resourceUuidLsb = resourceConfig.resourceUuid != null
-        ? resourceConfig.resourceUuid.getLeastSignificantBits()
-        : 0L;
+    // Builders and deserialization (including deserializeForTool) require a nonzero UUID (FMT-102).
+    resourceUuidMsb = resourceConfig.resourceUuid.getMostSignificantBits();
+    resourceUuidLsb = resourceConfig.resourceUuid.getLeastSignificantBits();
     IOStorage.requireCommittedBeacon(resourceConfig, this.openingUberPage);
   }
 
@@ -243,15 +244,11 @@ public final class FileChannelStorage implements IOStorage {
     this(resourceConfig, cache, new RevisionIndexHolder());
   }
 
-  /** Resource identity UUID halves from the configuration (0/0 = legacy, no cross-check). */
+  /** Halves of the configuration's nonzero resource identity UUID (FMT-102). */
   private final long resourceUuidMsb;
   private final long resourceUuidLsb;
 
-  /**
-   * Superblock checks are open-time, not per-reader — and a NEW storage instance is created per
-   * request-scoped open, so the once-per-JVM-per-path registry (not a per-instance flag) is what
-   * actually avoids the two extra file opens + header reads per request.
-   */
+  /** Channel-validation cache; see {@code SuperblockValidator} for scope and invalidation. */
   private void validateSuperblocksOnce() {
     io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA, resourceUuidMsb,
         resourceUuidLsb);

@@ -17,6 +17,18 @@ tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.Com
 class = "io.sirix.access.trx.page.NodeStorageEngineWriter"
 tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.CommitTimestampLateFailureTest"]
 
+[[association]]
+class = "io.sirix.io.filechannel.FileChannelReader"
+tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.budget.FormatDiscoveryWorkBudgetTest"]
+
+[[association]]
+class = "io.sirix.io.ResourceFormatCompatibility"
+tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.budget.FormatDiscoveryWorkBudgetTest"]
+
+[[association]]
+class = "io.sirix.access.ResourceConfiguration"
+tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.format.FormatVersionBaselineTest", "io.sirix.backup.BackupDerivedResourceTest"]
+
 # The release contract exercises refused and admitted grouping through every public compiler
 # factory, including cold reopen; its name spans these entry points.
 [[association]]
@@ -42,7 +54,7 @@ tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest"]
 
 [[association]]
 class = "io.sirix.access.LocalDatabase"
-tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest", "io.sirix.access.LocalDatabaseInMemoryLifetimeTest", "io.sirix.index.aggregate.DeclaredTemporalAggregateFailureTest", "io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest"]
+tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.access.DatabasesInMemoryLifetimeTest", "io.sirix.access.LocalDatabaseInMemoryLifetimeTest", "io.sirix.index.aggregate.DeclaredTemporalAggregateFailureTest", "io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest"]
 
 [[association]]
 class = "io.sirix.access.InMemoryResources"
@@ -199,6 +211,7 @@ tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
 class = "io.sirix.index.name.NameIndexRecheck"
 tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest", "io.sirix.budget.NameIndexRecheckWorkBudgetTest"]
 
+
 # TXN-613 backup/restore exercises isolated readers and derived-store acceptance end to end.
 [[association]]
 class = "io.sirix.backup.BackupManager"
@@ -206,10 +219,6 @@ tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.backup.BackupRes
 
 [[association]]
 class = "io.sirix.access.DatabaseConfiguration"
-tests = ["io.sirix.backup.BackupDerivedResourceTest"]
-
-[[association]]
-class = "io.sirix.access.ResourceConfiguration"
 tests = ["io.sirix.backup.BackupDerivedResourceTest"]
 
 [[association]]

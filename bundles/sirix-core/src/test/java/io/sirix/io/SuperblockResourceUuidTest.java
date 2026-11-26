@@ -9,10 +9,10 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The superblock's resource UUID cross-links the binary files to their resource-settings JSON:
- * a matching pair validates, a mismatched pair (files restored from a different resource's
- * backup) fails fast, and a zero UUID on either side (legacy file or legacy config) skips the
- * cross-check.
+ * The superblock's resource UUID cross-links the binary files to their resource-settings JSON: a
+ * matching pair validates, a mismatched pair (files restored from a different resource's backup)
+ * fails fast, and a zero stored UUID is refused outright (FMT-102). A zero EXPECTED UUID is the
+ * caller saying it does not know the resource identity yet, and skips only the cross-check.
  */
 public final class SuperblockResourceUuidTest {
 
@@ -34,13 +34,23 @@ public final class SuperblockResourceUuidTest {
   }
 
   @Test
-  public void zeroStoredUuidIsLegacyAndSkipsCheck() {
-    final ByteBuffer sb = Superblock.build(Superblock.ROLE_DATA);
-    Superblock.validate(sb, Superblock.ROLE_DATA, "sirix.data", MSB, LSB);
+  public void zeroStoredUuidIsRefused() {
+    final ByteBuffer sb = Superblock.build(Superblock.ROLE_DATA, 0L, 0L);
+    final SirixIOException e = assertThrows(SirixIOException.class,
+        () -> Superblock.validate(sb, Superblock.ROLE_DATA, "sirix.data", MSB, LSB));
+    assertTrue(e.getMessage(), e.getMessage().contains("zero resource UUID"));
   }
 
   @Test
-  public void zeroExpectedUuidIsLegacyAndSkipsCheck() {
+  public void zeroStoredUuidIsRefusedEvenWithoutAnExpectedIdentity() {
+    final ByteBuffer sb = Superblock.build(Superblock.ROLE_DATA, 0L, 0L);
+    final SirixIOException e =
+        assertThrows(SirixIOException.class, () -> Superblock.validate(sb, Superblock.ROLE_DATA, "sirix.data"));
+    assertTrue(e.getMessage(), e.getMessage().contains("zero resource UUID"));
+  }
+
+  @Test
+  public void zeroExpectedUuidSkipsOnlyTheCrossCheck() {
     final ByteBuffer sb = Superblock.build(Superblock.ROLE_REVISIONS, MSB, LSB);
     Superblock.validate(sb, Superblock.ROLE_REVISIONS, "sirix.revisions", 0L, 0L);
   }

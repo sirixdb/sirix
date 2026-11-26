@@ -30,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -37,28 +38,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 /**
- * Crash-recovery for an interrupted FIRST commit (layout-F5 gap).
+ * Crash-recovery fixtures for an interrupted first commit and lost empty-bootstrap records.
  *
- * <p>The superblock and the two uber-page beacon slots of {@code sirix.data} are only written at
- * the END of a resource's first commit (by {@code writeUberPageReference}); until then the header
- * region {@code [0, DATA_REGION_START)} is a sparse hole while the buffered page writer may
- * already have flushed &ge; 64 KiB of data pages past {@code DATA_REGION_START}. A process crash
- * in that window leaves a NON-EMPTY {@code sirix.data} whose header is all zeros (or, crashing a
- * little later, a valid superblock with still-zero beacon slots). {@code IOStorage.exists()} is
- * size-based, so the next open takes the "load" path and fails on the superblock/beacon
- * validation — permanently, even though NOTHING was ever committed and a fresh bootstrap is
- * provably safe.
+ * <p>
+ * Recovery eligibility is owned by {@code InterruptedFirstCommitRecovery}; the format-version
+ * preflight and incomplete-frame decision table are specified by FMT-401 in
+ * {@code spec/FMT-disk-format.md}.
  *
- * <p>The recovery contract under test: on an open failure, the resource is re-initialized empty
- * if and only if the on-disk state PROVES no commit ever completed — all-zero (or
- * valid-but-beaconless) header AND no checksum-valid record in {@code sirix.revisions}. Any
- * nonzero beacon bytes or any checksum-valid revision record means data may exist, and the open
- * must keep failing with the existing actionable error (no destructive re-bootstrap).
- *
- * <p>Fabrication note: {@code createResource} itself runs the bootstrap commit (revision 0), so a
+ * <p>
+ * Fabrication note: {@code createResource} itself runs the bootstrap commit (revision 0), so a
  * freshly created resource already has a fully committed file pair. The tests therefore fabricate
- * the crashed-first-commit image explicitly: truncate both files back to the pre-first-commit
- * state (size 0) and re-create exactly the bytes such a crash leaves behind.
+ * the crashed-first-commit image explicitly: truncate both files back to the pre-first-commit state
+ * (size 0) and re-create exactly the bytes such a crash leaves behind.
  */
 final class InterruptedFirstCommitRecoveryTest {
 
@@ -84,20 +75,18 @@ final class InterruptedFirstCommitRecoveryTest {
 
   /** Resolve the underlying {@code sirix.data} storage file for a resource. */
   private static Path dataFilePath(final Path databasePath, final String resourceName) {
-    return databasePath
-        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-        .resolve(resourceName)
-        .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-        .resolve("sirix.data");
+    return databasePath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                       .resolve(resourceName)
+                       .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                       .resolve("sirix.data");
   }
 
   /** Resolve the underlying {@code sirix.revisions} file for a resource. */
   private static Path revisionsFilePath(final Path databasePath, final String resourceName) {
-    return databasePath
-        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-        .resolve(resourceName)
-        .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-        .resolve("sirix.revisions");
+    return databasePath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                       .resolve(resourceName)
+                       .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                       .resolve("sirix.revisions");
   }
 
   private static void createDbAndResource(final Path dbPath, final StorageType storageType) {
@@ -110,22 +99,22 @@ final class InterruptedFirstCommitRecoveryTest {
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
       db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .storeDiffs(false)
-          .hashKind(HashType.NONE)
-          .buildPathSummary(false)
-          .versioningApproach(VersioningType.FULL)
-          .storageType(storageType)
-          .build());
+                                             .storeDiffs(false)
+                                             .hashKind(HashType.NONE)
+                                             .buildPathSummary(false)
+                                             .versioningApproach(VersioningType.FULL)
+                                             .storageType(storageType)
+                                             .build());
     }
   }
 
   /**
-   * Fabricates the on-disk image of a process that died during the resource's FIRST commit after
-   * the buffered writer flushed pages past {@code DATA_REGION_START}: both files truncated to the
+   * Fabricates the on-disk image of a process that died during the resource's FIRST commit after the
+   * buffered writer flushed pages past {@code DATA_REGION_START}: both files truncated to the
    * pre-first-commit state, then a &gt; 64 KiB garbage tail of "flushed-but-uncommitted pages" at
    * {@code DATA_REGION_START} — leaving the header region {@code [0, DATA_REGION_START)} a sparse
-   * zero hole (optionally with a real superblock at offset 0, the slightly-later crash point
-   * between the superblock write and the beacon writes).
+   * zero hole (optionally with a real superblock at offset 0, the slightly-later crash point between
+   * the superblock write and the beacon writes).
    */
   private static void fabricateInterruptedFirstCommit(final Path dbPath, final boolean withValidSuperblock)
       throws IOException {
@@ -135,7 +124,11 @@ final class InterruptedFirstCommitRecoveryTest {
     try (final FileChannel ch = FileChannel.open(dataFile, StandardOpenOption.WRITE, StandardOpenOption.SPARSE)) {
       ch.truncate(0);
       if (withValidSuperblock) {
-        final ByteBuffer superblock = Superblock.build(Superblock.ROLE_DATA);
+        // A real crash image carries the resource's own identity: the writer stamps it into the
+        // superblock, and a zero UUID would be refused outright (FMT-102).
+        final UUID identity = resourceIdentity(dbPath);
+        final ByteBuffer superblock = Superblock.build(Superblock.ROLE_DATA, identity.getMostSignificantBits(),
+            identity.getLeastSignificantBits());
         while (superblock.hasRemaining()) {
           ch.write(superblock, superblock.position());
         }
@@ -154,6 +147,12 @@ final class InterruptedFirstCommitRecoveryTest {
     }
   }
 
+  /** The resource's persisted identity UUID, as the writer would have stamped it. */
+  private static UUID resourceIdentity(final Path dbPath) {
+    return ResourceConfiguration.deserialize(
+        dbPath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(RESOURCE)).resourceUuid;
+  }
+
   private static String messageChain(final Throwable throwable) {
     final StringBuilder messages = new StringBuilder();
     for (Throwable t = throwable; t != null; t = t.getCause()) {
@@ -168,7 +167,7 @@ final class InterruptedFirstCommitRecoveryTest {
   /** Open the healed resource, verify it is empty, commit {@link #DOC} and read it back. */
   private static void assertOpensEmptyAcceptsCommitAndReadsBack(final Path dbPath) {
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-         final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
       // Re-initialized empty: the session is in the fresh-bootstrap state (revision counter at
       // the bootstrap revision, exactly like a resource whose first commit never started).
       assertEquals(0, session.getMostRecentRevisionNumber(),
@@ -189,8 +188,8 @@ final class InterruptedFirstCommitRecoveryTest {
     // Cold re-open: the re-initialized files must be durable and self-consistent on disk.
     Databases.clearGlobalCaches();
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-         final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       rtx.moveToDocumentRoot();
       assertTrue(rtx.moveToFirstChild(), "committed data must survive a cold reopen");
       assertEquals(2, rtx.getChildCount());
@@ -198,7 +197,7 @@ final class InterruptedFirstCommitRecoveryTest {
   }
 
   @ParameterizedTest(name = "storageType={0}")
-  @EnumSource(value = StorageType.class, names = { "FILE_CHANNEL", "MEMORY_MAPPED" })
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   @DisplayName("interrupted first commit (all-zero header + flushed garbage tail) re-bootstraps empty")
   void zeroHeaderWithGarbageTail_isRebootstrappedEmpty(final StorageType storageType) throws Exception {
     final Path dbPath = PATHS.PATH1.getFile();
@@ -211,7 +210,7 @@ final class InterruptedFirstCommitRecoveryTest {
   }
 
   @ParameterizedTest(name = "storageType={0}")
-  @EnumSource(value = StorageType.class, names = { "FILE_CHANNEL", "MEMORY_MAPPED" })
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   @DisplayName("interrupted first commit (valid superblock, beacons never written) re-bootstraps empty")
   void validSuperblockZeroBeacons_isRebootstrappedEmpty(final StorageType storageType) throws Exception {
     final Path dbPath = PATHS.PATH1.getFile();
@@ -224,18 +223,18 @@ final class InterruptedFirstCommitRecoveryTest {
   }
 
   /**
-   * Variant two of the gap: resource creation's bootstrap commit COMPLETED (checksum-valid
-   * beacons advertising the empty revision 0), but the just-created {@code sirix.revisions} was
+   * Variant two of the gap: resource creation's bootstrap commit COMPLETED (checksum-valid beacons
+   * advertising the empty revision 0), but the just-created {@code sirix.revisions} was
    * lost/truncated by the environment (directory entry dropped on power cut, filesystem repair)
-   * before anything else committed. The open then fails with "Truncated revisions record for
-   * revision 0" although the only acknowledged revision is the empty bootstrap one and nothing
-   * on disk is reachable — must self-heal exactly like the zero-header variant.
+   * before anything else committed. The open then fails with "Truncated revisions record for revision
+   * 0" although the only acknowledged revision is the empty bootstrap one and nothing on disk is
+   * reachable — must self-heal exactly like the zero-header variant.
    */
   @ParameterizedTest(name = "storageType={0}, revisionsFileDamage={1}")
   @MethodSource("revisionsFileDamageVariants")
   @DisplayName("bootstrap-only resource with truncated/empty/partial revisions file re-bootstraps empty")
-  void truncatedRevisionsRecordAtRevisionZero_isRebootstrappedEmpty(final StorageType storageType,
-      final String damage, final long truncateToSize) throws Exception {
+  void truncatedRevisionsRecordAtRevisionZero_isRebootstrappedEmpty(final StorageType storageType, final String damage,
+      final long truncateToSize) throws Exception {
     final Path dbPath = PATHS.PATH1.getFile();
     createDbAndResource(dbPath, storageType);
 
@@ -248,17 +247,19 @@ final class InterruptedFirstCommitRecoveryTest {
   private static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> revisionsFileDamageVariants() {
     final long recordStart = IOStorage.REVISIONS_RECORDS_START;
     return java.util.stream.Stream.of(StorageType.FILE_CHANNEL, StorageType.MEMORY_MAPPED)
-        .flatMap(storageType -> java.util.stream.Stream.of(
-            org.junit.jupiter.params.provider.Arguments.of(storageType, "lost (size 0)", 0L),
-            org.junit.jupiter.params.provider.Arguments.of(storageType, "header only (record 0 gone)", recordStart),
-            org.junit.jupiter.params.provider.Arguments.of(storageType, "torn mid-record 0", recordStart + 4)));
+                                  .flatMap(storageType -> java.util.stream.Stream.of(
+                                      org.junit.jupiter.params.provider.Arguments.of(storageType, "lost (size 0)", 0L),
+                                      org.junit.jupiter.params.provider.Arguments.of(storageType,
+                                          "header only (record 0 gone)", recordStart),
+                                      org.junit.jupiter.params.provider.Arguments.of(storageType, "torn mid-record 0",
+                                          recordStart + 4)));
   }
 
   /**
-   * NEGATIVE control for variant two: a truncated record for a revision PAST the bootstrap one
-   * on a resource WITH committed data is REAL CORRUPTION — earlier records are checksum-valid
-   * and the beacons advertise the later revision, so data exists. The open must keep failing
-   * with the existing actionable error and the files must be left untouched.
+   * NEGATIVE control for variant two: a truncated record for a revision PAST the bootstrap one on a
+   * resource WITH committed data is REAL CORRUPTION — earlier records are checksum-valid and the
+   * beacons advertise the later revision, so data exists. The open must keep failing with the
+   * existing actionable error and the files must be left untouched.
    */
   @Test
   @DisplayName("committed resource with truncated revisions record at revision N>0 fails without re-bootstrap")
@@ -268,7 +269,7 @@ final class InterruptedFirstCommitRecoveryTest {
 
     // One real commit beyond the bootstrap revision (data!), then cut its record off.
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-         final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
         wtx.commit();
@@ -288,8 +289,8 @@ final class InterruptedFirstCommitRecoveryTest {
     // back into the revisions file. (Before that profile this was a hard failure; the negative
     // control for a loss BEYOND the ring window is the next test.)
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-         final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       assertTrue(rtx.getRevisionNumber() >= 1, "the committed revision must still be readable");
     }
 
@@ -300,10 +301,10 @@ final class InterruptedFirstCommitRecoveryTest {
   }
 
   /**
-   * NEGATIVE control for variant two: losing the WHOLE revisions file of a resource whose
-   * beacons advertise a revision past the bootstrap one means committed data exists but is
-   * unreachable — corruption to surface loudly, never to auto-wipe (the no-valid-record check
-   * alone would pass here; the beacon-advertised-revision check is what must refuse).
+   * NEGATIVE control for variant two: losing the WHOLE revisions file of a resource whose beacons
+   * advertise a revision past the bootstrap one means committed data exists but is unreachable —
+   * corruption to surface loudly, never to auto-wipe (the no-valid-record check alone would pass
+   * here; the beacon-advertised-revision check is what must refuse).
    */
   @Test
   @DisplayName("committed resource with lost revisions file fails without re-bootstrap")
@@ -314,7 +315,7 @@ final class InterruptedFirstCommitRecoveryTest {
     // Commit PAST the tail-log ring window so revision 1's entry has been evicted and no
     // salvage source remains — otherwise the reader would (correctly) heal the file back.
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-         final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
         wtx.commit();
@@ -355,9 +356,9 @@ final class InterruptedFirstCommitRecoveryTest {
 
   /**
    * NEGATIVE control: a resource WITH a completed commit whose superblock sector is later lost
-   * (zeroed) must NOT be re-bootstrapped — the beacon slots still hold checksum-valid uber pages
-   * and the revisions file holds checksum-valid records, i.e. data exists. The open must keep
-   * failing with the existing all-zeros message and the files must be left untouched.
+   * (zeroed) must NOT be re-bootstrapped — the beacon slots still hold checksum-valid uber pages and
+   * the revisions file holds checksum-valid records, i.e. data exists. The open must keep failing
+   * with the existing all-zeros message and the files must be left untouched.
    */
   @Test
   @DisplayName("committed resource with zeroed superblock (sector loss) fails without re-bootstrap")
@@ -367,7 +368,7 @@ final class InterruptedFirstCommitRecoveryTest {
 
     // One real commit beyond the bootstrap revision.
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-         final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOC));
         wtx.commit();

@@ -19,8 +19,9 @@ sirix-cli --location /path/to/database backup /path/to/backup-dir
 sirix-cli -l /path/to/database backup /path/to/backup-dir -v
 ```
 
-- The target directory must not exist yet (or be empty). On any failure the partial target is
-  removed again.
+- The target directory must not exist yet (or be empty). On failure, cleanup attempts to remove
+  the partial target and recreate the empty directory if it pre-existed. Cleanup is best effort:
+  if filesystem cleanup itself fails, discard any remaining partial target before retrying.
 - Works for JSON and XML databases (the type is read from `dbsetting.obj`).
 
 ### What a backup contains
@@ -61,12 +62,13 @@ state) under TXN-615, retirement tombstones, and the runtime files listed below.
   copy resumes from its own durable frontier (TXN-612) and catches up. A pending truncation rewind
   causes a refusal naming the derived resource. The durable frontier and mappings are checked against
   the copied source head during backup and restore; a later mapping is rejected.
-- **Fresh verification.** Verification reads the copied bytes with private revision metadata and
-  page caches. A failed copy can be retried at the cleaned target without reusing the previous
-  copy's offsets, hashes, revision index or superblock validation. An existing nonempty store must
-  have a committed beacon; intact revision-0 records and pages cannot substitute for missing beacons.
-- **Live cache ownership.** Verification uses private caches without changing the live allocator
-  pressure handler, during either successful or failed backup/restore.
+- **Fresh derived verification.** Derived-store verification reads the copied bytes with private
+  revision metadata and page caches. A failed copy can be retried at the cleaned target without
+  reusing the previous copy's offsets, hashes, revision index or superblock validation. An existing
+  nonempty store must have a committed beacon; intact revision-0 records and pages cannot substitute
+  for missing beacons.
+- **Live cache ownership.** Derived-store verification uses private caches without changing the live
+  allocator pressure handler, during either successful or failed backup/restore.
 - **Resource IDs.** The target metadata reserves every copied resource ID, including hidden siblings
   created or rebuilt after the initial database metadata copy.
 - **Crash-recovered state.** Acquiring the writer lock first runs the engine's leftover-commit
@@ -90,8 +92,8 @@ state) under TXN-615, retirement tombstones, and the runtime files listed below.
   ~5 s lock-acquisition timeout) rather than copy a moving target. Retry when the writer is
   done, or use shorter transactions.
 - An interrupted backup defers the interrupt status until its writers, sessions and database handle
-  are closed and its partial target is removed. It restores the caller's interrupt status at the
-  outer boundary, including on failure; cancellation does not retain database ownership.
+  are closed and partial-target cleanup has been attempted. It restores the caller's interrupt status
+  at the outer boundary, including on failure; cancellation does not retain database ownership.
 - If a derived resource's maintenance does not become quiescent within the same ~5 s, the backup is
   **refused** with a message naming that resource, rather than copying a store that is mid-build.
   Retry once its temporal-aggregate maintenance has caught up.
@@ -123,8 +125,7 @@ restored to (must not exist yet or be empty). The restore:
    revision slots and the page-checksum chain on the root page,
 4. **reports** what it restored: `BackupSummary.resources()` for the visible resources and
    `BackupSummary.derivedResources()` for the hidden derived ones,
-5. on *any* failure deletes the partial target, so you never end up with a half-restored
-   database.
+5. on failure applies the [best-effort target cleanup](#backup-cli) described above.
 
 The restored database is fully independent of the original and can live at any path:
 `dbsetting.obj` is re-bound to the actual directory on first open.

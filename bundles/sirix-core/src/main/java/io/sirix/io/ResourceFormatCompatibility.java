@@ -1,0 +1,243 @@
+package io.sirix.io;
+
+import com.github.benmanes.caffeine.cache.Caffeine;
+import io.sirix.BinaryEncodingVersion;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.exception.SirixIOException;
+import io.sirix.exception.UnsupportedFormatVersionException;
+import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.io.bytepipe.ByteHandler.DecompressionResult;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.filechannel.FileChannelReader;
+import io.sirix.page.PageKind;
+import io.sirix.page.PagePersister;
+import io.sirix.page.SerializationType;
+import io.sirix.page.UberPage;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+
+/** Side-effect-free FMT-401 gate shared by persistent storage and destructive recovery. */
+public final class ResourceFormatCompatibility {
+  private ResourceFormatCompatibility() {}
+
+  /** Only this gate can construct the resource-bound evidence used by destructive callers. */
+  public static final class Proof {
+    private final Path resource;
+    private final UberPage uberPage;
+
+    private Proof(final Path resource, final UberPage uberPage) {
+      this.resource = resource;
+      this.uberPage = uberPage;
+    }
+
+    public UberPage uberPage() {
+      return uberPage;
+    }
+
+    public void requireResource(final Path path) {
+      try {
+        if (!resource.equals(path) && !Files.isSameFile(resource, path)) {
+          throw new IllegalArgumentException("Compatibility proof belongs to another resource");
+        }
+      } catch (final IOException failure) {
+        throw new SirixIOException(failure);
+      }
+    }
+  }
+
+  public static Proof verify(final ResourceConfiguration config) {
+    return verify(config, true);
+  }
+
+  /** With unreadable settings, both files must still name the same nonzero resource UUID. */
+  public static Proof verifyWithoutSettings(final ResourceConfiguration config) {
+    ResourceConfiguration.requireSupportedBinaryEncoding(config.resourcePath);
+    return verify(config, false);
+  }
+
+  private static Proof verify(final ResourceConfiguration config, final boolean knownIdentity) {
+    final Path directory = config.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath());
+    final Path data = directory.resolve(IOStorage.FILENAME);
+    final Path revisions = directory.resolve(IOStorage.REVISIONS_FILENAME);
+    try {
+      final long msb = knownIdentity
+          ? config.resourceUuid.getMostSignificantBits()
+          : 0L;
+      final long lsb = knownIdentity
+          ? config.resourceUuid.getLeastSignificantBits()
+          : 0L;
+      InterruptedFirstCommitRecovery.requireValidFileIdentity(data, Superblock.ROLE_DATA, msb, lsb);
+      InterruptedFirstCommitRecovery.requireValidFileIdentity(revisions, Superblock.ROLE_REVISIONS, msb, lsb);
+      if (!knownIdentity && Files.exists(data) && Files.size(data) >= Superblock.BYTES) {
+        final ByteBuffer header = ByteBuffer.allocate(Superblock.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+        try (final FileChannel channel = FileChannel.open(data, StandardOpenOption.READ)) {
+          readFully(channel, header, 0L);
+        }
+        InterruptedFirstCommitRecovery.requireValidFileIdentity(revisions, Superblock.ROLE_REVISIONS,
+            header.getLong(40), header.getLong(48));
+      }
+      final UberPage uber = InterruptedFirstCommitRecovery.probeUberPage(config);
+      uber.getFeatures().requireReadable();
+      if (!Files.exists(data) || !Files.exists(revisions)) {
+        uber.getFeatures().requireWritable();
+      }
+      if (uber.isBootstrap()) {
+        return verifyBootstrap(config, data, uber);
+      }
+      try (final FileChannel channel = FileChannel.open(data, StandardOpenOption.READ);
+          final FileChannel records = FileChannel.open(Files.exists(revisions)
+              ? revisions
+              : data, StandardOpenOption.READ);
+          final FileChannelReader reader =
+              new FileChannelReader(channel, records, new ByteHandlerPipeline(config.byteHandlePipeline),
+                  SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build())) {
+        final RevisionFileData root;
+        try {
+          root = reader.getRevisionFileDataWithoutHealing(uber.getRevisionNumber());
+          reader.requireCompatibleRevisionRoots(uber.getRevisionNumber());
+        } catch (final SirixIOException missing) {
+          // A backend without a tail-log copy must inspect surviving envelopes before recovery.
+          try {
+            requireFramedPrefix(channel, reader.getByteHandler());
+          } catch (final UnsupportedFormatVersionException unsupported) {
+            throw unsupported;
+          } catch (final IOException | RuntimeException incomplete) {
+            if (uber.getRevisionNumber() != 0) {
+              throw missing;
+            }
+          }
+          if (uber.getRevisionNumber() != 0) {
+            throw missing;
+          }
+          return new Proof(config.resourcePath, uber);
+        }
+        // The bounded scan above includes this latest root's envelope; tombstones still
+        // need their typed retention refusal because that scan deliberately skips them.
+        root.requireReadable(uber.getRevisionNumber());
+      }
+      return new Proof(config.resourcePath, uber);
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
+
+  private static Proof verifyBootstrap(final ResourceConfiguration config, final Path data, final UberPage uber) {
+    if (Files.exists(data)) {
+      try (final FileChannel channel = FileChannel.open(data, StandardOpenOption.READ)) {
+        requireFramedPrefix(channel, new ByteHandlerPipeline(config.byteHandlePipeline));
+      } catch (final UnsupportedFormatVersionException unsupported) {
+        throw unsupported;
+      } catch (final IOException | RuntimeException incomplete) {
+        return new Proof(config.resourcePath, uber);
+      }
+    }
+    return new Proof(config.resourcePath, uber);
+  }
+
+  /** Validate the exact descriptors a direct repair will modify, without healing records. */
+  public static void verifyRepair(final FileChannel data, final FileChannel revisions, final FileChannelReader reader)
+      throws IOException {
+    final ByteBuffer header = ByteBuffer.allocate(Superblock.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+    readFully(data, header, 0L);
+    header.flip();
+    Superblock.validate(header, Superblock.ROLE_DATA, IOStorage.FILENAME);
+    final long msb = header.getLong(40);
+    final long lsb = header.getLong(48);
+    if (revisions.size() != 0) {
+      header.clear();
+      readFully(revisions, header, 0L);
+      header.flip();
+      Superblock.validate(header, Superblock.ROLE_REVISIONS, IOStorage.REVISIONS_FILENAME, msb, lsb);
+    }
+    final UberPage uber = reader.readOpeningUberPage();
+    uber.getFeatures().requireWritable();
+    final RevisionFileData root = reader.getRevisionFileDataWithoutHealing(uber.getRevisionNumber());
+    reader.requireCompatibleRevisionRoots(uber.getRevisionNumber());
+    root.requireReadable(uber.getRevisionNumber());
+    // requireCompatibleRevisionRoots includes the latest live root's envelope.
+  }
+
+  /** Also guards direct reader healing and writer truncation, which need no resource settings. */
+  public static void requireRootEnvelope(final FileChannel channel, final long offset, final ByteHandler handler)
+      throws IOException {
+    if (requireEnvelope(channel, offset, handler) != PageKind.REVISIONROOTPAGE) {
+      throw new SirixIOException("Committed root does not reference a revision-root page");
+    }
+  }
+
+  private static PageKind requireEnvelope(final FileChannel channel, final long offset, final ByteHandler handler)
+      throws IOException {
+    final ByteBuffer length = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+    readFully(channel, length, offset);
+    final int size = length.getInt(0);
+    if (offset < IOStorage.DATA_REGION_START || size < 2) {
+      throw new SirixIOException("Invalid page frame while checking format compatibility");
+    }
+    final byte[] payload = new byte[(int) Math.min(size, channel.size() - offset - Integer.BYTES)];
+    readFully(channel, ByteBuffer.wrap(payload), offset + Integer.BYTES);
+    final PageKind pageKind;
+    if (handler.supportsMemorySegments()) {
+      try (final DecompressionResult decoded = handler.decompressScoped(MemorySegment.ofArray(payload))) {
+        if (decoded.segment().byteSize() < 2) {
+          throw new SirixIOException("Truncated page envelope while checking format compatibility");
+        }
+        BinaryEncodingVersion.fromByte(decoded.segment().get(ValueLayout.JAVA_BYTE, 1));
+        pageKind = PageKind.getKind(decoded.segment().get(ValueLayout.JAVA_BYTE, 0));
+      }
+    } else {
+      try (final InputStream decoded = handler.deserialize(new ByteArrayInputStream(payload))) {
+        final int kind = decoded.read();
+        final int version = decoded.read();
+        if (kind < 0 || version < 0) {
+          throw new SirixIOException("Truncated page envelope while checking format compatibility");
+        }
+        BinaryEncodingVersion.fromByte((byte) version);
+        pageKind = PageKind.getKind((byte) kind);
+      }
+    }
+    if (payload.length != size) {
+      throw new SirixIOException("Invalid page frame while checking format compatibility");
+    }
+    return pageKind;
+  }
+
+  /**
+   * Checks readable envelope versions before treating incomplete first-commit frames as recoverable
+   * (FMT-401). Stops at malformed frames or unwritten gaps; this is not complete envelope discovery.
+   */
+  private static void requireFramedPrefix(final FileChannel channel, final ByteHandler handler) throws IOException {
+    final ByteBuffer length = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+    final long size = channel.size();
+    // A partial terminal length is incomplete input too; callers apply the bootstrap decision table.
+    for (long offset = IOStorage.DATA_REGION_START; offset < size;) {
+      length.clear();
+      readFully(channel, length, offset);
+      final int bytes = length.getInt(0);
+      if (bytes == 0) {
+        return; // Unwritten preallocation follows the framed prefix.
+      }
+      requireEnvelope(channel, offset, handler);
+      offset = (offset + Integer.BYTES + bytes + Writer.PAGE_FRAGMENT_BYTE_ALIGN - 1)
+          & -((long) Writer.PAGE_FRAGMENT_BYTE_ALIGN);
+    }
+  }
+
+  private static void readFully(final FileChannel channel, final ByteBuffer buffer, final long offset)
+      throws IOException {
+    while (buffer.hasRemaining()) {
+      if (channel.read(buffer, offset + buffer.position()) <= 0) {
+        throw new SirixIOException("Truncated file while checking format compatibility");
+      }
+    }
+  }
+}
