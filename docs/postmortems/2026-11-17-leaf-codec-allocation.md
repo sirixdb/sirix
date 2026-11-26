@@ -1,5 +1,9 @@
 # Bug: Temporary objects in cold HOT leaf codec paths
 
+Historical evidence for the retired kind-local leaf compression experiment. Its codec classes,
+test names and settings below do not describe the current
+[kind-12 format](../../spec/FMT-disk-format.md#fmt-210--hot-leaf-envelope-and-page-local-modes).
+
 - Fix / issue: S1 kind-12 leaf payload codec, found before commit by the explicit allocation audit.
 - Symptom: On the 32-entry fixture, encoded projection copies allocated 344–384 extra heap bytes per page; uncached selection allocated 24 extra bytes; repeated-value encoder selection allocated 80 extra bytes. Raw/encoded cold full materialization and warm lookup alone had hidden these other paths.
 - Trigger: Repeated raw/encoded copies, selective reads and writes with zero-filled or repeated nonzero 128-byte values, after scratch initialization, in a clean GraalVM 25 test fork.

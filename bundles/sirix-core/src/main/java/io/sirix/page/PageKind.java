@@ -7076,7 +7076,7 @@ public enum PageKind {
     final IndexType indexType = IndexType.getType(source.readByte());
     HOTLeafBody.requireIndexMode(bodyMode, indexType);
 
-    // Read common prefix (V2 format with prefix compression)
+    // Read the common page prefix.
     final int commonPrefixLen = Short.toUnsignedInt(source.readShort());
     if (commonPrefixLen + 2L * Integer.BYTES > source.remaining()) {
       throw new IllegalStateException("Truncated HOT prefix or dimensions");

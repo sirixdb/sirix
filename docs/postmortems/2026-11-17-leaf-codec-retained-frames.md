@@ -1,5 +1,9 @@
 # Bug: encoded ordinary leaves retained writable frames
 
+Historical evidence for the retired kind-local leaf compression experiment. Its codec classes,
+test names and settings below do not describe the current
+[kind-12 format](../../spec/FMT-disk-format.md#fmt-210--hot-leaf-envelope-and-page-local-modes).
+
 - Fix / issue: review R1, S1 HOT leaf payload codec.
 - Symptom: a 4,256-byte slot payload retained a 64 KiB decoded frame after an encoded read, while raw production reads retained one 8 KiB allocation; cache charging increased and fewer leaves fit.
 - Trigger: 32 entries with 128-byte values, FULL versioning, empty byte-handler pipeline, ordinary native read carrying a DecompressionResult. Scalar, batched and mapped ordinary reads converge at this decoder.

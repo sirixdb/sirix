@@ -678,7 +678,8 @@ publication/preflight guards enforce the same I10 rule as `HOTInvariantValidator
 ## 3. Node and page formats
 
 `docs/DISK_FORMAT.md` specifies the file layout, the page envelope, the page kind ids and the index
-container pages and the leaf body modes. This section specifies the HOT body fields.
+container pages and links to the normative leaf format. This section explains HOT representations
+and their implementation.
 
 ### 3.1 Common framing
 
@@ -722,9 +723,10 @@ slotOffsets[0..entryCount)  ascending KEY order; heap positions are NOT monotone
 dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 ```
 
-- Ordinary leaf fields: `recordPageKey`, `revision`, `indexType` (final); `slotMemory`, `slotOffsets[512]`,
-  `entryCount`, `usedSlotMemorySize` (`hot/page/HOTLeafPage.java:246-257`, `:500`, `:515`).
-  Compact raw images follow the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
+- Ordinary leaf fields: `recordPageKey`, `revision`, `indexType` (final); `slotMemory`,
+  `char[] slotOffsets` (512 entries for ordinary leaves), `entryCount`, `usedSlotMemorySize` (`hot/page/HOTLeafPage.java:246-257`, `:500`, `:515`).
+  Packed read images retain the wire directory in `HOTLeafBody` instead of a separate offset array.
+  Compact images follow the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
 - Entries are appended at `usedSlotMemorySize`; order is carried only by `slotOffsets`, which an
   insert shifts with `System.arraycopy` (`:2284-2291`).
 - **Prefix compression**: the first insert sets `commonPrefix` to the whole key (`:2056-2061`); a key
@@ -772,26 +774,11 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 
 #### 3.2.3 Serialized layout (`PageKind.HOT_LEAF_PAGE`)
 
-Writer `PageKind.serializeHOTLeaf`;
-reader `PageKind.deserializeHOTLeaf`.
-Body fields below follow the shared envelope, any extension block and the mode byte when present.
-
-| # | Width | Field | Notes |
-|---|---|---|---|
-| 1 | u8 | kind = 12 | |
-| 2 | u8 | binaryVersion | see the [page-envelope contract](DISK_FORMAT.md#2-pages) |
-| 3 | u8 | flags | kind-specific bits and optional block: see the [page-envelope contract](DISK_FORMAT.md#2-pages) |
-| 4 | varlong | recordPageKey | logical key (§1.2) |
-| 5 | i32 LE | revision | revision that wrote this physical image |
-| 6 | u8 | index type id | stable ids defined by `IndexType`, pinned by `GoldenFormatTest.indexTypeIdsArePinned` |
-| 7 | u16 LE | commonPrefixLen | |
-| 8 | bytes | commonPrefix | |
-| 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`PageKind.serializeHOTLeaf`) |
-| 10 | i32 LE | usedSlotMemorySize | full image: sum of live slot sizes, excluding retired bytes; sparse image: size of the packed dirty entries |
-| 11 | count × u16 LE | slotOffsets | u16 only ([FMT-211](../spec/FMT-disk-format.md#fmt-211--hot-leaf-directory-and-slot-framing)); flag `0x04` is set exactly when the count is nonzero, and the reader rejects a nonempty leaf without it and an empty leaf with it. Offsets are relative to the first slot-region byte. Full: original offsets when already dense, otherwise offsets into live entries packed in key order; sparse: offsets into the packed dirty entries |
-| 12 | optional bitmap, table and prefix bytes | packing metadata | Body mode bits select these regions. Value aliases and prefixes belong to this fragment. |
-| 13 | slot bytes | heap | The body mode selects slot lengths, group prefixes, aliases and frame-of-reference postings. Full images contain live entries only. Sparse images contain packed dirty entries. |
-| 14 | if flag bit 0: varlong count, then count × (i64 compositeKey, i64 diskKey) | side map | composite keys signed-ascending; **every image carries the complete map**; an unresolved (−1) disk key throws (`PageKind.serializeSegmentRefs`) |
+The authoritative wire layout and validation rules are
+[FMT-210 through FMT-215](../spec/FMT-disk-format.md#fmt-210--hot-leaf-envelope-and-page-local-modes);
+writer selection is
+[FMT-217](../spec/FMT-disk-format.md#fmt-217--hot-and-projection-writer-conformance).
+`PageKind.serializeHOTLeaf` and `PageKind.deserializeHOTLeaf` implement that contract.
 
 - Full-image packing changes only the serialized offsets and payload; the source leaf's offsets,
   dirty state and native ownership remain unchanged (`PageKind.HOT_LEAF_PAGE.serializePage`).
@@ -799,12 +786,15 @@ Body fields below follow the shared envelope, any extension block and the mode b
   (`PageKind.serializeHOTLeaf`). A sparse image holds only the entries changed since the page was
   copied from its previous image. Fresh pages from splits and structural rewrites are full images
   with `completeDump = true` (`hot/AbstractHOTIndexWriter.java:6871-6875`; `hot/page/HOTLeafPage.java:3010-3018`).
-- `PageKind.deserializeHOTLeaf` rejects entry counts above 512 and packed byte counts outside
-  `[0, 65536]`. Ordinary decoding reserves the full writable offset directory; compact raw decoding
-  follows the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
-- The materializer widens the directory into its ordinary in-memory array. Packed read images
-  retain their own metadata and slots under the same frame lifetime. A writable copy restores
-  ordinary slots with individually owned values.
+- Mode-zero materialization reads the u16 directory directly into a `char[]` with writable
+  capacity. Packed materialization retains a `HOTLeafBody` with its wire directory, metadata and
+  slots. Compact decoding follows the
+  [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
+- Ordinary decoding may transfer ownership of a `DecompressionResult` without copying. Parsing uses
+  its bounded `segment()`; the page records `backingBuffer()` for stamp binding and retains the
+  releaser for the whole allocation. Without that handoff, mode-zero decoding allocates a writable
+  frame and packed decoding requests storage for the packed body. Mutable copies restore ordinary
+  slots with independently owned values (§3.4); a mode-zero slice promotes on first mutation.
 - There is no checksum in the body; see §3.6 for what is and is not hashed.
 
 ### 3.3 HOTIndirectPage
@@ -821,7 +811,7 @@ an intent log and is cleared by every `setChildReference` (`:849-898`).
 #### 3.3.2 Serialized layout (`PageKind.HOT_INDIRECT_PAGE`)
 
 Writer `page/PageKind.java:6099-6158`; reader `:5991-6096`.
-Body fields below follow the shared envelope, any extension block and the mode byte when present.
+Body fields below follow the shared envelope and any extension block.
 
 | # | Width | Field |
 |---|---|---|
@@ -860,9 +850,14 @@ staged in the intent log (`:1514-1521`).
 | `copyForRevision(rev)` | same | `rev` (≥ source) | `this` | false | cleared | `:2990-3001` |
 | `copyAsFreshPage(key, rev)` | new | new | null | **true** | cleared | `:3010-3018` |
 
-All copies allocate a new 64 KiB frame and copy `[0, usedSlotMemorySize)` including dead bytes;
-side references are deep-copied except references whose page write is still pending, which are
-shared (`:3023-3068`).
+`copyForRead()` preserves the page key, revision and completeness boundary without a CoW
+dependency. It and the writable copies above allocate a 64 KiB frame: ordinary sources copy
+`[0, usedSlotMemorySize)` including dead bytes, while packed sources expand into independent ordinary
+slots. `copyForCache()` also preserves the completeness boundary without a CoW dependency, but keeps
+a packed source's body and requests only its packed size from the allocator. Cache charges follow
+the [retained-allocation rule](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
+All copies deep-copy side references except those whose page write is still pending, which remain
+shared (`HOTLeafPage.copyInternal`).
 
 ### 3.5 Versioned leaf chains
 
@@ -985,7 +980,7 @@ Additional HOT details owned by this specification, beyond the scope of `docs/DI
    `getAndGuard`, swizzle onto the caller's reference, release the guard unless the caller keeps it
    (`:4410-4417`, `:3902-3921`).
 5. **Raw head or disk**: read-only transactions on non-shared backends first try a guarded raw head
-   and take `copyForRead()`, preserving its completeness boundary without a CoW dependency on the
+   and take `copyForCache()`, preserving its completeness boundary without a CoW dependency on the
    cached source. Otherwise use `pageReader.read(reference, resourceConfig)`. An indirect page is
    swizzled and returned without any cache. A leaf goes through `loadHOTLeafPageWithVersioning`:
    FULL adopts the image; otherwise the chain is loaded (§4.1.1) and combined (§3.5.2);
@@ -1179,8 +1174,10 @@ costs at most 32 first-key resolutions, each at most one leftmost descent.
   `:1356-1366`).
 - **End**: the parent stack is exhausted, or the first key past `toKey` (sound because of I12).
 - **APIs**: `Iterator.next()` copies key and value (length clamped to `slotCapacity()`) and validates;
-  the zero-allocation API (`advance()`, `currentKeySlice`, `currentValueSlice`, `validateLeaf()`)
-  leaves validation to the caller (`:367-536`).
+  the positioned API (`advance()`, `currentKeySlice`, `currentValueSlice`, `validateLeaf()`)
+  leaves validation to the caller (`:367-536`). `currentValueSlice` follows
+  `HOTLeafPage.getValueSlice`'s ordinary-representation contract, which allocates when expanding a
+  frame-of-reference posting; encoded posting consumers use the leaf's `valueRef` accessors.
 
 **Leaf to leaf** (`advanceToNextLeaf`, `hot/reader/HOTTrieReader.java:964-995`): from the deepest stack entry
 upwards, take the next child of the parent, hint the sibling window, descend to its leftmost leaf

@@ -7,8 +7,12 @@ The raw control is constructed without candidate-only production helpers,
 so it can run against the baseline with the same benchmark classes. The
 packed frame is emitted by the current kind-12 writer.
 
-Build `:sirix-benchmarks:jmhJar`. Run paired `encoding=RAW,ENCODED` forks
-for ZERO and REPEATED slot contents. Run `HOTLeafCodecBenchmark` with `keyBytes=1,8`
+Build `:sirix-benchmarks:jmhJar` separately against each arm's production classes, using the
+same benchmark sources. Run `encoding=RAW` only against the pre-u16 baseline and
+`encoding=ENCODED` only against the candidate, for ZERO and REPEATED slot contents.
+RAW constructs the retired i32 directory as a benchmark control; the candidate's
+1.0 reader deliberately rejects it. Do not run both encodings against one build.
+Run `HOTLeafCodecBenchmark` with `keyBytes=1,8`
 to cover the contiguous projection word layout. Measure cold full and compact lookup,
 uncached selection, warm cached leaf key and value lookup, warm projection-image lookup, and
 allocation with JMH's GC profiler. Include an eight-byte key on the cache
@@ -17,8 +21,12 @@ benchmark or busy JVM work enters the scored population.
 
 The broader paired native gate compares warm lookups, fresh processes
 with a resident OS cache and age-controlled device-cold reads against
-current main. The paired lower 95% bound must be at most zero, the paired
-point estimate at most +1%, and median allocation delta at most zero.
+the recorded main baseline. The scored latency and allocation verdicts follow
+[CONV-302](../../../spec/CONV-conventions.md#conv-302--timed-acceptance-verdict), with run and
+condition records under
+[CONV-303](../../../spec/CONV-conventions.md#conv-303--results-ledger-and-conditions-record).
+Run allocation profiling in separate forks using that protocol's JVM and batch settings;
+do not score time from profiler forks.
 After reads pass, compare the same datasets' total allocated and per-kind
 logical bytes. Record the raw measurements, the image heads, and the
 compiled shape for key comparison, leaf value lookup and posting ordinal reads.

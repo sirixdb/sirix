@@ -1,5 +1,9 @@
 # Bug: cold leaf codec setup changed measured warm lookup latency
 
+Historical evidence for the retired kind-local leaf compression experiment. Its codec classes,
+test names and settings below do not describe the current
+[kind-12 format](../../spec/FMT-disk-format.md#fmt-210--hot-leaf-envelope-and-page-local-modes).
+
 - Fix / issue: S1 HOT leaf payload codec, found before delivery by the latency gate.
 - Symptom: unchanged warm leaf lookup grew from 54–56 ns to 66–70 ns in the
   bounded raw/encoded JMH A/B; allocation stayed effectively zero.

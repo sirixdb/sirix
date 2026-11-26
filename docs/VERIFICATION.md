@@ -536,9 +536,9 @@ CLI and Java launcher argument file; those arguments remain intact across both t
 ## HOT leaf encoding release acceptance
 
 Use the [paired read and allocation gate](../bundles/sirix-benchmarks/scripts/HOT_LEAF_CODEC_GATE.md)
-for the FMT-210 through FMT-217 change. Score the 12 leaf endpoints
-individually against main. Apply the zero-allocation criterion on the
-JVM and native image. Record which paths the allocation counters cover.
+for the FMT-210 through FMT-217 change. Score the leaf read endpoints
+individually against the recorded main baseline. Apply the zero-allocation criterion on
+the JVM and native image. Record which paths the allocation counters cover.
 Run the existing [work budgets](#running-the-layers) with their existing
 bounds. Include a warmed allocation budget for packed ordinal search and
 sorted intersection with preallocated inputs and results.

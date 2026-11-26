@@ -59,16 +59,24 @@ The newest image supplies the side-page reference even when an older fragment su
 Every raw image is guarded through its use, and raw images have a separate cache from complete
 leaves. A requested-slot result never becomes a complete-leaf swizzle.
 
-`FileChannelReader` decodes these raw images into independently GC-owned packed native bytes and an
-exact-size offset directory, without allocating a writable native frame or building routing
-metadata. Scalar misses in one fragment-chain walk share one freshly captured committed file
-extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
-straight into its private result. Compact images are immutable; copies restore full writable capacity.
+`FileChannelReader` decodes these images into independently GC-owned native storage without
+allocating a writable allocator frame or building routing metadata. Mode-zero images have an
+exact-size `char[]` directory; packed images retain the directory, metadata and slots together.
+Scalar misses in one fragment-chain walk share one freshly captured committed file extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
+straight into its private result. Compact images are immutable; writable copies restore full
+writable capacity.
 A decoder-only image is never published as a canonical complete leaf: the complete-leaf cache only
 ever receives a fully built leaf, with its routing index, its off-heap frame accounting and its
 ordinary stamp binding. The compact reader handles the persisted
 [leaf body modes](DISK_FORMAT.md#hot-leaves-kind-12-v0)
 under all four versioning policies.
+
+Cache accounting charges the entire native allocation a leaf retains and releases, including
+allocator size-class rounding and a transferred decompression buffer's bytes outside its parsed
+view. An exact-size GC-owned compact image is charged its retained body bytes. Per-page heap
+accounting is additional. `HOTLeafPage.getActualMemorySize` implements this rule;
+`HOTCompactFragmentReadTest` checks both cache copies and transferred backing buffers against the
+allocator's allocation size.
 
 Segment-backed binary searches for eight-byte keys with a nonempty suffix prepare one masked
 probe word per search. When the stored suffix has the expected length and at least eight bytes

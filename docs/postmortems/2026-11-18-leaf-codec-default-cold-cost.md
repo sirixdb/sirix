@@ -1,5 +1,9 @@
 # Bug: leaf compression was on by default and slowed fresh processes
 
+Historical evidence for the retired kind-local leaf compression experiment. Its codec classes,
+test names and settings below do not describe the current
+[kind-12 format](../../spec/FMT-disk-format.md#fmt-210--hot-leaf-envelope-and-page-local-modes).
+
 - Fix / issue: PR #1454, the commit that makes leaf compression opt-in. Found before merge by the
   rehearsal of the native gate; no released version wrote encoded leaves.
 - Symptom: with the leaf writer on, a fresh process on a warm page cache ran SH1 Q7 in 3.3 ms

@@ -687,7 +687,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Legacy deserialization constructor (no prefix — for backward compatibility with V1 format).
+   * Construct an ordinary decoded leaf with an empty common prefix.
    */
   public HOTLeafPage(long recordPageKey, int revision, IndexType indexType, MemorySegment slotMemory,
       @Nullable Runnable releaser, char[] slotOffsets, int entryCount, int usedSlotMemorySize) {
@@ -1399,9 +1399,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Resolve entry {@code index}'s value ONCE into a packed {@code (startOffset, length)} handle, or
-   * {@link #NO_VALUE_REF} when the slot table does not address a readable value —
-   * {@link #getValueSlice} without materializing a slice.
+   * Resolve entry {@code index}'s stored value ONCE into a packed {@code (startOffset, length)}
+   * handle, or {@link #NO_VALUE_REF} when the slot table does not address a readable value. Unlike
+   * {@link #getValueSlice}, this keeps frame-of-reference postings encoded without allocating a slice
+   * or expanding their bytes.
    *
    * <p>
    * <b>Why a packed long and not a slice.</b> A scan that reads a value's size plus a header byte or
@@ -1958,7 +1959,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Return an exact defensive copy of the value stored at {@code index}.
+   * Return an exact defensive copy of the ordinary value at {@code index}, expanding encoded
+   * postings.
    *
    * <p>
    * Unlike {@link #getValue(int)}, this preserves a valid zero-length value as {@code new byte[0]}
@@ -1967,7 +1969,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * domain.
    *
    * @param index entry index in this leaf
-   * @return a newly allocated byte array containing the complete stored value
+   * @return a newly allocated byte array containing the complete ordinary value
    * @throws IndexOutOfBoundsException if {@code index} is not an existing entry
    * @throws IllegalStateException if the stored value reference is unreadable
    */

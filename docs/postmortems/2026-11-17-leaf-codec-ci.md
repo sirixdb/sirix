@@ -1,5 +1,9 @@
 # Bug: HOT leaf codec CI fixtures assumed raw frames and native LZ4
 
+Historical evidence for the retired kind-local leaf compression experiment. Its codec classes,
+test names and settings below do not describe the current
+[kind-12 format](../../spec/FMT-disk-format.md#fmt-210--hot-leaf-envelope-and-page-local-modes).
+
 - Fix / issue: PR #1454; CI run `44147298174` at `0929d0b59`.
 - Symptom: all four `ProjectionSortedFullImagePackingTest` versioning cases failed on Linux
   and Windows. Windows additionally failed the retained-memory codec fixture. CodeFactor

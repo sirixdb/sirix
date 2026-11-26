@@ -1,5 +1,9 @@
 # Bug: negligible savings selected the stronger leaf decoder
 
+Historical evidence for the retired kind-local leaf compression experiment. Its codec classes,
+test names and settings below do not describe the current
+[kind-12 format](../../spec/FMT-disk-format.md#fmt-210--hot-leaf-envelope-and-page-local-modes).
+
 - Fix / issue: review R2, S1 HOT leaf payload codec.
 - Symptom: LZ4 replaced zero-run even for a one-byte improvement, paying a stronger decoder's cost without a clear space gain.
 - Trigger: a compressible payload with LZ4 beating zero-run by at most the existing five-byte payload margin.

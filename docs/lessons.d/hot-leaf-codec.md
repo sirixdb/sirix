@@ -56,9 +56,9 @@ codec, time every decoder a store can meet (native and fallback) on real payload
 through the production reader, and derive the rule from those costs and the cost
 of reading a byte. Test one step under, on and over the rule's boundary with
 framing included, measure codec lengths independently and assert the emitted
-codec as well as the round trip. Keep reader tests for every codec id ever
-written, on frames the test builds, so they do not depend on what the writer
-chooses on that host. See the
+codec as well as the round trip. Keep reader tests for every codec id supported by
+the current format, on frames the test builds, so they do not depend on what the
+writer chooses on that host. See the
 [preference-margin postmortem](postmortems/2026-11-17-leaf-codec-preference-margin.md).
 
 ### Codec CI contracts
