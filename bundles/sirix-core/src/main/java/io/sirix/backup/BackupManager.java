@@ -262,6 +262,7 @@ public final class BackupManager {
             }
             totalBytes += copied.totalBytesCopied();
           }
+          // Each resource copy synced its own entries; their names in resources/ need this barrier.
           DurableFiles.syncDirectory(targetResources);
           totalBytes += reconcileResourceIds(target);
         } finally {
@@ -693,7 +694,7 @@ public final class BackupManager {
         public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
           final Path relativePath = sourceRoot.relativize(dir);
           if (relativePath.toString().isEmpty()) {
-            Files.createDirectories(targetRoot); // the caller syncs the parent after copying
+            Files.createDirectories(targetRoot); // the root itself; its caller makes the name durable
           } else {
             if (skipSubtree.test(relativePath)) {
               return FileVisitResult.SKIP_SUBTREE;

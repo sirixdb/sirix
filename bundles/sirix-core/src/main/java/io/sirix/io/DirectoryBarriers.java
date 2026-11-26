@@ -31,11 +31,4 @@ interface DirectoryBarriers {
    * @throws SirixIOException naming the directory if the move happened but cannot be made durable
    */
   void move(Path source, Path target, boolean replaceExisting) throws IOException;
-
-  /**
-   * Forces the contents and size of an existing regular file.
-   *
-   * @throws SirixIOException naming {@code file} if the force fails
-   */
-  void forceFile(Path file);
 }

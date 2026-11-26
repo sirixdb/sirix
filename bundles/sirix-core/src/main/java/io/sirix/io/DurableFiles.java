@@ -8,8 +8,10 @@ import io.sirix.utils.OS;
 import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -133,7 +135,18 @@ public final class DurableFiles {
    * @throws SirixIOException naming {@code file} if the force fails
    */
   public static void forceFile(final Path file) {
-    PLATFORM.forceFile(requireNonNull(file, "file"));
+    forceFile(file, ChannelOpener.FILE_SYSTEM);
+  }
+
+  static void forceFile(final Path file, final ChannelOpener opener) {
+    requireNonNull(file, "file");
+    // Write access on every platform: FlushFileBuffers, which the JDK's force calls on Windows, needs
+    // it, and every file forced here is one the engine has just written.
+    try (final FileChannel channel = opener.open(file, StandardOpenOption.WRITE)) {
+      channel.force(true);
+    } catch (final IOException e) {
+      throw new SirixIOException("Cannot make the contents of " + file + " durable", e);
+    }
     final BarrierObserver current = observer;
     if (current != null) {
       current.afterForce(file);
@@ -216,10 +229,6 @@ public final class DurableFiles {
 
   static SirixIOException barrierFailure(final Path directory, final Throwable cause) {
     return new SirixIOException("Cannot make the entries of directory " + directory + " durable", cause);
-  }
-
-  static SirixIOException fileForceFailure(final Path file, final Throwable cause) {
-    return new SirixIOException("Cannot make the contents of " + file + " durable", cause);
   }
 
   private static void notifyBarrier(final Path directory) {

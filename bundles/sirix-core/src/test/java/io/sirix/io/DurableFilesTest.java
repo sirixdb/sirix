@@ -133,6 +133,28 @@ final class DurableFilesTest {
   }
 
   @Test
+  void forceFileForcesTheFilesOwnWritableChannelAndReportsIt() throws IOException {
+    final Path file = Files.writeString(temp.resolve("file"), "bytes", StandardCharsets.UTF_8);
+    final RecordingChannelOpener opener = new RecordingChannelOpener();
+    final List<Path> forced = new ArrayList<>();
+    try (final DurableFiles.Observation ignored = DurableFiles.observeBarriers(new DurableFiles.BarrierObserver() {
+      @Override
+      public void afterBarrier(final Path directory) {
+        throw new AssertionError("a file force is not a directory barrier: " + directory);
+      }
+
+      @Override
+      public void afterForce(final Path path) {
+        forced.add(path);
+      }
+    })) {
+      DurableFiles.forceFile(file, opener);
+    }
+    assertEquals(List.of("open " + file + " WRITE", "force " + file + " true", "close " + file), opener.calls);
+    assertEquals(List.of(file), forced);
+  }
+
+  @Test
   void observationRestoresThePreviousObserver() throws IOException {
     final Path directory = Files.createDirectory(temp.resolve("dir"));
     final List<Path> outer = new ArrayList<>();

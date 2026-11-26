@@ -14,6 +14,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Linux, macOS and other POSIX systems: the barrier is a force of a directory channel. On macOS the
  * JDK implements every {@link FileChannel#force} as {@code fcntl(F_FULLFSYNC)} (JDK-8080589), the
@@ -22,13 +24,17 @@ import java.nio.file.StandardOpenOption;
  */
 final class PosixDirectoryBarriers implements DirectoryBarriers {
 
-  static final PosixDirectoryBarriers INSTANCE = new PosixDirectoryBarriers();
+  static final PosixDirectoryBarriers INSTANCE = new PosixDirectoryBarriers(ChannelOpener.FILE_SYSTEM);
 
-  private PosixDirectoryBarriers() {}
+  private final ChannelOpener opener;
+
+  PosixDirectoryBarriers(final ChannelOpener opener) {
+    this.opener = requireNonNull(opener);
+  }
 
   @Override
   public void syncDirectory(final Path directory) {
-    try (final FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
+    try (final FileChannel channel = opener.open(directory, StandardOpenOption.READ)) {
       channel.force(true);
     } catch (final IOException | UnsupportedOperationException e) {
       throw DurableFiles.barrierFailure(directory, e);
@@ -51,16 +57,6 @@ final class PosixDirectoryBarriers implements DirectoryBarriers {
     syncDirectory(targetDirectory);
     if (!DurableFiles.sameDirectory(sourceDirectory, targetDirectory)) {
       syncDirectory(sourceDirectory);
-    }
-  }
-
-  @Override
-  public void forceFile(final Path file) {
-    // fsync accepts a read-only descriptor, which also covers files without write permission.
-    try (final FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
-      channel.force(true);
-    } catch (final IOException e) {
-      throw DurableFiles.fileForceFailure(file, e);
     }
   }
 }

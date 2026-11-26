@@ -16,7 +16,6 @@ import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystemException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 
 import static java.util.Objects.requireNonNull;
 
@@ -101,16 +100,6 @@ final class WindowsDirectoryBarriers implements DirectoryBarriers {
     }
     if (moved == 0) {
       throw failure("MoveFileExW", error, source, target);
-    }
-  }
-
-  @Override
-  public void forceFile(final Path file) {
-    // FlushFileBuffers, which the JDK's force calls on Windows, needs a handle with write access.
-    try (final FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE)) {
-      channel.force(true);
-    } catch (final IOException e) {
-      throw DurableFiles.fileForceFailure(file, e);
     }
   }
 

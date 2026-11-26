@@ -439,7 +439,7 @@ public final class FileChannelStorage implements IOStorage {
 
     if (!Files.exists(concreteStorage)) {
       openingUberPage.getFeatures().requireWritable();
-      DurableFiles.createDirectories(concreteStorage.getParent());
+      Files.createDirectories(concreteStorage.getParent());
       Files.createFile(concreteStorage);
       // Before the bootstrap commit point can publish revision 0 into it (TXN-616).
       DurableFiles.syncDirectory(concreteStorage.getParent());

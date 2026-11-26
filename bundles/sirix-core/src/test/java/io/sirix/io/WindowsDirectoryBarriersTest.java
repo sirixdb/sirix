@@ -236,13 +236,4 @@ final class WindowsDirectoryBarriersTest {
     final String prefixed = "\\\\?\\" + longer;
     assertEquals(prefixed, WindowsDirectoryBarriers.win32Path(prefixed));
   }
-
-  @Test
-  void forceFileForcesAnExistingFileAndNamesAMissingOne() throws IOException, ReflectiveOperationException {
-    final WindowsDirectoryBarriers barriers = new WindowsDirectoryBarriers(new FakeKernel32().bind());
-    barriers.forceFile(Files.writeString(temp.resolve("file"), "bytes", StandardCharsets.UTF_8));
-    final Path missing = temp.resolve("missing");
-    final SirixIOException failure = assertThrows(SirixIOException.class, () -> barriers.forceFile(missing));
-    assertTrue(failure.getMessage().contains(missing.toString()), failure.getMessage());
-  }
 }

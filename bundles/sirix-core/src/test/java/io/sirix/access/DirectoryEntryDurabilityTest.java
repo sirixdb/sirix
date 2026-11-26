@@ -28,6 +28,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -160,6 +161,12 @@ final class DirectoryEntryDurabilityTest {
         model.materialize(crashed);
       }
     }
+    // The settings bind the keyset to the original resource path (a separate defect), so reading the
+    // crashed copy would use the original key; compare the persisted keyset bytes instead.
+    final Path keyset = Path.of("resources", RESOURCE, "encryption", "encryptionKey.json");
+    assertEquals(Files.readString(database.resolve(keyset), StandardCharsets.UTF_8),
+        Files.readString(crashedDatabase().resolve(keyset), StandardCharsets.UTF_8),
+        "the keyset must survive the crash with its contents");
     assertCreatedResourceSurvived();
   }
 
@@ -191,6 +198,7 @@ final class DirectoryEntryDurabilityTest {
         model.materialize(crashed);
       }
     }
+    assertStorageFilesSurvived();
     reopenCold();
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(crashedDatabase());
         final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
@@ -200,6 +208,7 @@ final class DirectoryEntryDurabilityTest {
   }
 
   private void assertCreatedResourceSurvived() {
+    assertStorageFilesSurvived();
     reopenCold();
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(crashedDatabase())) {
       assertTrue(db.existsResource(RESOURCE), "a created resource must survive the crash");
@@ -222,6 +231,9 @@ final class DirectoryEntryDurabilityTest {
       try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
         db.removeResource(RESOURCE);
         model.materialize(crashed);
+      }
+      try (final Stream<Path> resources = Files.list(database.resolve("resources"))) {
+        assertEquals(List.of(), resources.toList(), "a completed removal leaves nothing behind");
       }
     }
     reopenCold();
@@ -357,6 +369,13 @@ final class DirectoryEntryDurabilityTest {
       }
     }
     return database;
+  }
+
+  /** The persisted file set of the resource (FMT-101), checked before a reopen could recreate it. */
+  private void assertStorageFilesSurvived() {
+    final Path data = crashedDatabase().resolve("resources").resolve(RESOURCE).resolve("data");
+    assertTrue(Files.isRegularFile(data.resolve("sirix.data")), "the data file must survive the crash");
+    assertTrue(Files.isRegularFile(data.resolve("sirix.revisions")), "the revisions file must survive the crash");
   }
 
   /** The database and resource settings, including the temporary file a replacement writes. */
