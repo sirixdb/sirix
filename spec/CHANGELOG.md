@@ -17,12 +17,30 @@
   Making Otava the judge is not decided here.
   Decided by the maintainer on 2026-11-26: a hosted runner is fingerprinted by its class, not by its
   kernel or image.
+- Record the derived half of
+  [TXN-613](TXN-transactions-durability.md#txn-613--backups-include-derived-resources) as
+  implemented: a backup copies each backed-up resource's hidden `$derived` resource, a restore
+  verifies those stores before any visible resource and reports them, and a derived store whose
+  maintenance does not quiesce is refused rather than copied mid-build. The clause's reference to
+  the TXN-614 pinned start snapshot is unchanged and still unimplemented, so the status moves from
+  `designed` to `partial` rather than to a conformance claim. Clarify the clause's copied-resource
+  identity, frontier and isolated-verification requirements following backup/restore review.
 - Record the synchronous and pipelined cleanup-failure implementation and regression evidence under
   [TXN-307](TXN-transactions-durability.md#txn-307--known-durable-commit-survives-cleanup-failure),
   moving its status to `partial` without changing requirement text. The
   [TXN-305](TXN-transactions-durability.md#txn-305--known-pre-commit-point-failure) and
   [TXN-705](TXN-transactions-durability.md#txn-705--unknown-durability-outcome-and-no-fsync-retry)
   notes distinguish the remaining pre-point reuse and uncertainty gaps.
+- Add the [MEM](MEM-memory-pool.md) chapter (MEM-101 to MEM-402, all proposed): page frames give
+  their budget back across size classes on demand, in 2 MiB batches, with a version bump around
+  each OS release and re-charge before new frames are minted; the buffer-manager caches share one
+  frame budget with priority eviction up to the shortfall, keeping the old shares only as optional
+  caps; the compact-image pool is charged as a reservation of that budget in one account. The
+  fixed reserves are unchanged for 1.0. Each class reserves virtual capacity for the whole frame
+  budget, with lazy per-slot metadata and initialization rollback on reservation refusal; slot
+  exhaustion requests relief only from the requesting class. Transfer regressions independently
+  exhaust each consumer's admission ceiling, and release residency is measured before access.
+  No product behavior changes with this entry.
 
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from

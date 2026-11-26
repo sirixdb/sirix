@@ -12,11 +12,14 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Cached superblock validation for repeated channel creation, once per JVM per canonical file path.
+ * Superblock validation with cached channel opens and fresh compatibility and tool verification.
  * <p>
+ * Storage instances are request-scoped; {@link #validateOnce(Path, byte)} caches successful
+ * validation per canonical path to avoid repeated file opens and header reads for further channels.
  * The shared {@link ResourceFormatCompatibility} gate checks persistent storage initialization and
  * destructive recovery independently of this cache. Cached headers alone are not compatibility
- * evidence for a repair; this cache only avoids repeated checks when opening further channels.
+ * evidence for a repair. Tool verification uses {@link #validate} to inspect the current bytes even
+ * when a previous copy occupied the same path.
  * <p>
  * Invalidation: resource removal drops the resource's paths ({@link #invalidateUnder(Path)}); tests
  * that mutate files out-of-band simulate a cold process via {@code Databases.clearGlobalCaches()},
@@ -82,10 +85,12 @@ public final class SuperblockValidator {
   }
 
   /**
+   * Validates the current file directly, bypassing the path cache used by {@link #validateOnce}.
+   *
    * @return {@code true} if a superblock was actually validated, {@code false} for a fresh/empty file
    *         (nothing to validate yet)
    */
-  private static boolean validate(final Path path, final byte role, final long expectedUuidMsb,
+  public static boolean validate(final Path path, final byte role, final long expectedUuidMsb,
       final long expectedUuidLsb) {
     try {
       if (!Files.exists(path) || Files.size(path) == 0) {

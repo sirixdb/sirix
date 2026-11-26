@@ -239,11 +239,10 @@ public final class MMStorage implements IOStorage {
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
+    // Builders and deserialization (including deserializeForTool) require a nonzero UUID (FMT-102).
     resourceUuidMsb = resourceConfig.resourceUuid.getMostSignificantBits();
     resourceUuidLsb = resourceConfig.resourceUuid.getLeastSignificantBits();
-    if (this.openingUberPage.isBootstrap() && exists()) {
-      throw new SirixIOException("No committed uber-page beacon exists for " + resourceConfig.resourcePath);
-    }
+    IOStorage.requireCommittedBeacon(resourceConfig, this.openingUberPage);
   }
 
   /**

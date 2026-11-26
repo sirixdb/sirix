@@ -150,6 +150,69 @@ public final class InterruptedFirstCommitRecovery {
     }
   }
 
+  public record ReaderAndUberPage(Reader reader, UberPage uberPage) {
+  }
+
+  /**
+   * Opens existing storage read-only with private revision metadata and fresh disk validation. Unlike
+   * session opens, this cannot repair or rebuild the store being verified. The caller must close the
+   * returned reader.
+   */
+  // Ownership transfers to the returned reader: the nested finally blocks close each acquired
+  // channel until reader construction, then close the reader unless initialization completes.
+  // ToolReaderOwnershipTest checks real OS handles on every acquisition/initialization failure.
+  @SuppressWarnings("java:S2095")
+  public static ReaderAndUberPage openReaderForTool(final ResourceConfiguration config) {
+    // Keep disk-engine beacon, feature, superblock/UUID and revision-index checks with private
+    // metadata.
+    final UberPage uberPage = probeUberPage(config);
+    uberPage.getFeatures().requireToolCompatible();
+    IOStorage.requireCommittedBeacon(config, uberPage);
+    final Path dataFile = dataFilePath(config);
+    final Path revisionsFile = revisionsFilePath(config);
+    final long uuidHigh = config.resourceUuid.getMostSignificantBits();
+    final long uuidLow = config.resourceUuid.getLeastSignificantBits();
+    // resourceUuid is nonzero by construction: ResourceConfiguration.Builder#resourceUuid and
+    // ResourceConfiguration#requireResourceIdentity both reject null and the all-zero UUID, on every
+    // path that can produce a configuration, deserializeForTool included.
+    SuperblockValidator.validate(dataFile, Superblock.ROLE_DATA, uuidHigh, uuidLow);
+    SuperblockValidator.validate(revisionsFile, Superblock.ROLE_REVISIONS, uuidHigh, uuidLow);
+    boolean channelsTransferred = false;
+    boolean transferred = false;
+    try {
+      final FileChannel data = FileChannel.open(dataFile, StandardOpenOption.READ);
+      try {
+        final FileChannel revisions = FileChannel.open(revisionsFile, StandardOpenOption.READ);
+        try {
+          final FileChannelReader reader =
+              new FileChannelReader(data, revisions, new ByteHandlerPipeline(config.byteHandlePipeline),
+                  SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build());
+          channelsTransferred = true;
+          try {
+            IOStorage.readRevisionIndex(reader, uberPage.getRevisionNumber());
+            final ReaderAndUberPage opened = new ReaderAndUberPage(reader, uberPage);
+            transferred = true;
+            return opened;
+          } finally {
+            if (!transferred) {
+              reader.close();
+            }
+          }
+        } finally {
+          if (!channelsTransferred) {
+            revisions.close();
+          }
+        }
+      } finally {
+        if (!channelsTransferred) {
+          data.close();
+        }
+      }
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
+
   public static StoreFeatures probeFeatures(final ResourceConfiguration resourceConfig) {
     return probeUberPage(resourceConfig).getFeatures();
   }
