@@ -6922,10 +6922,7 @@ public enum PageKind {
    * @return the flags byte (all bits within {@code allowedMask})
    */
   public static byte readVersionAndFlagsAllowing(final BytesIn<?> source, final byte allowedMask) {
-    final BinaryEncodingVersion version = BinaryEncodingVersion.fromByte(source.readByte());
-    if (version != BinaryEncodingVersion.V0) {
-      throw new IllegalStateException("Unknown binary encoding version: " + version);
-    }
+    BinaryEncodingVersion.fromByte(source.readByte());
     final byte flags = source.readByte();
     if ((flags & ~allowedMask) != 0) {
       return PageExtensions.readOrRefuse(source, flags, allowedMask);

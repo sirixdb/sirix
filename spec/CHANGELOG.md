@@ -10,6 +10,46 @@
 - Add FMT-215 for same-frame value aliases to earlier inline owners.
 - Add FMT-216 for kind-9 projection flags, codec assignments and bounded frame validation.
 - Add FMT-217 for writer conformance, with separate selection and inclusive 20% compression acceptance.
+
+- Schedule the nightly trend tier and give it a hosted-runner class
+  ([CONV-303](CONV-conventions.md#conv-303--results-ledger-and-conditions-record),
+  [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier)). A run row may name its `runner`
+  (`dedicated` or `hosted`, provider, label, image); a hosted runner is fingerprinted by its class
+  (label, architecture, CPU model, logical CPUs, memory) instead of its kernel, which the provider
+  changes with every image, and a different CPU model is a different condition. The nightly tier
+  judges CPU time and allocation per operation on a hosted runner and records wall-clock time as
+  informational. A zero allocation level is compared one byte up. Apache Otava is allowed as an
+  advisory second opinion; both answers are reported when they disagree, and an issue is opened once
+  per confirmed upward change, never from a fork. Nothing public is committed, pushed, deployed or
+  opened between 04:00 and 17:30 Europe/Berlin on a weekday, and the publishing code enforces it.
+  The ledger of the nightly tier is the one ledger that is committed, on the `nightly-data` branch.
+  Making Otava the judge is not decided here.
+  Decided by the maintainer on 2026-11-26: a hosted runner is fingerprinted by its class, not by its
+  kernel or image.
+- Record the derived half of
+  [TXN-613](TXN-transactions-durability.md#txn-613--backups-include-derived-resources) as
+  implemented: a backup copies each backed-up resource's hidden `$derived` resource, a restore
+  verifies those stores before any visible resource and reports them, and a derived store whose
+  maintenance does not quiesce is refused rather than copied mid-build. The clause's reference to
+  the TXN-614 pinned start snapshot is unchanged and still unimplemented, so the status moves from
+  `designed` to `partial` rather than to a conformance claim. Clarify the clause's copied-resource
+  identity, frontier and isolated-verification requirements following backup/restore review.
+- Record the synchronous and pipelined cleanup-failure implementation and regression evidence under
+  [TXN-307](TXN-transactions-durability.md#txn-307--known-durable-commit-survives-cleanup-failure),
+  moving its status to `partial` without changing requirement text. The
+  [TXN-305](TXN-transactions-durability.md#txn-305--known-pre-commit-point-failure) and
+  [TXN-705](TXN-transactions-durability.md#txn-705--unknown-durability-outcome-and-no-fsync-retry)
+  notes distinguish the remaining pre-point reuse and uncertainty gaps.
+- Add the [MEM](MEM-memory-pool.md) chapter (MEM-101 to MEM-402, all proposed): page frames give
+  their budget back across size classes on demand, in 2 MiB batches, with a version bump around
+  each OS release and re-charge before new frames are minted; the buffer-manager caches share one
+  frame budget with priority eviction up to the shortfall, keeping the old shares only as optional
+  caps; the compact-image pool is charged as a reservation of that budget in one account. The
+  fixed reserves are unchanged for 1.0. Each class reserves virtual capacity for the whole frame
+  budget, with lazy per-slot metadata and initialization rollback on reservation refusal; slot
+  exhaustion requests relief only from the requesting class. Transfer regressions independently
+  exhaust each consumer's admission ceiling, and release residency is measured before access.
+  No product behavior changes with this entry.
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from
   reporting the index malformed because a leaf was evicted, and the validation that follows a published
@@ -22,6 +62,31 @@
   [CONV-302](CONV-conventions.md#conv-302--timed-acceptance-verdict): their whole-byte figure
   must be identical in every process; the importer refuses other legs.
   The allocation acceptance rule is unchanged.
+
+- Say which discriminative key bytes HOT routing can name, and require every index kind to stay
+  inside them. New [FMT-305](FMT-disk-format.md#fmt-305--hot-routable-key-bound) forbids a
+  persisted indirect node from naming a byte its layout cannot express: a `MULTI_MASK` node may
+  name key bytes 0 to 255 only, a builder that would exceed that must narrow the node and leave
+  the remaining bits to deeper levels, and reducing a byte position to the layout's width is
+  forbidden because it routes on an unrelated key byte. The leading discriminative bit position
+  FMT-302 and the range-scan walk-up read must survive the round trip without overflow or be
+  recomputed on decode. Every index kind must state a key bound rather than inherit one by
+  accident. The decided bound is 4096 stored bytes including chunk and delta suffixes; NAME
+  keys past it are truncated with an unambiguous marker and read through an exact candidate
+  re-check, without insert failure. Names inside the bound pay no re-check record reads. CAS and
+  VALIDTIME retain their existing smaller bounds. The cross-kind conformance sweep remains planned.
+- Add [FMT-306](FMT-disk-format.md#fmt-306--hot-stored-height-and-spine-continuity): a HOT
+  indirect node's stored height MUST equal the structural height below it, live in the writing
+  transaction, in every published revision and after cold decode; a structural change below a node
+  MUST be carried back along the whole parent chain, so no reachable ancestor keeps describing the
+  subtree it replaced, including when the ancestor's own height does not change, and a mutation that
+  cannot complete that propagation MUST fail the transaction. Locating a key MUST NOT depend on a
+  stored height, while maintenance MAY read it, so an inexact height is a malformed subtree rather
+  than a cost matter, and the invariant validator MUST compare stored heights with the structure it
+  walks. Height minimality stays out of scope: FMT-302 remains the only height guarantee, and a
+  committed trie MAY exceed the smallest height admissible for its leaf partitioning.
+  [#1457](https://github.com/sirixdb/sirix/issues/1457).
+
 - Make the PR mutation lane's unit of work its blocking criterion. New
   [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant
   generation to the PR's own lines through a repository interceptor on PIT's tool classpath,
@@ -81,6 +146,15 @@
   cumulative drift above 2%. The development strategy states the reasons in
   [The benchmark protocol](../docs/DEVELOPMENT.md#the-benchmark-protocol).
 
+- Make 1.0 the only on-disk format under
+  [FMT-401](FMT-disk-format.md#fmt-401--10-format-baseline), with strict identity checks under
+  FMT-102/CONF-102 and history-preserving export/import under
+  [FMT-402](FMT-disk-format.md#fmt-402--history-preserving-export-and-import).
+  FMT-401 remains partial: beaconless framed-prefix and bounded historical-root checks
+  do not replace the complete envelope scan deferred to `sirix-repair-format-gate`. Explicit
+  truncate checks the target and its bounded root window before publishing beacons; absent revisions headers remain
+  recoverable with validated data identity and tail-log evidence.
+
 - Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
   [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).
 
@@ -138,8 +212,10 @@
 
 - Apply the final review decisions: known durable cleanup failures return success;
   unknown durability stops writes and throws CommitOutcomeUnknownException without
-  fsync retry. Reject beta stores with history-preserving export/import guidance; require an
-  immutable 1.0 corpus in CI. Truncate fails fast for affected open readers. Backups
+  fsync retry.
+  The format baseline and export/import policy follow
+  [FMT-401–402](FMT-disk-format.md#fmt-401--10-format-baseline).
+  Truncate fails fast for affected open readers. Backups
   pin startup resource/revision membership; dropping a pinned resource fails fast.
 
 - Classify Java declarations into the decided small stable core, labelled expert tier

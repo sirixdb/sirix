@@ -626,7 +626,9 @@ return xn:scan-name-index($doc, $index,
 ```
 
 The [NAME key format](docs/HOT_INDEX_SPECIFICATION.md#232-name-hotnamekeyserializerjava)
-documents storage compatibility and encoding.
+documents storage compatibility and encoding. Long names remain insertable and lookups stay exact;
+[FMT-305](spec/FMT-disk-format.md#fmt-305--hot-routable-key-bound) specifies the stored-key bound
+and when reads pay for candidate re-checks.
 
 ### Projection indexes (experimental, analytical)
 

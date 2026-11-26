@@ -2,7 +2,9 @@ package io.sirix.rest.crud
 
 import io.sirix.api.Database
 import io.sirix.api.NodeCursor
+import io.sirix.api.NodeReadOnlyTrx
 import io.sirix.api.ResourceSession
+import io.sirix.access.trx.node.HashType
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.BasicJsonDBStore
 import io.sirix.query.node.BasicXmlDBStore
@@ -10,6 +12,7 @@ import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.vertx.core.Context
 import io.vertx.core.buffer.Buffer
+import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -61,7 +64,9 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         val startRevisionTimestamp: String? = ctx.queryParam("start-revision-timestamp").getOrNull(0)
         val endRevisionTimestamp: String? = ctx.queryParam("end-revision-timestamp").getOrNull(0)
 
-        val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
+        // REST-203: parse before any I/O. A malformed nodeId is a 400; it must never be read as
+        // "absent" (toLongOrNull) and answered with the whole resource.
+        val nodeId: Long? = ctx.queryParam("nodeId").getOrNull(0)?.let { requireLongParam("nodeId", it) }
 
         var body: Buffer?
 
@@ -72,9 +77,14 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
 
             manager.use {
                 body = if (!query.isNullOrEmpty()) {
-                    queryResource(
-                        databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                        vertxContext, user, jsonBody
+                    // The outer database scope owns this collection's database; xquery closes its stores.
+                    val dbCollection = getDBCollection(databaseName, database)
+                    val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
+                    val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrNull(0)
+                    val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrNull(0)
+                    xquery(
+                        manager, dbCollection, nodeId, revisionNumber, query, ctx, vertxContext, user,
+                        startResultSeqIndex?.toLong(), endResultSeqIndex?.toLong(), jsonBody
                     )
                 } else {
                     val revisions: IntArray =
@@ -83,7 +93,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                             endRevisionTimestamp, manager, revision, revisionTimestamp
                         )
 
-                    serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx, vertxContext)
+                    serializeResource(manager, revisions, nodeId, ctx, vertxContext)
                 }
             }
         }
@@ -95,37 +105,10 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         }
     }
 
-    private suspend fun queryResource(
-        databaseName: String?, database: Database<T>, revision: String?,
-        revisionTimestamp: String?, manager: T, ctx: RoutingContext,
-        nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
-    ): Buffer? {
-        val dbCollection = getDBCollection(databaseName, database)
-        dbCollection.use {
-            val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
-            val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
-            val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
-
-            return xquery(
-                manager,
-                dbCollection,
-                nodeId,
-                revisionNumber,
-                query,
-                ctx,
-                vertxContext,
-                user,
-                startResultSeqIndex?.toLong(),
-                endResultSeqIndex?.toLong(),
-                jsonBody
-            )
-        }
-    }
-
     suspend fun xquery(
         manager: T?,
         dbCollection: W?,
-        nodeId: String?,
+        nodeId: Long?,
         revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?, jsonBody: JsonObject?
     ): Buffer? {
@@ -168,16 +151,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                     @Suppress("UNCHECKED_CAST") val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0]) as R
 
                     rtx.use {
-                        if (nodeId == null) {
-                            rtx.moveToFirstChild()
-                        } else {
-                            // An unchecked moveTo would bind the context item to the document
-                            // root: the JSON path throws AssertionError (HTTP 500) and the XML
-                            // path silently evaluates the query against the WRONG context.
-                            rtx.moveToOrNotFound(nodeId.toLong())
-                        }
-
-                        handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)
+                        val nodeHash = bindQueryContext(rtx, nodeId, manager, dbCollection, queryCtx, jsonDBStore)
 
                         body = executeQueryAndSerialize(
                             routingContext,
@@ -191,6 +165,9 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                             manager,
                             revisionNumber
                         )
+                        if (nodeHash != null) {
+                            routingContext.response().putHeader(HttpHeaders.ETAG, nodeHash.toString())
+                        }
                     }
                 } else {
                     body = executeQueryAndSerialize(
@@ -211,6 +188,25 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         }, false).coAwait()
     }
 
+    private fun bindQueryContext(
+        rtx: R, nodeId: Long?, manager: T, dbCollection: W,
+        queryCtx: SirixQueryContext, jsonDBStore: JsonSessionDBStore
+    ): Long? {
+        if (nodeId == null) {
+            rtx.moveToFirstChild()
+        } else {
+            // Refuse an unknown key before context binding or query evaluation.
+            rtx.moveToOrNotFound(nodeId)
+        }
+        val nodeHash = if (nodeId != null && manager.resourceConfig.hashType != HashType.NONE) {
+            (rtx as NodeReadOnlyTrx).hash
+        } else {
+            null
+        }
+        handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)
+        return nodeHash
+    }
+
     private suspend fun serializeResource(
         manager: T,
         revisions: IntArray,
@@ -223,8 +219,22 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         // ordered = false: read-only serialization, no reason to serialize it behind every
         // other blocking task on this verticle context.
         return vertxContext.executeBlocking(Callable {
+            if (nodeId != null) {
+                requireNodeInEveryRevision(manager, revisions, nodeId)
+            }
             getSerializedBody(manager, revisions, nodeId, ctx)
         }, false).coAwait()!!
+    }
+
+    /**
+     * REST-203: the serializers fall back to the document root for a start key they cannot move to,
+     * so a missing node must be rejected up front, in every selected revision, before a single byte
+     * or ETag is produced.
+     */
+    private fun requireNodeInEveryRevision(manager: T, revisions: IntArray, nodeId: Long) {
+        for (revision in revisions) {
+            manager.beginNodeReadOnlyTrx(revision).use { rtx -> (rtx as NodeCursor).moveToOrNotFound(nodeId) }
+        }
     }
 
     abstract suspend fun openDatabase(dbFile: Path): Database<T>

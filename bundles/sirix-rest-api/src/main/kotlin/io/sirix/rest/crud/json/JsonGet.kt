@@ -18,15 +18,9 @@ import io.sirix.query.JsonDBSerializer
 import io.sirix.rest.crud.AbstractGetHandler
 import io.sirix.rest.crud.OutputWrapper
 import io.sirix.query.SirixQueryContext
-import io.sirix.query.json.AbstractJsonDBArray
-import io.sirix.query.json.AtomicBooleanJsonDBItem
-import io.sirix.query.json.AtomicNullJsonDBItem
-import io.sirix.query.json.AtomicStrJsonDBItem
 import io.sirix.query.json.JsonDBCollection
 import io.sirix.query.json.JsonDBCollectionImpl
-import io.sirix.query.json.JsonDBObject
 import io.sirix.query.json.JsonItemFactory
-import io.sirix.query.json.NumericJsonDBItem
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.brackit.query.compiler.CompileChain
@@ -196,6 +190,10 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
         val startNodeKey = ctx.queryParam("startNodeKey").getOrNull(0)?.toLong()
 
+        if (nodeId != null && startNodeKey != null) {
+            requireCursorInSubtree(manager, revisions, nodeId, startNodeKey)
+        }
+
         val numberOfNodes = ctx.queryParam("numberOfNodes").getOrNull(0)?.toLong()
         val maxChildren = ctx.queryParam("maxChildren").getOrNull(0)?.toLong()
 
@@ -212,29 +210,23 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
 
             nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
-            if (withMetaData != null) {
-                when (withMetaData) {
+            withMetaData?.let {
+                when (it) {
                     "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
                     "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
                     else -> serializerBuilder.withMetaData(true)
                 }
             }
 
-            if (maxLevel != null) {
-                serializerBuilder.maxLevel(maxLevel.toLong())
-            }
+            maxLevel?.let { serializerBuilder.maxLevel(it.toLong()) }
 
-            if (maxChildren != null) {
-                serializerBuilder.maxChildren(maxChildren)
-            }
+            maxChildren?.let { serializerBuilder.maxChildren(it) }
 
             if (prettyPrint != null) {
                 serializerBuilder.prettyPrint()
             }
 
-            if (numberOfNodes != null) {
-                serializerBuilder.numberOfNodes(numberOfNodes)
-            }
+            numberOfNodes?.let { serializerBuilder.numberOfNodes(it) }
 
             val serializer = serializerBuilder.build()
 
@@ -246,39 +238,44 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
             val serializerBuilder =
                 JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions)
 
-            // For pagination: startNodeKey is the last loaded child, serialize its right siblings
-            // For initial load: startNodeKey is 0 (default), serialize from document root
-            if (startNodeKey != null) {
-                serializerBuilder.startNodeKey(startNodeKey)
-            }
+            nodeId?.let { serializerBuilder.rootNodeKey(it) }
 
-            if (withMetaData != null) {
-                when (withMetaData) {
+            startNodeKey?.let { serializerBuilder.startNodeKey(it) }
+
+            withMetaData?.let {
+                when (it) {
                     "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
                     "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
                     else -> serializerBuilder.withMetaData(true)
                 }
             }
 
-            if (maxLevel != null) {
-                serializerBuilder.maxLevel(maxLevel.toLong())
-            }
+            maxLevel?.let { serializerBuilder.maxLevel(it.toLong()) }
 
-            if (maxChildren != null) {
-                serializerBuilder.maxChildren(maxChildren)
-            }
+            maxChildren?.let { serializerBuilder.maxChildren(it) }
 
             if (prettyPrint != null) {
                 serializerBuilder.prettyPrint()
             }
 
-            if (numberOfNodes != null) {
-                serializerBuilder.numberOfNodes(numberOfNodes)
-            }
+            numberOfNodes?.let { serializerBuilder.numberOfNodes(it) }
 
             val serializer = serializerBuilder.build()
 
             return JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId)
+        }
+    }
+
+    private fun requireCursorInSubtree(
+        manager: JsonResourceSession, revisions: IntArray, nodeId: Long, startNodeKey: Long
+    ) {
+        for (revision in revisions) {
+            manager.beginNodeReadOnlyTrx(revision).use { rtx ->
+                require(rtx.moveTo(startNodeKey)) { "startNodeKey must exist inside the nodeId subtree" }
+                while (rtx.nodeKey != nodeId && rtx.moveToParent()) {
+                }
+                require(rtx.nodeKey == nodeId) { "startNodeKey must exist inside the nodeId subtree" }
+            }
         }
     }
 
@@ -299,48 +296,9 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         queryContext: SirixQueryContext,
         jsonSessionDBStore: JsonSessionDBStore
     ) {
-        val jsonItem = JsonItemFactory()
-            .getSequence(rtx, dbCollection)
-
-        if (jsonItem != null) {
-            queryContext.contextItem = jsonItem
-
-            when (jsonItem) {
-                is AbstractJsonDBArray<*> -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                is JsonDBObject -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                is AtomicBooleanJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                is AtomicStrJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                is AtomicNullJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                is NumericJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
-                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
-                }
-
-                else -> {
-                    throw IllegalStateException("Node type not known.")
-                }
-            }
-        }
+        queryContext.contextItem = JsonItemFactory.INSTANCE.getSequence(rtx, dbCollection)
+        dbCollection.setJsonDBStore(jsonSessionDBStore)
+        jsonSessionDBStore.addDatabase(dbCollection, dbCollection.database)
     }
 
     override fun createOutputStream(): OutputWrapper = OutputWrapper.StringBuilderWrapper(StringBuilder())

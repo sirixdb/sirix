@@ -68,9 +68,8 @@ import java.util.function.BiFunction;
  * frees <em>slots of their class</em>, never budget: a class that committed slots at a peak keeps
  * them, and another class cannot commit against them. The commitment limits below exist because of
  * this.</li>
- * <li><b>Recycled memory is dirty.</b> Nothing zeroes a slot between owners. The single exception
- * is {@link #resetSegment}, which discards pages on request and is not part of releasing or
- * recycling.</li>
+ * <li><b>Recycled memory is dirty.</b> Nothing zeroes a slot between owners, and nothing here
+ * discards a committed slot's pages.</li>
  * </ul>
  *
  * Only memory outside the slot regions returns its commitment when released: oversized allocations,
@@ -1606,24 +1605,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return;
     }
     issuedSlotCount.decrementAndGet();
-  }
-
-  /**
-   * Discard ({@code MADV_DONTNEED}) the physical pages backing {@code segment} without releasing the
-   * slot, so that the caller, who must own the segment, reads zeros from it next and the pages fault
-   * back in on the next write.
-   *
-   * <p>
-   * This is <em>not</em> how a slot is recycled: {@link #release} keeps the pages, and nothing in the
-   * allocator calls this. It is unsafe on memory another thread may still read optimistically, since
-   * that reader would observe zeros with an unchanged version.
-   */
-  @Override
-  public void resetSegment(final MemorySegment segment) {
-    if (segment == null) {
-      return;
-    }
-    VM.discardToZeros(segment);
   }
 
   /**

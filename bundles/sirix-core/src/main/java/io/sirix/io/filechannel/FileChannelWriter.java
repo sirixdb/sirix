@@ -21,6 +21,7 @@
 
 package io.sirix.io.filechannel;
 
+
 import io.sirix.cache.ScratchLease;
 import io.sirix.cache.ScratchUse;
 import com.github.benmanes.caffeine.cache.AsyncCache;
@@ -30,6 +31,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.io.AbstractForwardingReader;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.io.IOStorage;
+import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.PageHasher;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
@@ -385,8 +387,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    *        the lazy-revision-record profile (see {@link #lazyRevisionRecords}); must be {@code false}
    *        when that channel is write-through. Only honored together with the preallocated profile
    * @param revisionsFilePath path of the revisions file, identity key for the durability state
-   * @param resourceUuidMsb most significant resource-UUID half ({@code 0} = legacy, no UUID)
-   * @param resourceUuidLsb least significant resource-UUID half ({@code 0} = legacy)
+   * @param resourceUuidMsb most significant half of the nonzero resource UUID
+   * @param resourceUuidLsb least significant half of the nonzero resource UUID
    * @param releaseAction callback for a writer borrowing the storage's SHARED channel triple:
    *        {@link #close()} runs it INSTEAD of closing the channels, so the storage can close the
    *        pool once the last borrower is gone. {@code null} means this writer owns its channels and
@@ -449,8 +451,19 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
+  public void requireCompatibleRevisionRoots(final int lastRevision) {
+    try {
+      reader.requireCompatibleRevisionRoots(lastRevision);
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
+
+  @Override
   public Writer truncateTo(final int revision) {
     try {
+      ResourceFormatCompatibility.verifyRepair(dataFileChannel, revisionsFileChannel, reader);
+      requireCompatibleRevisionRoots(revision);
       final long fileSize = dataFileChannel.size();
       final int durableRevision = durableBeaconRevision();
       if (durableRevision < revision) {
@@ -891,7 +904,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     if (actualHash != revisionFileData.pageHash()) {
       throw new SirixIOException(context + ": revision-root payload hash mismatch for revision " + revision);
     }
-    return new ValidatedFrame(frameOffset, payloadOffset, frameEnd, dataLength);
+    return new ValidatedFrame(payloadOffset, frameEnd, dataLength);
   }
 
   static long checkedFrameEnd(final long frameOffset, final int dataLength, final String context, final int revision) {
@@ -905,7 +918,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
-  record ValidatedFrame(long frameOffset, long payloadOffset, long frameEnd, int dataLength) {
+  record ValidatedFrame(long payloadOffset, long frameEnd, int dataLength) {
   }
 
   private static final Access<ChannelHashInput> CHANNEL_HASH_ACCESS = new ChannelHashAccess(ByteOrder.LITTLE_ENDIAN);
@@ -1540,12 +1553,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // because both files may already have grown PAST the header via sparse positioned writes
       // (the revision record lands at REVISIONS_RECORDS_START before this runs), presence is
       // probed via the magic bytes, not the file size.
-      final long uuidMsb = resourceConfiguration.resourceUuid != null
-          ? resourceConfiguration.resourceUuid.getMostSignificantBits()
-          : 0L;
-      final long uuidLsb = resourceConfiguration.resourceUuid != null
-          ? resourceConfiguration.resourceUuid.getLeastSignificantBits()
-          : 0L;
+      // Never zero: 1.0 settings identify their resource (FMT-102), and a zero-UUID superblock
+      // would be refused on the next open.
+      final long uuidMsb = resourceConfiguration.resourceUuid.getMostSignificantBits();
+      final long uuidLsb = resourceConfiguration.resourceUuid.getLeastSignificantBits();
       if (writeRevisionsSuperblockIfMissing(resourceConfiguration) && lazyRevisionRecords) {
         // One-time: the revisions channel is BUFFERED in this profile, and the superblock (file
         // identity) must be durable before the first beacon acknowledges anything — the tail-log
@@ -1939,12 +1950,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     if (!superblockMissing(revisionsFileChannel)) {
       return false;
     }
-    final long uuidMsb = resourceConfiguration.resourceUuid != null
-        ? resourceConfiguration.resourceUuid.getMostSignificantBits()
-        : 0L;
-    final long uuidLsb = resourceConfiguration.resourceUuid != null
-        ? resourceConfiguration.resourceUuid.getLeastSignificantBits()
-        : 0L;
+    final long uuidMsb = resourceConfiguration.resourceUuid.getMostSignificantBits();
+    final long uuidLsb = resourceConfiguration.resourceUuid.getLeastSignificantBits();
     final ByteBuffer sb = Superblock.build(Superblock.ROLE_REVISIONS, uuidMsb, uuidLsb);
     writeFully(revisionsFileChannel, sb, 0L);
     return true;

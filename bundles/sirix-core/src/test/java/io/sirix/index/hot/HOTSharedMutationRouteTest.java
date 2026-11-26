@@ -19,6 +19,7 @@ import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
+import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -27,6 +28,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -48,6 +50,54 @@ final class HOTSharedMutationRouteTest {
 
   @TempDir
   Path temporaryDirectory;
+
+  @Test
+  void writerPointLookupsSeparateNamesSharingAMarkedKey() throws IOException {
+    final QNm first = new QNm("a".repeat(NameKeySerializer.MAX_NAME_KEY_BYTES) + "x");
+    final QNm second = new QNm("a".repeat(NameKeySerializer.MAX_NAME_KEY_BYTES) + "y");
+    final Path path = temporaryDirectory.resolve("marked-name-writer");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader(
+                "{\"" + first.getLocalName() + "\":1,\"" + second.getLocalName() + "\":2,\"field\":3}"),
+            JsonNodeTrx.Commit.NO);
+        trx.moveToDocumentRoot();
+        assertTrue(trx.moveToFirstChild());
+        assertTrue(trx.moveToFirstChild());
+        assertEquals(first, trx.getName());
+        final long firstKey = trx.getNodeKey();
+        assertTrue(trx.moveToRightSibling());
+        assertEquals(second, trx.getName());
+        final long secondKey = trx.getNodeKey();
+        assertTrue(trx.moveToRightSibling());
+        final long ordinaryKey = trx.getNodeKey();
+        trx.moveToDocumentRoot();
+        final IndexDef definition = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(Set.of(definition), trx);
+        final HOTIndexWriter<QNm> writer = HOTIndexWriter.create(trx.getStorageEngineWriter(),
+            NameKeySerializer.INSTANCE, IndexType.NAME, definition.getID());
+        assertPosting(writer.get(first, SearchMode.EQUAL), firstKey);
+        assertPosting(writer.get(new QNm("field"), SearchMode.EQUAL), ordinaryKey);
+        assertPosting(writer.get(second, SearchMode.EQUAL), secondKey);
+        assertPosting(writer.get(first, SearchMode.EQUAL), firstKey);
+        trx.commit();
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          final HOTIndexReader<QNm> reader = HOTIndexReader.create(rtx.getStorageEngineReader(),
+              NameKeySerializer.INSTANCE, IndexType.NAME, definition.getID());
+          assertPosting(reader.get(first, SearchMode.EQUAL), firstKey);
+          assertPosting(reader.get(second, SearchMode.EQUAL), secondKey);
+          assertPosting(reader.get(first, SearchMode.EQUAL), firstKey);
+        }
+      }
+    } finally {
+      Databases.clearGlobalCaches();
+      Databases.removeDatabase(path);
+    }
+  }
 
   @ParameterizedTest(name = "{0}")
   @EnumSource(VersioningType.class)

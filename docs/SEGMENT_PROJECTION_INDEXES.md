@@ -2060,11 +2060,13 @@ the [budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.m
 same reason.
 
 **Gated HOT work counters.** The fragment-merge, requested-slot and carry-forward counters in `VersioningType`,
-and `HOTLeafPage.suffixProbeReads()` / `sideReferenceReads()`, stay gated behind
+`HOTLeafPage.suffixProbeReads()` / `sideReferenceReads()`, and `HOTIndirectPage.indirectRoutingSteps()` stay gated behind
 `sirix.hot.mergeDiag`, which the `sirix-core` and `sirix-query` test JVMs switch on.
 Suffix-probe counter units and comparator coverage are specified by
 [`HOTLeafPage.suffixProbeReads()`](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafPage.java).
 `sideReferenceReads()` counts overflow-reference map probes, including misses.
+Routing-step units and capture scope are specified by
+[`HOTIndirectPage.indirectRoutingSteps()`](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTIndirectPage.java).
 These are process-wide running totals, captured as differences just like the always-on counters.
 
 The [budget README's counter catalogue](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters)

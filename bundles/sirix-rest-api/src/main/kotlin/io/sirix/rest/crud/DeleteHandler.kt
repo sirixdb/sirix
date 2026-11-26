@@ -15,6 +15,9 @@ import java.nio.file.Path
 
 class DeleteHandler(private val location: Path, private val authz: AuthorizationProvider) {
     suspend fun handle(ctx: RoutingContext): Route {
+        // Validate before any destructive work: a bad nodeId must delete nothing.
+        requireSubtreeNodeId(ctx)
+
         if (ctx.pathParam("database") == null && ctx.pathParam("resource") == null) {
             val openDatabases = DatabasesInternals.getOpenDatabases()
 

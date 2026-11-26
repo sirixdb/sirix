@@ -272,6 +272,36 @@ The per-change gate runs under these rules:
   A run that leaves no record cannot be compared with the next one, and a machine that changed
   without a record turns a firmware or governor update into a regression nobody can explain.
 
+### The nightly tier
+
+The nightly tier is the third tier of the protocol, and a scheduled workflow
+([nightly-bench.yml](../.github/workflows/nightly-bench.yml)) runs it every evening on a GitHub-hosted
+runner. It builds `main`, runs a curated set of JMH benchmarks in 20 fresh processes, and records three
+figures per benchmark in the results ledger as a single-arm run of tier `nightly`:
+
+- **CPU time per operation** and **allocation per operation** are judged. A shared machine's
+  neighbours do not move them, or far less than they move elapsed time.
+- **Wall-clock time** is recorded in the same processes and shown on the dashboard, marked as
+  informational and never judged on a hosted runner. It will be judged on a dedicated benchmark
+  machine, a second runner kind with its own conditions.
+
+The trend rule of [CONV-304](../spec/CONV-conventions.md#conv-304--nightly-trend-tier) is the judge.
+[Apache Otava](https://otava.apache.org/) (E-divisive means over the nights' levels) runs beside it
+and is advisory: when the two disagree the dashboard and the issue show both, and a change only Otava
+finds says so. Making Otava the judge would be a decision recorded in the specification, not a setting.
+
+The history is durable: the ledger is `ledger.jsonl` on the `nightly-data` branch, appended once a
+night, and the dashboard is a static site on `gh-pages` generated from it, with no script and no
+third-party request. A confirmed upward change of a judged series opens one issue, once, labelled
+`benchmark-regression`, with the commit range and both detectors' answers; it is the investigation
+CONV-304 asks `drift` to be answered with. Close it with the cause, never by widening a bound.
+
+Two rules are enforced in code and not by convention. Nothing public is committed, pushed, deployed or
+opened between 04:00 and 17:30 Europe/Berlin on a weekday: the cron places the job in the evening and
+the publishing code refuses inside the window as well. And nothing is published from a fork, a pull
+request or a topic branch. The pieces, the files and how to run them by hand are in
+[bench/nightly/README.md](../bundles/sirix-query/bench/nightly/README.md).
+
 Machine-specific details — core assignment, load limits, lock paths — belong to the harness
 configuration, not to the protocol. The campaign document's
 [measurement discipline](BENCHMARK_CAMPAIGNS.md#3-measurement-discipline-why-the-numbers-can-be-trusted)
@@ -322,6 +352,34 @@ regression test that fails before the fix, and a lesson. The lesson arrives as o
 changelog entry arrives the same way, in [changelog.d/](../changelog.d/README.md). Shared files that
 every branch appends to turn each merge into a rebase for every other open pull request, and a
 rebase costs a full revalidation — one file per entry costs nothing and conflicts with nothing.
+
+### Shared append-only files
+
+One shared log has no fragment directory: [`spec/CHANGELOG.md`](../spec/CHANGELOG.md), where each
+pull request prepends an independent paragraph under the same heading. `.gitattributes` marks it
+`merge=union`, git's built-in driver, so a local `git rebase` or `git merge` of two such pull
+requests keeps both paragraphs instead of stopping on a conflict, and the rebase then needs only CI,
+not a new review round. Two limits apply:
+
+- **GitHub ignores merge drivers.** Its mergeability check can still report a conflict on that file
+  until the branch is rebased locally; the local result is clean.
+- **The union is line-wise, not paragraph-wise.** Git hoists a line both sides share out of the
+  conflict, so the blank line between the two new paragraphs may disappear, and two entries that
+  share a non-blank line can interleave. Read the file after a union rebase.
+
+A file belongs in the union list only when its entries are independent and order-insensitive,
+nothing else edits it in place, and a union of two appended entries still parses. The measured
+hotspots (edits to `main` since 2026-10-15) that stay out, and why:
+
+| File | Why not |
+| --- | --- |
+| `CHANGELOG.md`, `docs/LESSONS.md` | Entries arrive as fragments; a union would let a direct entry bypass that check. |
+| `.github/mutation-dispositions.toml`, `.github/mutation-test-associations.toml` | The union keeps a repeated `[[mutant]]` or `[[association]]` header once and fuses two appended tables into one with duplicate keys: invalid TOML. |
+| `docs/VERIFICATION.md`, `README.md`, `docs/DISK_FORMAT.md` | Prose edited in place, not appended to. |
+| `docs/bench/CONDITIONS.md` | Entries are dated and kept in date order, and share their table lines. |
+
+`.github/scripts/tests/test_union_merge.py` builds two branches that each add an entry to every
+union file and asserts the merge and the rebase keep both, and that the other files stay out.
 
 The write-up's load-bearing field is *why tests missed it*. The root cause explains this bug; that
 field explains the hole that let it through, and it is the only part that prevents the next one.

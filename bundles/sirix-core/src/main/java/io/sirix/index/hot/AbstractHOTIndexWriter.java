@@ -4036,6 +4036,39 @@ public abstract class AbstractHOTIndexWriter<K> {
   public static final AtomicLong BRANCH_SPINE_ORDER_DELEGATED = new AtomicLong();
 
   /**
+   * Whether {@code node} could still name every discriminative key byte after {@code beta} joined its
+   * mask: the span is then measured from whichever of its leading bit and {@code beta} comes first to
+   * whichever of its last bit and {@code beta} comes last (FMT-305).
+   */
+  private static boolean nodeCanNameBit(final HOTIndirectPage node, final int beta) {
+    if (node.isDiscriminativeBit(beta)) {
+      return true; // the mask is unchanged, so what the node names is too
+    }
+    final int[] discBits = HOTIncrementalInsert.discriminativeBits(node);
+    final int firstByte = Math.min(discBits[0], beta) >>> 3;
+    final int lastByte = Math.max(discBits[discBits.length - 1], beta) >>> 3;
+    return HOTIndirectPage.canNameDiscriminativeBytes(firstByte, lastByte);
+  }
+
+  /**
+   * Whether every node a branch insert of {@code beta} could extend — the route from the root down to
+   * the node just below {@code d*} — could still name its discriminative key bytes afterwards.
+   *
+   * <p>
+   * Package private by design: production callers are the branch handlers of this class, and the
+   * window this walks is asserted directly from a hand-built route.
+   */
+  static boolean routeCanNameBranchBit(final LeafNavigationResult navResult, final int insertDepth, final int beta) {
+    final int deepest = Math.min(insertDepth + 1, navResult.pathDepth() - 1);
+    for (int depth = 0; depth <= deepest; depth++) {
+      if (!nodeCanNameBit(navResult.pathNodes()[depth], beta)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Whether placing {@code K} anywhere inside the route's subtree at {@code placementDepth} keeps the
    * ordered-range invariants (I8/I12) on the spine above it. A key inside that subtree's current key
    * range changes no extreme, so nothing above it can break. Below its first key or above its last
@@ -5155,6 +5188,17 @@ public abstract class AbstractHOTIndexWriter<K> {
       BRANCH_SPINE_ORDER_DELEGATED.incrementAndGet();
       return false; // K sorts outside a boundary d*'s subtree would move: complete frontier
     }
+    // A fresh beta joins the mask of a node on this route, and every branch-add primitive rests on
+    // that node keeping its old children in order with exactly one inserted. A mask the node could
+    // not name in either layout has to be spread over levels instead (FMT-305), which breaks that
+    // premise, so delegate before building any candidate. The route is checked whole: the boundary
+    // child takes the bit on the false-positive path and a capacity cascade carries a split bit into
+    // ancestors, so a node anywhere above the leaf can be the one that cannot name it. Declining a
+    // route that would have fitted only costs the frontier, which re-encodes the block over as many
+    // levels as the geometry needs.
+    if (!routeCanNameBranchBit(navResult, insertDepth, beta)) {
+      return false; // some node of the route cannot name beta's key byte: complete frontier
+    }
     // beta colliding with an existing discriminative bit of d* means the approximate descent
     // misrouted the key across that bit (Binna's addEntry with DiscriminativeBitsRepresentation.insert
     // a no-op). The key branches off the affected subtree — which is one-sided on beta, since
@@ -5752,6 +5796,10 @@ public abstract class AbstractHOTIndexWriter<K> {
    * the complete frontier.
    *
    * <p>
+   * Every mask-plus-bit union must fit one routing level: integration assumes a flat fold and cannot
+   * propagate a height increase caused by multi-level assembly to a full ancestor.
+   *
+   * <p>
    * <b>Crash-safety.</b> The walk is conservative: it never returns {@code true} when integrate would
    * throw. It checks {@link HOTIncrementalInsert#canMergeBiNodeAtExistingDiscBit} at every level
    * whose mask contains the running β, and {@link HOTIncrementalInsert#freshBitLandsBesideSlot} where
@@ -5764,7 +5812,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @param childSlots the child slot taken at each spine node
    * @param currentDepth the depth at which the initial BiNode integrates
    * @param biNodeBeta the initial BiNode's discriminative bit
-   * @return {@code true} when the cascade passes the fold-order and existing-child trie checks
+   * @return {@code true} when the cascade passes the single-level layout, fold-order and
+   *         existing-child trie checks
    */
   private boolean canIntegrateBiNodeCleanly(HOTIndirectPage[] pathNodes, int[] childSlots, int currentDepth,
       int biNodeBeta) {
@@ -5772,6 +5821,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     int depth = currentDepth;
     while (depth > 0) {
       final HOTIndirectPage parent = pathNodes[depth - 1];
+      if (!nodeCanNameBit(parent, beta)) {
+        return false;
+      }
       if (parent.isDiscriminativeBit(beta)) {
         if (!HOTIncrementalInsert.canMergeBiNodeAtExistingDiscBit(parent, beta, childSlots[depth - 1])) {
           return false;
@@ -7473,12 +7525,15 @@ public abstract class AbstractHOTIndexWriter<K> {
 
       final HOTIndirectPage block = assembleFrontierBlock(parts, blockBits, blockBitCount, revision);
       // By construction every key of a part routes to it. That rests on the parts being ordered and
-      // their extremes true; probing the extremes on the assembled node declines a block whose
-      // premises do not hold instead of publishing it.
+      // their extremes true; probing the extremes on the assembled block declines one whose
+      // premises do not hold instead of publishing it. The probe follows the route to the part's own
+      // reference rather than comparing one child index, because a block whose discriminative bytes
+      // no single node can name is assembled over levels (FMT-305) and the part is then a child of
+      // an inner node.
       final int partCount = parts.size();
       for (int i = 0; i < partCount; i++) {
         final FrontierPart part = parts.get(i);
-        if (block.findChildIndex(part.first) != i || block.findChildIndex(part.last) != i) {
+        if (!blockRoutesToPart(block, part.first, part.ref) || !blockRoutesToPart(block, part.last, part.ref)) {
           discardFrontierParts(parts);
           return null;
         }
@@ -7532,6 +7587,35 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     return HOTBulkBuilder.assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, indexType,
         pageKeyAllocator);
+  }
+
+  /**
+   * Whether routing {@code key} from {@code block} reaches {@code expected} — the part's own
+   * reference — rather than some other child. One step for a block assembled as a single node, one
+   * step per level for one assembled over levels; a route that leaves the freshly assembled nodes
+   * without reaching the part is not the part's route.
+   *
+   * <p>
+   * Package private by design: the only production caller is {@link #joinOrderedParts}, and each arm
+   * of the walk is asserted directly from a hand-built block.
+   */
+  static boolean blockRoutesToPart(final HOTIndirectPage block, final byte[] key, final PageReference expected) {
+    HOTIndirectPage node = block;
+    for (int level = 0; level < MAX_PATH_DEPTH; level++) {
+      final int slot = node.findChildIndex(key);
+      if (slot < 0) {
+        break; // no child's partial subsumes the key: this block does not route it at all
+      }
+      final PageReference child = node.getChildReference(slot);
+      if (child == expected) {
+        return true;
+      }
+      if (child == null || !(child.getPage() instanceof HOTIndirectPage inner)) {
+        break; // the route ended at another part, or at a reference this walk cannot follow
+      }
+      node = inner;
+    }
+    return false;
   }
 
   private FrontierPart frontierPart(final PageReference ref) {

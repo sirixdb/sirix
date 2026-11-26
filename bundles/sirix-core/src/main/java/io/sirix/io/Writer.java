@@ -84,6 +84,10 @@ public interface Writer extends Reader {
    */
   Writer truncateTo(int revision);
 
+  default void requireCompatibleRevisionRoots(final int lastRevision) {
+    throw new UnsupportedOperationException("Storage cannot validate revision-root format compatibility");
+  }
+
   /**
    * Whether {@link #truncateTo(int)} can actually roll this storage back.
    *

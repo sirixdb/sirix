@@ -359,6 +359,8 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
         includeTestsMatching 'io.sirix.page.HOTLeafRefusalAllocationTest'
         includeTestsMatching 'io.sirix.index.hot.page.HOTLeafLookupAllocationTest'
         includeTestsMatching 'io.sirix.io.bytepipe.JavaLz4BlockDecoderAllocationTest'
+        includeTestsMatching 'io.sirix.index.name.NameIndexRecheckAllocationBudgetTest'
+        includeTestsMatching 'io.sirix.budget.CommitTimestampProbeAllocationBudgetTest'
     }
 }
 
@@ -419,10 +421,14 @@ def cleanerStartupTest = tasks.register('cleanerStartupTest', Test) {
 }
 
 def sharedArenaPolicyCases = [
+    'shared-strategy': ['shared', 'false', 'false'],
     'diagnostic-global': ['global', 'false', 'true'],
     'diagnostic-skip': ['shared', 'true', 'true'],
     'reject-global': ['global', 'false', 'false'],
-    'reject-skip': ['shared', 'true', 'false']
+    'reject-skip': ['shared', 'true', 'false'],
+    // The strategy a GraalVM native image runs with: shared-arena close is a no-op there, so the
+    // confined owners must still close their own arenas in this fork (#1408).
+    'auto-strategy': ['auto', 'false', 'false']
 ]
 def sharedArenaPolicyTests = sharedArenaPolicyCases.collect { mode, settings ->
     def suffix = mode.split('-').collect { it.capitalize() }.join('')
@@ -437,15 +443,43 @@ def sharedArenaPolicyTests = sharedArenaPolicyCases.collect { mode, settings ->
             if (mode == 'diagnostic-skip') {
                 includeTestsMatching 'io.sirix.io.memorymapped.ArenaGenerationLifetimeTest'
             }
+            if (mode in ['shared-strategy', 'auto-strategy', 'diagnostic-global', 'diagnostic-skip']) {
+                includeTestsMatching 'io.sirix.page.pax.ConfinedWriterArenaStrategyTest'
+            }
         }
     }
+}
+
+def lz4OwnershipTests = ['safe', 'fast'].collect { mode ->
+    tasks.register("lz4Ownership${mode.capitalize()}Test", Test) {
+        group = 'verification'
+        description = "Checks LZ4 ${mode} ownership with a bounded process allocator."
+        testClassesDirs = sourceSets.test.output.classesDirs
+        classpath = sourceSets.test.runtimeClasspath
+        useJUnitPlatform()
+        filter { includeTestsMatching 'io.sirix.cache.Lz4OwnershipFailureTest' }
+    }
+}
+
+tasks.register('confinedWriterArenaLeakCheck', JavaExec) {
+    group = 'verification'
+    description = 'Checks repeated serializer-local arena release under the native-image arena policy.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.sirix.page.pax.ConfinedWriterArenaLeakHarness'
+    javaLauncher = javaToolchains.launcherFor(java.toolchain)
+    minHeapSize = '128m'
+    maxHeapSize = '256m'
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--add-modules=jdk.incubator.vector'
+    systemProperty 'sirix.arena.strategy', 'auto'
+    systemProperty 'sirix.mmstorage.skipArenaClose', 'false'
+    systemProperty 'sirix.diagnostics.allowUnsafeLifetime', 'false'
 }
 
 // Copy the complete fork options after all test conventions are configured, before Gradle
 // finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
 gradle.projectsEvaluated {
     def standardTest = tasks.named('test', Test).get()
-    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, hotLeafNarrowVectorAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests).each { testTask ->
+    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, hotLeafNarrowVectorAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests + lz4OwnershipTests).each { testTask ->
         testTask.configure { isolatedTest ->
             standardTest.copyTo(isolatedTest)
             // copyTo flattens argument providers (including JaCoCo) into jvmArgs. Keep only
@@ -482,6 +516,13 @@ gradle.projectsEvaluated {
             systemProperty 'sirix.diagnostics.allowUnsafeLifetime', settings[2]
         }
     }
+    lz4OwnershipTests.eachWithIndex { ownershipTask, index ->
+        ownershipTask.configure {
+            systemProperty 'sirix.test.lz4Mode', index == 0 ? 'safe' : 'fast'
+            systemProperty 'sirix.lz4.fast.decompress', index == 1
+            maxParallelForks = 1
+        }
+    }
     validTimeDisabledLookupCacheTest.configure {
         systemProperty 'sirix.hotLookupCache.maxEntries', '0'
     }
@@ -505,6 +546,7 @@ tasks.named('jacocoTestReport') {
             storageEpochStoreIdentityTest.get(), configurationStartupTest.get(),
             allocatorColdStartupTest.get(), cleanerStartupTest.get()
     executionData sharedArenaPolicyTests.collect { it.get() }
+    executionData lz4OwnershipTests.collect { it.get() }
 }
 
 // Merge probes, rather than XML counters: each CI lane covers different branches in shared
@@ -542,9 +584,12 @@ tasks.register('jacocoMergedReport', JacocoReport) {
 tasks.named('test', Test).configure {
     dependsOn configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest
     dependsOn sharedArenaPolicyTests
+    dependsOn lz4OwnershipTests
     exclude 'io/sirix/utils/CleanerStartupTest*.class'
     exclude 'io/sirix/access/AllocatorColdStartupTest*.class'
     exclude 'io/sirix/io/SharedArenaStartupPolicyTest*.class'
+    exclude 'io/sirix/page/pax/ConfinedWriterArenaStrategyTest*.class'
+    exclude 'io/sirix/cache/Lz4OwnershipFailureTest*.class'
     exclude 'io/sirix/access/ConfigurationStartupTest*.class'
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
@@ -556,6 +601,8 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/budget/LifecycleLockAllocationBudgetTest*.class'
     exclude 'io/sirix/index/hot/HOTCommitAllocationBudgetTest*.class'
     exclude 'io/sirix/budget/HotWriterLeafRetentionAllocationBudgetTest*.class'
+    exclude 'io/sirix/index/name/NameIndexRecheckAllocationBudgetTest*.class'
+    exclude 'io/sirix/budget/CommitTimestampProbeAllocationBudgetTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'

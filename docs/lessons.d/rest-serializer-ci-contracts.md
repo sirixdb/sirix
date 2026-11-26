@@ -1,0 +1,4 @@
+---
+kind: row
+---
+| Serializer corrections left shared fixtures stale and new REST representations uncovered in their owning modules; a broad mutation test-name fallback also selected integration suites requiring absent services. | Trace output-contract changes through shared expected documents, empty-state transitions, copied/replayed histories and every serializer representation. Exercise the contract in its owning module and give regression suites an owner name or explicit association so the mutation consumer selects deterministic behavior tests. Cover absent narrowing parameters as well as invalid ones; measure live readers before parent cleanup so deferred cleanup cannot masquerade as equivalent cost. | [REST serialization CI follow-up](postmortems/rest-read-node-id-validation.md#ci-follow-up-serializer-contracts-and-mutation-selection) |

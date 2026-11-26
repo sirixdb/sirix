@@ -184,7 +184,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   /**
    * {@link InternalResourceSession} reference.
    */
-  final InternalResourceSession<?, ?> resourceSession;
+  final @Nullable InternalResourceSession<?, ?> resourceSession;
 
   /**
    * The revision number, this page trx is bound to.
@@ -252,10 +252,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private final long resourceId;
 
   /**
-   * Epoch tracker ticket for this transaction (for MVCC-aware eviction). Registered when transaction
-   * opens, deregistered when it closes.
+   * Epoch tracker ticket for session readers (for MVCC-aware eviction). Registered when the reader
+   * opens, deregistered when it closes; absent for isolated tool readers.
    */
-  private final RevisionEpochTracker.Ticket epochTicket;
+  private final RevisionEpochTracker.@Nullable Ticket epochTicket;
 
   /**
    * Current page guard - protects the page where cursor is currently positioned.
@@ -401,12 +401,26 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
       final UberPage uberPage, final int revision, final Reader reader, final BufferManager resourceBufferManager,
       final RevisionRootPageReader revisionRootPageReader, final @Nullable TransactionIntentLog trxIntentLog) {
+    this(trxId, requireNonNull(resourceSession).getResourceConfig(), resourceSession, uberPage, revision, reader,
+        resourceBufferManager, revisionRootPageReader, trxIntentLog);
+  }
+
+  public static NodeStorageEngineReader forTool(final ResourceConfiguration config, final UberPage uberPage,
+      final Reader reader, final BufferManager buffers) {
+    return new NodeStorageEngineReader(1, config, null, requireNonNull(uberPage), uberPage.getRevisionNumber(), reader,
+        buffers, new RevisionRootPageReader(), null);
+  }
+
+  private NodeStorageEngineReader(final int trxId, final ResourceConfiguration config,
+      final @Nullable InternalResourceSession<?, ?> resourceSession, final UberPage uberPage, final int revision,
+      final Reader reader, final BufferManager resourceBufferManager,
+      final RevisionRootPageReader revisionRootPageReader, final @Nullable TransactionIntentLog trxIntentLog) {
     checkArgument(trxId > 0, "Transaction-ID must be >= 0.");
     this.trxId = trxId;
-    this.resourceBufferManager = resourceBufferManager;
+    this.resourceBufferManager = requireNonNull(resourceBufferManager);
     this.isClosed = false;
-    this.resourceSession = requireNonNull(resourceSession);
-    this.resourceConfig = resourceSession.getResourceConfig();
+    this.resourceSession = resourceSession;
+    this.resourceConfig = requireNonNull(config);
     this.pageReader = requireNonNull(reader);
     this.recordPagePrefetchBatch = this.pageReader.preferredPrefetchBatch();
     this.uberPage = requireNonNull(uberPage);
@@ -422,7 +436,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
 
     // Register with epoch tracker for MVCC-aware eviction
-    this.epochTicket = resourceSession.getRevisionEpochTracker().register(revision);
+    this.epochTicket = resourceSession == null
+        ? null
+        : resourceSession.getRevisionEpochTracker().register(revision);
   }
 
   private Page loadPage(final PageReference reference) {
@@ -446,7 +462,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     page = resourceBufferManager.getPageCache().get(reference, (_, _) -> {
       try {
         // Reader will fixup PageReference IDs during deserialization
-        return pageReader.read(reference, resourceSession.getResourceConfig());
+        return pageReader.read(reference, resourceConfig);
       } catch (final SirixIOException e) {
         throw new IllegalStateException(e);
       }
@@ -459,7 +475,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     // if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() !=
     // Constants.NULL_ID_INT) {
-    // page = pageReader.read(reference, resourceSession.getResourceConfig());
+    // page = pageReader.read(reference, resourceConfig);
     // }
     //
     // if (page != null) {
@@ -483,7 +499,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public @Nullable StorageEngineReader getDerivedIndexReader() {
     assertNotClosed();
-    if (trxIntentLog != null) {
+    if (trxIntentLog != null || resourceSession == null) {
       return null;
     }
     if (derivedIndexReader == null || derivedIndexReader.isClosed()) {
@@ -526,7 +542,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   @Override
   public ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession() {
     assertNotClosed();
-    return resourceSession;
+    return requireNonNull(resourceSession, "Tool readers have no resource session");
   }
 
   /**
@@ -748,7 +764,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (reference.getPage() instanceof OverflowPage overflowPage) {
       return overflowPage;
     }
-    final OverflowPage overflowPage = (OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig());
+    final OverflowPage overflowPage = (OverflowPage) pageReader.read(reference, resourceConfig);
     if (SWIZZLE_INDEX_OVERFLOW_PAGES || owner.getIndexType() == IndexType.DOCUMENT) {
       reference.setPage(overflowPage);
       OVERFLOW_PAGES_SWIZZLED.increment();
@@ -780,7 +796,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // The parent side persists a bare offset key (no page-kind tag, no hash — integrity lives
     // in the owning descriptor). A dangling/corrupted offset can decode as ANY page kind; turn
     // that into an attributable error instead of a ClassCastException deep in a scan.
-    final var loadedPage = pageReader.read(reference, resourceSession.getResourceConfig());
+    final var loadedPage = pageReader.read(reference, resourceConfig);
     if (!(loadedPage instanceof OverflowPage segmentPage)) {
       final SirixIOException dangling =
           new SirixIOException("Side-map overflow reference (offset key " + reference.getKey() + ") resolved to "
@@ -812,7 +828,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         references[i] = reference;
       }
     }
-    final var loadedPages = pageReader.read(references, resourceSession.getResourceConfig());
+    final var loadedPages = pageReader.read(references, resourceConfig);
     final OverflowPage[] pages = new OverflowPage[offsets.length];
     for (int i = 0; i < loadedPages.length; i++) {
       final var loadedPage = loadedPages[i];
@@ -1731,7 +1747,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (pendingRevisionRoot != null) {
       return pendingRevisionRoot;
     }
-    resourceSession.assertAccess(revisionKey);
+    if (resourceSession != null) {
+      resourceSession.assertAccess(revisionKey);
+    } else {
+      checkArgument(revisionKey >= 0 && revisionKey <= uberPage.getRevisionNumber(),
+          "Revision is outside the tool view");
+    }
     if (trxIntentLog == null) {
       final Cache<RevisionRootPageCacheKey, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
       final var cacheKey = new RevisionRootPageCacheKey(databaseId, resourceId, revisionKey);
@@ -2711,7 +2732,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           indexLogKey.getRevisionNumber());
     }
 
-    final ResourceConfiguration config = resourceSession.getResourceConfig();
+    final ResourceConfiguration config = resourceConfig;
 
     // Fast path 1 — FULL versioning always stores a complete page (no
     // fragments). Fast path 2 — SLIDING_SNAPSHOT / INCREMENTAL /
@@ -3167,7 +3188,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   PageFragmentsResult getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
-    final ResourceConfiguration config = resourceSession.getResourceConfig();
+    final ResourceConfiguration config = resourceConfig;
 
     // FULL versioning fast path: Page IS complete - use RecordPageCache directly
     // This bypasses the fragment cache since there are no fragments to combine
@@ -3213,10 +3234,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     // Load first fragment atomically with guard
-    KeyValueLeafPage page =
-        resourceBufferManager.getRecordPageFragmentCache()
-                             .getOrLoadAndGuard(pageReferenceWithKey,
-                                 key -> (KeyValueLeafPage) pageReader.read(key, resourceSession.getResourceConfig()));
+    KeyValueLeafPage page = resourceBufferManager.getRecordPageFragmentCache()
+                                                 .getOrLoadAndGuard(pageReferenceWithKey,
+                                                     key -> (KeyValueLeafPage) pageReader.read(key, resourceConfig));
 
     assert page != null && !page.isClosed();
     pages.add(page);
@@ -3686,7 +3706,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       closeCurrentPageGuard();
 
       // Deregister from epoch tracker (allow eviction of pages from this revision)
-      resourceSession.getRevisionEpochTracker().deregister(epochTicket);
+      if (resourceSession != null) {
+        resourceSession.getRevisionEpochTracker().deregister(epochTicket);
+      }
 
       if (trxIntentLog == null) {
         pageReader.close();
@@ -3703,7 +3725,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // reader that happened to hold the same number. Ids are now drawn from one session-wide
       // counter and the removal below is identity-scoped, so neither is expressible: a reader
       // that is closing is not running, and only its own entry can go.
-      resourceSession.closePageReadTransaction(trxId, this);
+      if (resourceSession != null) {
+        resourceSession.closePageReadTransaction(trxId, this);
+      }
 
       // Drop most-recent slot references. They are UNGUARDED references to SHARED cache
       // instances — this transaction holds no pin on them (the only guard it owns is

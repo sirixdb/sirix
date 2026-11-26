@@ -1010,6 +1010,9 @@ class CommandLineTest(unittest.TestCase):
     def test_run_cli_skips_empty_selection_and_module_entrypoint_exits_zero(self):
         with tempfile.TemporaryDirectory() as temp:
             write_manifest(Path(temp), {})
+            # Isolate from the repository's own dispositions file: with no selection, every entry
+            # in it would be judged unconfirmed and fail the run, so the test would break as soon
+            # as the first reviewed disposition lands.
             args = ['pr_mutation.py', 'run', '--root', temp, '--output', temp, '--blocking']
             with patch.object(sys, 'argv', args):
                 self.assertEqual(mutation.main(), 0)

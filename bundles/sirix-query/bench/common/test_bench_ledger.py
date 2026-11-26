@@ -1287,6 +1287,22 @@ class RunDirectoryTest(unittest.TestCase):
         self.assertEqual(1, len(bench_ledger.recorded_judgement(out).verdicts))
 
 
+    def test_a_nightly_cpu_leg_is_imported_through_the_command_line(self) -> None:
+        out = self.open_run(tier="nightly", night="2026-11-27")
+        document = self.base / "result.json"
+        document.write_text(json.dumps([cpu_result("seek", 120.0, 118.5)]), encoding="utf-8")
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            code = bench_ledger.main(
+                ["import-jmh", "--run", str(out), "--json", str(document), "--arm", "head", "--process", "1", "--cpu-leg"]
+            )
+        self.assertEqual(0, code)
+        self.assertIn("recorded 2 measurement(s)", printed.getvalue())
+        self.assertEqual(
+            {"ns_per_op", "cpu_ns_per_op"}, {row["metric"] for row in bench_ledger.load_measurements(out)}
+        )
+
+
 class ImporterTest(unittest.TestCase):
 
     def test_a_timed_jmh_process_becomes_one_row_per_benchmark(self) -> None:
@@ -2455,6 +2471,216 @@ class CommandLineDetailTest(CommandLineCase):
         self.assertEqual((2, True), (status, "absent.json: No such file or directory" in err))
         status, _, err = self.cli("stop", "--run", str(self.base / "absent"))
         self.assertEqual((2, True), (status, "holds no opened run (run.json): No such file or directory" in err))
+
+
+
+HOSTED_RUNNER = "kind=hosted,provider=github,label=ubuntu-24.04,image=ubuntu24/20251119.1.0"
+
+
+def cpu_result(method: str, wall: float, cpu: float, **changes: Any) -> dict[str, Any]:
+    """A JMH timed result that carries the CPU profiler's secondary metric, as the nightly writes it."""
+    result = jmh_result(method, wall, **changes)
+    result["secondaryMetrics"]["cpu.time.norm"] = {"score": cpu, "scoreUnit": "ns/op"}
+    return result
+
+
+class RunnerTest(unittest.TestCase):
+    """CONV-303 `runner`: a hosted runner is a class of machine, identified without its kernel."""
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.base = Path(directory.name)
+        self.hosted = bench_ledger.parse_runner(HOSTED_RUNNER)
+
+    def test_a_runner_is_named_by_kind_provider_label_and_optionally_image(self) -> None:
+        self.assertEqual(
+            {"kind": "hosted", "provider": "github", "label": "ubuntu-24.04", "image": "ubuntu24/20251119.1.0"},
+            self.hosted,
+        )
+        self.assertEqual(
+            {"kind": "dedicated", "provider": "lab", "label": "xps"},
+            bench_ledger.parse_runner("kind=dedicated,provider=lab,label=xps"),
+        )
+        self.assertNotIn("image", bench_ledger.parse_runner("kind=hosted,provider=github,label=l,image="))
+
+    def test_an_incomplete_or_unknown_runner_is_refused(self) -> None:
+        for spec in (
+            "kind=hosted,provider=github",
+            "provider=github,label=l",
+            "kind=virtual,provider=g,label=l",
+            "kind=hosted,kind=hosted,provider=g,label=l",
+            "kind=hosted,provider=g,label=l,flavour=x",
+            "hosted",
+            "",
+        ):
+            with self.subTest(spec), self.assertRaises(LedgerError):
+                bench_ledger.parse_runner(spec)
+
+    def test_a_hosted_fingerprint_survives_every_image_update_and_nothing_else(self) -> None:
+        base = fake_environment(self.base)
+        reference = bench_ledger.fingerprint(base, self.hosted)
+        for change in (
+            {"kernel_release": "6.11.0-1018-azure"},
+            {"os": "Ubuntu 24.04.3 LTS"},
+            {"firmware": {**base["firmware"], "version": "Hyper-V UEFI Release v4.1"}},
+            {"product_name": "Virtual Machine"},
+            {"cpufreq": {"unavailable": "no cpufreq on a virtual machine"}},
+            {"turbo": {"unavailable": "none"}},
+        ):
+            with self.subTest(next(iter(change))):
+                self.assertEqual(reference, bench_ledger.fingerprint({**base, **change}, self.hosted))
+        for label, changed in (
+            ("cpu model", {**base, "cpu": {**base["cpu"], "model": "AMD EPYC 7763 64-Core Processor"}}),
+            ("cpu count", {**base, "cpu": {**base["cpu"], "threads": base["cpu"]["threads"] + 4}}),
+            ("memory", {**base, "memory_total_kb": 64 * 1024 * 1024}),
+            ("architecture", {**base, "architecture": "aarch64"}),
+        ):
+            with self.subTest(label):
+                self.assertNotEqual(reference, bench_ledger.fingerprint(changed, self.hosted))
+        self.assertNotEqual(reference, bench_ledger.fingerprint(base, {**self.hosted, "label": "ubuntu-22.04"}))
+        self.assertNotEqual(reference, bench_ledger.fingerprint(base, {**self.hosted, "provider": "azure"}))
+
+    def test_the_image_is_recorded_but_not_part_of_the_condition(self) -> None:
+        base = fake_environment(self.base)
+        other = {**self.hosted, "image": "ubuntu24/20261201.1.0"}
+        self.assertEqual(bench_ledger.fingerprint(base, self.hosted), bench_ledger.fingerprint(base, other))
+
+    def test_a_dedicated_run_and_a_run_without_a_runner_keep_their_fingerprint(self) -> None:
+        base = fake_environment(self.base)
+        self.assertEqual(bench_ledger.fingerprint(base), bench_ledger.fingerprint(base, None))
+        dedicated = bench_ledger.parse_runner("kind=dedicated,provider=lab,label=xps")
+        self.assertEqual(bench_ledger.fingerprint(base), bench_ledger.fingerprint(base, dedicated))
+        self.assertNotEqual(bench_ledger.fingerprint(base), bench_ledger.fingerprint(base, self.hosted))
+
+    def test_a_hosted_run_records_its_runner_and_is_found_under_its_own_entry(self) -> None:
+        root, runner = make_root(self.base), FakeRunner()
+        environment = bench_ledger.capture_environment(root=root, runner=runner, now=NOW)
+        conditions = self.base / "CONDITIONS.md"
+        conditions.write_text(
+            condition_entry("2026-11-26", "gh-ubuntu-24-04", "new baseline", bench_ledger.fingerprint(environment, self.hosted)),
+            encoding="utf-8",
+        )
+        out = self.base / "run"
+        out.mkdir()
+        row = bench_ledger.begin(
+            out, tier="nightly", kit="jmh-nightly", night="2026-11-27", ledger=self.base / "ledger.jsonl",
+            arm_specs=[f"head,commit={COMMIT_B},binary=jvm,runtime=Temurin 25"], conditions=conditions,
+            root=root, runner=runner, now=NOW, runner_spec=HOSTED_RUNNER,
+        )  # fmt: skip
+        self.assertEqual("gh-ubuntu-24-04", row["conditions"])
+        self.assertEqual(self.hosted, row["runner"])
+        self.assertEqual(self.hosted, bench_ledger.load_run(out)["runner"])
+        self.assertEqual("hosted", bench_ledger.runner_kind(row))
+        # The dedicated machine's own entry does not hold the hosted fingerprint, and the refusal names fields.
+        conditions.write_text(
+            condition_entry("2026-11-23", "laptop-1", "new baseline", bench_ledger.fingerprint(environment)),
+            encoding="utf-8",
+        )
+        again = self.base / "run2"
+        again.mkdir()
+        with self.assertRaises(LedgerError) as caught:
+            bench_ledger.begin(
+                again, tier="nightly", kit="jmh-nightly", night="2026-11-28", ledger=self.base / "ledger.jsonl",
+                arm_specs=[f"head,commit={COMMIT_B},binary=jvm,runtime=Temurin 25"], conditions=conditions,
+                root=root, runner=runner, now=NOW, runner_spec=HOSTED_RUNNER,
+            )  # fmt: skip
+        self.assertIn("fingerprint", str(caught.exception))
+
+    def test_a_new_cpu_model_on_the_same_runner_label_is_a_refused_unknown_condition(self) -> None:
+        root, runner = make_root(self.base), FakeRunner()
+        environment = bench_ledger.capture_environment(root=root, runner=runner, now=NOW)
+        conditions = self.base / "CONDITIONS.md"
+        epyc = {**environment, "cpu": {**environment["cpu"], "model": "AMD EPYC 7763 64-Core Processor"}}
+        conditions.write_text(
+            condition_entry("2026-11-26", "gh-epyc", "new baseline", bench_ledger.fingerprint(epyc, self.hosted)),
+            encoding="utf-8",
+        )
+        ledger = self.base / "ledger.jsonl"
+        previous = {
+            **self.run_row(epyc),
+            "conditions": "gh-epyc",
+        }
+        bench_ledger.append_rows(ledger, [previous])
+        out = self.base / "run"
+        out.mkdir()
+        with self.assertRaises(LedgerError) as caught:
+            bench_ledger.begin(
+                out, tier="nightly", kit="jmh-nightly", night="2026-11-27", ledger=ledger,
+                arm_specs=[f"head,commit={COMMIT_B},binary=jvm,runtime=Temurin 25"], conditions=conditions,
+                root=root, runner=runner, now=NOW, runner_spec=HOSTED_RUNNER,
+            )  # fmt: skip
+        self.assertIn("cpu_model", str(caught.exception))
+
+    def run_row(self, environment: dict[str, Any]) -> dict[str, Any]:
+        row = run_row(environment, tier="nightly", night="2026-11-26", conditions="gh-epyc")
+        row["runner"] = self.hosted
+        row["fingerprint"] = bench_ledger.fingerprint(environment, self.hosted)
+        return row
+
+    def test_a_row_with_a_malformed_runner_or_a_fingerprint_that_ignores_it_is_refused(self) -> None:
+        environment = fake_environment(self.base)
+        good = self.run_row(environment)
+        bench_ledger.validate_row(good)
+        for label, change in (
+            ("kind", {"runner": {**self.hosted, "kind": "cloud"}}),
+            ("provider", {"runner": {**self.hosted, "provider": ""}}),
+            ("image", {"runner": {**self.hosted, "image": 7}}),
+            ("not an object", {"runner": "github"}),
+            ("null", {"runner": None}),
+            ("fingerprint without the runner", {"fingerprint": bench_ledger.fingerprint(environment)}),
+        ):
+            with self.subTest(label), self.assertRaises(LedgerError):
+                bench_ledger.validate_row({**good, **change})
+
+    def test_a_row_without_a_runner_is_a_dedicated_machine(self) -> None:
+        self.assertEqual("dedicated", bench_ledger.runner_kind({"kind": "run"}))
+
+
+class CpuLegTest(unittest.TestCase):
+    """The nightly's timed process: one JMH result yields the wall-clock row and the CPU time row."""
+
+    def rows(self, document: Any, **options: Any) -> list[dict[str, Any]]:
+        return bench_ledger.jmh_rows(document, arm="head", pair=None, position=None, process=3, **options)
+
+    def test_a_cpu_leg_yields_wall_and_cpu_rows_for_every_benchmark(self) -> None:
+        rows = self.rows([cpu_result("seek", 120.0, 118.5), cpu_result("scan", 900.0, 910.0)], cpu_leg=True)
+        self.assertEqual(
+            [("seek", "ns_per_op", 120.0), ("seek", "cpu_ns_per_op", 118.5),
+             ("scan", "ns_per_op", 900.0), ("scan", "cpu_ns_per_op", 910.0)],
+            [(r["benchmark"].split(".")[-1], r["metric"], r["value"]) for r in rows],
+        )  # fmt: skip
+        self.assertEqual({"ns/op"}, {r["unit"] for r in rows})
+        self.assertEqual({3}, {r["process"] for r in rows})
+        self.assertEqual({"head"}, {r["arm"] for r in rows})
+        self.assertIn("samples", rows[0])
+        self.assertNotIn("samples", rows[1])
+
+    def test_a_cpu_leg_needs_the_profiler_and_its_unit(self) -> None:
+        with self.assertRaises(LedgerError) as caught:
+            self.rows([jmh_result("seek", 120.0)], cpu_leg=True)
+        self.assertIn("cpu.time.norm", str(caught.exception))
+        wrong = cpu_result("seek", 120.0, 118.5)
+        wrong["secondaryMetrics"]["cpu.time.norm"]["scoreUnit"] = "us/op"
+        with self.assertRaises(LedgerError):
+            self.rows([wrong], cpu_leg=True)
+
+    def test_without_the_flag_a_cpu_figure_in_the_result_is_not_recorded(self) -> None:
+        rows = self.rows([cpu_result("seek", 120.0, 118.5)])
+        self.assertEqual(["ns_per_op"], [r["metric"] for r in rows])
+
+    def test_a_cpu_leg_is_still_one_fork_and_a_time_mode(self) -> None:
+        with self.assertRaises(LedgerError):
+            self.rows([cpu_result("seek", 120.0, 118.5, forks=2)], cpu_leg=True)
+        with self.assertRaises(LedgerError):
+            self.rows([cpu_result("seek", 120.0, 118.5, mode="thrpt")], cpu_leg=True)
+
+    def test_a_cpu_leg_cannot_carry_the_allocation_profiler_or_be_an_allocation_leg(self) -> None:
+        both = cpu_result("seek", 120.0, 118.5, alloc=64.0)
+        with self.assertRaises(LedgerError):
+            self.rows([both], cpu_leg=True)
+        with self.assertRaises(LedgerError):
+            self.rows([allocation_leg("seek", 64.0)], cpu_leg=True, allocation_leg=True)
 
 
 if __name__ == "__main__":

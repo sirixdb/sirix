@@ -25,9 +25,6 @@ import java.lang.foreign.MemorySegment;
  * reserved pages must be committed explicitly or the first touch faults.</li>
  * <li>Once committed, a slot STAYS committed across recycle cycles — nothing here decommits, so
  * recycled slots are always touch-safe on every platform.</li>
- * <li>{@link #discardToZeros} discards a segment's contents such that the next read observes zeros,
- * without invalidating the address (POSIX anonymous memory: {@code MADV_DONTNEED}; Windows:
- * decommit + recommit).</li>
  * </ul>
  */
 public interface VirtualMemory {
@@ -41,9 +38,6 @@ public interface VirtualMemory {
    * @return {@code true} when this call performed a native commit operation
    */
   boolean commitFresh(MemorySegment slot);
-
-  /** Discard contents so the next read observes zeros; the address stays valid and committed. */
-  void discardToZeros(MemorySegment segment);
 
   /**
    * Release a whole region reserved by {@link #reserve} (shutdown only).

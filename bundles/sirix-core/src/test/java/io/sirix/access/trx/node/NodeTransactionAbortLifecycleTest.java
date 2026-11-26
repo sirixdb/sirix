@@ -24,7 +24,6 @@ import io.sirix.index.IndexType;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
-import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.UUID;
@@ -407,8 +406,10 @@ final class NodeTransactionAbortLifecycleTest {
       final StorageEngineWriter predecessor = transaction.getStorageEngineWriter();
       flushHook = field(predecessor.getClass(), "asyncFlushFaultHook");
       final IllegalStateException failure = new IllegalStateException("post-beacon close");
+      final AtomicBoolean fired = new AtomicBoolean();
       flushHook.set(null, (BiConsumer<StorageEngineWriter, String>) (owner, stage) -> {
         if (owner == predecessor && stage.equals("close-after-storage-writer-close")) {
+          fired.set(true);
           throw failure;
         }
       });
@@ -424,10 +425,14 @@ final class NodeTransactionAbortLifecycleTest {
       } finally {
         release.countDown();
       }
-      final RuntimeException observed = assertThrows(RuntimeException.class, transaction::awaitPendingAsyncCommit);
-      assertSame(failure, observed.getCause());
+      assertDoesNotThrow(transaction::awaitPendingAsyncCommit);
+      assertTrue(fired.get(), "the retired-writer failure must actually fire");
+      assertThrows(IllegalStateException.class, transaction::commit);
+      assertThrows(IllegalStateException.class, transaction::rollback);
+      assertThrows(SirixUsageException.class, transaction::close);
+      assertTrue(Files.exists(((InternalResourceSession<?, ?>) fixture.first).getCommitFile()));
       flushHook.set(null, null);
-      assertThrows(RuntimeException.class, fixture.first::close);
+      assertDoesNotThrow(fixture.first::close);
       assertTrue(scheduler(transaction).isTerminated());
       assertEquals(2, fixture.second.getMostRecentRevisionNumber());
       try (NodeTrx next = fixture.second.beginNodeTrx()) {
@@ -579,9 +584,14 @@ final class NodeTransactionAbortLifecycleTest {
       } finally {
         release.countDown();
       }
-      final RuntimeException failure = assertThrows(RuntimeException.class, transaction::awaitPendingAsyncCommit);
-      assertTrue(failure.getCause().getCause() instanceof DirectoryNotEmptyException);
-      assertTrue(failure.getCause().getMessage().contains(marker.toString()));
+      // The marker deletion is the LAST step of hardenCommit, so it runs after the beacon write:
+      // revision 2 is durable, and the asynchronous path reports that success instead of the
+      // cleanup failure (#1380). spec: TXN-307
+      transaction.awaitPendingAsyncCommit();
+      assertEquals(2, fixture.first.getMostRecentRevisionNumber(), "the durable revision must be published");
+      assertTrue(Files.isDirectory(marker), "the undeletable marker must still demand repair");
+      // The successor epoch's own edit is still uncommitted, so the owner session refuses a clean
+      // close exactly as it would without any cleanup failure.
       assertThrows(RuntimeException.class, fixture.first::close);
       assertTrue(transaction.isClosed());
       assertTrue(scheduler(transaction).isTerminated());
@@ -616,6 +626,7 @@ final class NodeTransactionAbortLifecycleTest {
       final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
       final InternalResourceSession<?, ?> original = (InternalResourceSession<?, ?>) fixture.first;
       final AtomicInteger publications = new AtomicInteger();
+      final AtomicBoolean cleanupFired = new AtomicBoolean();
       final CompletableFuture<Void> notified = new CompletableFuture<>();
       original.addRevisionListener(revision -> {
         if (revision == 2) {
@@ -634,6 +645,7 @@ final class NodeTransactionAbortLifecycleTest {
             ? 1
             : 2, fixture.first.getMostRecentRevisionNumber());
         original.clearPendingRevisionRoot(2);
+        cleanupFired.set(true);
         throw cleanup;
       }).when(session).clearPendingRevisionRoot(2);
       field(AbstractNodeTrxImpl.class, "resourceSession").set(transaction, session);
@@ -652,15 +664,16 @@ final class NodeTransactionAbortLifecycleTest {
       } finally {
         release.countDown();
       }
-      final Throwable expected = failHardening
-          ? primary
-          : cleanup;
-      assertSame(expected, assertThrows(RuntimeException.class, transaction::awaitPendingAsyncCommit).getCause());
       if (failHardening) {
+        assertSame(primary, assertThrows(RuntimeException.class, transaction::awaitPendingAsyncCommit).getCause());
         assertSame(cleanup, primary.getSuppressed()[0]);
       } else {
+        assertDoesNotThrow(transaction::awaitPendingAsyncCommit);
+        assertThrows(IllegalStateException.class, transaction::commit);
+        assertThrows(IllegalStateException.class, transaction::rollback);
         assertEquals(0, cleanup.getSuppressed().length);
       }
+      assertTrue(cleanupFired.get(), "the pending-root cleanup failure must actually fire");
       if (!failHardening) {
         notified.get(10, TimeUnit.SECONDS);
         assertTrue(publications.get() >= 1, "hardened publication remains observable after retirement failure");
@@ -671,7 +684,12 @@ final class NodeTransactionAbortLifecycleTest {
       assertEquals(failHardening
           ? 1
           : 2, fixture.first.getMostRecentRevisionNumber());
-      assertThrows(RuntimeException.class, fixture.first::close);
+      if (failHardening) {
+        assertThrows(RuntimeException.class, fixture.first::close);
+      } else {
+        assertThrows(SirixUsageException.class, transaction::close);
+        assertDoesNotThrow(fixture.first::close);
+      }
       assertTrue(scheduler(transaction).isTerminated());
       try (NodeTrx next = fixture.second.beginNodeTrx()) {
         setCursor(next);

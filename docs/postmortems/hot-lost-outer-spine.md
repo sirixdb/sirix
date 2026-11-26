@@ -1,6 +1,8 @@
 # Bug: HOT subtree insertion loses its outer spine
 
-- Fix / issue: https://github.com/sirixdb/sirix/issues/1452 (referenced, not closed).
+- Fix / issue: [#1460](https://github.com/sirixdb/sirix/pull/1460) /
+  [#1457](https://github.com/sirixdb/sirix/issues/1457). The merged fix referenced #1452,
+  a number this repository has no issue for; #1457 is the issue this bug was filed as.
 - Symptom: descending 2,048/4,096 sequential keys produced structural inner height 2/3
   while ascending produced height 1 with identical four/eight full leaves. Descending
   skewed 50,000-key seeds 5 and 6 produced height 9. Ancestors retained stored height 1
@@ -343,3 +345,66 @@ main-code bytes and commit(PageReference) at 438 / 6,760. Scratch.reset has a C1
 no standalone C2 reset compilation is claimed. Dispatcher, reader, incremental-insert and
 indirect-page class files match the frozen candidate byte-for-byte. These profile-specific
 shapes support the implementation audit; no latency score or new timing gate was produced.
+
+## Regression protection added afterwards (issue #1457)
+
+Re-measuring this bug on `main` at `31c9c16f1` found it gone: over ascending, descending, mixed and
+staged-commit workloads and the 50,000-key skew seeds, no stored height disagreed with the walked
+structure and no stored key failed to route to its own leaf, live, committed and cold. The
+descending 4,096-key index now commits at height 1 like its ascending control, and the skew seeds at
+height 3 against an independent minimal-height reference of 2.
+
+What the repair lacked was anywhere for the next change to trip over it. Three additions close that:
+`spec/FMT-disk-format.md` states the requirement as FMT-306 (exact stored heights, spine continuity,
+routing independent of the field, and the validator's duty); `HOTInvariantValidator` compares every
+walked node's stored height with the structure below it as `I13-stored-height-exact`, so every HOT
+test that validates a trie now enforces it; and `HOTLookupShapeWorkBudgetTest` counts the routing
+steps of a point lookup, pinning each sampled path in the committed shape at one level for
+both insertion orders. `HOTStoredHeightSpineTest` carries the spec's clauses as behaviour,
+including that a deliberately wrong stored height misroutes no key and is still rejected.
+
+The remaining excess height on the skew workload is unchanged and permitted by FMT-302; it needs
+repartitioning across block boundaries rather than a larger fold.
+
+### Review follow-up: post-commit regression writer ownership
+
+- Symptom: all three `HOTStoredHeightSpineTest` cases reached a closed-writer guard
+  after commit instead of checking committed heights, subtree-local insertion or corruption.
+- Trigger: retain `transaction.getStorageEngineWriter()` across a `KEEP_OPEN` commit.
+- Root cause: commit re-instantiates the storage transaction, closing the predecessor writer;
+  the regression fixture treated its borrowed writer as having the node transaction's lifetime.
+- Why tests missed it: the new regression cases had not successfully executed their post-commit
+  assertions, even though sibling spine tests already reacquired the writer at that boundary.
+- Regression test: all four commit boundaries in `HOTStoredHeightSpineTest` now reacquire the
+  writer before creating another index writer, loading pages, walking or validating the trie.
+  Every original assertion, height bound and subtree-local insertion witness remains intact.
+  Focused command: `./gradlew :sirix-core:test --tests io.sirix.index.hot.HOTStoredHeightSpineTest
+  -PtestHeapMin=128m -PtestHeapMax=2g`.
+- Lesson: reacquire transaction-owned storage handles after commit or rollback before checking
+  the next state; see [Lessons from failures](../LESSONS.md).
+
+### CI follow-up: routing work-budget selection
+
+- Symptom: [PR #1502's PIT run](https://github.com/sirixdb/sirix/actions/runs/45698789878/job/139507250689)
+  completed with two surviving changed-line routing-counter mutants and one uncovered getter.
+- Trigger: the changed production source is `HOTIndirectPage`, while the existing FMT-306
+  behavior test is named `HOTLookupShapeWorkBudgetTest` in the budget package.
+- Root cause: name-based selection and the existing page association selected only
+  `HOTIndirectPageTest` and `HOTIndirectLevelSplitTest`. Neither asserts routing work, so disabling
+  the instrument was invisible. CONV-204 requires associating the test that owns that contract.
+- Regression protection: add the existing budget test to the page's association. Its independent
+  oracle is one routing step for a committed eight-leaf index, with exact posting answers, under
+  ascending/descending insertion and FULL/DIFFERENTIAL revisions. A disabled counter reports zero
+  and fails that exact-work assertion. No new test or relaxed bound is needed.
+- Verification: rerun `python3 .github/scripts/pr_mutation.py run --seconds 1320 --blocking
+  --output build/ci-evidence/fixed-pr-mutation` after selecting this PR's base/head and compiling
+  core test classes; compare its selected tests and changed-line verdict with the failed artifact.
+  The local rerun selected all three tests and killed all three changed-line mutants (previously
+  two survived and one had no coverage), with the same 555 off-diff mutants removed. Both budget
+  cases and all 266 mutation-tooling tests passed. The reporting helper still exited 1 because
+  26 unrelated CLI/REST disposition entries had no compiled classes in this core-only local build;
+  CI's full build artifact supplied those classes and reported no disposition failures.
+- Lesson: associate a budget test with the production class that supplies its counter when their
+  names differ; see [Lessons from failures](../LESSONS.md).
+- Vision check: this restores verification of FMT-306's lookup-work contract without changing
+  results, persisted stores, runtime paths or performance bounds.

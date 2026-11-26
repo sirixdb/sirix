@@ -20,7 +20,8 @@
  */
 package io.sirix.io;
 
-import io.sirix.page.UberPage;
+import io.sirix.io.ResourceFormatCompatibility.Proof;
+
 import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -84,10 +85,10 @@ public enum StorageType {
     }
 
     @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage) {
+    public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable Proof compatibility) {
       final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
-      final var storage = new FileChannelStorage(resourceConf, cache, revisionIndexHolder, openingUberPage);
+      final var storage = new FileChannelStorage(resourceConf, cache, revisionIndexHolder, compatibility);
       try {
         storage.loadRevisionFileDataIntoMemory(cache, storage.getOpeningUberPage());
         storage.loadRevisionIndex(revisionIndexHolder, storage.getOpeningUberPage());
@@ -111,10 +112,10 @@ public enum StorageType {
     }
 
     @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage) {
+    public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable Proof compatibility) {
       final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
-      final var storage = new MMStorage(resourceConf, cache, revisionIndexHolder, openingUberPage);
+      final var storage = new MMStorage(resourceConf, cache, revisionIndexHolder, compatibility);
       try {
         storage.loadRevisionFileDataIntoMemory(cache, storage.getOpeningUberPage());
         storage.loadRevisionIndex(revisionIndexHolder, storage.getOpeningUberPage());
@@ -319,7 +320,7 @@ public enum StorageType {
    */
   public abstract IOStorage getInstance(final ResourceConfiguration resourceConf);
 
-  public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage) {
+  public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable Proof compatibility) {
     return getInstance(resourceConf);
   }
 
@@ -341,8 +342,7 @@ public enum StorageType {
     return getStorage(resourceConf, null);
   }
 
-  public static IOStorage getStorage(final ResourceConfiguration resourceConf,
-      final @Nullable UberPage openingUberPage) {
+  public static IOStorage getStorage(final ResourceConfiguration resourceConf, final @Nullable Proof compatibility) {
     final String typeName = resourceConf.storageType.name();
 
     // Check if an external provider wants to handle this storage type
@@ -355,9 +355,10 @@ public enum StorageType {
           LOGGER.info("Using enterprise storage provider for {}: {} (priority={})", typeName,
               p.getClass().getSimpleName(), p.getPriority());
         }
-        if (openingUberPage != null) {
-          openingUberPage.getFeatures().requireReadable();
-          return p.createStorage(resourceConf, openingUberPage);
+        if (compatibility != null) {
+          compatibility.requireResource(resourceConf.resourcePath);
+          compatibility.uberPage().getFeatures().requireReadable();
+          return p.createStorage(resourceConf, compatibility.uberPage());
         }
         return p.createStorage(resourceConf);
       }
@@ -374,7 +375,7 @@ public enum StorageType {
     }
 
     // Fall back to built-in implementation
-    return resourceConf.storageType.getInstance(resourceConf, openingUberPage);
+    return resourceConf.storageType.getInstance(resourceConf, compatibility);
   }
 
   private static AsyncCache<Integer, RevisionFileData> getIntegerRevisionFileDataAsyncCache(

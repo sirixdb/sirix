@@ -63,9 +63,8 @@ import java.util.function.LongSupplier;
  * weight {@code 1 << (m-1)}. This is exactly the bit order {@link HOTIndirectPage}'s routing
  * produces from {@code Long.compress} (SingleMask) and from the chunked
  * {@code computeMultiMaskPartialKey} (MultiMask): the lowest long-bit / lowest result-bit
- * corresponds to the least-significant captured key bit. The builder chooses the SingleMask layout
- * when every discriminative bit fits an 8-byte window and the MultiMask layout otherwise; both
- * decode the partials identically.
+ * corresponds to the least-significant captured key bit. Both layouts decode the partials
+ * identically; {@link #assembleIndirect} handles layout selection and level splitting.
  *
  * @author Johannes Lichtenberger
  * @see HOTLeafPage
@@ -272,6 +271,7 @@ public final class HOTBulkBuilder {
     private final LongSupplier pageKeyAllocator;
     private int leafCount;
     private int indirectCount;
+    private final LongSupplier indirectPageKeyAllocator;
 
     BulkContext(final byte[][] keys, final byte[][] values, final int revision, final IndexType indexType,
         final LongSupplier pageKeyAllocator) {
@@ -280,6 +280,11 @@ public final class HOTBulkBuilder {
       this.revision = revision;
       this.indexType = indexType;
       this.pageKeyAllocator = pageKeyAllocator;
+      indirectPageKeyAllocator = () -> {
+        final long pageKey = pageKeyAllocator.getAsLong();
+        indirectCount++;
+        return pageKey;
+      };
     }
 
     /**
@@ -488,9 +493,8 @@ public final class HOTBulkBuilder {
             maxChildHeight = h;
           }
         }
-        final HOTIndirectPage result =
-            assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision, indexType, pageKeyAllocator);
-        indirectCount++;
+        final HOTIndirectPage result = assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision,
+            indexType, indirectPageKeyAllocator);
         return result;
       } catch (final RuntimeException | Error failure) {
         closeFreshPage(pendingChild, failure);
@@ -550,33 +554,55 @@ public final class HOTBulkBuilder {
    * Assemble a {@link HOTIndirectPage} from the discriminative-bit set, the sparse-path partials, and
    * the child references. Children must already be in strictly ascending partial-key order
    * (foundation §4, I7) — {@code R(S)} left-to-right order for a bulk build, a contiguous re-encoded
-   * sub-block for an incremental split — so no re-sort is needed. Picks the SingleMask layout when
-   * the bits fit an 8-byte window and the MultiMask layout otherwise; both decode {@code partials}
-   * identically.
+   * sub-block for an incremental split — so no re-sort is needed. A nameable set uses SingleMask when
+   * the bits fit an 8-byte window and MultiMask otherwise; both decode {@code partials} identically.
+   * An unnameable set is split over levels as described below.
    *
    * <p>
    * Package-private: shared with {@link HOTIncrementalInsert}'s {@code splitIndirect} and
    * {@code addEntry}, which re-encode a node's sub-block exactly as a bulk build encodes an
    * {@code R(S)} branch.
    *
+   * <p>
+   * A bit set no layout can name — a span of eight bytes or more whose last byte is past
+   * {@link HOTIndirectPage#MAX_EXTRACTION_BYTE_POSITION} — is spread over levels by
+   * {@link #assembleOverLevels} instead (FMT-305). Reducing an extraction position to its byte would
+   * route the node on an unrelated key byte, which is a wrong answer and not a slower one.
+   *
    * @param discBits discriminative bits as sorted ascending absolute (MSB-first) positions;
    *        {@code discBits[0]} is the assembled node's MSB
    * @param partials per-child sparse-path partial keys, parallel to {@code children}
    * @param children child references in ascending partial-key order
-   * @param height the assembled node's height ({@code 1 + max child height})
+   * @param height the height of a node holding {@code children} directly
+   *        ({@code 1 + max child height})
    * @param revision the revision stamped onto the created page
    * @param pageKeyAllocator supplier of a fresh persistent page key
-   * @return a freshly allocated compound node
+   * @return a freshly allocated compound node; the root of a small nest of them when one node cannot
+   *         name every discriminative byte
    */
   static HOTIndirectPage assembleIndirect(final int[] discBits, final int[] partials, final PageReference[] children,
       final int height, final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(indexType, "indexType");
+    if (!HOTIndirectPage.canNameDiscriminativeBytes(discBits[0] >>> 3, discBits[discBits.length - 1] >>> 3)) {
+      return assembleOverLevels(discBits, partials, children, height, revision, indexType, pageKeyAllocator);
+    }
+    return assembleRoutableIndirect(discBits, partials, children, height, revision, pageKeyAllocator);
+  }
+
+  /**
+   * The routable case of {@link #assembleIndirect}: one node whose layout names every discriminative
+   * byte. Refuses a set that no layout can name rather than reduce a position to its field's width
+   * (FMT-305); {@link #assembleIndirect} keeps that refusal unreachable by spreading such a set over
+   * levels first.
+   */
+  private static HOTIndirectPage assembleRoutableIndirect(final int[] discBits, final int[] partials,
+      final PageReference[] children, final int height, final int revision, final LongSupplier pageKeyAllocator) {
     final int numChildren = children.length;
     final int firstByte = discBits[0] >>> 3;
     final int lastByte = discBits[discBits.length - 1] >>> 3;
-    if ((indexType == IndexType.CAS || indexType == IndexType.VALIDTIME) && lastByte - firstByte >= 8
-        && lastByte >= HOTKeySerializer.MAX_KEY_BYTES) {
-      throw new IllegalArgumentException("HOT discriminative bit exceeds maximum key length");
+    if (!HOTIndirectPage.canNameDiscriminativeBytes(firstByte, lastByte)) {
+      throw new IllegalArgumentException(
+          "HOT indirect node cannot name discriminative key byte " + lastByte + " from base byte " + firstByte);
     }
     final long pageKey = pageKeyAllocator.getAsLong();
 
@@ -624,6 +650,162 @@ public final class HOTBulkBuilder {
             numExtractionBytes, partials, children, height, msbIndex)
         : HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision, extractionPositions, extractionMasks,
             numExtractionBytes, partials, children, height, msbIndex);
+  }
+
+  /**
+   * Spread a discriminative-bit set no single node can name over two or more levels (FMT-305).
+   *
+   * <p>
+   * The top node takes the longest prefix of {@code discBits} a layout can name. Children whose
+   * stored partials agree on that prefix are indistinguishable there, so each such run becomes one
+   * subtree built from the remaining bits — recursively, since a run's own bits may not be nameable
+   * either. A run of one child needs no node of its own and is linked directly, which keeps every
+   * created node at two children or more (FMT-301). Each level therefore tests a strictly later
+   * leading bit than its parent, which is what FMT-302 requires of the levels this adds; the number
+   * of distinct discriminative positions is unchanged, so the height bound still holds.
+   *
+   * <p>
+   * This is the cold path of a rare key geometry — names that share a long head and differ again far
+   * past it — so it favours clarity over the allocation discipline of the routable case.
+   * Package-private so the refusal of a set one node can name is asserted directly.
+   *
+   * @param discBits discriminative bits as sorted ascending absolute positions
+   * @param partials per-child sparse-path partials over {@code discBits}, ascending
+   * @param children child references in ascending partial order
+   * @param height the height a node holding {@code children} directly would have
+   * @return the root of the nest
+   */
+  static HOTIndirectPage assembleOverLevels(final int[] discBits, final int[] partials, final PageReference[] children,
+      final int height, final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
+    final int columns = discBits.length;
+    final int firstByte = discBits[0] >>> 3;
+    final int prefix = HOTIndirectPage.nameableLeadingBits(discBits);
+    if (prefix == columns) {
+      throw new IllegalArgumentException("HOT level split is unnecessary for discriminative key byte "
+          + (discBits[columns - 1] >>> 3) + " from base byte " + firstByte);
+    }
+    final int suffixColumns = columns - prefix;
+
+    // Plan the split before allocating anything: group boundaries first, then the pages. A caller
+    // whose bits are not the block's branching bits gets the refusal with no page drawn, which is
+    // what an out-of-range bit meant before this rule existed.
+    final int[] groupStart = new int[children.length + 1];
+    final int[] topPartials = new int[children.length];
+    int groups = 0;
+    int from = 0;
+    while (from < children.length) {
+      final int groupPartial = partials[from] >>> suffixColumns;
+      int to = from + 1;
+      while (to < children.length && partials[to] >>> suffixColumns == groupPartial) {
+        to++;
+      }
+      groupStart[groups] = from;
+      topPartials[groups] = groupPartial;
+      groups++;
+      from = to;
+    }
+    groupStart[groups] = children.length;
+    if (groups < 2) {
+      throw new IllegalArgumentException(
+          "HOT indirect node cannot name discriminative key byte " + (discBits[columns - 1] >>> 3) + " from base byte "
+              + firstByte + ", and its leading " + prefix + " of " + columns + " bits branch no child");
+    }
+
+    // A refusal has nothing to release here, so there is no cleanup arm: every node this method
+    // builds is an indirect node, whose close is a no-op — which is why closeFreshPage walks past
+    // indirect pages as well — and the leaves below them are the caller's children.
+    final PageReference[] topChildren = new PageReference[groups];
+    int maxGroupHeight = 0;
+    for (int group = 0; group < groups; group++) {
+      final int start = groupStart[group];
+      final int end = groupStart[group + 1];
+      if (end - start == 1) {
+        topChildren[group] = children[start];
+        maxGroupHeight = Math.max(maxGroupHeight, heightOfChild(children[start], height - 1));
+      } else {
+        final HOTIndirectPage nested = assembleGroup(discBits, partials, children, prefix, start, end, height, revision,
+            indexType, pageKeyAllocator);
+        final PageReference reference = new PageReference();
+        reference.setPage(nested);
+        topChildren[group] = reference;
+        maxGroupHeight = Math.max(maxGroupHeight, nested.getHeight());
+      }
+    }
+    return assembleRoutableIndirect(Arrays.copyOf(discBits, prefix), Arrays.copyOf(topPartials, groups), topChildren,
+        maxGroupHeight + 1, revision, pageKeyAllocator);
+  }
+
+  /**
+   * Build the subtree of one run of children that {@link #assembleOverLevels} could not tell apart,
+   * over the bits of {@code discBits} from {@code prefix} on that actually vary inside the run. A bit
+   * the whole run agrees on branches nothing there and is left out, which keeps the node's mask
+   * exactly its own branching bits.
+   */
+  private static HOTIndirectPage assembleGroup(final int[] discBits, final int[] partials,
+      final PageReference[] children, final int prefix, final int from, final int to, final int height,
+      final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator) {
+    final int suffixColumns = discBits.length - prefix;
+    // The run agrees on every prefix column — that is what made it a run — so the difference of two
+    // of its partials carries suffix columns only and needs no mask to stay inside them.
+    int varying = 0;
+    for (int i = from + 1; i < to; i++) {
+      varying |= partials[i] ^ partials[from];
+    }
+    if (varying == 0) {
+      throw new IllegalArgumentException("HOT level split left " + (to - from)
+          + " children with identical partials, which a canonical sparse-path encoding cannot produce");
+    }
+    final int groupColumns = Integer.bitCount(varying);
+    final int[] groupBits = new int[groupColumns];
+    // Column zero of the suffix is its most significant bit, so the walk starts at that weight and
+    // shifts down; one weight, one column, for both the bits and the partials below.
+    final int firstWeight = 1 << suffixColumns - 1;
+    int next = 0;
+    int column = 0;
+    for (int weight = firstWeight; weight != 0; weight >>>= 1) {
+      if ((varying & weight) != 0) {
+        groupBits[next++] = discBits[prefix + column];
+      }
+      column++;
+    }
+    final int[] groupPartials = new int[to - from];
+    for (int i = from; i < to; i++) {
+      int packed = 0;
+      int target = groupColumns - 1;
+      for (int weight = firstWeight; weight != 0; weight >>>= 1) {
+        if ((varying & weight) == 0) {
+          continue;
+        }
+        if ((partials[i] & weight) != 0) {
+          packed |= 1 << target;
+        }
+        target--;
+      }
+      groupPartials[i - from] = packed;
+    }
+    // The group's own height, not the whole node's: its children are a subset, so taking the
+    // caller's maximum would make every level of the nest one taller than it is.
+    int groupHeight = 1;
+    for (int i = from; i < to; i++) {
+      groupHeight = Math.max(groupHeight, heightOfChild(children[i], height - 1) + 1);
+    }
+    return assembleIndirect(groupBits, groupPartials, Arrays.copyOfRange(children, from, to), groupHeight, revision,
+        indexType, pageKeyAllocator);
+  }
+
+  /**
+   * The height of an already-built child, or {@code fallback} when its page is not resident. An
+   * unresolved reference is a persisted subtree the caller already accounted for in the height it
+   * passed, so its maximum is the only figure available here.
+   */
+  private static int heightOfChild(final PageReference reference, final int fallback) {
+    final Page page = reference.getPage();
+    if (page instanceof HOTIndirectPage indirect) {
+      return indirect.getHeight();
+    }
+    return page == null
+        ? fallback
+        : 0;
   }
 
   private static String hex(final byte[] b) {

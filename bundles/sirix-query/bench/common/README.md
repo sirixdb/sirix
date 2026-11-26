@@ -14,6 +14,8 @@ page says how to use them.
 | `bench_ledger.py` | The results ledger, the environment capture, the conditions lookup and the run directory |
 | `bench_trend.py` | The nightly trend report over the ledger |
 | `test_*.py` | Their tests; `testdata/` holds the A/A control of 2026-11-23 |
+
+The nightly tier's recorder, analysis, dashboard and publisher are in [`../nightly/`](../nightly/README.md).
 | `MUTATION_DISPOSITIONS.md` | The mutation record of the three tools |
 
 All three tools are standard-library Python 3 and none of them times anything.
@@ -54,6 +56,12 @@ The run then also
 | `SIRIX_BENCH_JUDGE` | Space-separated benchmark names a gate judges; default: every benchmark the run measures |
 | `SIRIX_BENCH_MIN_PAIRS` | A gate's minimum number of pairs, 10 to 20 (default 10) |
 | `SIRIX_BENCH_CONDITIONS` | A conditions record other than the one in this checkout (for tests) |
+
+A run on a hosted runner says so with `begin --runner kind=hosted,provider=NAME,label=NAME[,image=TEXT]`
+(`fingerprint --runner ...` prints its fingerprint). A hosted runner is fingerprinted by its class — label,
+architecture, CPU model, logical CPUs, memory — and not by its kernel, which the provider changes with every
+image; the image is recorded in the run. `import-jmh --cpu-leg` imports a timed process that carried
+`-prof io.sirix.benchmark.CpuTimeProfiler` as two rows, wall-clock and CPU time.
 
 Every kit measurement carries its dataset identity in `params`: JSONBench records its `tier`,
 and ClickBench cold rounds require `--dataset NAME` with a ledger. The name is caller-stated,
@@ -173,8 +181,9 @@ The report compares each series' level tonight (the
 median of its processes) with the median of the 7 oldest of the 14 nights before, and with the
 series' own night-to-night noise. A change above 2% and above that noise is `unconfirmed` on its
 first night and `drift` when the next night repeats it. The report exits 1 when a series is in
-`drift`. It is an alarm to investigate, never a verdict on a change. Nothing schedules a nightly run
-yet; the analysis is ready for the machine that will.
+`drift`. It is an alarm to investigate, never a verdict on a change. A scheduled workflow records the
+nightly on a GitHub-hosted runner; see [`../nightly/README.md`](../nightly/README.md). On a hosted runner
+only CPU time and allocation are judged, and the wall-clock series are listed as informational.
 The default date is the latest nightly run's date, including an aborted or rejected run. If that
 night has no series with enough accepted processes, the report names the night and exits 2;
 it never substitutes an earlier night. When other series are usable, missing series with earlier

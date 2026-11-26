@@ -13,6 +13,7 @@ import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.interval.HotOrderedStore;
+import io.sirix.index.name.NameIndexRecheck;
 import io.sirix.index.interval.ValidTimeReadCache;
 import io.sirix.index.aggregate.TemporalAggregateStorage;
 import io.sirix.index.changelog.ChangeLogStorage;
@@ -22,6 +23,7 @@ import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionRecordKeySet;
 import io.sirix.page.ChunkedBodyConfig;
+import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.ReplayWorkDiagnostics;
@@ -252,6 +254,15 @@ public final class EngineWorkCounters {
   /** The HOT leaf counters. Gated: the module's {@code test} block must provide the property. */
   public static final List<WorkCounter> HOT_LEAVES = List.of(HOT_LEAF_LOADS, HOT_FRAGMENTS_WALKED);
 
+  /**
+   * Routing steps through HOT indirect nodes; see {@link HOTIndirectPage#indirectRoutingSteps()} for
+   * the counted operations. Capture one lookup to measure its path depth and detect a degraded spine
+   * (FMT-306).
+   */
+  public static final WorkCounter HOT_INDIRECT_ROUTING_STEPS =
+      WorkCounter.gated("hot.indirectRoutingSteps", "one routing step through a HOT indirect node",
+          HOTIndirectPage::indirectRoutingSteps, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
   /** Native lane reads during a HOT suffix comparison, excluding its fixed length header. */
   public static final WorkCounter HOT_SUFFIX_PROBE_READS =
       WorkCounter.gated("hot.suffixProbeReads", "one native suffix lane inspected during binary search",
@@ -271,6 +282,16 @@ public final class EngineWorkCounters {
   public static final WorkCounter POSTING_DELTA_FOLDS =
       WorkCounter.gated("hot.postingDeltaFolds", "one posting chunk folded in memory and replaced",
           HOTIndexWriter::postingDeltaFolds, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
+
+  /**
+   * Record reads the NAME index's exact re-check performed. A name inside the routable key bound is
+   * stored and answered by its whole key, so it must cost none of these; only a name longer than the
+   * bound shares its stored key with others and has to ask each candidate node for its real name
+   * (FMT-305).
+   */
+  public static final WorkCounter NAME_RECHECK_RECORD_READS = WorkCounter.alwaysOn("name.recheckRecordReads",
+      "one record read by the NAME index's exact re-check of a truncated key's candidates",
+      NameIndexRecheck::recheckRecordReads);
 
   public static final List<WorkCounter> HOT_POSTINGS = List.of(POSTING_DELTA_WRITES, POSTING_DELTA_FOLDS);
 

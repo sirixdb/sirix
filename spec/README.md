@@ -15,6 +15,7 @@ or frozen release artifact is claimed by this documentation change.
 | [CONF](CONF-configuration.md) | persisted database/resource settings and format-affecting defaults | P0 persisted-settings draft |
 | [JAPI](JAPI-java-api.md) / [manifest](JAPI-stable-api-manifest.md) | Java ownership/errors/hooks/identity and explicit compatibility inventory | P0 draft; three-tier boundary decided |
 | [REST](REST-api.md) | OpenAPI baseline, revisions, preconditions, authorization, errors | P0 draft |
+| [MEM](MEM-memory-pool.md) | one evictable memory pool: frames return budget across size classes, one cache frame budget with priority eviction, compact-image pool reservation | P0 draft (decisions of 2026-11-26 folded in) |
 | [NATIVE](NATIVE-embedded-c-api.md) | JVM-free C/C++/Rust/Python embedding, stable ABI 1, JSON/XML parity | Design adopted for 1.0; runtime implementation pending |
 
 Requirement IDs are stable and never reused. Every numbered requirement has a test

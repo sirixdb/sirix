@@ -37,12 +37,12 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -50,7 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class WriterCatalogueRecoveryTest {
 
   enum Recovery {
-    REVERT, ROLLBACK, CLOSE
+    REVERT, CLOSE
   }
 
   @AfterEach
@@ -59,8 +59,8 @@ final class WriterCatalogueRecoveryTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"KEEP_OPEN, REVERT", "KEEP_OPEN_ASYNC_COMMIT, REVERT", "KEEP_OPEN, ROLLBACK",
-      "KEEP_OPEN_ASYNC_COMMIT, ROLLBACK", "KEEP_OPEN, CLOSE", "KEEP_OPEN_ASYNC_COMMIT, CLOSE"})
+  @CsvSource({"KEEP_OPEN, REVERT", "KEEP_OPEN_ASYNC_COMMIT, REVERT", "KEEP_OPEN, CLOSE",
+      "KEEP_OPEN_ASYNC_COMMIT, CLOSE"})
   void jsonRecoveryInheritsSkippedCatalogueAndMaintainsLookups(final AfterCommitState mode, final Recovery recovery,
       @TempDir final Path directory) {
     final Path databasePath = directory.resolve("database");
@@ -87,9 +87,11 @@ final class WriterCatalogueRecoveryTest {
           if (recovery == Recovery.REVERT) {
             trx.setNumberValue(4);
           } else {
-            final OutOfMemoryError failure = failNextSuccessor();
+            final AtomicBoolean constructionFailed = failNextSuccessor();
             try {
-              assertSame(failure, assertThrows(OutOfMemoryError.class, () -> trx.setNumberValue(4)));
+              // TXN-307: revision 2 committed; the attempted next edit is refused.
+              assertThrows(IllegalStateException.class, () -> trx.setNumberValue(4));
+              assertTrue(constructionFailed.get(), "the successor-construction fault must fire");
             } finally {
               NodeStorageEngineWriter.asyncFlushFaultHook = null;
             }
@@ -99,15 +101,14 @@ final class WriterCatalogueRecoveryTest {
           if (recovery == Recovery.REVERT) {
             session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(Set.of(jsonCas(1)), trx);
             trx.revertTo(1);
-          } else if (recovery == Recovery.ROLLBACK) {
-            trx.rollback();
           } else {
+            assertThrows(IllegalStateException.class, trx::commit);
+            assertThrows(IllegalStateException.class, trx::rollback);
+            assertThrows(IllegalStateException.class, () -> trx.revertTo(1));
             trx.close();
           }
           if (recovery != Recovery.CLOSE) {
-            assertJsonRecovery(session, trx, cas, valueKey, recovery == Recovery.REVERT
-                ? 1
-                : 2);
+            assertJsonRecovery(session, trx, cas, valueKey, 1);
           }
         }
       }
@@ -129,8 +130,8 @@ final class WriterCatalogueRecoveryTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"KEEP_OPEN, REVERT", "KEEP_OPEN_ASYNC_COMMIT, REVERT", "KEEP_OPEN, ROLLBACK",
-      "KEEP_OPEN_ASYNC_COMMIT, ROLLBACK", "KEEP_OPEN, CLOSE", "KEEP_OPEN_ASYNC_COMMIT, CLOSE"})
+  @CsvSource({"KEEP_OPEN, REVERT", "KEEP_OPEN_ASYNC_COMMIT, REVERT", "KEEP_OPEN, CLOSE",
+      "KEEP_OPEN_ASYNC_COMMIT, CLOSE"})
   void xmlRecoveryInheritsSkippedCatalogueAndMaintainsLookups(final AfterCommitState mode, final Recovery recovery,
       @TempDir final Path directory) {
     final Path databasePath = directory.resolve("database");
@@ -153,9 +154,11 @@ final class WriterCatalogueRecoveryTest {
           if (recovery == Recovery.REVERT) {
             trx.setValue("4");
           } else {
-            final OutOfMemoryError failure = failNextSuccessor();
+            final AtomicBoolean constructionFailed = failNextSuccessor();
             try {
-              assertSame(failure, assertThrows(OutOfMemoryError.class, () -> trx.setValue("4")));
+              // TXN-307: revision 2 committed; the attempted next edit is refused.
+              assertThrows(IllegalStateException.class, () -> trx.setValue("4"));
+              assertTrue(constructionFailed.get(), "the successor-construction fault must fire");
             } finally {
               NodeStorageEngineWriter.asyncFlushFaultHook = null;
             }
@@ -165,15 +168,14 @@ final class WriterCatalogueRecoveryTest {
           if (recovery == Recovery.REVERT) {
             session.getWtxIndexController(trx.getRevisionNumber()).createIndexes(Set.of(xmlCas(1)), trx);
             trx.revertTo(1);
-          } else if (recovery == Recovery.ROLLBACK) {
-            trx.rollback();
           } else {
+            assertThrows(IllegalStateException.class, trx::commit);
+            assertThrows(IllegalStateException.class, trx::rollback);
+            assertThrows(IllegalStateException.class, () -> trx.revertTo(1));
             trx.close();
           }
           if (recovery != Recovery.CLOSE) {
-            assertXmlRecovery(session, trx, cas, valueKey, recovery == Recovery.REVERT
-                ? "1"
-                : "2");
+            assertXmlRecovery(session, trx, cas, valueKey, "1");
           }
         }
       }
@@ -336,14 +338,16 @@ final class WriterCatalogueRecoveryTest {
     assertTrue(Files.notExists(indexes.resolve(revision + ".xml")));
   }
 
-  private static OutOfMemoryError failNextSuccessor() {
+  private static AtomicBoolean failNextSuccessor() {
+    final AtomicBoolean fired = new AtomicBoolean();
     final OutOfMemoryError failure = new OutOfMemoryError("injected after skipped catalogue revision");
     NodeStorageEngineWriter.asyncFlushFaultHook = (writer, site) -> {
       if ("constructor-before-local-caches".equals(site)) {
+        fired.set(true);
         throw failure;
       }
     };
-    return failure;
+    return fired;
   }
 
   private static ResourceConfiguration resource() {

@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Issue 1452: local split integration must retain its outer spine and exact heights. */
+/** Issue 1457: local split integration must retain its outer spine and exact heights (FMT-306). */
 @Isolated
 final class HOTSubInsertSpineTest {
   private static final HOTKeySerializer<Long> SERIALIZER = new HOTKeySerializer<>() {
@@ -148,7 +148,7 @@ final class HOTSubInsertSpineTest {
     }
     final List<Long> descending = new ArrayList<>(keys);
     Collections.reverse(descending);
-    // Known remaining gap (https://github.com/sirixdb/sirix/issues/1452): these fixed leaf
+    // Known remaining gap (https://github.com/sirixdb/sirix/issues/1457): these fixed leaf
     // sets admit height 2. Commit normalization improves live 9 to at most 3; retain the routing,
     // metadata,
     // persistence and work bound while the remaining frontier shapes are investigated separately.

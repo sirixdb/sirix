@@ -139,7 +139,8 @@ public final class JsonLimitedSerializer implements Callable<Void> {
             if (rtx.hasFirstChild()) {
               rtx.moveToFirstChild();
             } else {
-              // Empty document
+              appendObjectValue("null");
+              emitRevisionEndNode(rtx);
               continue;
             }
           }
