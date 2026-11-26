@@ -83,12 +83,11 @@ preserving changes the successor made while hardening was in flight.
   recovery check is skipped only for pipelined creation with a known pending
   base. Ordinary writer admission follows [marker recovery](operations.md#marker-recovery),
   including after an in-process failure.
-- **Failure poisoning.** A phase-2 failure latches the transaction
-  terminally, including failures retiring the pending root or closing the
-  predecessor. Repeated `awaitPendingAsyncCommit()` calls retain the original
-  cause; commit and rollback drain the pipeline and reject the poisoned
-  successor. A failure after beacon publication can leave revision N durable;
-  recovery selects the verified beacon rather than assuming N was lost.
+- **Failure classification.** The
+  [`NodeTrx.commit()` contract](../bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java)
+  owns the implemented durability outcomes and terminal-writer restrictions.
+  [TXN-705](../spec/TXN-transactions-durability.md#txn-705--unknown-durability-outcome-and-no-fsync-retry)
+  records the remaining uncertainty-handling gaps.
 - **Lineage.** Epoch N+1's page transaction is created from the pending
   (phase-1-complete, canonical in memory) uber page of revision N, not from
   `lastCommittedUberPage`. The depth-1 pipeline makes the pending chain at
@@ -98,8 +97,10 @@ preserving changes the successor made while hardening was in flight.
 
 Background hardening and both inline fallbacks (successor setup failure or
 task-submission failure) release their acquired async permit exactly once.
-Inline hardening preserves the setup/submission error and suppresses subsequent
-hardening or cleanup errors. All routes close the detached predecessor and
+When inline hardening fails before acknowledging durability, it preserves the
+setup/submission error and suppresses the hardening error. When it succeeds, the
+setup/submission failure follows the commit outcome contract linked above.
+All routes close the detached predecessor and
 retire its pending root even when hardening fails; a hardening failure remains
 terminal after the permit is released.
 

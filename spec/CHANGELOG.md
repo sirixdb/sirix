@@ -17,6 +17,12 @@
   Making Otava the judge is not decided here.
   Decided by the maintainer on 2026-11-26: a hosted runner is fingerprinted by its class, not by its
   kernel or image.
+- Record the synchronous and pipelined cleanup-failure implementation and regression evidence under
+  [TXN-307](TXN-transactions-durability.md#txn-307--known-durable-commit-survives-cleanup-failure),
+  moving its status to `partial` without changing requirement text. The
+  [TXN-305](TXN-transactions-durability.md#txn-305--known-pre-commit-point-failure) and
+  [TXN-705](TXN-transactions-durability.md#txn-705--unknown-durability-outcome-and-no-fsync-retry)
+  notes distinguish the remaining pre-point reuse and uncertainty gaps.
 
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from

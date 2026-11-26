@@ -44,6 +44,22 @@ public interface StorageEngineWriter extends StorageEngineReader {
   BytesOut<?> newBufferedBytesInstance();
 
   /**
+   * The failure of a cleanup step that ran AFTER the most recent commit crossed its commit point, or
+   * {@code null} when there was none.
+   *
+   * <p>
+   * The orchestrator must inspect this after {@link #hardenCommit(UberPage, boolean)} returns and
+   * preserve the successful outcome under {@link NodeTrx#commit(String, Instant)}. The returned cause
+   * may be checked; it must not be rethrown as a hardening failure. {@code spec: TXN-307}
+   *
+   * @return the first post-durable cleanup failure of the most recent commit, or {@code null} when
+   *         every cleanup step succeeded
+   */
+  default @Nullable Throwable postCommitCleanupFailure() {
+    return null;
+  }
+
+  /**
    * Truncate resource to given revision.
    *
    * @param revision the given revision

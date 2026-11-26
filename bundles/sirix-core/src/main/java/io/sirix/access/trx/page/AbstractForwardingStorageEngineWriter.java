@@ -179,6 +179,11 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public @Nullable Throwable postCommitCleanupFailure() {
+    return delegate().postCommitCleanupFailure();
+  }
+
+  @Override
   public StorageEngineWriter truncateTo(final int revision) {
     return delegate().truncateTo(revision);
   }

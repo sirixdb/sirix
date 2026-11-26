@@ -36,23 +36,33 @@ import java.util.concurrent.atomic.AtomicInteger;
  * (no automatic re-arming). To re-fire, call {@link #injectAt(Point, int)} again.
  *
  * <p>
- * This class is test-scope-only; production code never sees it. The full integration pattern
- * (wiring this into the live storage factory so real
- * {@link io.sirix.access.trx.node.AbstractResourceSession} commits run through the injector) is
- * deferred — the present scope verifies the decorator's own contract so future tests can rely on
- * it.
+ * This class is test-scope-only; production code never sees it. {@link FaultInjectingStorage} wires
+ * it into the live storage factory, so real
+ * {@link io.sirix.access.trx.node.AbstractResourceSession} commits run through the injector.
  */
 public final class FaultInjectingWriter implements Writer {
 
   /**
-   * Where to throw. Names map onto the {@link Writer} entry points: every method that mutates storage
-   * has both a {@code BEFORE_*} and an {@code AFTER_*} point so a test can simulate "crashed before
-   * write started" vs. "crashed after write returned but before next step." Read-only Reader methods
-   * inherited from {@link Writer}'s {@code extends Reader} are not injected — recovery doesn't depend
-   * on read failures.
+   * Where to throw. Names map onto the {@link Writer} entry points: every injected method that
+   * mutates storage has both a {@code BEFORE_*} and an {@code AFTER_*} point so a test can simulate
+   * "crashed before write started" vs. "crashed after write returned but before next step." Read-only
+   * Reader methods inherited from {@link Writer}'s {@code extends Reader} are not injected — recovery
+   * doesn't depend on read failures. The spill-file writes
+   * ({@code writeSpilled}/{@code copySpilledPage}/{@code flushSpilledBufferedWrites}) are forwarded
+   * but carry no point: nothing in the durability contract turns on them.
+   *
+   * <p>
+   * {@code AFTER_UBER_PAGE_REFERENCE_WRITE} and {@code BEFORE_DISCARD_SPILLED_WRITES} are NOT
+   * interchangeable, and the difference decides which requirement a test exercises. The
+   * {@link Writer#writeUberPageReference} durability contract makes its RETURN the commit
+   * acknowledge, so a throw out of that method leaves the caller unable to tell whether the beacon
+   * reached stable storage: that is an uncertain outcome (TXN-705), not a known durable one.
+   * {@code BEFORE_DISCARD_SPILLED_WRITES} fires on the first storage call the commit makes AFTER the
+   * beacon write returned, so the revision is known durable and the failure is post-durable cleanup
+   * (TXN-307).
    */
   public enum Point {
-    BEFORE_WRITE, AFTER_WRITE, BEFORE_UBER_PAGE_REFERENCE_WRITE, AFTER_UBER_PAGE_REFERENCE_WRITE, BEFORE_TRUNCATE_TO, AFTER_TRUNCATE_TO, BEFORE_TRUNCATE, AFTER_TRUNCATE, BEFORE_FORCE_ALL, AFTER_FORCE_ALL, BEFORE_CLOSE, AFTER_CLOSE,
+    BEFORE_WRITE, AFTER_WRITE, BEFORE_UBER_PAGE_REFERENCE_WRITE, AFTER_UBER_PAGE_REFERENCE_WRITE, BEFORE_DISCARD_SPILLED_WRITES, AFTER_DISCARD_SPILLED_WRITES, BEFORE_TRUNCATE_TO, AFTER_TRUNCATE_TO, BEFORE_TRUNCATE, AFTER_TRUNCATE, BEFORE_FORCE_ALL, AFTER_FORCE_ALL, BEFORE_CLOSE, AFTER_CLOSE,
   }
 
   /** Exception thrown at the injection point — distinct so tests can catch it cleanly. */
@@ -65,6 +75,7 @@ public final class FaultInjectingWriter implements Writer {
   private final Writer delegate;
   private volatile Point activePoint;
   private final AtomicInteger countdown = new AtomicInteger();
+  private Runnable beforeDiscardSpilledWrites;
 
   public FaultInjectingWriter(final Writer delegate) {
     this.delegate = Objects.requireNonNull(delegate, "delegate");
@@ -98,6 +109,11 @@ public final class FaultInjectingWriter implements Writer {
   /** Whether the injector is armed for {@code point}. */
   public boolean isArmedFor(final Point point) {
     return this.activePoint == point;
+  }
+
+  /** Run a one-shot fixture action before spill cleanup (post-beacon in the commit path). */
+  public void beforeDiscardSpilledWrites(final Runnable action) {
+    beforeDiscardSpilledWrites = Objects.requireNonNull(action, "action");
   }
 
   /**
@@ -134,6 +150,61 @@ public final class FaultInjectingWriter implements Writer {
     delegate.writeUberPageReference(resourceConfiguration, pageReference, page, bufferedBytes);
     maybeFire(Point.AFTER_UBER_PAGE_REFERENCE_WRITE);
     return this;
+  }
+
+  /**
+   * Forwarded, not defaulted, for the same reason as {@link #supportsTruncateTo()}: the default says
+   * "no spill file", so a silent decorator would route the storage engine down the no-spill path and
+   * the test would no longer exercise the code it wrapped.
+   */
+  @Override
+  public boolean supportsSpilledWrites() {
+    return delegate.supportsSpilledWrites();
+  }
+
+  @Override
+  public Writer writeSpilled(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
+      final Page page, final BytesOut<?> bufferedBytes) {
+    delegate.writeSpilled(resourceConfiguration, pageReference, page, bufferedBytes);
+    return this;
+  }
+
+  @Override
+  public void flushSpilledBufferedWrites(final BytesOut<?> bufferedBytes) {
+    delegate.flushSpilledBufferedWrites(bufferedBytes);
+  }
+
+  @Override
+  public void copySpilledPage(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
+      final BytesOut<?> bufferedBytes) {
+    delegate.copySpilledPage(resourceConfiguration, pageReference, bufferedBytes);
+  }
+
+  /**
+   * The first storage call a commit makes after {@link #writeUberPageReference} returned, i.e. the
+   * first post-durable cleanup step — see the {@link Point} documentation for why that distinction
+   * matters.
+   */
+  @Override
+  public void discardSpilledWrites() {
+    final Runnable action = beforeDiscardSpilledWrites;
+    beforeDiscardSpilledWrites = null;
+    if (action != null) {
+      action.run();
+    }
+    maybeFire(Point.BEFORE_DISCARD_SPILLED_WRITES);
+    delegate.discardSpilledWrites();
+    maybeFire(Point.AFTER_DISCARD_SPILLED_WRITES);
+  }
+
+  @Override
+  public boolean supportsUncommittedWrites() {
+    return delegate.supportsUncommittedWrites();
+  }
+
+  @Override
+  public boolean supportsReclaimableUncommittedWrites() {
+    return delegate.supportsReclaimableUncommittedWrites();
   }
 
   @Override
