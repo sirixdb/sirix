@@ -632,7 +632,7 @@ public final class ResourceConfiguration {
       if (tmpFile != null) {
         try {
           Files.deleteIfExists(tmpFile);
-        } catch (final IOException ignored) {
+        } catch (final IOException _) {
           // Best effort: a leftover temporary file is not a settings document.
         }
       }
@@ -874,14 +874,18 @@ public final class ResourceConfiguration {
    */
   public static void serialize(final ResourceConfiguration config) throws SirixIOException {
     final Path configFile = config.getConfigFile();
+    final long incarnationId;
     // A retained configuration may predate a truncate or restore performed through another instance.
     try {
       if (Files.exists(configFile) && Files.size(configFile) > 0) {
-        config.incarnationId = deserialize(config.getResource()).incarnationId;
+        incarnationId = deserialize(config.getResource()).getIncarnationId();
+      } else {
+        incarnationId = config.getIncarnationId();
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
+    config.incarnationId = incarnationId;
     try (final FileWriter fileWriter = new FileWriter(configFile.toFile());
         final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
       jsonWriter.beginObject();
@@ -951,7 +955,7 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[28]).value(config.aggregateKernel);
       jsonWriter.name(JSONNAMES[29]).value(config.saltRecordPages);
       // Resource incarnation id (FMT-209), a string: JSON numbers cannot hold every u64 (CONF-102).
-      jsonWriter.name(INCARNATION_ID_NAME).value(formatIncarnationId(config.incarnationId));
+      jsonWriter.name(INCARNATION_ID_NAME).value(formatIncarnationId(incarnationId));
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);

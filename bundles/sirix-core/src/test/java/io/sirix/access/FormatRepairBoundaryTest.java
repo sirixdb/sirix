@@ -332,7 +332,7 @@ final class FormatRepairBoundaryTest {
           // FMT-101: kind, version, extension flag, extension length, tag, payload length,
           // three feature words, revision count. Hash byte order is FMT-103's big endian.
           final byte[] payload =
-              new byte[] {3, 0, (byte) 0x80, 14, (byte) 0xc1, 12, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0};
+              {3, 0, (byte) 0x80, 14, (byte) 0xc1, 12, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0};
           // FMT-204/209: readOnlyCompat bit 0 is known; bit 1 remains unsupported.
           if (defect.equals("incompat")) {
             payload[6] = 1;

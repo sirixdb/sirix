@@ -25,3 +25,26 @@
   See the fragment collected into [LESSONS.md](../LESSONS.md).
 - Vision check: preserves the identity of persisted history without changing formats, defaults or
   per-node work. Only settings serialization reads the installed configuration before rewriting.
+
+## Sonar quality-gate follow-up
+
+- Symptom / trigger: PR #1507's Sonar analysis rejected the settings-rewrite fix with BUG
+  `java:S3078`, lowering new-code reliability to C instead of the required A.
+- Root cause: serialization copied between volatile fields in one expression, then read the live
+  field again for JSON output. Volatile access does not make that sequence atomic or establish one
+  selected value for the rewrite.
+- Correction: select the installed id through its getter into a final local, or retain the creation
+  draw for absent/empty settings, then use that same local for the plain assignment and JSON output.
+  Validation and adoption still precede opening the settings writer. This adds no locking or
+  concurrent-publication guarantee.
+- Regression evidence: the reported Sonar result supplies the pre-fix static-analysis failure;
+  the existing conformance and publication-rewrite tests above supply the FMT-209 / CONF-102
+  behavioural oracle. They reject resurrected ids after JSON/XML truncate or either publisher,
+  including publication failures, and preserve unsigned boundary values and invalid-settings refusal.
+  This syntax correction does not warrant a source-inspection test or a changed acceptance oracle.
+- Lesson: use one selected identity throughout a settings rewrite, rather than rereading mutable
+  state at the output boundary; see the existing lesson fragment.
+- Verification: Spotless passed for all six touched Java files. The five touched test classes and
+  core work-budget suites passed (530 tests, no failures or skips), as did the isolated prerequisite
+  suites. Focused PIT analysis of serialization's id selection killed all three generated mutants
+  with no uncovered mutants. The hosted Sonar quality-gate rerun remains with the outer executor.

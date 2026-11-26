@@ -88,7 +88,7 @@ class StoreFeaturesTest {
   @Test
   void fmt209ConditionalWriteMetadataIsTheOnlyKnownBit() {
     assertEquals(1, StoreFeatures.CONDITIONAL_WRITE_METADATA, "FMT-209 wire table: readOnlyCompat bit 0");
-    assertEquals(new StoreFeatures(0, 1, 0), StoreFeatures.CONDITIONAL_WRITE_METADATA_FEATURES);
+    assertEquals(StoreFeatures.CONDITIONAL_WRITE_METADATA_FEATURES, new StoreFeatures(0, 1, 0));
     // A known bit never hides an unknown one in the same word.
     final var mixed = new StoreFeatures(0, StoreFeatures.CONDITIONAL_WRITE_METADATA | 2, 0);
     final var failure = assertThrows(UnsupportedOperationException.class, mixed::requireWritable);

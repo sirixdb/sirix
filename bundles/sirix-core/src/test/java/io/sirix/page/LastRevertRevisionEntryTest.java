@@ -114,13 +114,14 @@ final class LastRevertRevisionEntryTest {
     final byte[] valid = encode(root(7, 3));
     final byte[] entry = Arrays.copyOfRange(valid, TAG, PAYLOAD + 4);
 
-    assertThrows(RuntimeException.class, () -> decode(withBlock(valid, concat(entry, entry))), "duplicated entry");
+    final byte[] duplicated = withBlock(valid, concat(entry, entry));
+    assertThrows(RuntimeException.class, () -> decode(duplicated), "duplicated entry");
 
     final byte[] laterOptional = {0x42, 1, 0x7F};
     assertEquals(3, decode(withBlock(valid, concat(entry, laterOptional))).getLastRevertRevision(),
         "an unknown optional kind-local entry after it is skipped");
-    assertThrows(RuntimeException.class, () -> decode(withBlock(valid, concat(laterOptional, entry))),
-        "entries out of ascending tag order");
+    final byte[] misordered = withBlock(valid, concat(laterOptional, entry));
+    assertThrows(RuntimeException.class, () -> decode(misordered), "entries out of ascending tag order");
     assertEquals(0, decode(withBlock(valid, laterOptional)).getLastRevertRevision(),
         "an unknown optional entry alone carries no last-revert revision");
   }
@@ -158,8 +159,9 @@ final class LastRevertRevisionEntryTest {
     image[FLAGS] = (byte) flags;
     for (final boolean arrayInput : new boolean[] {false, true}) {
       final BytesIn<?> source = input(image, arrayInput);
+      final PagePersister persister = new PagePersister();
       final IllegalStateException error = assertThrows(IllegalStateException.class,
-          () -> new PagePersister().deserializePage(null, source, SerializationType.DATA));
+          () -> persister.deserializePage(null, source, SerializationType.DATA));
       assertTrue(error.getMessage().contains("flags 0x" + Integer.toHexString(flags)));
       assertEquals(FLAGS + 1, source.position());
     }

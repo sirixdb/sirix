@@ -46,7 +46,7 @@ final class ResourceConfigurationTest {
       final long original = config.getIncarnationId();
       final byte[] settings = Files.readAllBytes(config.getConfigFile());
       final IOException failure = new IOException("temporary file unavailable");
-      try (final MockedStatic<FileChannel> channels = failPublication(config, point, failure)) {
+      try (final MockedStatic<FileChannel> _ = failPublication(config, point, failure)) {
         assertSame(failure, assertThrows(SirixIOException.class, () -> publish(config, restore)).getCause());
       }
       assertArrayEquals(settings, Files.readAllBytes(config.getConfigFile()));
@@ -64,7 +64,7 @@ final class ResourceConfigurationTest {
       final long original = config.getIncarnationId();
       final JsonObject settings = JsonParser.parseString(Files.readString(config.getConfigFile())).getAsJsonObject();
       final IOException failure = new IOException("directory barrier unavailable");
-      try (final MockedStatic<FileChannel> channels = failPublication(config, point, failure)) {
+      try (final MockedStatic<FileChannel> _ = failPublication(config, point, failure)) {
         assertSame(failure, assertThrows(SirixIOException.class, () -> publish(config, restore)).getCause());
       }
       final JsonObject installed = JsonParser.parseString(Files.readString(config.getConfigFile())).getAsJsonObject();
