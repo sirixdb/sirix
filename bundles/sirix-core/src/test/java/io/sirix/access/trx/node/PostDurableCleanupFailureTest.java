@@ -13,6 +13,10 @@ import ch.qos.logback.classic.turbo.TurboFilter;
 import ch.qos.logback.core.spi.FilterReply;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.access.trx.page.AbstractForwardingStorageEngineWriter;
+import io.sirix.index.IndexDef;
+import io.sirix.index.IndexDefs;
+import java.util.Set;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixUsageException;
@@ -112,15 +116,26 @@ final class PostDurableCleanupFailureTest {
 
       // The commit point was crossed, so this must NOT throw — before the fix it reported the
       // simulated cleanup failure as a commit failure (#1380).
+      final StorageEngineWriter storage = wtx.getStorageEngineWriter();
+      final StorageEngineWriter decorated = new AbstractForwardingStorageEngineWriter() {
+        @Override
+        protected StorageEngineWriter delegate() {
+          return storage;
+        }
+      };
       wtx.commit();
+      assertSame(storage.postCommitCleanupFailure(), decorated.postCommitCleanupFailure(),
+          "a storage decorator must preserve the durable cleanup outcome");
+      assertInstanceOf(SimulatedCrashException.class, decorated.postCommitCleanupFailure());
 
       assertFalse(injector.isArmedFor(Point.BEFORE_DISCARD_SPILLED_WRITES),
           "the post-durable cleanup injection never fired, so this run proves nothing");
 
       // Terminal: the writer does not go back to RUNNING, so it can neither be reused nor retried
       // into a second copy of the same change.
+      final var rejectedInput = JsonShredder.createStringReader("{\"b\":2}");
       assertThrows(IllegalStateException.class,
-          () -> wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"b\":2}"), JsonNodeTrx.Commit.NO));
+          () -> wtx.insertSubtreeAsFirstChild(rejectedInput, JsonNodeTrx.Commit.NO));
 
       // Nothing uncommitted is left, so closing the terminal writer is clean.
       wtx.close();
@@ -218,6 +233,81 @@ final class PostDurableCleanupFailureTest {
       assertEquals(1, session.getMostRecentRevisionNumber());
     }
     assertReopenedArray(databasePath);
+  }
+
+  /** TXN-307: admission must recheck a predecessor's newly terminal outcome after draining it. */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {"commit", "rollback", "revert", "truncate", "maintenance", "atomic", "rotate", "close", "abort"})
+  void predecessorAcknowledgementFailureRejectsTheWaitingOperation(final String operation) {
+    final Path databasePath = createDatabase();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      final JsonNodeTrx writer = session.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      writer.insertArrayAsFirstChild();
+      writer.insertStringValueAsFirstChild("speculative");
+      final AtomicBoolean fired = new AtomicBoolean();
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals("before-catalogue-acknowledgement") && fired.compareAndSet(false, true)) {
+          throw new SimulatedCrashException(stage);
+        }
+      };
+      final AbstractNodeTrxImpl<?, ?, ?, ?, ?> internal = (AbstractNodeTrxImpl<?, ?, ?, ?, ?>) writer;
+      final Runnable action = switch (operation) {
+        case "commit" -> writer::commit;
+        case "rollback" -> writer::rollback;
+        case "revert" -> () -> writer.revertTo(0);
+        case "truncate" -> () -> writer.truncateTo(0);
+        case "maintenance" -> () -> internal.runStorageMaintenance(() -> {
+          throw new AssertionError("terminal writer admitted maintenance");
+        });
+        case "atomic" -> internal::beginAtomicOperation;
+        case "rotate" -> () -> writer.insertStringValueAsRightSibling("another speculative edit");
+        case "close" -> writer::close;
+        case "abort" -> internal::abort;
+        default -> throw new AssertionError(operation);
+      };
+      try {
+        if (operation.equals("abort")) {
+          assertDoesNotThrow(action::run);
+          assertTrue(writer.isClosed());
+        } else if (operation.equals("close")) {
+          assertThrows(SirixUsageException.class, action::run);
+        } else {
+          assertThrows(IllegalStateException.class, action::run);
+        }
+        assertTrue(fired.get(), "the waiting operation must consume its predecessor's outcome");
+        assertTrue(Files.exists(((InternalResourceSession<?, ?>) session).getCommitFile()));
+        assertEquals(1, session.getMostRecentRevisionNumber());
+        if (!writer.isClosed()) {
+          assertTerminal(writer);
+        }
+      } finally {
+        assertDoesNotThrow(internal::abort);
+      }
+    }
+    assertReopenedArray(databasePath);
+  }
+
+  /** TXN-306: unchanged successor catalogues inherit their predecessor's persisted baseline. */
+  @Test
+  void asynchronousCatalogueAcknowledgementAvoidsRepublishingUnchangedDefinitions() {
+    final Path databasePath = createDatabase();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeTrx writer = session.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT)) {
+      session.getWtxIndexController(writer.getRevisionNumber())
+             .createIndexes(Set.of(IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON)), writer);
+      writer.insertArrayAsFirstChild();
+      writer.insertStringValueAsFirstChild("next");
+      writer.awaitPendingAsyncCommit();
+      writer.commit();
+      final Path indexes =
+          session.getResourceConfig().getResource().resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+      assertTrue(Files.exists(indexes.resolve("1.xml")));
+      assertFalse(Files.exists(indexes.resolve("2.xml")), "unchanged definitions must reuse the durable catalogue");
+      assertEquals(1, session.getRtxIndexController(2).getIndexes().getIndexDefs().size());
+    }
   }
 
   @ParameterizedTest
@@ -577,7 +667,7 @@ final class PostDurableCleanupFailureTest {
       paths.sorted(Comparator.reverseOrder()).forEach(path -> {
         try {
           Files.deleteIfExists(path);
-        } catch (final IOException ignored) {
+        } catch (final IOException _) {
           // Best effort: a leftover temporary file must not fail the test.
         }
       });

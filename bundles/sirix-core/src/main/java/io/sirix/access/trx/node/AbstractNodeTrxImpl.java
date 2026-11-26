@@ -481,9 +481,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
     try {
       nodeReadOnlyTrx.assertNotClosed();
-      assertRunning();
       awaitPendingAsyncCommit();
-      assertNotTerminal();
+      assertRunning();
       if (publicationScopeDepth == 0) {
         publicationScopeOwner = Thread.currentThread();
       }
@@ -556,6 +555,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Called before any synchronous commit, rollback, or close.
    */
   @Override
+  // Acknowledgement is post-durable cleanup, including when a diagnostic raises an Error.
+  @SuppressWarnings("java:S1181")
   public final void awaitPendingAsyncCommit() {
     resourceSession.assertNotInCommitCallback();
     if (lock != null) {
@@ -1349,7 +1350,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @SuppressWarnings("java:S1181")
   private W rollbackInMemory() {
     nodeReadOnlyTrx.assertNotClosed();
-    assertNotTerminal();
     try {
       // Drain the async-commit pipeline: rolling back on top of an un-hardened (or failed)
       // predecessor epoch is unsound.
@@ -1452,7 +1452,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     try {
       nodeReadOnlyTrx.assertNotClosed();
-      assertNotTerminal();
       awaitPendingAsyncCommit();
       assertNotTerminal();
       resourceSession.assertAccess(revision);
@@ -1562,7 +1561,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     lockForLifecycle();
     try {
       nodeReadOnlyTrx.assertNotClosed();
-      assertNotTerminal();
       awaitPendingAsyncCommit();
       assertNotTerminal();
       final @Nullable InternalNodeTrx<?> previous = resourceSession.enterHistoryRetirement(this);

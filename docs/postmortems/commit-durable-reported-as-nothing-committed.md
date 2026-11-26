@@ -129,3 +129,43 @@ The reports are under `build/ci-mutation-fixed/` for the outer executor's mutati
 checker also flagged 40 existing dispositions in other modules because those modules' classes were
 not compiled in this core-only workspace run; their entries were left unchanged. No guard removal,
 waiver or mutant-directed test was used to suppress either result.
+
+
+The next CI round exposed missing contract evidence rather than an unmutated failure. The terminal
+admission tests started with an already terminal transaction, so they could not distinguish the
+necessary check after a predecessor wait from duplicate checks before it. The regression now makes
+catalogue acknowledgement fail during the waiting lifecycle operation itself, across commit,
+rollback, revert, truncate, maintenance, atomic scope, automatic rotation, close and abort. Admission
+uses one post-wait check where possible; already terminal and ordinary successful paths remain covered.
+
+`PostDurableStorageCleanupTest` exercises the storage API without a node transaction to perform a
+second cleanup. Its independent TXN-307 oracle is resource ownership: a completed hardening releases
+durable cursor pages, cursor guards, intent-log entries and captured records, and later reads return
+the persisted record. A spill-cleanup failure must preserve those releases and establish repair
+responsibility before node orchestration can observe it. The decorator test checks the same failure
+object across the public forwarding API. The lane now selects these tests and the existing JSON
+sidecar contract. First-cause selection is shared by the guarded cleanup steps, avoiding repeated
+untested conditionals without allocating suppression storage. Sonar's volatile-Throwable warning
+is a reference-publication false positive: the hardening thread owns cleanup, completion fences
+precede consumption, and Throwable synchronizes its diagnostic mutation; the exception is scoped
+to that one field.
+
+The final focused run passed 88 cases (52 durability, four storage cleanup, 16 sidecar, ten
+catalogue and six construction-cleanup cases). JaCoCo on the working-tree diff measured 94/111
+covered executable lines and 17/20 covered branches: 84.7% combined changed-code coverage, above
+the Sonar gate's 80% floor. This is local focused evidence, not a claim that a new hosted Sonar
+analysis has run. The optional phase-two elapsed-time arithmetic was removed; its guarded
+revision diagnostic remains. A per-writer live-capture counter now proves that hardening releases
+captured heap records before upper-layer writer retirement can hide retained memory.
+
+The final changed-line PIT run completed with all 50 mutants killed, zero survivors and zero
+uncovered mutants; no mutation dispositions were added. The cold-open, catalogue and sidecar
+assertions protect the vision's immutable, readable revisions; the live-capture assertion protects
+owned-memory cost. The local runner's first disposition pass overlapped an Error Prone rebuild,
+which temporarily removed three core class files; its separate post-build check is recorded with
+the final verification evidence rather than treating missing local artifacts as source defects.
+
+Error Prone compilation of main and test sources and `:sirix-core:spotlessJavaCheck` completed
+successfully. After compilation finished, the official disposition checker reported 43 valid
+entries and zero errors against the final report and census. Hosted Sonar analysis remains the
+outer CI executor's responsibility.
