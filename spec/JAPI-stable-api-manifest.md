@@ -78,18 +78,18 @@ individual members below may be weaker. This is not a compiled API artifact.
 | `io.sirix.api.xml.XmlResourceSession` | stable | [XmlResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/api/xml/XmlResourceSession.java) | `fa6715d6ca104bbfc1bd951386f07899f295ea20d728647fe8a613d60f5bbca3` |
 | `io.sirix.access.Databases` | stable | [Databases.java](../bundles/sirix-core/src/main/java/io/sirix/access/Databases.java) | `9d9e542a788d79d99fe64894c010e51beb45b324e20ca3cf589c94f6695cab21` |
 | `io.sirix.access.DatabaseConfiguration` | stable | [DatabaseConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseConfiguration.java) | `2f8b937af3ed96f880979d831d786fc3d149d8054fc1b332d952b0763f1bd057` |
-| `io.sirix.access.ResourceConfiguration` | stable | [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java) | `058321abf3bd4cffec458f48ee03c8107bedba893d4fd3e755dd7ddd3c3f863e` |
+| `io.sirix.access.ResourceConfiguration` | stable | [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java) | `9692e0763564f1bb1df74941eaf0fbec7eb3e4f3247065a9c674418caac0bdb8` |
 | `io.sirix.access.DatabaseType` | stable | [DatabaseType.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseType.java) | `18193378a90740232020c9d63a3fde32e9da3a457512ffbdeac6ecd3d4699290` |
 | `io.sirix.access.User` | stable | [User.java](../bundles/sirix-core/src/main/java/io/sirix/access/User.java) | `641eff1314d825d395e9a5e8416fa4b5e1d404297179d6575f99460a75968857` |
 | `io.sirix.access.trx.node.AfterCommitState` | stable | [AfterCommitState.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AfterCommitState.java) | `d47399134850df4088e1c3b80289ca858cb3211a6862ebb5e46c55a451c6e681` |
 | `io.sirix.settings.VersioningType` | stable | [VersioningType.java](../bundles/sirix-core/src/main/java/io/sirix/settings/VersioningType.java) | `922018c77ef96acd3ad36f365b33e935a99d53bc145ebb8c8fcc49e51af8aa84` |
-| `io.sirix.io.StorageType` | stable | [StorageType.java](../bundles/sirix-core/src/main/java/io/sirix/io/StorageType.java) | `9f57b1590bafc518c3488cd0290b9be306a07b1ae8b25b024a50c261d5c0f2da` |
+| `io.sirix.io.StorageType` | stable | [StorageType.java](../bundles/sirix-core/src/main/java/io/sirix/io/StorageType.java) | `4e7cfbef45dba75532312a2b20894de261e0e4b5f8c245de2e7786381a93bb3d` |
 | `io.sirix.access.trx.node.HashType` | stable | [HashType.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/HashType.java) | `587105d629405c3bd35163e66da363f2d4b5bc38b92e857a61f77d892b6563df` |
 | `io.sirix.exception.SirixException` | stable | [SirixException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/SirixException.java) | `6d11a8d0b57076a6b3bdea704a17f8ad5f0d02cfa8024f9cb5237f5473a12062` |
 | `io.sirix.exception.SirixUsageException` | stable | [SirixUsageException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/SirixUsageException.java) | `b0eeff956e852e311e807a51aab8bbdf4c0dca1f52e493813a68a4f510a5fc15` |
 | `io.sirix.exception.SirixIOException` | stable | [SirixIOException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/SirixIOException.java) | `b189cb7a4f0e4351821972388f8da11d09c8e3b152e4b18834f28b26b736f9d7` |
 | `io.sirix.exception.SirixRevisionPrunedException` | stable | [SirixRevisionPrunedException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/SirixRevisionPrunedException.java) | `6c9334f9a82dde5bebc7659aa616465558342316594a0a6b66a6b941ff494265` |
-| `io.sirix.exception.UnsupportedStoreFeatureException` | stable | [UnsupportedStoreFeatureException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/UnsupportedStoreFeatureException.java) | `9cf65f51ad6003e72283510449b27c46dc11f9ad54ae211a18a928c966a143ef` |
+| `io.sirix.exception.UnsupportedStoreFeatureException` | stable | [UnsupportedStoreFeatureException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/UnsupportedStoreFeatureException.java) | `72e71d48acd6eb597490cee052fb1ee5097cb57e8b186cc1bc7791315ddb1ccb` |
 | `io.sirix.query.SirixQueryContext` | stable | [SirixQueryContext.java](../bundles/sirix-query/src/main/java/io/sirix/query/SirixQueryContext.java) | `00781b3879734a6ec48eccbba7703803343534b7f91a55b03a5ae7ed047d6c1c` |
 | `io.sirix.query.SirixCompileChain` | stable | [SirixCompileChain.java](../bundles/sirix-query/src/main/java/io/sirix/query/SirixCompileChain.java) | `4dc1e47daced4b045793a897b8afa1866357e42d3c6771e41567261533667607` |
 | `io.sirix.query.json.JsonDBStore` | stable | [JsonDBStore.java](../bundles/sirix-query/src/main/java/io/sirix/query/json/JsonDBStore.java) | `8ff003ee1fc93a0823ccb4d39488eaf9a089c62e259a095962f13c2c2012de63` |
@@ -1107,6 +1107,7 @@ Source: [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/siri
 [stable] public boolean hasValidTimeSupport();
 [internal] public static void serialize(final ResourceConfiguration config) throws SirixIOException;
 [internal] public static ResourceConfiguration deserialize(final Path file) throws SirixIOException;
+[internal] public static void requireSupportedBinaryEncoding(final Path resource);
 ```
 
 ### io.sirix.access.ResourceConfiguration.ResourcePaths
@@ -1267,9 +1268,9 @@ Source: [StorageType.java](../bundles/sirix-core/src/main/java/io/sirix/io/Stora
 [internal] public static StorageType fromString(String storageType);
 [internal] public static boolean isExternalProvider(String storageType);
 [internal] public abstract IOStorage getInstance(final ResourceConfiguration resourceConf);
-[internal] public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage);
+[internal] public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable Proof compatibility);
 [internal] public static IOStorage getStorage(final ResourceConfiguration resourceConf);
-[internal] public static IOStorage getStorage(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage);
+[internal] public static IOStorage getStorage(final ResourceConfiguration resourceConf, final @Nullable Proof compatibility);
 [internal] public static RevisionIndexHolder getRevisionIndexHolder(ResourceConfiguration resourceConf);
 ```
 
@@ -1336,7 +1337,7 @@ Source: [SirixRevisionPrunedException.java](../bundles/sirix-core/src/main/java/
 Source: [UnsupportedStoreFeatureException.java](../bundles/sirix-core/src/main/java/io/sirix/exception/UnsupportedStoreFeatureException.java).
 
 ```text
-[stable] public final class UnsupportedStoreFeatureException extends UnsupportedOperationException
+[stable] public class UnsupportedStoreFeatureException extends UnsupportedOperationException
 [stable] public UnsupportedStoreFeatureException(final String message);
 ```
 

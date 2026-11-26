@@ -125,8 +125,11 @@ public final class GoldenFormatTest {
 
   @Test
   public void superblockBytesArePinned() {
-    final String dataHex = hex(Superblock.build(Superblock.ROLE_DATA));
-    final String revisionsHex = hex(Superblock.build(Superblock.ROLE_REVISIONS));
+    // The UUID halves are pinned as zeros: this vector fixes the LAYOUT, and a resource's real
+    // identity would make the bytes fixture-specific. Validation of a real store refuses a zero
+    // stored UUID (FMT-102, SuperblockResourceUuidTest).
+    final String dataHex = hex(Superblock.build(Superblock.ROLE_DATA, 0L, 0L));
+    final String revisionsHex = hex(Superblock.build(Superblock.ROLE_REVISIONS, 0L, 0L));
     assertGolden("superblock-data", GOLDEN_SUPERBLOCK_DATA, dataHex);
     assertGolden("superblock-revisions", GOLDEN_SUPERBLOCK_REVISIONS, revisionsHex);
   }

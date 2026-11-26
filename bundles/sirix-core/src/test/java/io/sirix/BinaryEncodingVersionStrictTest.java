@@ -1,6 +1,7 @@
 package io.sirix;
 
 import org.junit.Test;
+import io.sirix.exception.UnsupportedFormatVersionException;
 
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -15,11 +16,8 @@ public final class BinaryEncodingVersionStrictTest {
     assertSame(BinaryEncodingVersion.V0, BinaryEncodingVersion.fromByte((byte) 0));
     for (int id = 1; id < 256; id++) {
       final byte version = (byte) id;
-      assertTrue(
-          assertThrows(IllegalStateException.class, () -> BinaryEncodingVersion.fromByte(version)).getMessage()
-                                                                                                  .contains(
-                                                                                                      Byte.toString(
-                                                                                                          version)));
+      assertTrue(assertThrows(UnsupportedFormatVersionException.class,
+          () -> BinaryEncodingVersion.fromByte(version)).getMessage().contains(Byte.toString(version)));
     }
   }
 }

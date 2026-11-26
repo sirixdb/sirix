@@ -1,5 +1,8 @@
 package io.sirix.io;
 
+import io.sirix.io.ResourceFormatCompatibility.Proof;
+
+import io.sirix.exception.UnsupportedFormatVersionException;
 import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -44,25 +47,25 @@ import java.nio.file.StandardOpenOption;
  *
  * <p>
  * <b>The gap, variant two (lost revision record of the bootstrap commit):</b> resource creation
- * itself runs the EMPTY bootstrap commit (revision 0). Its 32-byte revision record is the ONLY path
- * from the (durably written) uber beacons to the revision's root page, and the record lives in a
- * DIFFERENT, just-created file — an environment-level loss (e.g. the new {@code sirix.revisions}
- * directory entry dropped by a power cut, or the file truncated by filesystem repair) leaves
- * checksum-valid beacons advertising revision 0 with no record to dereference. The next open then
- * fails with "Truncated revisions record for revision 0" — permanently, although the only revision
- * ever acknowledged is the empty bootstrap one and nothing on disk is reachable.
+ * itself runs the EMPTY bootstrap commit (revision 0). Its 32-byte revision record lives in a
+ * DIFFERENT, just-created file. If that record is lost (e.g. the new {@code sirix.revisions}
+ * directory entry dropped by a power cut, or the file truncated by filesystem repair) and no usable
+ * beacon tail-log copy survives, checksum-valid beacons advertise revision 0 with no record to
+ * dereference. Without recovery, open fails permanently even though the only acknowledged revision
+ * is the empty bootstrap one and nothing on disk is reachable.
  *
  * <p>
  * <b>The heal:</b> when the open fails, the resource is re-initialized empty if and only if the
  * on-disk state PROVES that at most the empty bootstrap revision was ever committed AND no
  * checksum-valid revision record survives and no beacon carries active feature words — i.e. nothing
  * recoverable exists (see
- * {@link #provesAtMostEmptyBootstrapCommitted(ResourceConfiguration, Path, Path)}). Both files are
- * truncated to zero and the open is retried — which then runs the EXACT fresh-resource bootstrap
- * path ({@code exists() == false} → {@code new UberPage()}), not a duplicate of it. When the state
- * is not provable — any beacon advertising a revision past the bootstrap one, any torn/garbage
- * beacon bytes, any checksum-valid revision record, any foreign superblock bytes — data may exist
- * and the original exception (with its existing actionable message) is rethrown unchanged.
+ * {@link #provesAtMostEmptyBootstrapCommitted(ResourceConfiguration, Path, Path)}), and
+ * {@link ResourceFormatCompatibility} authorizes recovery. Both files are truncated to zero and the
+ * open is retried — which then runs the EXACT fresh-resource bootstrap path
+ * ({@code exists() == false} → {@code new UberPage()}), not a duplicate of it. When the state is
+ * not provable — any beacon advertising a revision past the bootstrap one, any torn/garbage beacon
+ * bytes, any checksum-valid revision record, any foreign superblock bytes — data may exist and the
+ * original exception (with its existing actionable message) is rethrown unchanged.
  *
  * @author Johannes Lichtenberger
  */
@@ -98,9 +101,9 @@ public final class InterruptedFirstCommitRecovery {
   }
 
   public static StorageAndUberPage openStorageAndLoadUberPage(final ResourceConfiguration resourceConfig,
-      final @Nullable UberPage openingUberPage) {
+      final @Nullable Proof compatibility) {
     try {
-      final IOStorage storage = StorageType.getStorage(resourceConfig, openingUberPage);
+      final IOStorage storage = StorageType.getStorage(resourceConfig, compatibility);
       try {
         return new StorageAndUberPage(storage, storage.getOpeningUberPage());
       } catch (final RuntimeException failure) {
@@ -134,9 +137,9 @@ public final class InterruptedFirstCommitRecovery {
    * revision records. The caller owns and must close the returned storage.
    */
   public static StorageAndUberPage openStorageForTool(final ResourceConfiguration resourceConfig) {
-    final UberPage openingUberPage = probeUberPage(resourceConfig);
-    openingUberPage.getFeatures().requireToolCompatible();
-    final IOStorage storage = StorageType.getStorage(resourceConfig, openingUberPage);
+    final Proof compatibility = ResourceFormatCompatibility.verify(resourceConfig);
+    compatibility.uberPage().getFeatures().requireToolCompatible();
+    final IOStorage storage = StorageType.getStorage(resourceConfig, compatibility);
     try {
       final UberPage page = storage.getOpeningUberPage();
       page.getFeatures().requireToolCompatible();
@@ -232,6 +235,10 @@ public final class InterruptedFirstCommitRecovery {
       if (!Files.isRegularFile(dataFile) || Files.size(dataFile) == 0) {
         return false;
       }
+      requireValidFileIdentity(dataFile, Superblock.ROLE_DATA, resourceConfig.resourceUuid.getMostSignificantBits(),
+          resourceConfig.resourceUuid.getLeastSignificantBits());
+      requireValidFileIdentity(revisionsFile, Superblock.ROLE_REVISIONS,
+          resourceConfig.resourceUuid.getMostSignificantBits(), resourceConfig.resourceUuid.getLeastSignificantBits());
       final byte[] header = readDataFileHeaderRegion(dataFile);
       if (!superblockRegionProvesNoCommit(header, dataFile)) {
         return false;
@@ -240,10 +247,32 @@ public final class InterruptedFirstCommitRecovery {
         return false;
       }
       return hasNoChecksumValidRevisionRecord(revisionsFile);
+    } catch (final UnsupportedFormatVersionException unsupported) {
+      throw unsupported;
     } catch (final IOException | RuntimeException probeFailure) {
       LOGGER.debug("Interrupted-first-commit probe could not prove anything — keeping the original open failure",
           probeFailure);
       return false;
+    }
+  }
+
+  static void requireValidFileIdentity(final Path file, final byte role, final long expectedUuidMsb,
+      final long expectedUuidLsb) throws IOException {
+    if (!Files.isRegularFile(file) || Files.size(file) == 0) {
+      return;
+    }
+    final byte[] bytes = new byte[Superblock.BYTES];
+    final ByteBuffer header = ByteBuffer.wrap(bytes);
+    try (final FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
+      while (header.hasRemaining()) {
+        if (channel.read(header, header.position()) <= 0) {
+          throw new IOException("Incomplete file header: " + file);
+        }
+      }
+    }
+    if (!isAllZero(bytes, 0, bytes.length)) {
+      header.flip();
+      Superblock.validate(header, role, file.getFileName().toString(), expectedUuidMsb, expectedUuidLsb);
     }
   }
 
@@ -387,6 +416,7 @@ public final class InterruptedFirstCommitRecovery {
    */
   private static void reinitializeEmpty(final ResourceConfiguration resourceConfig, final Path dataFile,
       final Path revisionsFile) {
+    ResourceFormatCompatibility.verify(resourceConfig);
     try {
       truncateToZero(dataFile);
       truncateToZero(revisionsFile);

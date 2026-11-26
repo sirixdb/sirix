@@ -1,8 +1,8 @@
 package io.sirix.access;
 
 import io.sirix.cache.ShardedPageCache;
-
-import io.sirix.page.UberPage;
+import io.sirix.io.ResourceFormatCompatibility.Proof;
+import io.sirix.exception.UnsupportedFormatVersionException;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.api.json.JsonResourceSession;
@@ -28,7 +28,7 @@ import io.sirix.exception.SirixRuntimeException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.IOStorage;
-import io.sirix.io.InterruptedFirstCommitRecovery;
+import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.page.StoreFeatures;
 import io.sirix.io.StorageType;
 import io.sirix.index.projection.ProjectionIndexCatalog;
@@ -182,7 +182,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   record OpenedSession<S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>(S session,
-      @Nullable JsonResourceSession derivedSource) {
+      @Nullable JsonResourceSession derivedSource, boolean newlyAcquired) {
   }
 
   @Override
@@ -193,7 +193,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   private synchronized OpenedSession<T> beginResourceSession(final String resourceName,
-      final @Nullable UberPage openingUberPage) {
+      final @Nullable Proof compatibility) {
     assertAcceptingResources();
     ensureInMemoryLeftoversRetired();
     final String canonicalName = canonicalResourceName(resourceName);
@@ -207,7 +207,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
 
     if (resourceStore.hasOpenResourceSession(resourcePath)) {
-      return new OpenedSession<>(resourceStore.getOpenResourceSession(resourcePath), null);
+      final T session = resourceStore.getOpenResourceSession(resourcePath);
+      return new OpenedSession<>(session, prepareDerivedIndexes(session, canonicalName), false);
     }
 
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourcePath);
@@ -225,28 +226,44 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // Use the global BufferManager for this resource session.
     // Cache keys include (databaseId, resourceId) to prevent collisions.
-    final T session = openingUberPage == null
+    final T session = compatibility == null
         ? resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath)
-        : resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath, openingUberPage);
+        : resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath, compatibility);
     final StoreFeatures features = ((AbstractResourceSession<?, ?>) session).getStoreFeatures();
     if (features.readOnlyCompat() == 0) {
       ProjectionSortedRunSpill.removeOrphanedRuns(resourceConfig);
     }
-    JsonResourceSession derivedSource = null;
+    return new OpenedSession<>(session, prepareDerivedIndexes(session, canonicalName), true);
+  }
+
+  private @Nullable JsonResourceSession prepareDerivedIndexes(final T session, final String canonicalName) {
+    final ResourceConfiguration resourceConfig = session.getResourceConfig();
+    final StoreFeatures features = ((AbstractResourceSession<?, ?>) session).getStoreFeatures();
     if (features.readOnlyCompat() == 0 && DerivedIndexMaintainer.enabled(resourceConfig)
         && resourceConfig.getValidTimeConfig() != null && session instanceof JsonResourceSession json
         && !DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
       final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) session;
       shared.initializeDerivedIndexesWith(() -> enableDerivedIndexes(json, DerivedActivation.DECLARED));
-      derivedSource = json;
+      return json;
     }
-    return new OpenedSession<>(session, derivedSource);
+    return null;
   }
 
   void finishResourceOpen(final OpenedSession<?> opened) {
     final @Nullable JsonResourceSession source = opened.derivedSource();
     if (source != null) {
-      enableDerivedIndexes(source, DerivedActivation.OPPORTUNISTIC);
+      try {
+        enableDerivedIndexes(source, DerivedActivation.OPPORTUNISTIC);
+      } catch (final RuntimeException | Error failure) {
+        if (opened.newlyAcquired()) {
+          try {
+            opened.session().close();
+          } catch (final RuntimeException | Error cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
+          }
+        }
+        throw failure;
+      }
     }
   }
 
@@ -265,9 +282,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     /**
      * A resource is being opened and may carry derived indexes from an earlier session. Installing them
-     * is opportunistic: every query retains the exact fallback, so an unusable derived store must not
-     * stop the resource from opening. Only the named failures of {@link #enableDerivedIndexes} are
-     * absorbed here.
+     * is opportunistic: every query retains the exact fallback, so the named availability failures of
+     * {@link #enableDerivedIndexes} are absorbed. Format-version refusals still stop the open under
+     * FMT-401 in {@code spec/FMT-disk-format.md}.
      */
     OPPORTUNISTIC
   }
@@ -283,7 +300,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * frontier has no durable mapping ({@link IllegalStateException}), or a derived subtree that cannot
    * be walked or removed ({@link UncheckedIOException}), or an authorization policy that does not
    * grant writes to the hidden derived resource ({@link SecurityException}) — and lets anything else
-   * through. Runtime failures outside these named types are not treated as an optional fallback.
+   * through. Foreign format versions always propagate. Runtime failures outside these named types are
+   * not treated as an optional fallback.
    */
   private void enableDerivedIndexes(final JsonResourceSession source, final DerivedActivation activation) {
     final boolean onlyIfDeclared = activation == DerivedActivation.OPPORTUNISTIC;
@@ -312,6 +330,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
           shared.setDerivedResource(derivedMaintainer.register(source, derived));
         }
       }
+    } catch (final UnsupportedFormatVersionException unsupported) {
+      throw unsupported;
     } catch (final SirixException | SirixRuntimeException | UnsupportedStoreFeatureException | IllegalStateException
         | UncheckedIOException | SecurityException unavailable) {
       if (activation == DerivedActivation.DECLARED) {
@@ -340,11 +360,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final List<ByteHandler> sourceHandlers = source.getResourceConfig().byteHandlePipeline.getComponents();
     final boolean encrypted = sourceHandlers.stream().anyMatch(Encryptor.class::isInstance);
     if (Files.exists(derivedPath)) {
-      UberPage derivedUberPage = null;
+      ResourceConfiguration derivedConfig = null;
       try {
-        final ResourceConfiguration derivedConfig = ResourceConfiguration.deserialize(derivedPath);
-        derivedUberPage = InterruptedFirstCommitRecovery.probeUberPage(derivedConfig);
-        derivedUberPage.getFeatures().requireWritable();
+        derivedConfig = ResourceConfiguration.deserialize(derivedPath);
+        final Proof derivedCompatibility = ResourceFormatCompatibility.verify(derivedConfig);
+        derivedCompatibility.uberPage().getFeatures().requireWritable();
         if (ResourceConfiguration.ResourcePaths.compareStructure(derivedPath) != 0) {
           throw new SirixIOException("Incomplete derived resource: " + name);
         }
@@ -356,22 +376,27 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
             }
           }
         }
-        final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name, derivedUberPage).session();
+        final JsonResourceSession derived =
+            (JsonResourceSession) beginResourceSession(name, derivedCompatibility).session();
         DerivedIndexMaintainer.validateSnapshot(derived);
         return derived;
       } catch (final UnsupportedStoreFeatureException unsupported) {
         throw unsupported;
       } catch (final RuntimeException unreadable) {
-        // A missing/broken settings file must not bypass the binary feature check before deletion.
+        // Missing settings must not bypass the side-effect-free compatibility gate before deletion.
         // Derived stores use the default pipeline, or the source's pipeline when encrypted.
-        if (derivedUberPage == null) {
+        final Proof compatibility;
+        if (derivedConfig != null) {
+          compatibility = ResourceFormatCompatibility.verify(derivedConfig);
+        } else {
           final ResourceConfiguration.Builder probe = ResourceConfiguration.newBuilder(name);
           if (encrypted) {
             probe.byteHandlerPipeline(new ByteHandlerPipeline(source.getResourceConfig().byteHandlePipeline));
           }
-          InterruptedFirstCommitRecovery.probeFeatures(probe.build().setDatabaseConfiguration(dbConfig))
-                                        .requireWritable();
+          compatibility =
+              ResourceFormatCompatibility.verifyWithoutSettings(probe.build().setDatabaseConfiguration(dbConfig));
         }
+        compatibility.uberPage().getFeatures().requireWritable();
         logger.warn("Rebuilding unreadable derived resource {} from the source log", name, unreadable);
         final Path path = source.getResourcePath().resolveSibling(name);
         final T existing = resourceStore.getOpenResourceSession(path);
@@ -428,9 +453,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // The hidden database-owned session keeps storage warm, but is not a user of the resource.
     // The user session registration below is atomic with respect to removeResource's guard.
     resourceSessions.removeObject(shared.getResourcePath(), shared);
+    final boolean newlyAcquired = !userStore.hasOpenResourceSession(shared.getResourcePath());
     return new OpenedSession<>(
         userStore.beginResourceSession(shared.getResourceConfig(), bufferManager, shared.getResourcePath()),
-        opened.derivedSource());
+        opened.derivedSource(), newlyAcquired);
   }
 
   @Override

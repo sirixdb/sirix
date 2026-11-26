@@ -39,12 +39,12 @@ public final class RevisionRecordDurability {
   private RevisionRecordDurability() {}
 
   /**
-   * The entry for the given revisions file / resource identity. UUID halves of {@code 0/0} (legacy
-   * resources without a UUID) key by path alone.
+   * The entry for the given revisions file / resource identity. A 1.0 resource always supplies a
+   * nonzero identity (FMT-102); halves of {@code 0/0} key by path alone.
    *
    * @param revisionsFile path of the {@code sirix.revisions} file
-   * @param resourceUuidMsb most significant UUID half of the resource ({@code 0} = legacy)
-   * @param resourceUuidLsb least significant UUID half of the resource ({@code 0} = legacy)
+   * @param resourceUuidMsb most significant UUID half of the resource
+   * @param resourceUuidLsb least significant UUID half of the resource
    * @return the shared instance
    */
   public static RevisionRecordDurability forFile(final Path revisionsFile, final long resourceUuidMsb,

@@ -1,5 +1,7 @@
 package io.sirix.access.xml;
 
+import io.sirix.io.ResourceFormatCompatibility.Proof;
+
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.DatabaseType;
@@ -71,14 +73,11 @@ public final class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlRe
 
       @Override
       public XmlResourceSession create(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
-          final Path resourceFile, final @Nullable UberPage openingUberPage) {
+          final Path resourceFile, final @Nullable Proof compatibility) {
 
-        // Resource-session-scoped dependencies (previously in ResourceSessionModule). The
-        // open helper decides bootstrap-vs-load and conservatively auto-heals a provably
-        // interrupted FIRST commit (non-empty data file without any committed superblock/
-        // beacon/revision-record state).
+        // The shared open helper owns interrupted-first-commit recovery and its FMT-401 gate.
         final var storageAndUberPage =
-            InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(resourceConfig, openingUberPage);
+            InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(resourceConfig, compatibility);
         final IOStorage storage = storageAndUberPage.storage();
         final UberPage uberPage = storageAndUberPage.uberPage();
         final Semaphore writeLock = writeLocksRegistry.getWriteLock(resourceConfig.getResource());

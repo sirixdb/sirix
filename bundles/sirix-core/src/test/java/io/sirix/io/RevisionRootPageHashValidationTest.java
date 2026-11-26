@@ -394,16 +394,18 @@ final class RevisionRootPageHashValidationTest {
       final Path dbPath = PATHS.PATH1.getFile();
       final int rev = createResourceWithRevisions(dbPath, type, 2);
       final long[] record = readRecord(dbPath, rev);
+      // Open before corruption so this still exercises direct readers, beyond the opening gate.
+      final IOStorage storage = storageFor(loadConfig(dbPath));
       writeRecordField(dbPath, rev, 3, 0L);
       writeRecordField(dbPath, rev, 2, IOStorage.revisionRecordChecksum(record[0], record[1], 0L));
       Databases.clearGlobalCaches();
-      final IOStorage storage = storageFor(loadConfig(dbPath));
       try (final Reader reader = storage.createReader()) {
         assertThrows(SirixIOException.class, () -> reader.getRevisionFileData(rev));
         assertThrows(SirixIOException.class, () -> reader.getRevisionFileData(0, rev + 1));
       } finally {
         storage.close();
       }
+      assertThrows(SirixIOException.class, () -> storageFor(loadConfig(dbPath)));
     }
   }
 

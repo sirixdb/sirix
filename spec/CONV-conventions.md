@@ -519,6 +519,12 @@ that suite's stated fixture, not to arbitrary datasets.
 Planned tooling adds these exact selectors to the maintained invocation/catalogue and
 checks drift. Existing budgets remain official as well; no bound is weakened here.
 
+The normal Work budgets selector also includes this cold-open discovery budget:
+
+| Suite | Independent work bound / observable failure |
+|---|---|
+| [FormatDiscoveryWorkBudgetTest](../bundles/sirix-core/src/test/java/io/sirix/budget/FormatDiscoveryWorkBudgetTest.java) | During one cold normal open on FILE_CHANNEL or MEMORY_MAPPED, format discovery reads at most 17 revision records and 17 framed envelopes: the latest root and the FMT-106 16-entry window. Bytes are bounded by two FMT-102 64-byte identities, one FMT-107 4096-byte beacon, 17 32-byte records and the persisted framed sizes of those 17 roots. Scalar fixture roots are additionally capped at 512 payload bytes. The bound applies at 20 and 80 committed revisions; injected duplicate real discovery must fail each bound. This counts discovery only, excluding subsequent storage metadata preload, and makes no latency claim. Direct validation of a complete 16-record window must issue exactly one directory read on both persistent backends; two real validations are the excess-work positive control for this separate call-count bound. |
+
 One further budget is decided but not yet executable: TXN-311's conditional write check is bounded
 by its target, so `ConditionalWritePreconditionBudgetTest` must assert record-read counters of O(1)
 for a record-sized target and for an insertion point, and at most the head-revision subtree size for

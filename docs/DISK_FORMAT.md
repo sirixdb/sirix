@@ -7,8 +7,9 @@ is pinned by golden tests
 (`io.sirix.format.GoldenFormatTest`, `io.sirix.format.GoldenCompositePageTest`): an accidental
 change to any pinned structure fails CI. Intentional layout changes update the golden constants
 and this contract. SirixDB has no released consumers: unreleased layouts evolve in place using
-the original V0 value, without a migration reader. The 1.0 compatibility baseline and migration
-policy are owned by [FMT-401–402](../spec/FMT-disk-format.md#fmt-401--10-compatibility-baseline-and-beta-refusal);
+the original V0 value, without a migration reader. The single-format baseline and the
+export/import path are owned by
+[FMT-401–402](../spec/FMT-disk-format.md#fmt-401--10-format-baseline);
 that chapter records the remaining release implementation gaps. This guide describes current V0
 bytes. Format-version mechanisms include `BinaryEncodingVersion` (page bodies/records), the page-envelope
 flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-structure version
@@ -30,7 +31,7 @@ A resource directory contains:
 |---|---|
 | `data/sirix.data` | Append-only page store + dual uber-page beacons |
 | `data/sirix.revisions` | Fixed-slot revision index: 32-byte records (`IOStorage.revisionsFileOffset`) |
-| resource settings JSON | Format identity: `binaryVersion`, byte-pipeline classes, `storageType`, `hashAlgorithm`, `verifyChecksumsOnRead` |
+| resource settings JSON | Format settings; schema owned by [CONF-102](../spec/CONF-configuration.md#persisted-resource-schema-conf-102) |
 
 Both binary files open with the 64-byte superblock (magic, layout version, endianness check,
 file role, geometry, resource UUID, XXH3 checksum — see below); the *rest* of the format
@@ -38,12 +39,17 @@ identity — compression pipeline, hash-function id, binary encoding version —
 whose settings contract is described below. It is
 cross-linked to the binary files by the **resource UUID**: the JSON persists it, both
 superblocks embed it, and opening a data file with a different resource's settings (wrong-backup
-restore) fails fast. A zero UUID on either side (legacy dev files) skips the cross-check.
+restore) fails fast. A stored zero UUID is refused outright; the cross-check itself is skipped only
+on recovery paths that run before the settings identity is known. The enforced compatibility
+checks before repair and recovery, incomplete-tail recovery rule and remaining discovery gap
+are owned by [FMT-401](../spec/FMT-disk-format.md#fmt-401--10-format-baseline).
 
 The resource settings file (`ressetting.obj`) requires the fields through `storeChildCount` in
-writer order. Later optional fields are dispatched by name: they may be omitted or reordered
-without shifting the interpretation of subsequent fields. Unknown fields are refused with a
-message naming the field, including unknown members of `revisioning` and `validTimeConfig`.
+writer order. Tail fields are dispatched by name and may be reordered without shifting the
+interpretation of subsequent fields; required members and omitted-field defaults are owned by
+[CONF-102](../spec/CONF-configuration.md#persisted-resource-schema-conf-102).
+Unknown fields are refused with a message naming the field, including unknown members of
+`revisioning` and `validTimeConfig`.
 The sole skip namespace is a top-level `"extensions"` **object**: its entire contents, including
 nested values, are ignored. A non-object value is refused. Do not put settings required to
 interpret or safely rewrite a resource there; skipped contents are not retained on rewrite.
@@ -66,7 +72,7 @@ Page keys (`PageReference.getKey()`) are absolute byte offsets of the record's l
 The header region stays a sparse hole until the first commit writes it (`IOStorage.exists()`
 checks size > 0 to distinguish fresh resources). Beacon recovery validates
 `[len][payload][XXH3]` bounds and checksum before decoding the root. The crash-window contract
-below defines beacon selection. Storage open validates the superblock
+below defines beacon selection. Ordinary storage open validates the superblock
 (magic/version/endianness/role/checksum) and fails fast with an
 actionable message on any mismatch. The three spare bytes at offsets 13–15 must be zero;
 nonzero values are refused even when the checksum is valid. Their future use requires a
@@ -122,8 +128,10 @@ a separate revisions-file force on every steady-state commit. The invariants tha
   ring ONLY when the file record is missing or fails its checksum; an intact record is never
   second-guessed. The [tombstone safeguards below](#sirixrevisions) further restrict salvage and
   healing. A salvaged record is written back into the revisions file (self-heal) only when the
-  [store feature policy](#uberpage-store-feature-words) permits writes; read-only opens serve
-  the recovered value without healing. A record that is neither intact in the file nor recoverable
+  [store feature policy](#uberpage-store-feature-words) permits writes and the
+  [format compatibility gate](../spec/FMT-disk-format.md#fmt-401--10-format-baseline)
+  authorizes the repair; read-only opens serve the recovered value without healing.
+  A record that is neither intact in the file nor recoverable
   from an entry that passes its own XXH3 is a hard error naming the exhausted salvage source, never a
   silently-served garbage offset.
 - **Writer handoff.** Writers are per-transaction, so the ring image and the write frontiers are
@@ -145,9 +153,11 @@ PRIMARY is issued. Neither profile permits a visible beacon to reference an unfo
 Recovery truncation repairs both slots to the recovered revision, so a stale-forward
 secondary cannot later resurrect a discarded revision; see
 [`CrashRecoveryTest.staleForwardSecondaryBeacon_isRepairedOnRecovery`](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java).
-Explicit rollback has a different ordering: `NodeStorageEngineWriter.truncateTo` first
-publishes the target uber page, retaining the committed store feature words, through the durable
-dual-beacon protocol, then truncates the discarded tail. A crash leaves either the original or target revision,
+Explicit rollback has a different ordering: after the
+[format preflight](../spec/FMT-disk-format.md#fmt-401--10-format-baseline),
+`NodeStorageEngineWriter.truncateTo` publishes the target uber page, retaining the committed
+store feature words, through the durable dual-beacon protocol, then truncates the discarded tail.
+A crash leaves either the original or target revision,
 not a beacon pointing past truncated files. See
 [`ExplicitRollbackCrashSimulationTest`](../bundles/sirix-core/src/test/java/io/sirix/crash/ExplicitRollbackCrashSimulationTest.java)
 and [`NodeStorageEngineWriter.truncateTo`](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java).
@@ -547,9 +557,12 @@ defines the access policy for unknown bits:
 
 This build implements the words but assigns no supported feature bits. Feature-word refusal raises
 `UnsupportedStoreFeatureException`, naming the word and hexadecimal mask and requesting an upgrade.
-Unknown UberPage versions, flags and required entries also raise this exception.
-Compatibility refusal from either selected beacon propagates immediately, preserving the
-store's requirements. Recovery must preserve unsupported derived stores.
+Unknown UberPage versions raise its `UnsupportedFormatVersionException` subtype with the plain
+"unsupported format version" diagnostic and the value found; unknown flags and required entries
+raise `UnsupportedStoreFeatureException`.
+Store-feature refusal from either selected beacon propagates immediately, preserving the
+store's feature requirements. Format-version protection follows
+[FMT-401](../spec/FMT-disk-format.md#fmt-401--10-format-baseline).
 An unknown read-only-compatible bit also forbids implicit file creation, record healing and
 orphan-spill cleanup. Reads still require intact or recoverable revision metadata; a missing
 revisions file cannot be created to make such an open succeed.
@@ -606,8 +619,9 @@ through the same `FileChannelWriter` (superblock + UUID stamping included) and b
 run the same superblock validation (magic/version/endianness/role/geometry/UUID) at open. This
 is proven end-to-end by `io.sirix.io.StorageBackendInteropTest`: a resource written by either
 backend reads back byte-identically AND accepts further commits under the other, and a
-swapped-in foreign data file fails the resource-UUID cross-check under both. `IN_MEMORY`
-(RAMStorage) persists nothing and is exercised by `StorageTest` alongside the file-backed
+swapped-in foreign data file fails the resource-UUID cross-check under both. FILE_CHANNEL can
+salvage lost revision records from the beacon tail log; MEMORY_MAPPED does not salvage them.
+`IN_MEMORY` (RAMStorage) persists nothing and is exercised by `StorageTest` alongside the file-backed
 backends. The legacy `FILE` backend is removed (`StorageType.FILE` throws with a pointer to
 FILE_CHANNEL — it wrote an incompatible layout under the same version); `IO_URING`/`S3`
 resolve enterprise providers via SPI and fail fast with actionable errors when absent (also
@@ -648,8 +662,8 @@ explicitly decided; **nothing remains open**:
 
 - **Resource UUID** — implemented. Generated per resource, persisted in `ressetting.obj`
   (`resourceUuid`), embedded in both superblocks (bytes [40, 56), checksum-covered), validated
-  at storage open in both backends; zero on either side = legacy, cross-check skipped
-  (`SuperblockResourceUuidTest`).
+  at storage open in both backends; a stored zero UUID is refused, and the cross-check is skipped
+  only where the settings identity is not yet known (`SuperblockResourceUuidTest`).
 - **fsync-order/write-loss validation** — covered. `PowerLossSimulationTest` (opt-in
   `-Dsirix.crash.run=true`) records every channel write and `force()` barrier of real commits,
   then materializes post-power-loss states where unforced writes are lost, applied, or torn in
