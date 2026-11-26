@@ -3,6 +3,9 @@ package io.sirix.io.filechannel;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.cache.Allocators;
+import io.sirix.cache.FrameSlotAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.ShardedPageCache;
 import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
@@ -132,6 +135,79 @@ final class HOTCompactFragmentReadTest {
       cache.remove(key);
       assertEquals(0L, cache.getCurrentWeightBytes());
     }
+  }
+
+  /**
+   * A cached packed leaf must be charged the allocator frame it retains, not the packed bytes it
+   * reads through.
+   *
+   * <p>
+   * {@code copyForCache} — the copy {@code NodeStorageEngineReader} publishes into
+   * {@link ShardedPageCache} — asks the allocator for the packed body's size, and the allocator
+   * answers with a whole size-class slot that the page's releaser frees in full. 128 seven-byte
+   * projection keys with distinct 255-byte values pack into a 34,048-byte body, which the allocator
+   * serves from its 65,536-byte class: a charge of 34,048 leaves 31,488 retained native bytes outside
+   * every budget, so eviction returns memory the cache never counted.
+   *
+   * <p>
+   * The expectation comes from the allocator itself — ask it for the same size and read back the
+   * segment it hands out — rather than from {@code getActualMemorySize}, which is the method under
+   * test. {@link FrameSlotAllocator#SIZE_CLASSES} is the published contract behind that answer.
+   */
+  @Test
+  void aCachedPackedCopyIsChargedTheAllocatorFrameItRetains() throws IOException {
+    final byte[] wire;
+    try (HOTLeafPage original = wideValueLeaf()) {
+      wire = serialize(original);
+    }
+    try (FileChannelReader reader = reader(new AtomicReference<>(frame(wire)), new ByteHandlerPipeline());
+        HOTLeafPage compact = assertInstanceOf(HOTLeafPage.class, reader.readHOTLeafFragment(reference(), CONFIG));
+        HOTLeafPage cached = compact.copyForCache()) {
+      // Directory plus slot region, by the u16-only FMT-211 directory contract.
+      final long bodyBytes = WIDE_VALUE_ROWS * (long) Short.BYTES + cached.slots().byteSize();
+      assertEquals(34_048L, bodyBytes, "the packed body of the reviewer's leaf");
+      final long ownedBytes = allocatorFrameFor(bodyBytes);
+      assertEquals(65_536L, ownedBytes, "the allocator serves that body from its 64 KiB class");
+      assertTrue(ownedBytes > bodyBytes, "this charge is only interesting when the frame exceeds the body");
+
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1L << 20);
+      final PageReference key = new PageReference().setKey(321).setDatabaseId(0).setResourceId(0);
+      cache.put(key, cached);
+      assertEquals(ownedBytes + cached.estimatedCanonicalCacheRetainedHeapBytes(), cache.getCurrentWeightBytes(),
+          "a packed cache copy must be charged the native frame it will release, not its packed bytes");
+      cache.remove(key);
+      assertEquals(0L, cache.getCurrentWeightBytes());
+    }
+  }
+
+  /** What the allocator actually hands out for {@code bytes}, asked of the allocator itself. */
+  private static long allocatorFrameFor(final long bytes) {
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
+    final MemorySegment probe = allocator.allocate(bytes);
+    try {
+      return probe.byteSize();
+    } finally {
+      allocator.release(probe);
+    }
+  }
+
+  private static final int WIDE_VALUE_ROWS = 128;
+
+  /**
+   * The reviewer's leaf: 128 seven-byte keys, each with a distinct 255-byte value. The keys differ in
+   * their FIRST byte so the page shares no common prefix and every key is stored as a seven-byte
+   * suffix, which is what makes each slot `1 + 7 + 1 + 255` bytes.
+   */
+  private static HOTLeafPage wideValueLeaf() {
+    final HOTLeafPage page = new HOTLeafPage(123, 9, IndexType.PROJECTION);
+    for (int row = 0; row < WIDE_VALUE_ROWS; row++) {
+      final byte[] wideKey = {(byte) row, 11, 12, 13, 14, 15, 16};
+      final byte[] wideValue = new byte[255];
+      Arrays.fill(wideValue, (byte) row);
+      assertTrue(page.put(wideKey, wideValue));
+    }
+    page.setCompleteDump(true);
+    return page;
   }
 
   @Test

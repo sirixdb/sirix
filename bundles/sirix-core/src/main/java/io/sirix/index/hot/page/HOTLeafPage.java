@@ -5472,6 +5472,15 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   @Override
   public long getActualMemorySize() {
+    // What this page RETAINS, not what it reads through. Whenever slotMemory is a slice of a larger
+    // allocation this page will release — an allocator frame rounded up to its size class, or a
+    // transferred decompression frame — stampBaseSegment is that allocation, and the cache has to be
+    // charged all of it or eviction frees more than the budget ever counted. A page whose memory IS
+    // its slot memory, and a GC-owned compact image, leave that override null and stay exact.
+    final MemorySegment retained = stampBaseSegment;
+    if (retained != null) {
+      return retained.byteSize();
+    }
     if (packedBody != null && slotMemory != null) {
       return packedBody.byteSize();
     }

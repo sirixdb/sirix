@@ -239,3 +239,21 @@ scratch is recognisable instead of zeros, and measure a refusal's
 allocation against a frame declaring a small size rather than against a
 clock. See the
 [projection overflow postmortem](postmortems/2026-11-26-projection-overflow-unvalidated-frames.md).
+
+### Charge the allocation, not the view
+
+A cache weight must be the bytes a component will release, not the span it
+reads through. The two part company the moment storage is handed out in size
+classes or shared with a larger frame: a body sized between two classes is
+served the upper one, and a slice of a transferred decompression frame keeps
+the whole frame alive. Reporting the view then admits roughly twice the
+working set the budget allows, and eviction returns memory nothing counted —
+a shortfall no in-process budget can see, because nothing is over its budget.
+When the code already carries a field naming the owning allocation — one set
+wherever ownership is taken and left null wherever the object owns exact-size
+memory — the accounting must read that field rather than re-deriving a size
+from the payload. Pin such a charge against the allocator's own answer for the
+same request; an expectation taken from the object's own accessors agrees with
+an under-report on both sides, and a fixture whose size happens to land on a
+class boundary hides the rounding entirely. See the
+[packed cache-copy postmortem](postmortems/2026-11-26-packed-cache-copy-undercharge.md).
