@@ -29,10 +29,10 @@ class = "io.sirix.cli.commands.BackupKt"
 method = "printBackupSummary"
 descriptor = "(Lio/sirix/backup/BackupManager$BackupSummary;Lio/sirix/cli/CliPrinter;)V"
 mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
-indexes = [78]
+indexes = [178]
 description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
 kind = "equivalent"
-checked_at = "b8cb7fe7541b52fd3226346f8a7ffdd67946223e"
+checked_at = "83f679f5fe1a136c6a7ef59e2f3fb9a0b6daba9c"
 justification = """TXN-615 clause 10 / BackupSummary's constructor contract: notBackedUp is
 List.copyOf of the supplied list, so the final Java record accessor cannot return null for
 any constructed summary. This Kotlin-generated platform-type assertion has no reachable
@@ -45,10 +45,10 @@ class = "io.sirix.cli.commands.BackupKt"
 method = "printBackupSummary"
 descriptor = "(Lio/sirix/backup/BackupManager$BackupSummary;Lio/sirix/cli/CliPrinter;)V"
 mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
-indexes = [98]
+indexes = [198]
 description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
 kind = "equivalent"
-checked_at = "b8cb7fe7541b52fd3226346f8a7ffdd67946223e"
+checked_at = "83f679f5fe1a136c6a7ef59e2f3fb9a0b6daba9c"
 justification = """TXN-615 clause 10 / BackupSummary's constructor contract: notBackedUp is
 List.copyOf of the supplied list, so the final Java record accessor cannot return null for
 any constructed summary. This Kotlin-generated platform-type assertion has no reachable
@@ -589,25 +589,48 @@ prefix advances by whole character widths, `encoded[0] & 0xFF`, or a char of a s
 AsciiKeyBytes.isAsciiPrefix accepted, which is below 0x80. 0x80 is a continuation byte and cannot
 lead a character of well-formed UTF-8, which is what String.getBytes(UTF_8) produces. Every other
 byte takes the same branch under both forms."""
+
+
 [[mutant]]
-class = "io.sirix.io.ResourceFormatCompatibility"
-method = "requireFramedPrefix"
-descriptor = "(Ljava/nio/channels/FileChannel;Lio/sirix/io/bytepipe/ByteHandler;)V"
-mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
-indexes = [22]
-description = "changed conditional boundary"
+class = "io.sirix.cli.commands.BackupKt"
+method = "printBackupSummary"
+descriptor = "(Lio/sirix/backup/BackupManager$BackupSummary;Lio/sirix/cli/CliPrinter;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [78]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
 kind = "equivalent"
-checked_at = "c2f49677dba6e139f7f48303953259318d012565"
-justification = """FMT-401's incomplete-frame table gives prefix exhaustion and an incomplete terminal
-length the same outcome. Changing offset < size to offset <= size adds an iteration only at
-exact EOF of the stable surviving prefix inspected before bootstrap recovery. That iteration
-reuses the existing four-byte length buffer and makes one fixed-size terminal probe; readFully
-reports EOF before any envelope decoding or payload allocation. verifyBootstrap returns the
-same resource-bound proof; verify's missing-record fallback returns the same revision-zero
-proof or rethrows the same original missing-record failure for a later revision. Earlier readable
-foreign versions still propagate unchanged before this boundary. Results, refusal messages,
-resource identity and persisted bytes are identical. Cost differs only at this single EOF
-boundary by one extra constant-time terminal probe, the narrow CONV-201 boundary exception;
-there is no additional frame scan or data-dependent work. The complete 164-mutant local run
-at the recorded head retained this exact mutant; the surviving prefix and both recovery
-outcomes are exercised by FormatRepairBoundaryTest."""
+checked_at = "83f679f5fe1a136c6a7ef59e2f3fb9a0b6daba9c"
+justification = """TXN-613 CLI reporting: The derivedResources accessor is an immutable, non-null List.copyOf list, including when empty. Removing this Kotlin platform-type assertion changes no output, error, allocation or iteration for command inputs. BackupTest.reportsEveryDerivedResource exercises quiet and verbose reporting of multiple derived resources. The complete hosted PIT report executed this exact mutant and reported SURVIVED."""
+
+[[mutant]]
+class = "io.sirix.cli.commands.BackupKt"
+method = "printBackupSummary"
+descriptor = "(Lio/sirix/backup/BackupManager$BackupSummary;Lio/sirix/cli/CliPrinter;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [100]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "83f679f5fe1a136c6a7ef59e2f3fb9a0b6daba9c"
+justification = """TXN-613 CLI reporting: The derivedResources accessor is an immutable, non-null List.copyOf list passed to joinToString. Removing this Kotlin platform-type assertion changes no output, error, allocation or iteration for command inputs. BackupTest.reportsEveryDerivedResource exercises quiet and verbose reporting of multiple derived resources. The complete hosted PIT report executed this exact mutant and reported SURVIVED."""
+
+[[mutant]]
+class = "io.sirix.cli.commands.BackupKt"
+method = "printBackupSummary"
+descriptor = "(Lio/sirix/backup/BackupManager$BackupSummary;Lio/sirix/cli/CliPrinter;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [122]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "83f679f5fe1a136c6a7ef59e2f3fb9a0b6daba9c"
+justification = """TXN-613 CLI reporting: The derivedResources accessor is an immutable, non-null List.copyOf list passed to forEach. Removing this Kotlin platform-type assertion changes no output, error, allocation or iteration for command inputs. BackupTest.reportsEveryDerivedResource exercises quiet and verbose reporting of multiple derived resources. The complete hosted PIT report executed this exact mutant and reported SURVIVED."""
+
+[[mutant]]
+class = "io.sirix.cli.commands.BackupKt"
+method = "printBackupSummary$lambda$1"
+descriptor = "(Lio/sirix/backup/BackupManager$ResourceSummary;)Ljava/lang/CharSequence;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [7]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "83f679f5fe1a136c6a7ef59e2f3fb9a0b6daba9c"
+justification = """TXN-613 CLI reporting: This internal CLI formatter receives only backup/restore summaries: each derived resourceName is Path.getFileName().toString() for an existing resource directory and cannot be null. Null names cannot be supplied through either public command. Removing this Kotlin platform-type assertion changes no output, error, allocation or iteration for command inputs. BackupTest.reportsEveryDerivedResource exercises quiet and verbose reporting of multiple derived resources. The complete hosted PIT report executed this exact mutant and reported SURVIVED."""

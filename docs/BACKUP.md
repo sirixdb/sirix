@@ -1,7 +1,7 @@
 # Backup & Restore
 
 Persistent SirixDB resources use append-only files: a copy of the database directory taken
-while no commit is in flight preserves their committed history. IN_MEMORY state is excluded
+while no resource writer is active preserves their committed history. IN_MEMORY state is excluded
 under [TXN-615](../spec/TXN-transactions-durability.md#txn-615--in-memory-state-lives-with-the-open-database).
 The `io.sirix.backup.BackupManager` API automates this safely for a *live* database from within
 its owning process. The `backup`/`restore` CLI verbs use the same API.
@@ -19,20 +19,58 @@ sirix-cli --location /path/to/database backup /path/to/backup-dir
 sirix-cli -l /path/to/database backup /path/to/backup-dir -v
 ```
 
-- The target directory must not exist yet (or be empty). On any failure the partial target is
-  removed again.
+- The target directory must not exist yet (or be empty). On failure, cleanup attempts to remove
+  the partial target and recreate the empty directory if it pre-existed. Cleanup is best effort:
+  if filesystem cleanup itself fails, discard any remaining partial target before retrying.
 - Works for JSON and XML databases (the type is read from `dbsetting.obj`).
+
+### What a backup contains
+
+Per backed-up resource, its whole directory: `data/sirix.data`, `data/sirix.revisions`,
+`ressetting.obj`, `indexes/` and `update-operations/`, plus the database-level `dbsetting.obj` and
+`keyselector/`.
+
+It also contains each backed-up resource's hidden `<name>$derived` resource, when it has one. That
+is a resource of its own holding the temporal-aggregate data the public resource listing hides; a
+backup without it restores a database whose aggregate queries silently fall back to a full scan
+([TXN-613](../spec/TXN-transactions-durability.md#txn-613--backups-include-derived-resources)).
+`BackupSummary.derivedResources()` names them, and the CLI prints them (`Derived resources
+(temporal aggregates): …`) even without `-v`.
+
+Not contained: the IN_MEMORY resources named in `BackupSummary.notBackedUp()` (and their derived
+state) under TXN-615, retirement tombstones, and the runtime files listed below.
 
 ### What it guarantees
 
 - **Per-resource point-in-time consistency.** For each persistent resource copied, the backup acquires the
   resource's writer lock (the same semaphore `beginNodeTrx` uses, shared across every open
-  handle to that resource in the JVM) and holds it while that resource's files —
-  `data/sirix.data`, `data/sirix.revisions`, `ressetting.obj`, `indexes/`,
-  `update-operations/` — are copied. Since all file mutations happen inside `commit()` under
-  that lock and the storage is append-only with checksummed dual uber-beacons, the copied pair
+  handle to that resource in the JVM) and holds it while that resource's files are copied. Every
+  mutation of those files is made by a read-write transaction, and a read-write transaction cannot
+  exist without that semaphore — so while the backup holds it nothing is writing them. (Not every
+  mutation happens inside `commit()`: a `KEEP_OPEN_ASYNC_FLUSH` or `KEEP_OPEN_ASYNC_COMMIT`
+  transaction flushes pages to `sirix.data` from a background thread *before* its commit. Closing
+  such a transaction awaits its pending flushes, so the semaphore still bounds every write.) Since
+  the storage is append-only with checksummed dual uber-beacons, the copied pair
   (`sirix.data`, `sirix.revisions`) is byte-stable and represents exactly the most recent
   committed revision (reported in the summary).
+- **Consistent derived resources.** A hidden derived resource is written by the database's own
+  maintainer thread rather than by a caller's transaction, so its writer semaphore stays taken for
+  that maintainer's lifetime and is useless as a copy barrier. The backup instead holds the
+  maintainer's *history lock* — the lock every derived publication, aggregate fold, summary fold and
+  rewind takes — across both halves of the resource, so the source and its derived store are copied
+  from one state the database never left. A derived store legitimately lags its source; the restored
+  copy resumes from its own durable frontier (TXN-612) and catches up. A pending truncation rewind
+  causes a refusal naming the derived resource. The durable frontier and mappings are checked against
+  the copied source head during backup and restore; a later mapping is rejected.
+- **Fresh derived verification.** Derived-store verification reads the copied bytes with private
+  revision metadata and page caches. A failed copy can be retried at the cleaned target without
+  reusing the previous copy's offsets, hashes, revision index or superblock validation. An existing
+  nonempty store must have a committed beacon; intact revision-0 records and pages cannot substitute
+  for missing beacons.
+- **Live cache ownership.** Derived-store verification uses private caches without changing the live
+  allocator pressure handler, during either successful or failed backup/restore.
+- **Resource IDs.** The target metadata reserves every copied resource ID, including hidden siblings
+  created or rebuilt after the initial database metadata copy.
 - **Crash-recovered state.** Acquiring the writer lock first runs the engine's leftover-commit
   recovery (stale `.commit` marker truncation), so the backup never captures a torn in-flight
   commit.
@@ -53,8 +91,15 @@ sirix-cli -l /path/to/database backup /path/to/backup-dir -v
 - If another transaction holds a resource's writer lock, the backup **fails fast** (after the
   ~5 s lock-acquisition timeout) rather than copy a moving target. Retry when the writer is
   done, or use shorter transactions.
-- Resources created while the backup is running are not included (the resource list is
-  snapshotted once at the start). Avoid creating/removing resources during a backup.
+- An interrupted backup defers the interrupt status until its writers, sessions and database handle
+  are closed and partial-target cleanup has been attempted. It restores the caller's interrupt status
+  at the outer boundary, including on failure; cancellation does not retain database ownership.
+- If a derived resource's maintenance does not become quiescent within the same ~5 s, the backup is
+  **refused** with a message naming that resource, rather than copying a store that is mid-build.
+  Retry once its temporal-aggregate maintenance has caught up.
+- Visible resources created after the initial resource listing are not included. A hidden derived
+  sibling created or rebuilt while opening a listed source is included with that source. Avoid
+  creating/removing resources during a backup.
 - The backup briefly blocks writers per resource for the duration of that resource's file copy
   (readers are unaffected).
 
@@ -69,11 +114,18 @@ restored to (must not exist yet or be empty). The restore:
 
 1. validates the backup has the database directory structure,
 2. copies it to the target, excluding runtime files and IN_MEMORY leftovers under TXN-615,
-3. **verifies** the result by opening the restored database and a read-only transaction on each
-   resource at its most recent revision (this exercises superblock validation, beacon checksums, the
-   checksummed revision slots and the page-checksum chain on the root page),
-4. on *any* failure deletes the partial target, so you never end up with a half-restored
-   database.
+3. **verifies** the result. The hidden derived resources go first: a derived resource is internal and
+   has no user session, so each one is opened through the tool storage path — strict feature
+   compatibility, directory structure, the uber beacon, the revision-root page and the durable
+   frontier/mapping metadata. Mappings beyond the copied source head are rejected. They are
+   verified before the visible resources because opening a visible resource installs its derived
+   maintainer, which rebuilds a derived store it cannot read — repairing exactly the damage this pass
+   exists to report. Each visible resource is then opened with a read-only transaction at its most
+   recent revision. Together this exercises superblock validation, beacon checksums, the checksummed
+   revision slots and the page-checksum chain on the root page,
+4. **reports** what it restored: `BackupSummary.resources()` for the visible resources and
+   `BackupSummary.derivedResources()` for the hidden derived ones,
+5. on failure applies the [best-effort target cleanup](#backup-cli) described above.
 
 The restored database is fully independent of the original and can live at any path:
 `dbsetting.obj` is re-bound to the actual directory on first open.
@@ -95,11 +147,11 @@ plain recursive copy is an equally valid backup of its persistent resources — 
 cp -a /path/to/database /path/to/backup-dir     # or rsync -a
 ```
 
-A cold copy may include the runtime files the CLI skips (`.lock`, `log/.commit`,
-`*.tmp*`). `restore` accepts such copies too — or simply point the server at the copied
-directory. Do **not** cold-copy while a writer is active: a commit could interleave with the
-copy and leave the data/revisions pair inconsistent; use `BackupManager` within the owning
-process for an online backup instead.
+A cold copy includes the hidden `$derived` resources along with everything else, and may include
+the runtime files the CLI skips (`.lock`, `log/.commit`, `*.tmp*`). `restore` accepts such copies
+too — or simply point the server at the copied directory. Do **not** cold-copy while a writer is
+active: a commit could interleave with the copy and leave the data/revisions pair inconsistent; use
+`BackupManager` within the owning process for an online backup instead.
 
 Copying IN_MEMORY settings does not preserve their committed state; their lifetime and
 leftover cleanup follow TXN-615.

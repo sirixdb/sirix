@@ -22,12 +22,18 @@ package io.sirix.io;
 
 import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 
 import io.sirix.utils.CommitTimestamps;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Objects;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
@@ -376,6 +382,23 @@ public interface IOStorage {
    */
   boolean exists();
 
+  static void requireCommittedBeacon(final ResourceConfiguration config, final UberPage uberPage) {
+    Objects.requireNonNull(config);
+    Objects.requireNonNull(uberPage);
+    if (!uberPage.isBootstrap()) {
+      return;
+    }
+    final Path dataFile =
+        config.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
+    try {
+      if (Files.exists(dataFile) && Files.size(dataFile) > 0) {
+        throw new SirixIOException("No committed uber-page beacon exists for " + config.resourcePath);
+      }
+    } catch (final IOException failure) {
+      throw new UncheckedIOException(failure);
+    }
+  }
+
   default UberPage getOpeningUberPage() {
     if (!exists()) {
       return new UberPage();
@@ -499,23 +522,22 @@ public interface IOStorage {
         return;
       }
 
-      final long[] timestamps = new long[revisionCount];
-      final long[] offsets = new long[revisionCount];
-
-      // Bulk-read the whole revisions file in one request. Reading record-by-record cost one
-      // syscall + one direct-buffer allocation per revision, so this rebuild — which runs on
-      // a storage open whenever a concurrent commit makes the in-memory index disagree with
-      // the on-disk count — made request-scoped opens linear in revision count.
-      final RevisionFileData[] data = reader.getRevisionFileData(0, revisionCount);
-      for (int i = 0; i < revisionCount; i++) {
-        timestamps[i] = CommitTimestamps.toEpochMicros(data[i].timestamp());
-        offsets[i] = data[i].offset();
-      }
-
-      data[0].requireReadable(0);
-      data[lastRevisionNumber].requireReadable(lastRevisionNumber);
-      final RevisionIndex index = RevisionIndex.create(timestamps, offsets);
-      holder.update(index);
+      holder.update(readRevisionIndex(reader, lastRevisionNumber));
     }
   }
+
+  static RevisionIndex readRevisionIndex(final Reader reader, final int lastRevisionNumber) {
+    final int revisionCount = Math.addExact(lastRevisionNumber, 1);
+    final long[] timestamps = new long[revisionCount];
+    final long[] offsets = new long[revisionCount];
+    final RevisionFileData[] data = reader.getRevisionFileData(0, revisionCount);
+    for (int i = 0; i < revisionCount; i++) {
+      timestamps[i] = CommitTimestamps.toEpochMicros(data[i].timestamp());
+      offsets[i] = data[i].offset();
+    }
+    data[0].requireReadable(0);
+    data[lastRevisionNumber].requireReadable(lastRevisionNumber);
+    return RevisionIndex.create(timestamps, offsets);
+  }
+
 }

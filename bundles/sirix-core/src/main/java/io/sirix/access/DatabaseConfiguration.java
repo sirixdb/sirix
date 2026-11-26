@@ -478,6 +478,17 @@ public final class DatabaseConfiguration {
     throw lastError;
   }
 
+  public static DatabaseConfiguration deserializeForTool(final Path file) {
+    final Path dbFile = file.toAbsolutePath();
+    final Path configFile = dbFile.resolve(DatabasePaths.CONFIG_BINARY.getFile());
+    try {
+      return fromParsedConfig(dbFile,
+          parseConfigFile(configFile, Files.readAttributes(configFile, BasicFileAttributes.class)));
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
+
   private static DatabaseConfiguration deserializeOnce(final Path dbFile, final Path configFile, final Path cacheKey) {
     final BasicFileAttributes attributes;
     try {
@@ -498,6 +509,10 @@ public final class DatabaseConfiguration {
       DESERIALIZE_CACHE.put(cacheKey, parsed);
     }
 
+    return fromParsedConfig(dbFile, parsed);
+  }
+
+  private static DatabaseConfiguration fromParsedConfig(final Path dbFile, final ParsedConfig parsed) {
     // The recorded path is informational only: a database directory that was moved or copied
     // still records its ORIGINAL location, and deriving I/O paths from it silently redirected
     // every read AND write to the old directory. Bind the configuration to the directory the

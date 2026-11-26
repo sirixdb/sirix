@@ -2,6 +2,14 @@
 
 ## 1.0.0 (unreleased)
 
+- Record the derived half of
+  [TXN-613](TXN-transactions-durability.md#txn-613--backups-include-derived-resources) as
+  implemented: a backup copies each backed-up resource's hidden `$derived` resource, a restore
+  verifies those stores before any visible resource and reports them, and a derived store whose
+  maintenance does not quiesce is refused rather than copied mid-build. The clause's reference to
+  the TXN-614 pinned start snapshot is unchanged and still unimplemented, so the status moves from
+  `designed` to `partial` rather than to a conformance claim. Clarify the clause's copied-resource
+  identity, frontier and isolated-verification requirements following backup/restore review.
 - Record the synchronous and pipelined cleanup-failure implementation and regression evidence under
   [TXN-307](TXN-transactions-durability.md#txn-307--known-durable-commit-survives-cleanup-failure),
   moving its status to `partial` without changing requirement text. The

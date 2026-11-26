@@ -32,7 +32,7 @@ tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.budget.FormatDisc
 
 [[association]]
 class = "io.sirix.access.ResourceConfiguration"
-tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.format.FormatVersionBaselineTest"]
+tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.format.FormatVersionBaselineTest", "io.sirix.backup.BackupDerivedResourceTest"]
 
 # The release contract exercises refused and admitted grouping through every public compiler
 # factory, including cold reopen; its name spans these entry points.
@@ -216,22 +216,40 @@ tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest"]
 [[association]]
 class = "io.sirix.index.name.NameIndexRecheck"
 tests = ["io.sirix.index.name.NameIndexLongSharedPrefixRoutingTest", "io.sirix.budget.NameIndexRecheckWorkBudgetTest"]
-# FMT-401 is observed at open, direct repair and storage-provider boundaries.
+
+
+# TXN-613 backup/restore exercises isolated readers and derived-store acceptance end to end.
 [[association]]
-class = "io.sirix.io.filechannel.FileChannelWriter"
-tests = ["io.sirix.access.FormatRepairBoundaryTest"]
+class = "io.sirix.backup.BackupManager"
+tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.backup.BackupRestoreTest", "io.sirix.cache.BackupPressureHandlerTest"]
+
+[[association]]
+class = "io.sirix.access.DatabaseConfiguration"
+tests = ["io.sirix.backup.BackupDerivedResourceTest"]
+
+[[association]]
+class = "io.sirix.access.trx.page.NodeStorageEngineReader"
+tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.access.trx.page.StorageEngineReaderContractTest", "io.sirix.access.node.json.ResourceSessionTest"]
+
+[[association]]
+class = "io.sirix.index.aggregate.DerivedIndexMaintainer"
+tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.index.aggregate.DerivedRevisionMappingTest"]
+
+[[association]]
+class = "io.sirix.io.IOStorage"
+tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.io.ToolReaderOwnershipTest", "io.sirix.io.SparseRevisionHistoryTest"]
 
 [[association]]
 class = "io.sirix.io.InterruptedFirstCommitRecovery"
-tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.io.InterruptedFirstCommitProofTest"]
-
-[[association]]
-class = "io.sirix.io.StorageType"
-tests = ["io.sirix.io.StorageTypeTest"]
+tests = ["io.sirix.backup.BackupDerivedResourceTest", "io.sirix.io.ToolReaderOwnershipTest", "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest"]
 
 [[association]]
 class = "io.sirix.io.SuperblockValidator"
-tests = ["io.sirix.io.SuperblockResourceUuidTest", "io.sirix.access.FormatRepairBoundaryTest"]
+tests = ["io.sirix.backup.BackupDerivedResourceTest"]
+
+[[association]]
+class = "io.sirix.cache.BufferManagerImpl"
+tests = ["io.sirix.cache.BackupPressureHandlerTest"]
 
 [[association]]
 class = "io.sirix.page.UberPageFormat"
