@@ -867,13 +867,14 @@ public final class ResourceConfiguration {
   private static final String INCARNATION_ID_NAME = JSONNAMES[30];
 
   /**
-   * Serialize the configuration.
+   * Serialize the configuration, preserving the installed resource incarnation.
    *
    * @param config configuration to serialize
-   * @throws SirixIOException if an I/O error occurs
+   * @throws SirixIOException if an I/O error occurs or existing nonempty settings are invalid
    */
   public static void serialize(final ResourceConfiguration config) throws SirixIOException {
     final Path configFile = config.getConfigFile();
+    // A retained configuration may predate a truncate or restore performed through another instance.
     try {
       if (Files.exists(configFile) && Files.size(configFile) > 0) {
         config.incarnationId = deserialize(config.getResource()).incarnationId;
