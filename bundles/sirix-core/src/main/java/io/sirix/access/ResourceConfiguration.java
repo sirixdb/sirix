@@ -874,6 +874,13 @@ public final class ResourceConfiguration {
    */
   public static void serialize(final ResourceConfiguration config) throws SirixIOException {
     final Path configFile = config.getConfigFile();
+    try {
+      if (Files.exists(configFile) && Files.size(configFile) > 0) {
+        config.incarnationId = deserialize(config.getResource()).incarnationId;
+      }
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
     try (final FileWriter fileWriter = new FileWriter(configFile.toFile());
         final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
       jsonWriter.beginObject();

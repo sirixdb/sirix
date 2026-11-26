@@ -392,7 +392,8 @@ final class IncarnationIdConformanceTest {
   @DisplayName("CONF-102, FMT-209: a settings document without incarnationId is refused and never gets a default")
   void conf102MissingMemberIsRefusedWithoutASentinelDefault(final Model model) throws Exception {
     final Path database = newDatabase(model);
-    model.createResource(database, RESOURCE);
+    final ResourceConfiguration original = ResourceConfiguration.newBuilder(RESOURCE).build();
+    model.createResource(database, original);
     final Path file = database.resolve("resources").resolve(RESOURCE).resolve("ressetting.obj");
     final JsonObject settings = settings(database, RESOURCE);
     // Control: a freshly created resource has the member and opens, so the refusal below is the
@@ -407,6 +408,8 @@ final class IncarnationIdConformanceTest {
         "absence MUST NOT default to a reusable sentinel identity");
     assertThrows(RuntimeException.class, () -> model.open(database, RESOURCE),
         "a resource whose settings lack the member MUST NOT open");
+    assertThrows(RuntimeException.class, () -> ResourceConfiguration.serialize(original),
+        "a retained configuration MUST NOT replace a missing installed id");
     assertArrayEquals(withoutMember, Files.readAllBytes(file),
         "the refusal MUST NOT repair the document by writing a default or a freshly drawn id");
   }
@@ -431,7 +434,8 @@ final class IncarnationIdConformanceTest {
   @DisplayName("CONF-102: a numeric, wrong-length or non-lowercase-hex incarnationId is refused")
   void conf102MalformedMemberIsRefused(final String description, final JsonElement value) throws Exception {
     final Path database = newDatabase(Model.JSON);
-    Model.JSON.createResource(database, RESOURCE);
+    final ResourceConfiguration original = ResourceConfiguration.newBuilder(RESOURCE).build();
+    Model.JSON.createResource(database, original);
     final Path file = database.resolve("resources").resolve(RESOURCE).resolve("ressetting.obj");
     final JsonObject settings = settings(database, RESOURCE);
     // Control: the same document with a well-formed id is accepted, so the refusals below are the
@@ -448,12 +452,42 @@ final class IncarnationIdConformanceTest {
         description + " MUST be refused");
     assertThrows(RuntimeException.class, () -> Model.JSON.open(database, RESOURCE),
         "a resource with a malformed incarnationId (" + description + ") MUST NOT open");
+    assertThrows(RuntimeException.class, () -> ResourceConfiguration.serialize(original),
+        "a retained configuration MUST NOT replace a malformed installed id");
     assertArrayEquals(malformed, Files.readAllBytes(file), "the refusal MUST NOT rewrite the document");
   }
 
   // ---------------------------------------------------------------------------------------------
   // FMT-209 / TXN-404 — truncate
   // ---------------------------------------------------------------------------------------------
+
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  @DisplayName("FMT-209, CONF-102: stale configurations adopt the installed id on rewrite after truncate")
+  void conf102StaleSettingsRewritePreservesTheTruncatedIncarnation(final Model model) {
+    final Path database = newDatabase(model);
+    final ResourceConfiguration original = ResourceConfiguration.newBuilder(RESOURCE).build();
+    model.createResource(database, original);
+    final ResourceConfiguration retained = ResourceConfiguration.deserialize(original.getResource());
+    final long before = original.getIncarnationId();
+    model.commit(database, RESOURCE, 3);
+    model.truncateTo(database, RESOURCE, 1);
+    final JsonObject installed = settings(database, RESOURCE);
+    final long after = Long.parseUnsignedLong(installed.get(MEMBER).getAsString(), 16);
+    assertNotEquals(before, after);
+
+    for (final ResourceConfiguration stale : new ResourceConfiguration[] {original, retained}) {
+      ResourceConfiguration.serialize(stale);
+      assertEquals(after, stale.getIncarnationId(), "the serialized configuration MUST adopt the installed id");
+      assertEquals(installed, settings(database, RESOURCE), "a rewrite MUST preserve the installed settings");
+      try (final Database<?> reopened = model == Model.JSON
+          ? Databases.openJsonDatabase(database)
+          : Databases.openXmlDatabase(database); final var session = reopened.beginResourceSession(RESOURCE)) {
+        assertEquals(after, session.getResourceConfig().getIncarnationId());
+        assertEquals(1, session.getMostRecentRevisionNumber());
+      }
+    }
+  }
 
   @ParameterizedTest
   @EnumSource(Model.class)

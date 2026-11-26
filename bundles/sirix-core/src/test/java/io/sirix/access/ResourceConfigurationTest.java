@@ -91,11 +91,11 @@ final class ResourceConfigurationTest {
     final ResourceConfiguration reopened = ResourceConfiguration.deserialize(config.getResource());
     final long fresh = reopened.getIncarnationId();
     assertNotEquals(original, fresh);
-    final ResourceConfiguration live = restore
-        ? reopened
-        : config;
-    assertEquals(fresh, live.getIncarnationId());
-    ResourceConfiguration.serialize(live);
+    if (!restore) {
+      assertEquals(fresh, config.getIncarnationId());
+    }
+    ResourceConfiguration.serialize(config);
+    assertEquals(fresh, config.getIncarnationId());
     assertEquals(fresh, ResourceConfiguration.deserialize(config.getResource()).getIncarnationId());
   }
 
