@@ -31,16 +31,19 @@
 - Why tests missed it: the crash harnesses model content: `PowerLossSimulationTest` records channel
   writes and forces, and the SIGKILL harness keeps the page cache, so neither can lose a name. No
   oracle modelled a directory as its own durability unit.
-- Regression test: `DirectoryEntryDurabilityTest` (13 cases) runs each operation under
-  `DirectoryCrashModel`. The model keeps, for every directory, the entries present at its last
-  completed barrier, and the entries present at the start when no barrier has completed since. It
-  identifies files by file key, so content durability stays out of the oracle, and reopens the
-  materialized crash state cold. On `main` all 13 failed for the stated reason: lost catalogue (2), reverted
-  settings, missing database, missing resource (2), resurrected resource (2), resurrected database,
-  missing backup, missing restore, and no catalogue barrier reached (2: the marker-loss case needs
-  the barrier to mark its crash instant). All pass with the fix.
-  `DurableFilesTest` (10 cases) runs the real barrier of each CI platform and pins the failure
-  contract. Command: `./gradlew :sirix-core:test --tests io.sirix.access.DirectoryEntryDurabilityTest
-  --tests io.sirix.io.DurableFilesTest`.
+- Regression test: `DirectoryEntryDurabilityTest` runs each operation under `DirectoryCrashModel`.
+  The model keeps, for every directory, the entries present at its last completed barrier, and the
+  entries present at the start when no barrier has completed since. It identifies files by file key,
+  and it governs the contents of chosen files (settings, keysets, catalogues, backup copies), which
+  keep only what their last force wrote. Each case reopens the materialized crash state cold. The 13
+  original cases all failed on `main` for the stated reason: lost catalogue (2), reverted settings,
+  missing database, missing resource (2), resurrected resource (2), resurrected database, missing
+  backup, missing restore, and no catalogue barrier reached (2: the marker-loss case needs the barrier
+  to mark its crash instant). The 3 cases added later in the same change (the encrypted keyset and the
+  data-file rebuild on both backends) were not run against `main`. All 16 pass with the fix.
+  `DurableFilesTest`, `PosixDirectoryBarriersTest` and `WindowsDirectoryBarriersTest` pin the
+  platform calls TXN-616 names, the Windows ones through a fake kernel32 on every platform. Command:
+  `./gradlew :sirix-core:test --tests io.sirix.access.DirectoryEntryDurabilityTest
+  --tests 'io.sirix.io.*DirectoryBarriersTest' --tests io.sirix.io.DurableFilesTest`.
 - Lesson: a durability claim names what it covers. A content force makes bytes durable, not a name
   to reach them by. See [Lessons](../LESSONS.md).
