@@ -1,7 +1,5 @@
 package io.sirix.io;
 
-import static io.sirix.utils.Preconditions.checkArgument;
-
 import io.sirix.io.ResourceFormatCompatibility.Proof;
 
 import io.sirix.exception.UnsupportedFormatVersionException;
@@ -174,7 +172,9 @@ public final class InterruptedFirstCommitRecovery {
     final Path revisionsFile = revisionsFilePath(config);
     final long uuidHigh = config.resourceUuid.getMostSignificantBits();
     final long uuidLow = config.resourceUuid.getLeastSignificantBits();
-    checkArgument(uuidHigh != 0L || uuidLow != 0L, "Tool configurations require a nonzero resource UUID");
+    // resourceUuid is nonzero by construction: ResourceConfiguration.Builder#resourceUuid and
+    // ResourceConfiguration#requireResourceIdentity both reject null and the all-zero UUID, on every
+    // path that can produce a configuration, deserializeForTool included.
     SuperblockValidator.validate(dataFile, Superblock.ROLE_DATA, uuidHigh, uuidLow);
     SuperblockValidator.validate(revisionsFile, Superblock.ROLE_REVISIONS, uuidHigh, uuidLow);
     boolean channelsTransferred = false;
