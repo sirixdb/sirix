@@ -211,7 +211,7 @@ class WorkflowScheduleTest(unittest.TestCase):
 
     def test_nothing_is_fetched_from_a_third_party_service(self) -> None:
         hosts = set(re.findall(r"https?://([^/\s\"')]+)", self.text))
-        self.assertLessEqual(hosts, {"github.com", "sirixdb.github.io"})
+        self.assertLessEqual(hosts, {"github.com", "sirix.io"})
 
 
 if __name__ == "__main__":

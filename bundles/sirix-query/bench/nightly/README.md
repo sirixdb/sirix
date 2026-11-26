@@ -45,7 +45,9 @@ recorded night of that series (CONV-304) and the job fails.
 | `nightly-data` | `ledger.jsonl`, the append-only results ledger, one commit per night | the workflow only |
 | `gh-pages` | the generated dashboard, one commit that every night replaces | the workflow only |
 
-Pages is served from `gh-pages` (repository settings: Pages, deploy from a branch). The ledger on
+Pages is served from `gh-pages` (repository settings: Pages, deploy from a branch) at
+<https://sirix.io/sirix/>: the organisation site `sirixdb.github.io` has the custom domain `sirix.io`, so
+this repository's project site is served below it. The address is `DASHBOARD_URL` in the workflow. The ledger on
 `nightly-data` is checked to be an append-only extension of the branch before it is pushed.
 
 ## Running it by hand
@@ -65,7 +67,7 @@ pip install --require-hashes --no-deps -r bundles/sirix-query/bench/nightly/requ
 python3 bundles/sirix-query/bench/nightly/nightly_analysis.py --ledger /tmp/ledger.jsonl --out /tmp/analysis.json
 python3 bundles/sirix-query/bench/nightly/nightly_dashboard.py --analysis /tmp/analysis.json --out /tmp/site
 python3 bundles/sirix-query/bench/nightly/nightly_issues.py --analysis /tmp/analysis.json --dry-run \
-    --repository sirixdb/sirix --dashboard https://sirixdb.github.io/sirix/
+    --repository sirixdb/sirix --dashboard https://sirix.io/sirix/
 ```
 
 `nightly_run.py` exits 4 when a series is short of its processes and 5 when the night is already in the

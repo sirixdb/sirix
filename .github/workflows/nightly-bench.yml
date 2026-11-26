@@ -32,7 +32,7 @@ concurrency:
 
 env:
   CANONICAL_REPOSITORY: sirixdb/sirix
-  DASHBOARD_URL: https://sirixdb.github.io/sirix/
+  DASHBOARD_URL: https://sirix.io/sirix/
   NIGHTLY_DIR: bundles/sirix-query/bench/nightly
 
 jobs:

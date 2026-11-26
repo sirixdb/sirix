@@ -24,7 +24,7 @@ from test_nightly_analysis import ALLOC, CPU, WALL, AnalysisTestCase, Ledger, qu
 UTC = datetime.timezone.utc
 EVENING = datetime.datetime(2026, 12, 24, 20, 17, tzinfo=UTC)  # Thursday 21:17 Berlin
 MIDDAY = datetime.datetime(2026, 12, 24, 10, 0, tzinfo=UTC)  # Thursday 11:00 Berlin
-DASHBOARD = "https://sirixdb.github.io/sirix/"
+DASHBOARD = "https://sirix.io/sirix/"
 
 
 class FakeGitHub:
