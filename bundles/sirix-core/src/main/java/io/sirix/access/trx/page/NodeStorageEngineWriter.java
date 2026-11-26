@@ -49,6 +49,7 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.index.path.json.JsonPCRCollector;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.IOStorage;
 import io.sirix.io.SharedArenas;
 import io.sirix.io.filechannel.FileChannelWriter;
@@ -124,7 +125,6 @@ import java.lang.invoke.VarHandle;
 import java.lang.ref.Cleaner.Cleanable;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.channels.FileChannel;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -162,7 +162,6 @@ import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
-import static java.nio.file.StandardOpenOption.WRITE;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -4666,11 +4665,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // cannot leave a committed revision without its {revision}.xml; that guarantee only holds if the
       // bytes have actually reached stable storage here (a bare OutputStream.close only flushes to the
       // OS page cache).
-      try (final FileChannel channel = FileChannel.open(indexes, WRITE)) {
-        channel.force(true);
-      } catch (final IOException e) {
-        throw new SirixIOException("Index definitions couldn't be fsync'd!", e);
-      }
+      DurableFiles.forceFile(indexes);
+      // The forced bytes are unreachable after a crash unless the file's NAME is durable too (TXN-616):
+      // one barrier on indexes/, paid only by commits that write a catalogue.
+      DurableFiles.syncDirectory(indexes.getParent());
 
       // The session answers the next writer's catalogue lookup from this report instead of listing
       // the directory, so it has to learn of the file here, where it is created.

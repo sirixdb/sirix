@@ -21,7 +21,7 @@ P0 database/resource settings, format identity, defaults, validation and accepte
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Source/test inspection only; round-trip conformance must run for release.
 
-Resource creation MUST persist the selected configuration in ressetting.obj. Reopen MUST use those persisted format-affecting choices rather than current process defaults. Rewriting a configuration MUST preserve its known values, resource ID and UUID; copying a database MUST bind I/O to the actual directory opened, not the stored informational file path.
+Resource creation MUST persist the selected configuration in ressetting.obj, contents and directory entry durable before creation returns (TXN-616). Reopen MUST use those persisted format-affecting choices rather than current process defaults. Rewriting a configuration MUST preserve its known values, resource ID and UUID; copying a database MUST bind I/O to the actual directory opened, not the stored informational file path.
 
 ### CONF-102 — Resource settings schema
 
@@ -45,7 +45,7 @@ The resource-settings writer MUST emit the names, nesting and types in the table
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Database parser uses positional/assert checks in some places; resource-settings strict unknown-field guarantees are not claimed for this separate parser.
 
-dbsetting.obj MUST carry file (informational path), ID (maximum resource ID), databaseId (database identity when assigned), databaseType and maxSegmentAllocationSize. Serialization MUST use a temporary file and atomic replacement; reads MUST NOT be redirected to a stale serialized location after move/restore. Cache reuse MUST NOT share mutable configuration instances among callers.
+dbsetting.obj MUST carry file (informational path), ID (maximum resource ID), databaseId (database identity when assigned), databaseType and maxSegmentAllocationSize. Serialization MUST write a temporary file, force its contents and atomically replace the settings file, and the replacement MUST be durable when serialization returns (TXN-616); reads MUST NOT be redirected to a stale serialized location after move/restore. Cache reuse MUST NOT share mutable configuration instances among callers.
 
 ### CONF-104 — Current creation defaults
 

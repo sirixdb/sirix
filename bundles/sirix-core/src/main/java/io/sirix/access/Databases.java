@@ -21,6 +21,7 @@ import io.sirix.exception.SirixUsageException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.SuperblockValidator;
 import io.sirix.io.RevisionRecordDurability;
 import io.sirix.io.StorageType;
@@ -332,7 +333,9 @@ public final class Databases {
       if (Files.exists(databaseFile) && hasDatabaseContents(databaseFile)) {
         return false;
       }
-      Files.createDirectories(databaseFile);
+      // The new directory names are durable here; the entries created inside the database directory
+      // below are covered by the settings replacement's barrier on it (TXN-616).
+      DurableFiles.createDirectories(databaseFile);
     } catch (final UnsupportedOperationException | IOException | SecurityException e) {
       return false;
     }
@@ -526,7 +529,11 @@ public final class Databases {
   }
 
   private static void removeDatabaseFiles(final Path path) throws IOException {
-    Files.deleteIfExists(path.resolve(DatabaseConfiguration.DatabasePaths.CONFIG_BINARY.getFile()));
+    // Settings first, durably: a crash during the deletions below leaves a directory that no longer
+    // opens as a database and that removeDatabase can still clear (TXN-616).
+    if (Files.deleteIfExists(path.resolve(DatabaseConfiguration.DatabasePaths.CONFIG_BINARY.getFile()))) {
+      DurableFiles.syncDirectory(path);
+    }
     final Path lockPath = path.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile());
     try (final Stream<Path> children = Files.list(path)) {
       for (final Path child : children.toList()) {

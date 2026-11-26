@@ -9,6 +9,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.page.PagePersister;
 import io.sirix.page.SerializationType;
 import io.sirix.exception.SirixIOException;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.IOStorage;
 import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.Reader;
@@ -438,8 +439,10 @@ public final class FileChannelStorage implements IOStorage {
 
     if (!Files.exists(concreteStorage)) {
       openingUberPage.getFeatures().requireWritable();
-      Files.createDirectories(concreteStorage.getParent());
+      DurableFiles.createDirectories(concreteStorage.getParent());
       Files.createFile(concreteStorage);
+      // Before the bootstrap commit point can publish revision 0 into it (TXN-616).
+      DurableFiles.syncDirectory(concreteStorage.getParent());
     }
 
     return concreteStorage;
@@ -523,6 +526,7 @@ public final class FileChannelStorage implements IOStorage {
     if (!Files.exists(revisionsOffsetFilePath)) {
       openingUberPage.getFeatures().requireWritable();
       Files.createFile(revisionsOffsetFilePath);
+      DurableFiles.syncDirectory(revisionsOffsetFilePath.toAbsolutePath().getParent());
     }
   }
 

@@ -37,6 +37,7 @@ import io.sirix.io.RevisionFileData;
 import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.IOStorage;
 import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.SharedArenas;
@@ -364,6 +365,7 @@ public final class MMStorage implements IOStorage {
     if (!Files.exists(revisionsOffsetFilePath)) {
       openingUberPage.getFeatures().requireWritable();
       Files.createFile(revisionsOffsetFilePath);
+      DurableFiles.syncDirectory(revisionsOffsetFilePath.toAbsolutePath().getParent());
     }
   }
 
@@ -372,8 +374,10 @@ public final class MMStorage implements IOStorage {
 
     if (!Files.exists(concreteStorage)) {
       openingUberPage.getFeatures().requireWritable();
-      Files.createDirectories(concreteStorage.getParent());
+      DurableFiles.createDirectories(concreteStorage.getParent());
       Files.createFile(concreteStorage);
+      // Before the bootstrap commit point can publish revision 0 into it (TXN-616).
+      DurableFiles.syncDirectory(concreteStorage.getParent());
     }
 
     return concreteStorage;

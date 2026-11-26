@@ -41,6 +41,19 @@
   exhaustion requests relief only from the requesting class. Transfer regressions independently
   exhaust each consumer's admission ceiling, and release residency is measured before access.
   No product behavior changes with this entry.
+- Require directory entries to be durable where a guarantee relies on them. New
+  [TXN-616](TXN-transactions-durability.md#txn-616--directory-entry-durability) states that making a
+  file durable includes its name: a create, rename or delete that recovery or a later open relies on
+  is followed by a barrier on the parent directory (Linux directory force, macOS `F_FULLFSYNC`,
+  Windows `MoveFileExW` write-through or `FlushFileBuffers` on a backup-semantics directory handle),
+  never silently skipped, and a failed barrier on the commit path is an unknown outcome under TXN-705.
+  Its table states the guarantee per site: catalogues before the commit point, settings and database
+  and resource creation before they return, removal never resurrected, backups durable on return.
+  The recovery marker, its removal, IN_MEMORY tombstones, diff sidecars and catalogue deletions need
+  no barrier, so an ordinary commit adds none. [TXN-602](TXN-transactions-durability.md#txn-602--signal-precedes-append)
+  now requires recovery to stay correct when a crash loses the marker's entry;
+  [CONF-101](CONF-configuration.md#conf-101--persisted-settings-own-format-identity) and
+  [CONF-103](CONF-configuration.md#conf-103--database-settings) require durable settings on return.
 
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from

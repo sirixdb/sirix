@@ -27,6 +27,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.exception.UnsupportedStoreFeatureException;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.IOStorage;
 import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.page.StoreFeatures;
@@ -518,7 +519,13 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       ResourceConfiguration.serialize(resourceConfig);
       biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
+      // The settings and folder names must be durable before revision 0 commits into the resource;
+      // the resource's own name becomes durable last, once it is complete (TXN-616).
+      DurableFiles.syncDirectory(path);
       returnVal = bootstrapResource(resourceConfig, userStore);
+      if (returnVal) {
+        DurableFiles.syncDirectory(path.toAbsolutePath().getParent());
+      }
     }
 
     if (!returnVal) {
@@ -584,6 +591,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
             KeysetHandle.generateNew(PredefinedStreamingAeadParameters.AES256_CTR_HMAC_SHA256_4KB);
         final String keysetJson = TinkJsonProtoKeysetFormat.serializeKeyset(handle, InsecureSecretKeyAccess.get());
         Files.writeString(encryptionKeyPath, keysetJson);
+        // Without its keyset no page of the resource can be read again (TXN-616).
+        DurableFiles.forceFile(encryptionKeyPath);
+        DurableFiles.syncDirectory(createdPath);
       } catch (final GeneralSecurityException | IOException e) {
         throw new IllegalStateException(e);
       }
@@ -686,8 +696,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       // resource must never be served the removed store's decoded columns.
       ProjectionIndexCatalog.invalidateUnder(resourceFile.toAbsolutePath().toString());
 
-      // Instantiate the database for deletion.
-      SirixFiles.recursiveRemove(resourceFile);
+      removePersistentResourceDirectory(resourceFile);
       AbstractResourceSession.forgetCommitRecovery(resourceFile);
 
       this.writeLocks.removeWriteLock(resourceFile);
@@ -716,6 +725,23 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       removeResourceInternal(derivedName);
     }
     return this;
+  }
+
+  /**
+   * Remove a persistent resource directory so that a crash can never bring it back (TXN-616): rename
+   * it to a reserved tombstone name and make that rename durable, then delete the tombstone. A crash
+   * before the rename leaves the intact resource; after it, a tombstone that no listing shows and
+   * that the next open deletes. A failed deletion still reports the failure, but leaves only such a
+   * tombstone.
+   */
+  private void removePersistentResourceDirectory(final Path resourceFile) {
+    final Path tombstone = resourceFile.resolveSibling(InMemoryResources.RETIRED_MARKER + UUID.randomUUID());
+    try {
+      DurableFiles.rename(resourceFile, tombstone);
+    } catch (final IOException e) {
+      throw new SirixIOException("Could not remove resource " + resourceFile, e);
+    }
+    SirixFiles.recursiveRemove(tombstone);
   }
 
   /** Drop what this process caches for a resource's content, before its files go. */
