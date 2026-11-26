@@ -15,6 +15,7 @@ import io.sirix.index.IndexType;
 import io.sirix.io.PageHasher;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.index.hot.page.HOTProjectionRead;
@@ -30,6 +31,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -180,6 +182,57 @@ final class HOTCompactFragmentReadTest {
     }
   }
 
+  /**
+   * An ordinary read that takes ownership of a decompression buffer must be charged that buffer, not
+   * the decompressed view inside it.
+   *
+   * <p>
+   * {@code DecompressionResult} carries both: {@code segment()} is the bounded view a page parses,
+   * and {@code backingBuffer()} is the pooled allocation its {@code releaser} frees — in production
+   * {@code FFILz4Compressor} builds exactly this pair as {@code buffer.asSlice(0, uncompressedSize)}
+   * over an {@code ALLOCATOR.allocate(...)} frame, so a ~34 KB image sits inside a 64 KiB frame.
+   * Taking {@code transferOwnership()} makes the page responsible for the whole frame, so recording
+   * the view leaves the rest of it outside every cache budget.
+   *
+   * <p>
+   * The result below is built from the real allocator in that same shape, so the expectation is the
+   * allocator's own answer for the image's size rather than anything the page reports. Both ownership
+   * handoffs are covered: the reviewer's wide-value leaf packs and takes the packed retain path,
+   * while a fixed-word projection leaf stays mode zero and takes the ordinary zero-copy slot handoff.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void anOwnedDecompressionBufferIsChargedInFullNotJustItsDecompressedView(final boolean packed) throws IOException {
+    final byte[] wire;
+    try (HOTLeafPage original = packed
+        ? wideValueLeaf()
+        : fixedWordLeaf()) {
+      wire = serialize(original);
+    }
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
+    final MemorySegment backing = allocator.allocate(wire.length);
+    final long ownedBytes = backing.byteSize();
+    assertTrue(ownedBytes > wire.length,
+        "this charge is only interesting when the frame exceeds the image: " + ownedBytes + " vs " + wire.length);
+    MemorySegment.copy(wire, 0, backing, ValueLayout.JAVA_BYTE, 0L, wire.length);
+    final MemorySegment view = backing.asSlice(0, wire.length);
+    final ByteHandler.DecompressionResult transferred =
+        new ByteHandler.DecompressionResult(view, backing, () -> allocator.release(backing), new AtomicBoolean(false));
+
+    try (HOTLeafPage page = assertInstanceOf(HOTLeafPage.class, new PagePersister().deserializePage(CONFIG,
+        new MemorySegmentBytesIn(view), SerializationType.DATA, transferred))) {
+      assertEquals(packed, page.hasPackedBody(), "the fixture must exercise the intended ownership handoff");
+      assertFalse(page.isCompactImage(), "an ordinary read keeps the transferred frame, it does not copy out of it");
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1L << 20);
+      final PageReference key = new PageReference().setKey(654).setDatabaseId(0).setResourceId(0);
+      cache.put(key, page);
+      assertEquals(ownedBytes + page.estimatedCanonicalCacheRetainedHeapBytes(), cache.getCurrentWeightBytes(),
+          "a transferred decompression buffer must be charged in full, not as its decompressed view");
+      cache.remove(key);
+      assertEquals(0L, cache.getCurrentWeightBytes());
+    }
+  }
+
   /** What the allocator actually hands out for {@code bytes}, asked of the allocator itself. */
   private static long allocatorFrameFor(final long bytes) {
     final MemorySegmentAllocator allocator = Allocators.getInstance();
@@ -192,6 +245,21 @@ final class HOTCompactFragmentReadTest {
   }
 
   private static final int WIDE_VALUE_ROWS = 128;
+
+  /**
+   * A fixed-word projection leaf: every key is eight bytes including the common prefix, which FMT-217
+   * keeps in mode zero, so the read takes the ordinary zero-copy slot handoff rather than the packed
+   * retain path.
+   */
+  private static HOTLeafPage fixedWordLeaf() {
+    final HOTLeafPage page = new HOTLeafPage(123, 9, IndexType.PROJECTION);
+    for (int row = 0; row < 32; row++) {
+      final byte[] word = {(byte) row, 21, 22, 23, 24, 25, 26, 27};
+      assertTrue(page.put(word, value(row)));
+    }
+    page.setCompleteDump(true);
+    return page;
+  }
 
   /**
    * The reviewer's leaf: 128 seven-byte keys, each with a distinct 255-byte value. The keys differ in

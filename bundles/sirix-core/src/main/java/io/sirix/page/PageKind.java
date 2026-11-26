@@ -7147,7 +7147,10 @@ public enum PageKind {
       } else if (canZeroCopy) {
         final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
         slotMemory = sourceSegment.asSlice(source.position(), usedSlotMemorySize);
-        stampBase = sourceSegment;
+        // Parsing stays bounded to the decompressed view; ownership is of the buffer behind it. The
+        // releaser taken below frees the whole backing allocation — a pooled allocator frame rounded
+        // up to its size class — so that, not the view, is what this page retains and is charged.
+        stampBase = decompressionResult.backingBuffer();
         source.skip(usedSlotMemorySize);
         acquiredFrameOwner = Objects.requireNonNull(decompressionResult.transferOwnership(),
             "HOT-leaf decompression-frame ownership was already transferred");
@@ -7196,8 +7199,8 @@ public enum PageKind {
       if (compactFragment) {
         allocation = null;
         retained = body.retainIn(GcOwnedNativeMemory.allocate(body.byteSize()));
-      } else if (decompressionResult != null && source instanceof MemorySegmentBytesIn nativeSource) {
-        allocation = nativeSource.getSource();
+      } else if (decompressionResult != null && source instanceof MemorySegmentBytesIn) {
+        allocation = decompressionResult.backingBuffer();
         owner = Objects.requireNonNull(decompressionResult.transferOwnership(),
             "HOT-leaf decompression-frame ownership was already transferred");
         retained = body;

@@ -35,6 +35,22 @@
   decompression frame whose ownership it transfers, so an ordinary encoded read was charged its slot
   bytes and retained the whole frame. Compact images keep exact accounting: `retainPackedHOTLeaf`'s
   compact branch passes `null`, and the GC-owned path reports its packed bytes as before.
+- Second round of the same defect: the accounting read the right field, and the field was given the
+  wrong segment. `ByteHandler.DecompressionResult` is a pair — `segment()` is the bounded view a page
+  parses, `backingBuffer()` is the pooled allocation its `releaser` frees — and
+  `FFILz4Compressor.decompressScoped` builds it as `buffer.asSlice(0, uncompressedSize)` over an
+  `ALLOCATOR.allocate(...)` frame. `AbstractReader` then hands the page a
+  `MemorySegmentBytesIn(decompressionResult.segment())`, so both ownership handoffs in `PageKind`
+  recorded `getSource()` — the view — as the owned allocation: `deserializeHOTLeaf`'s zero-copy
+  branch and `retainPackedHOTLeaf`'s transferred-frame branch. An ordinary read of the same
+  128-key / 255-byte-value fixture therefore reported about 34 KB while retaining the 65,536-byte
+  frame. Both now record `decompressionResult.backingBuffer()` while parsing stays bounded to
+  `segment()`; those are the only two `transferOwnership()` call sites in production, and
+  `KeyValueLeafPage` is unaffected because it never takes a decompression frame and already charges
+  its allocated capacity rather than a view. Recording the backing buffer also makes the stamp
+  binding more faithful, not merely the charge: `setStampBaseSegment` asks for "the segment as
+  returned by the allocator", which `backingBuffer()` is, while `segment()` only happened to share
+  its base address.
 - Why tests missed it: the cache-charge test in this area covers the compact image
   (`aCachedCompactImageIsChargedItsPackedBytesPlusItsFixedPerPageHeap`), which is the one packed
   shape that genuinely owns exact-size memory, so it agreed with the code. Nothing exercised
@@ -52,7 +68,12 @@
   `getActualMemorySize`. Command:
   `./gradlew --max-workers=2 :sirix-core:test --tests 'io.sirix.io.filechannel.HOTCompactFragmentReadTest'`.
   Before the fix the charge is 34,048 plus per-page heap and the assertion fails; after it the charge
-  is 65,536 plus per-page heap.
+  is 65,536 plus per-page heap. `anOwnedDecompressionBufferIsChargedInFullNotJustItsDecompressedView`
+  covers the ownership handoffs for the second round, parameterised so the wide-value leaf drives the
+  packed retain path and a narrow mode-zero leaf drives the ordinary zero-copy slot handoff. It hands
+  `PagePersister` a `DecompressionResult` built from the real allocator in the production shape — a
+  bounded view over an `allocate()` frame, with a releaser for the frame — so the expectation is
+  again the allocator's own frame size and not anything the page reports.
 - Lesson: a memory charge must come from the allocation a component releases, not the view it reads,
   and when the code already carries a field naming that allocation the accounting must read it.
   Recorded as a fragment in [`docs/lessons.d/hot-leaf-codec.md`](../lessons.d/hot-leaf-codec.md);

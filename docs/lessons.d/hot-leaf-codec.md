@@ -252,7 +252,11 @@ a shortfall no in-process budget can see, because nothing is over its budget.
 When the code already carries a field naming the owning allocation — one set
 wherever ownership is taken and left null wherever the object owns exact-size
 memory — the accounting must read that field rather than re-deriving a size
-from the payload. Pin such a charge against the allocator's own answer for the
+from the payload. Then check what every producer writes into it: where a
+decompression result hands back both a bounded view and the buffer behind it,
+the view is what you parse and the buffer is what your releaser frees, so
+ownership records the buffer. Reading the right field is only half the fix if
+each handoff feeds it the view. Pin such a charge against the allocator's own answer for the
 same request; an expectation taken from the object's own accessors agrees with
 an under-report on both sides, and a fixture whose size happens to land on a
 class boundary hides the rounding entirely. See the
