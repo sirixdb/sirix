@@ -11,6 +11,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Schema-aware single-pass LZ77 variant used per-page in Sirix's {@link KeyValueLeafPage}
@@ -662,6 +663,59 @@ public final class SirixLZ77Codec {
   }
 
   /**
+   * Decode a frame whose bytes are NOT known to come from this encoder — a payload just read from
+   * disk, staged in reusable scratch.
+   *
+   * <p>
+   * {@link #decode} is a trusted-frame entry point. Its native path is handed a length, not a
+   * capacity, and its hot loop opens with {@code (void)in_end}; the Java fast path likewise elides
+   * per-token input checks because an overshoot lands in the input array's own tail slack. For a
+   * frame this encoder wrote, both are sound and measurably faster. For bytes that may be corrupt
+   * they are not: a literal token claiming more bytes than the frame holds then copies the scratch
+   * tail — an earlier payload — into the result, and the native decoder has no bound at all on how
+   * far past the frame it reads.
+   *
+   * <p>
+   * This entry point therefore runs the bounds-checked core, which already enforces every span the
+   * format constrains: literal and length-extension bytes inside the frame, matches no earlier than
+   * the output start, and no write past the declared size. It additionally requires the frame to
+   * produce exactly the size it declares. Allocation-free, single pass.
+   *
+   * <p>
+   * It does NOT require the frame to be consumed to its last byte, because this format's frames need
+   * not be: {@link #emitLiteralOnlyTokenArr} always appends a trailing literal-only token, and when
+   * the final match already completes the output that token's byte is never read. Unread bytes inside
+   * the frame cannot reach the payload — every read is bounded above by the frame — so the declared
+   * size, not the cursor, is the postcondition. The envelope that owns the frame is where bytes past
+   * the stored length are rejected.
+   *
+   * @return bytes written to {@code output} (== the frame's declared size)
+   */
+  public static int decodeChecked(final byte[] input, final int inputOff, final int inputLen,
+      final MemorySegment output, final long outputOff) {
+    Objects.requireNonNull(input, "input");
+    Objects.requireNonNull(output, "output");
+    Objects.checkFromIndexSize(inputOff, inputLen, input.length);
+    int inPos = inputOff;
+    final int inEnd = inputOff + inputLen;
+    if (inPos >= inEnd || input[inPos++] != FRAME_MARKER) {
+      throw new IllegalStateException("SirixLZ77Codec: missing frame marker");
+    }
+    final long header = readVarintPacked(input, inPos, inEnd);
+    inPos = (int) (header >>> 32);
+    final int uncompressed = (int) header;
+    if (uncompressed > output.byteSize() - outputOff) {
+      throw new IllegalStateException("SirixLZ77Codec: frame declares " + uncompressed + " bytes, the output holds "
+          + (output.byteSize() - outputOff));
+    }
+    final int produced = decodeCoreSafe(input, inPos, inEnd, output, outputOff, uncompressed);
+    if (produced != uncompressed) {
+      throw new IllegalStateException("SirixLZ77Codec: decoded " + produced + " bytes, expected " + uncompressed);
+    }
+    return produced;
+  }
+
+  /**
    * Hottest decode path — both output and input have ≥ 16 byte tail slack. Per-token input-bound
    * checks are elided; wildCopy8 overshoots harmlessly into slack.
    *
@@ -928,7 +982,7 @@ public final class SirixLZ77Codec {
   /**
    * Safe decode variant with full input bounds checking per token. Used when the caller's input
    * byte[] has &lt; 16 bytes of trailing slack (e.g., small test inputs where the buffer is exactly
-   * sized).
+   * sized), and by {@link #decodeChecked} for frames that may be corrupt.
    */
   private static int decodeCoreSafe(final byte[] input, final int inputStart, final int inEnd, final MemorySegment dst,
       final long dstOffset, final int uncompressed) {
@@ -1078,5 +1132,28 @@ public final class SirixLZ77Codec {
         throw new IllegalStateException("varint too long");
     }
     return ((long) pos << 32) | (result & 0xFFFFFFFFL);
+  }
+
+  /**
+   * The same packed result bounded by the frame, for {@link #decodeChecked}. The five-byte cap keeps
+   * the declared size non-negative, so no caller can be handed a size it cannot bound.
+   */
+  private static long readVarintPacked(final byte[] input, final int offset, final int end) {
+    int position = offset;
+    int result = 0;
+    for (int shift = 0; shift <= 28; shift += 7) {
+      if (position == end) {
+        throw new IllegalStateException("SirixLZ77Codec: truncated varint");
+      }
+      final int value = input[position++] & 0xFF;
+      if (shift == 28 && (value & 0xF8) != 0) {
+        throw new IllegalStateException("SirixLZ77Codec: varint length overflow");
+      }
+      result |= (value & 0x7F) << shift;
+      if ((value & 0x80) == 0) {
+        return ((long) position << 32) | result;
+      }
+    }
+    throw new IllegalStateException("SirixLZ77Codec: varint too long");
   }
 }

@@ -684,36 +684,6 @@ cost are the same for every input."""
 
 [[mutant]]
 class = "io.sirix.index.hot.page.HOTLeafBody"
-method = "findLongSuffix"
-descriptor = "([BI)I"
-mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
-indexes = [98]
-description = "changed conditional boundary"
-kind = "equivalent"
-checked_at = "48d3fe9efdfbe9031ce1faea43eb71ff2e749570"
-justification = """start <= maxWordStart becomes start < maxWordStart. They differ only at start ==
-maxWordStart, where the forward word ends exactly at the slot region's end; the mutant takes the back-read
-arm instead, whose start - prefix >= slots holds there (the suffix fills the last word). Both arms make
-one 8-byte load of the same suffix bytes, count one suffix probe and compare the same masked word, so
-result, errors, probe count and loads are the same."""
-
-[[mutant]]
-class = "io.sirix.index.hot.page.HOTLeafBody"
-method = "findLongSuffix"
-descriptor = "([BI)I"
-mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
-indexes = [122]
-description = "changed conditional boundary"
-kind = "equivalent"
-checked_at = "48d3fe9efdfbe9031ce1faea43eb71ff2e749570"
-justification = """start - prefix >= slots becomes start - prefix > slots. They differ only where the
-back-read word would start exactly at the slot region. A forward word does not fit there only when the
-suffix is one or two bytes (slot layout: one or two length bytes, the suffix, the value header). The
-mutant then reads that suffix with readWord: a single byte or short load, counted as one probe, the same
-count and value as the original's one 8-byte back-read."""
-
-[[mutant]]
-class = "io.sirix.index.hot.page.HOTLeafBody"
 method = "requireEarlierOwner"
 descriptor = "(II)V"
 mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"

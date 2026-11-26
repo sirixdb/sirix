@@ -176,15 +176,7 @@ public final class ZeroRunByteCodec {
     if (input == null || output == null) {
       throw new IllegalArgumentException("input/output");
     }
-    return decode(input, inputOff, inputLen, output, outputOff, output.byteSize() - outputOff);
-  }
-
-  /** Decode within a logical destination capacity without constructing a native segment view. */
-  public static int decode(final byte[] input, final int inputOff, final int inputLen, final MemorySegment output,
-      final long outputOff, final long outputCapacity) {
-    if (input == null || output == null) {
-      throw new IllegalArgumentException("input/output");
-    }
+    final long outputCapacity = output.byteSize() - outputOff;
     Objects.checkFromIndexSize(outputOff, outputCapacity, output.byteSize());
     Objects.checkFromIndexSize(inputOff, inputLen, input.length);
     int inPos = inputOff;

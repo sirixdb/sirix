@@ -788,7 +788,7 @@ Body fields below follow the shared envelope, any extension block and the mode b
 | 8 | bytes | commonPrefix | |
 | 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`PageKind.serializeHOTLeaf`) |
 | 10 | i32 LE | usedSlotMemorySize | full image: sum of live slot sizes, excluding retired bytes; sparse image: size of the packed dirty entries |
-| 11 | count × i32 LE or u16 LE | slotOffsets | width from flag `0x04`; full: original offsets when already dense, otherwise offsets into live entries packed in key order; sparse: offsets into the packed dirty entries |
+| 11 | count × u16 LE | slotOffsets | u16 only ([FMT-211](../spec/FMT-disk-format.md#fmt-211--hot-leaf-directory-and-slot-framing)); flag `0x04` is set exactly when the count is nonzero, and the reader rejects a nonempty leaf without it and an empty leaf with it. Offsets are relative to the first slot-region byte. Full: original offsets when already dense, otherwise offsets into live entries packed in key order; sparse: offsets into the packed dirty entries |
 | 12 | optional bitmap, table and prefix bytes | packing metadata | Body mode bits select these regions. Value aliases and prefixes belong to this fragment. |
 | 13 | slot bytes | heap | The body mode selects slot lengths, group prefixes, aliases and frame-of-reference postings. Full images contain live entries only. Sparse images contain packed dirty entries. |
 | 14 | if flag bit 0: varlong count, then count × (i64 compositeKey, i64 diskKey) | side map | composite keys signed-ascending; **every image carries the complete map**; an unresolved (−1) disk key throws (`PageKind.serializeSegmentRefs`) |

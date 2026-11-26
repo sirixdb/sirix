@@ -8862,6 +8862,39 @@ public enum PageKind {
   }
 
   /**
+   * The decoded size the stored frame itself declares. All three payload codecs open with their own
+   * marker byte followed by that size as a varint, so one reader covers them; nothing past the header
+   * is interpreted here, and the five-byte cap keeps the result non-negative.
+   */
+  private static int framedOverflowPayloadSize(final byte[] frame, final int storedLength, final int codec) {
+    final byte marker = switch (codec) {
+      case 0 -> ZeroRunByteCodec.FRAME_MARKER;
+      case 2 -> ByteRunCodec.FRAME_MARKER;
+      default -> SirixLZ77Codec.FRAME_MARKER;
+    };
+    if (frame[0] != marker) {
+      throw new IllegalStateException(
+          "Corrupt OverflowPage payload: codec " + codec + " frame marker 0x" + Integer.toHexString(frame[0] & 0xFF));
+    }
+    int position = 1;
+    int size = 0;
+    for (int shift = 0; shift <= 28; shift += 7) {
+      if (position == storedLength) {
+        throw new IllegalStateException("Corrupt OverflowPage payload: codec " + codec + " frame size is truncated");
+      }
+      final int value = frame[position++] & 0xFF;
+      if (shift == 28 && (value & 0xF8) != 0) {
+        throw new IllegalStateException("Corrupt OverflowPage payload: codec " + codec + " frame size overflows");
+      }
+      size |= (value & 0x7F) << shift;
+      if ((value & 0x80) == 0) {
+        return size;
+      }
+    }
+    throw new IllegalStateException("Corrupt OverflowPage payload: codec " + codec + " frame size overflows");
+  }
+
+  /**
    * Reads a compressed {@link OverflowPage} payload back. {@code decodedLength} is the length the
    * writer recorded; the decoder must reproduce exactly that many bytes or the record is corrupt.
    */
@@ -8887,6 +8920,15 @@ public enum PageKind {
     }
     source.read(in, 0, storedLength);
 
+    // The page's decoded length is the only thing sizing the array and the native landing below, and
+    // it arrives from disk. Corroborate it against the size the frame itself declares BEFORE either
+    // allocation: a single garbled int otherwise reserves up to 2 GiB from a fifteen-byte record.
+    final int framedLength = framedOverflowPayloadSize(in, storedLength, codec);
+    if (framedLength != decodedLength) {
+      throw new IllegalStateException("Corrupt OverflowPage payload: codec " + codec + " frame declares " + framedLength
+          + " bytes, the page declares " + decodedLength);
+    }
+
     final byte[] data = new byte[decodedLength];
     final int produced;
     if (codec == 0) {
@@ -8903,7 +8945,9 @@ public enum PageKind {
         final MemorySegment landing = lease.segment();
         produced = switch (codec) {
           case 2 -> ByteRunCodec.decode(in, 0, storedLength, landing, 0L);
-          case 3 -> SirixLZ77Codec.decode(in, 0, storedLength, landing, 0L);
+          // decodeChecked, not decode: these bytes come from disk, and decode's native and fast
+          // paths are trusted-frame entry points that would read the scratch tail as payload.
+          case 3 -> SirixLZ77Codec.decodeChecked(in, 0, storedLength, landing, 0L);
           default -> throw new IllegalStateException("Unknown OverflowPage payload codec " + codec);
         };
         if (produced == decodedLength) {

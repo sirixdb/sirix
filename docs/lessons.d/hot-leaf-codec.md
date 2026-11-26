@@ -196,3 +196,25 @@ fold triggers and buffer sizing. Read the logical length and the expanded
 bytes through one accessor, and run the full suite, including other
 branches' stream tests, before trusting a targeted subset. See the
 [packed posting hotness postmortem](postmortems/2026-11-21-hot-packed-posting-delta-hotness.md).
+
+### Bound a decoder by its frame, and give untrusted bytes their own door
+
+A decode boundary that dispatches on a codec id owes the same frame
+containment to every codec it can reach: reads bounded by the declared
+stored length rather than by the reusable array holding it, counts and
+repeat bytes inside the opcode table, and the declared size corroborated
+by the frame before anything is sized from it. Require exact frame
+consumption only where the grammar makes it exact — an encoder that
+appends an optional trailing token leaves a legitimately unread byte, so
+there the declared size is the postcondition and the envelope owns the
+bytes past the stored length.
+Hardening one codec and leaving its siblings is not a partial fix but no
+fix, because the codec id is attacker-chosen. Where a decoder's hot path
+deliberately elides input bounds — tail-slack overshoot, or a native entry
+point handed a length instead of a capacity — do not ask its caller to be
+careful. Give it a second entry point that runs its already bounds-checked
+core, and prefer that over a separate validation pass: one grammar with two
+implementations drifts, and the drift either rejects valid pages or reopens
+the hole. Decode a valid payload before each malformed one so leaked
+scratch is recognisable instead of zeros. See the
+[projection overflow postmortem](postmortems/2026-11-26-projection-overflow-unvalidated-frames.md).

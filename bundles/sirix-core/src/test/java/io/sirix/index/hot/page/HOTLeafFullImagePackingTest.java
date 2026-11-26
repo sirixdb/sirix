@@ -224,6 +224,75 @@ final class HOTLeafFullImagePackingTest {
     }
   }
 
+  /**
+   * Suffix-read cost exactly at the slot-region boundary.
+   *
+   * <p>
+   * The counter contract is one probe per load ({@link HOTLeafPage#suffixProbeReads()}), and a
+   * full-width suffix costs ONE load whenever an eight-byte window containing it lies inside the slot
+   * region — taken forward from the suffix start, or back-aligned so it ends at the suffix's last
+   * byte. Only when neither window fits does the read fall back to the int-plus-short residual loads,
+   * which cost {@code Integer.bitCount(wanted)}. That is the documented at-most-one-extra-step cost
+   * of the long-suffix decision.
+   *
+   * <p>
+   * The four geometries sit on each of those two boundaries and one byte outside each: a slot whose
+   * forward word ends exactly at the region end (mode 3, one-byte lengths, so the suffix starts one
+   * byte in), the same slot one byte shorter, a slot whose back-read starts exactly at the region
+   * start (mode 2, whose two-byte key length equals the page prefix), and a mode-2 slot whose prefix
+   * is wider than that length. Expected counts come from the contract above.
+   */
+  @Test
+  void suffixReadAtTheSlotRegionBoundaryCostsOneLoad() {
+    assumeTrue(VersioningType.hotMergeDiagEnabled(), "suffix probes are counted with sirix.hot.mergeDiag");
+    for (final int[] geometry : new int[][] {{HOTLeafBody.KEY_U8 | HOTLeafBody.VALUE_U8, 2, 1, 1},
+        {HOTLeafBody.KEY_U8 | HOTLeafBody.VALUE_U8, 2, 0, 2}, {HOTLeafBody.VALUE_U8, 2, 0, 1},
+        {HOTLeafBody.VALUE_U8, 3, 0, 2}}) {
+      final int mode = geometry[0];
+      final int prefix = geometry[1];
+      final int valueLength = geometry[2];
+      final long expectedLoads = geometry[3];
+      final byte[] key = bytes(prefix, Long.BYTES - prefix, 0x7a);
+      final byte[] frame = singletonFrame(mode, key, prefix, valueLength);
+      final int used = frame.length - Short.BYTES;
+      final String where = "mode " + mode + ", prefix " + prefix + ", used " + used;
+      final HOTLeafBody body = HOTLeafBody.read(new ByteArrayBytesIn(frame), mode, 1, used);
+      body.validate(prefix, IndexType.PROJECTION);
+      final long before = HOTLeafPage.suffixProbeReads();
+      assertEquals(0, body.findLongSuffix(key, prefix), "slot for " + where);
+      assertEquals(expectedLoads, HOTLeafPage.suffixProbeReads() - before, "loads for " + where);
+    }
+  }
+
+  /** One slot at offset zero: [key length][suffix][value length][value], widths from the mode. */
+  private static byte[] singletonFrame(final int mode, final byte[] key, final int prefix, final int valueLength) {
+    final int keyWidth = (mode & HOTLeafBody.KEY_U8) == 0
+        ? Short.BYTES
+        : 1;
+    final int valueWidth = (mode & HOTLeafBody.VALUE_U8) == 0
+        ? Short.BYTES
+        : 1;
+    final int suffixLength = key.length - prefix;
+    final ByteBuffer frame = ByteBuffer.allocate(Short.BYTES + keyWidth + suffixLength + valueWidth + valueLength)
+                                       .order(ByteOrder.LITTLE_ENDIAN);
+    frame.putShort((short) 0);
+    putLength(frame, keyWidth, suffixLength);
+    frame.put(key, prefix, suffixLength);
+    putLength(frame, valueWidth, valueLength);
+    for (int i = 0; i < valueLength; i++) {
+      frame.put((byte) 0x5a);
+    }
+    return frame.array();
+  }
+
+  private static void putLength(final ByteBuffer frame, final int width, final int length) {
+    if (width == 1) {
+      frame.put((byte) length);
+    } else {
+      frame.putShort((short) length);
+    }
+  }
+
   private static final int MODE = HOTLeafBody.KEY_U8 | HOTLeafBody.VALUE_U8;
 
   /** Key whose bytes after {@code prefix} are equal up to its last byte, which is {@code last}. */
