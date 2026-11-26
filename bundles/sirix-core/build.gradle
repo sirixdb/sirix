@@ -352,6 +352,7 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
         includeTestsMatching 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'
         includeTestsMatching 'io.sirix.budget.HotWriterLeafRetentionAllocationBudgetTest'
         includeTestsMatching 'io.sirix.index.name.NameIndexRecheckAllocationBudgetTest'
+        includeTestsMatching 'io.sirix.budget.CommitTimestampProbeAllocationBudgetTest'
     }
 }
 
@@ -567,6 +568,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/index/hot/HOTCommitAllocationBudgetTest*.class'
     exclude 'io/sirix/budget/HotWriterLeafRetentionAllocationBudgetTest*.class'
     exclude 'io/sirix/index/name/NameIndexRecheckAllocationBudgetTest*.class'
+    exclude 'io/sirix/budget/CommitTimestampProbeAllocationBudgetTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'

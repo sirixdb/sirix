@@ -164,11 +164,6 @@ final class DerivedCacheBudgetTest {
     public long getMaxBufferSize() {
       return delegate.getMaxBufferSize();
     }
-
-    @Override
-    public void resetSegment(final MemorySegment segment) {
-      delegate.resetSegment(segment);
-    }
   }
 
   @Test
