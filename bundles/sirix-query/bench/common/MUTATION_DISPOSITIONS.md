@@ -184,3 +184,55 @@ regressions derive from CONV-302; this rerun measures only those three functions
   the one-time harness/lazy-initialisation allocation that the batch divides.
 - Lesson: constrain the compiler that interprets optimization flags and judge fresh-process
   equality on the figure the check rounds.
+
+## Nightly tier: `bench/nightly` and the nightly changes to the ledger and trend tools
+
+Same method as above (AST operators, one change at a time, the module's own tests plus
+`test_nightly_scripts.py`, killed when the run fails), run on the 2026-11-26 head of this change. For
+`bench_ledger.py` only the lines this change touched were mutated (59 mutants, 59 killed). Every
+behavioural survivor of the first rounds was answered with a test derived from CONV-303/304 or the
+issue and window rules, not written to kill the mutant: the budget edges and the process order of
+`nightly_run.py`, the 20-minute publication margin, the one-week issue dedup, the 2% report bound, the
+three-night merge, the two-night confirmation and the ten-night recency of `nightly_analysis.py`.
+
+| Module | Mutants | Killed | Survived (all dispositioned below) |
+|---|---:|---:|---:|
+| `bench_ledger.py` (changed lines) | 59 | 59 | 0 |
+| `bench_trend.py` (whole file) | 141 | 137 | 4 (the three `frozen=True` of the existing dataclasses and `nights[0].night < night`, equivalent as before) |
+| `nightly_window.py` | 69 | 69 | 0 |
+| `nightly_run.py` | 165 | 165 | 0 |
+| `nightly_publish.py` | 79 | 76 | 3 |
+| `nightly_issues.py` | 86 | 84 | 2 |
+| `nightly_analysis.py` | 138 | 131 | 7 |
+| `nightly_dashboard.py` | 183 | 123 | 60 |
+
+Equivalent, with the reason:
+
+- **`sys.path.insert(0, …)` position** (every module): the directory is searched whichever position it
+  takes, as nothing else on the path holds a module of these names.
+- **`@dataclass(frozen=True)`** (`nightly_analysis.Detection`): no code mutates an instance; the
+  property is a guard for later readers, not a behaviour.
+- **`nightly_publish._git`, `text=True`'s message and the `[-400:]` tail**: the first is observable only
+  as a `b'…'` prefix in an error message, which `test_a_git_failure_message_is_text_not_bytes` now
+  forbids; the length of the kept tail of a git error is a display choice.
+- **`nightly_issues`: `rsplit("/", 1)`'s limit**: with a larger limit the last element is the same.
+- **`nightly_analysis`: `after > before` against `>=`**: equal levels cannot reach it, a change is at
+  least 2% or starts from zero. **`… or state.since is None`**: `since` is `None` exactly for the states
+  the first operand already excludes. **`series_id`'s `sort_keys` and `ensure_ascii`**: a key is a list
+  of ASCII strings and pairs in a fixed order; the identity itself is pinned by a literal in
+  `PolicyTest`. **The percent format's `100.0`** is asserted through the detail text of a 5% change.
+- **`nightly_dashboard`, 60 survivors**: the layout of the charts: margins, padding of the value axis,
+  tick spacing, label offsets, the choice of the middle date label, the markers' radii, the section
+  and `figcaption` details. The tests assert what the page means (order and containment of the drawn
+  line inside the plot, higher level drawn higher, day-proportional spacing, a release on either edge of
+  the range, units at their boundaries, no external reference, escaping) and not pixel positions; the
+  page was reviewed as a screenshot of a synthetic 45-night history. A mutant that moves a tick by a
+  pixel changes no figure the page states.
+- **`write_site` `mkdir(parents/exist_ok)`**: the output directory is created by the command line tests
+  in a fresh temporary directory; a pre-existing directory is the workflow's case and is exercised by
+  the end-to-end run.
+
+`CpuTimeProfiler.java` has no unit test (`:sirix-benchmarks` has no JUnit source set). It was run for
+real: 20 fresh processes of three benchmarks through `nightly_run.py` into a ledger that
+`bench_ledger.py`, `nightly_analysis.py` and `bench_trend.py` read back; its CPU figure agrees with the
+wall-clock figure of the single-threaded benchmarks to within the noise.

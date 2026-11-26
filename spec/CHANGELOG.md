@@ -2,6 +2,20 @@
 
 ## 1.0.0 (unreleased)
 
+- Schedule the nightly trend tier and give it a hosted-runner class
+  ([CONV-303](CONV-conventions.md#conv-303--results-ledger-and-conditions-record),
+  [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier)). A run row may name its `runner`
+  (`dedicated` or `hosted`, provider, label, image); a hosted runner is fingerprinted by its class
+  (label, architecture, CPU model, logical CPUs, memory) instead of its kernel, which the provider
+  changes with every image, and a different CPU model is a different condition. The nightly tier
+  judges CPU time and allocation per operation on a hosted runner and records wall-clock time as
+  informational. A zero allocation level is compared one byte up. Apache Otava is allowed as an
+  advisory second opinion; both answers are reported when they disagree, and an issue is opened once
+  per confirmed upward change, never from a fork. Nothing public is committed, pushed, deployed or
+  opened between 04:00 and 17:30 Europe/Berlin on a weekday, and the publishing code enforces it.
+  The ledger of the nightly tier is the one ledger that is committed, on the `nightly-data` branch.
+  Making Otava the judge is not decided here.
+
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from
   reporting the index malformed because a leaf was evicted, and the validation that follows a published

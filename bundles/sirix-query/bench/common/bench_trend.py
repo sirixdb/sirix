@@ -3,7 +3,7 @@
 
 Reads the results ledger and reports, per series, whether the latest night drifted against the
 nights before it. A series is the accepted nightly measurements that share conditions id, kit,
-benchmark, params, metric, binary kind and runtime; a night's level is their median.
+benchmark, params, metric, binary kind, runtime and runner kind; a night's level is their median.
 
     window    the 14 most recent earlier recorded nights
     baseline  the median level of the 7 oldest nights of the window
@@ -11,8 +11,14 @@ benchmark, params, metric, binary kind and runtime; a night's level is their med
     fence     Q3 + 1.5 * (Q3 - Q1) of the absolute log ratios of adjacent nights of the window
     exceeds   upward when D > ln 1.02 and D > fence; downward when -D > ln 1.02 and -D > fence
 
+When any level of a night's judgement is zero (an allocation figure can be) every level of it is
+raised by one first, so that the logarithms exist.
+
 A night that exceeds is `unconfirmed`; when the previous recorded night exceeded the same way it is
 `drift` (or `faster`). The tier reports and alarms; it never passes or fails a change.
+
+On a hosted runner only CPU time and allocation are judged. Its wall-clock series are analysed and
+listed, marked informational, and never alarm: a shared machine's neighbours move wall-clock time.
 
     bench_trend.py report [--ledger FILE] [--night YYYY-MM-DD]
 
@@ -52,7 +58,11 @@ STEADY = "steady"
 UPWARD = "upward"
 DOWNWARD = "downward"
 
-SeriesKey = tuple[str, str, str, tuple[tuple[str, str], ...], str, str, str]
+# conditions, kit, benchmark, params, metric, binary kind, runtime, runner kind
+SeriesKey = tuple[str, str, str, tuple[tuple[str, str], ...], str, str, str, str]
+
+# On a hosted runner these are the metrics a nightly judges; every other time is informational.
+HOSTED_JUDGED_METRICS = (bench_ledger.CPU_METRIC, bench_ledger.timed_gate.ALLOCATION_METRIC)
 
 
 class TrendError(ValueError):
@@ -91,9 +101,15 @@ def quartile(values: Sequence[float], fraction: float) -> float:
 
 
 def describe(key: SeriesKey) -> str:
-    conditions, kit, benchmark, params, metric, binary, _runtime = key
+    conditions, kit, benchmark, params, metric, binary, _runtime, runner = key
     rendered = ",".join(f"{name}={value}" for name, value in params)
-    return f"{kit} {benchmark}{'{' + rendered + '}' if rendered else ''} {metric} [{binary}, {conditions}]"
+    where = f", {runner}" if runner != bench_ledger.DEDICATED else ""
+    return f"{kit} {benchmark}{'{' + rendered + '}' if rendered else ''} {metric} [{binary}, {conditions}{where}]"
+
+
+def is_informational(key: SeriesKey) -> bool:
+    """A wall-clock series of a hosted runner: reported, never judged."""
+    return key[7] == bench_ledger.HOSTED and key[4] not in HOSTED_JUDGED_METRICS
 
 
 def nightly_series(rows: Iterable[Mapping[str, Any]]) -> dict[SeriesKey, list[Night]]:
@@ -116,6 +132,7 @@ def nightly_series(rows: Iterable[Mapping[str, Any]]) -> dict[SeriesKey, list[Ni
             row["metric"],
             head["binary"],
             head["runtime"],
+            bench_ledger.runner_kind(run),
         )
         values.setdefault(key, {}).setdefault(run["night"], {}).setdefault(row["run"], []).append(row["value"])
     series: dict[SeriesKey, list[Night]] = {}
@@ -143,9 +160,15 @@ def _exceeds(nights: Sequence[Night], index: int) -> tuple[str | None, float, fl
     if index < WINDOW_NIGHTS:
         return None
     window = nights[index - WINDOW_NIGHTS : index]
-    baseline = median(night.level for night in window[:BASELINE_NIGHTS])
-    drift = math.log(nights[index].level / baseline)
-    changes = [abs(math.log(later.level / earlier.level)) for earlier, later in zip(window, window[1:])]
+    # An allocation figure can be zero, and the logarithm of a ratio with a zero in it does not exist.
+    # When any level involved is zero, every level involved is raised by one (one byte) first: a
+    # zero-allocation path that starts to allocate is then a finite, large drift.
+    shift = 1.0 if min(night.level for night in [*window, nights[index]]) <= 0 else 0.0
+    baseline = median(night.level + shift for night in window[:BASELINE_NIGHTS])
+    drift = math.log((nights[index].level + shift) / baseline)
+    changes = [
+        abs(math.log((later.level + shift) / (earlier.level + shift))) for earlier, later in zip(window, window[1:])
+    ]
     first, third = quartile(changes, 0.25), quartile(changes, 0.75)
     fence = third + FENCE_FACTOR * (third - first)
     if _beyond(drift, fence):
@@ -187,7 +210,8 @@ class TrendReport:
 
     @property
     def drifting(self) -> list[SeriesKey]:
-        return [key for key, state in self.states.items() if state.state == DRIFT]
+        """Judged series in confirmed drift; an informational series never alarms."""
+        return [key for key, state in self.states.items() if state.state == DRIFT and not is_informational(key)]
 
 
 def report(rows: Iterable[Mapping[str, Any]], night: str | None = None) -> TrendReport:
@@ -225,6 +249,8 @@ def format_report(trend: TrendReport) -> str:
         if state.state == STEADY:
             continue
         line = f"{state.state:<20} {describe(key)}"
+        if is_informational(key):
+            line += " (informational, not judged)"
         if state.drift is not None:
             line += f": drift {_percent(state.drift)}, fence {_percent(state.fence, '')}"
         line += f", commit {state.night.commit[:12]}"

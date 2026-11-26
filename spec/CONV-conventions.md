@@ -331,10 +331,10 @@ fresh-process equality; the measured sub-byte residual is recorded in the
 - **Level:** MUST
 - **Status:** partial
 - **Since:** 1.0
-- **Code:** [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `capture_environment`, `fingerprint`, `parse_conditions`, `validate_row`, `append_rows`, `begin`, `record`, `commit`; `bench_run_begin` in [bench-common.sh](../bundles/sirix-query/bench/common/bench-common.sh); [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh); [run-benchmark.sh](../bundles/sirix-query/bench/jsonbench/run-benchmark.sh); [CONDITIONS.md](../docs/bench/CONDITIONS.md).
-- **Verified by:** [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `EnvironmentCaptureTest`, `CaptureDetailTest`, `RuntimeVersionTest`, `FingerprintTest`, `ConditionsRecordTest`, `ConditionsDetailTest`, `RowSchemaTest`, `RowDetailTest`, `LedgerFileTest`, `LedgerFileDetailTest`, `RunDirectoryTest`, `ImporterTest`, `ImporterDetailTest`, `CommandLineTest`, `CommandLineDetailTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `JsonBenchKitTest`, `ClickBenchColdRoundsTest`.
+- **Code:** [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `capture_environment`, `fingerprint_fields`, `fingerprint`, `parse_runner`, `parse_conditions`, `validate_row`, `append_rows`, `begin`, `record`, `commit`, `jmh_rows`; `bench_run_begin` in [bench-common.sh](../bundles/sirix-query/bench/common/bench-common.sh); [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh); [run-benchmark.sh](../bundles/sirix-query/bench/jsonbench/run-benchmark.sh); [CONDITIONS.md](../docs/bench/CONDITIONS.md).
+- **Verified by:** [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `EnvironmentCaptureTest`, `CaptureDetailTest`, `RuntimeVersionTest`, `FingerprintTest`, `RunnerTest`, `CpuLegTest`, `ConditionsRecordTest`, `ConditionsDetailTest`, `RowSchemaTest`, `RowDetailTest`, `LedgerFileTest`, `LedgerFileDetailTest`, `RunDirectoryTest`, `ImporterTest`, `ImporterDetailTest`, `CommandLineTest`, `CommandLineDetailTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `JsonBenchKitTest`, `ClickBenchColdRoundsTest`.
 - **Evidence class:** code+test (local execution, historical mutation results and pending remeasurement recorded in [MUTATION_DISPOSITIONS.md](../bundles/sirix-query/bench/common/MUTATION_DISPOSITIONS.md); the `Benchmark protocol tooling` CI job arrives with the same change and has not reported for this baseline)
-- **Gap/note:** The ClickBench cold rounds and the JSONBench runner record by themselves; the JMH module and the bitemporal kit do not, and their drivers call `bench_ledger.py`. The capture reads Linux sources; on another system each probe is recorded as unavailable. A kit does not know the runtime of an arm it launches through Gradle or of an ahead-of-time image and records it as unavailable unless the driver states it. The evidence a `continues` entry names is judged in review, not by the tool. The ledger is local to the measuring machine and is not committed; a pull request cites the rows it relies on.
+- **Gap/note:** The ClickBench cold rounds and the JSONBench runner record by themselves; the JMH module and the bitemporal kit do not, and their drivers call `bench_ledger.py`. The capture reads Linux sources; on another system each probe is recorded as unavailable. A kit does not know the runtime of an arm it launches through Gradle or of an ahead-of-time image and records it as unavailable unless the driver states it. The evidence a `continues` entry names is judged in review, not by the tool. The ledger of a dedicated measuring machine is local to it and is not committed; a pull request cites the rows it relies on. The nightly tier's ledger (CONV-304) is the one exception: the scheduled workflow appends to `ledger.jsonl` on the `nightly-data` branch, one commit per night, so that its history outlives any workflow artifact; no one else writes to that branch. A hosted runner cannot be found in the conditions record before it has run once: the first night on a new class of runner (a new CPU model, a new runner label) is refused by the fingerprint rule below, and the entry is added by a maintainer from the fingerprint the refusal prints.
 
 **Ledger.** Every timed run under the benchmark protocol — a per-change gate, a control such as an
 A/A run, a nightly run — MUST append its rows to the results ledger, the file `SIRIX_BENCH_LEDGER`
@@ -366,11 +366,12 @@ start as `YYYYMMDDTHHMMSSZ`, a hyphen and 8 lowercase hexadecimal digits.
 | | `plan` | object | a paired run: `floor`, `stop_precision`, `quantile`, `min_pairs`, `max_pairs` and `benchmarks`, the names of the judged benchmarks, or null for every benchmark the run measures; a single-arm run: `min_processes` and `benchmarks` |
 | | `arms` | object | per arm (`baseline` and `candidate`, or `head`): `commit` (40 hexadecimal digits), `dirty` (boolean), `binary` (`jvm`, `native` or `native-pgo`), `runtime` (the runtime's version line) |
 | | `conditions` | string | id of the conditions entry in force |
+| | `runner` | object, optional | the class of machine the run measured on: `kind` (`dedicated` or `hosted`), `provider`, `label` and, optionally, `image` (the provider's image version, recorded and not fingerprinted). A run that names no runner ran on a dedicated machine |
 | | `fingerprint` | string | 64 lowercase hexadecimal digits, defined below |
 | | `environment` | object | the environment capture, defined below |
 | `measurement`, one per fresh process and metric | `benchmark` | string | name, stable within the kit |
 | | `params` | object | string to string; includes dataset identity (`tier` for JSONBench, caller-stated `dataset` for ClickBench cold rounds) |
-| | `metric`, `unit` | string | such as `cold_seconds` and `s`, `ns_per_op` and `ns/op`, `alloc_bytes_per_op` and `B/op` |
+| | `metric`, `unit` | string | such as `cold_seconds` and `s`, `ns_per_op` and `ns/op`, `cpu_ns_per_op` (process CPU time per operation) and `ns/op`, `alloc_bytes_per_op` and `B/op` |
 | | `arm` | string | `baseline`, `candidate` or `head` |
 | | `pair`, `position` | integer or null | 1-based pair and the arm's place in it, 1 or 2; null in an unpaired tier |
 | | `process` | integer | 1-based ordinal of the fresh process within its arm and benchmark |
@@ -416,6 +417,16 @@ temperatures, current frequencies, powercap limits the platform moves by itself,
 captured and not fingerprinted. Runtimes are recorded per arm and are not fingerprinted, because a
 comparison may set two runtimes against each other.
 
+A run whose `runner` has kind `hosted` is a virtual machine of a provider, whose kernel, operating
+system point release, firmware and frequency readings change with every image the provider rolls out
+while the class of machine stays what it was. Its fingerprint is therefore the SHA-256 of the
+canonical JSON of an object holding exactly: `runner_kind` (`hosted`), the runner's provider and
+label, the architecture, the CPU model, the logical CPU count and the total memory in whole GiB. The
+image is recorded in the run's `runner` and is not fingerprinted; a level change on the night an
+image changed is then visible as one instead of splitting the series. A different CPU model is a
+different condition, because CPU time is not comparable across processors. A run whose `runner` is
+absent or `dedicated` is fingerprinted as above.
+
 **Conditions record.** `docs/bench/CONDITIONS.md` MUST hold one dated entry for every change of
 the measurement environment: machine, firmware, kernel or operating system, frequency policy,
 power cap, default runtime, load control, or the benchmark set. Entries are appended in date order;
@@ -438,17 +449,23 @@ each other, in a trend window or in a learned threshold.
 - **Level:** MUST
 - **Status:** partial
 - **Since:** 1.0
-- **Code:** [bench_trend.py](../bundles/sirix-query/bench/common/bench_trend.py) `nightly_series`, `state_of`, `report`; [DEVELOPMENT.md](../docs/DEVELOPMENT.md#the-benchmark-protocol).
-- **Verified by:** [test_bench_trend.py](../bundles/sirix-query/bench/common/test_bench_trend.py) `QuartileTest`, `StateTest`, `SeriesTest`, `ReportTest`.
+- **Code:** [bench_trend.py](../bundles/sirix-query/bench/common/bench_trend.py) `nightly_series`, `state_of`, `is_informational`, `report`; the nightly recorder and publisher in [bench/nightly](../bundles/sirix-query/bench/nightly/README.md): `nightly_run.py` `run_night`, `nightly_analysis.py` `analyse`, `actionable`, `nightly_window.py` `verdict`, `publish_context`, `nightly_publish.py`, `nightly_issues.py` `open_issues`, `nightly_dashboard.py`; the workflow [nightly-bench.yml](../.github/workflows/nightly-bench.yml); [DEVELOPMENT.md](../docs/DEVELOPMENT.md#the-nightly-tier).
+- **Verified by:** [test_bench_trend.py](../bundles/sirix-query/bench/common/test_bench_trend.py) `QuartileTest`, `StateTest`, `SeriesTest`, `ReportTest`, `ZeroLevelTest`, `HostedRunnerTest`; in [bench/nightly](../bundles/sirix-query/bench/nightly): `test_nightly_run.py`, `test_nightly_analysis.py`, `test_nightly_window.py` (including the workflow's cron against the window on every day of three years), `test_nightly_publish.py`, `test_nightly_issues.py`, `test_nightly_dashboard.py`.
 - **Evidence class:** code+test (local execution on constructed histories, historical mutation results and pending remeasurement recorded in [MUTATION_DISPOSITIONS.md](../bundles/sirix-query/bench/common/MUTATION_DISPOSITIONS.md); the `Benchmark protocol tooling` CI job arrives with the same change and has not reported for this baseline)
-- **Gap/note:** Only the analysis exists. No machine runs a nightly, so no night has been recorded and the constants below have not met real nightly data; they are to be re-examined, in a change of their own, once the dedicated machine has recorded its first window. Scheduling is follow-up work.
+- **Gap/note:** A scheduled workflow now runs the nightly on GitHub-hosted runners (stage 1): CPU time and allocation per operation of a curated JMH set, judged here; wall-clock time recorded as information. No night had been recorded when this text was written, so the constants below have not met real nightly data; they are to be re-examined, in a change of their own, once the first window of nights exists. Wall-clock time on a dedicated benchmark machine (stage 2) is not scheduled by this requirement: it will be a second runner kind and its own conditions. Apache Otava runs beside the rule and is advisory; adopting it as the judge needs a decision recorded here and is not made. The workflow has not yet run on `main`, so the CPU-time noise of a hosted runner against the 2% bound is unmeasured.
 
 **Run.** A nightly run measures one arm, `head`: the default branch's build at that night's commit,
 with at least 20 accepted fresh processes for every benchmark, under the machine rules of the
 benchmark protocol. It records tier `nightly` and its `night` in the ledger (CONV-303).
 
+A nightly run on a hosted runner (CONV-303 `runner`) cannot have the quiet machine those rules ask
+for, and records it: its judged figures are those a neighbour does not move, the process CPU time
+per operation (`cpu_ns_per_op`) and the allocation per operation measured as CONV-302 defines it.
+Its wall-clock figures are recorded beside them and are informational. One night is one run: a
+second run with accepted measurements for the same night is refused before it measures.
+
 **Series and level.** A series is the set of accepted measurements that share conditions id, kit,
-benchmark, params, metric, binary kind and runtime. A night's level *L* in a series is the median
+benchmark, params, metric, binary kind, runtime and runner kind. A night's level *L* in a series is the median
 of that night's accepted values. A night with fewer than 20 of them is not a recorded night of that
 series, and two runs with accepted measurements for one night and series MUST make the analysis
 fail, naming both.
@@ -459,7 +476,9 @@ is *D* = ln(*Lₜ* / *B*). The series' own noise is taken from the window: with 
 ratio of the levels of two adjacent nights of the window (13 values) and *Q₁*, *Q₃* their quartiles
 by linear interpolation between order statistics, the fence is *Φ* = *Q₃* + 1.5 · (*Q₃* − *Q₁*). With
 the bound *G* = ln 1.02, night *t* exceeds upward when *D* > *G* and *D* > *Φ*, and downward when
-−*D* > *G* and −*D* > *Φ*.
+−*D* > *G* and −*D* > *Φ*. An allocation figure can be zero. When any level used for a night's
+judgement, those of the window and the night's own, is zero, every one of those levels is increased
+by one before any logarithm is taken, so that a path that starts to allocate is a finite, large drift.
 
 **State.** Every series MUST receive exactly one state per night: `insufficient-history` with fewer
 than 14 earlier recorded nights; `drift` when the night exceeds upward and the previous recorded
@@ -470,13 +489,31 @@ next night repeats it.
 
 **Report.** For every series whose state is not `steady` the report MUST give the state, *D* and
 *Φ* in percent, the night's commit and, for `drift` and `faster`, the night and commit before the
-first night of the unbroken run of exceeding nights. The tier MUST NOT pass or fail a change.
+first night of the unbroken run of exceeding nights. A wall-clock series of a hosted runner is analysed and listed like the others and marked
+informational; it MUST NOT make the report alarm or open an issue. The tier MUST NOT pass or fail a change.
 The default report date MUST be the latest `night` of a nightly run row, selected before filtering
 usable measurements. If the requested or default night has no recorded series, the report MUST
 name that night and exit with error status 2 rather than select an earlier night. A series with
 earlier recorded nights and none on a night being reported MUST be listed as `not measured`.
 `drift` MUST be answered by an investigation recorded in an issue; `unstable` obliges the fixture
 work CONV-302 requires and MUST NOT be answered by changing *G*, the window or the fence.
+
+**Second opinion and issues.** The tier MAY run Apache Otava over the same series of nightly levels
+and report its change points beside the states above. Otava is advisory: this rule is the judge, and
+when the two disagree both answers MUST be reported, a change only Otava finds being labelled so. A
+change point whose size is below *G* is not reported. An issue is opened automatically for an upward
+change of a judged series that is confirmed, by `drift` or by Otava with two recorded nights at the
+new level, and that is recent; there MUST be at most one issue for one change of one series, an
+existing issue, open or closed, covering a change placed within a week of it, and an issue MUST link
+the commit range between the last night at the old level and the first at the new one and MUST
+state both answers. Issues MUST NOT be opened from a fork or from any run other than a scheduled or
+dispatched run of the default branch.
+
+**Window.** Nothing public MUST be committed, pushed, deployed or opened by the nightly tier between
+04:00 and 17:30 Europe/Berlin on Monday to Friday, local time, whatever the offset from UTC. The
+schedule MUST place the whole job, with the latest start GitHub may allow, outside that window on
+every day, and the code that pushes or opens MUST itself refuse inside it, and when it could not
+finish before it opens; the schedule alone does not satisfy this paragraph.
 
 ## Status and terminology (CONV-101, CONV-102)
 
@@ -547,5 +584,5 @@ and a weekly/RC crash lane are required follow-up work, not completed by Markdow
 | CONV-206 | [test_pr_mutation.py](../.github/scripts/tests/test_pr_mutation.py) `FullScopeTest`; workflow review acceptance. | partial |
 | CONV-301 | LifecycleWorkBudgetTest and LifecycleLockAllocationBudgetTest locally verify the lifecycle refinement. **Planned:** Budget inventory reconciliation against executable work-counter assertions; execute the six mapped suites and the Work budgets block for affected product changes. | proposed |
 | CONV-302 | [test_timed_gate.py](../bundles/sirix-query/bench/common/test_timed_gate.py): pinned thresholds, scale invariance, the 2026-11-23 A/A control, shifted arms, the stop rule, allocation and the error cases; [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py): allocation legs refused unless measured with escape analysis off, the Graal JIT disabled (HotSpot C2), a non-collecting collector and a fixed batch, and their figure per operation; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `ClickBenchColdRoundsTest`. | partial |
-| CONV-303 | [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py): capture, fingerprint, conditions record, row schema, append-only file, run directory, importers; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py). | partial |
-| CONV-304 | [test_bench_trend.py](../bundles/sirix-query/bench/common/test_bench_trend.py): steady, step, slow drift, unconfirmed outlier, speedup, unstable series, short history, conditions boundary, report. | partial |
+| CONV-303 | [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py): capture, fingerprint, hosted runner class (`RunnerTest`), CPU leg (`CpuLegTest`), conditions record, row schema, append-only file, run directory, importers; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py). | partial |
+| CONV-304 | [test_bench_trend.py](../bundles/sirix-query/bench/common/test_bench_trend.py): steady, step, slow drift, unconfirmed outlier, speedup, unstable series, short history, conditions boundary, report, zero levels, hosted informational series; [bench/nightly](../bundles/sirix-query/bench/nightly/README.md) tests: recorder, analysis and merge of the two detectors, window and schedule, publisher, issues, dashboard. | partial |

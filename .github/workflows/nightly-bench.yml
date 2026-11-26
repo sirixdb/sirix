@@ -1,0 +1,152 @@
+# Nightly benchmark tier (spec/CONV-conventions.md, CONV-303 and CONV-304; docs/DEVELOPMENT.md).
+#
+# Every evening this builds `main`, runs the curated set of
+# bundles/sirix-query/bench/nightly/benchmarks.json in 20 fresh JMH processes, and records CPU time
+# and allocation per operation (judged) and wall-clock time (informational: a shared runner's
+# neighbours move it) in the results ledger, a single-arm `head` run of tier `nightly`. The
+# ledger lives on the `nightly-data` branch, so the history outlives any artifact. CONV-304's trend
+# rule judges each series; Apache Otava's change points are reported beside it. The dashboard goes to
+# the `gh-pages` branch; a confirmed upward change opens one labelled issue.
+#
+# The reserved window: nothing is committed, pushed, deployed or opened on a weekday between 04:00 and
+# 17:30 Europe/Berlin. The cron fires at 20:17 UTC (21:17 or 22:17 Berlin) and the whole job is
+# bounded to 150 minutes, so it ends before 01:50 Berlin even when GitHub starts it two hours late
+# (test_nightly_workflow.py checks this for every day of the year). The cron is the first guard;
+# nightly_window.py, called by the code that pushes and opens, is the second and does not trust it.
+#
+# A fork neither runs this job nor could publish from it: both the job and the code that publishes
+# check the canonical repository.
+name: Nightly benchmarks
+
+on:
+  schedule:
+    - cron: '17 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-bench
+  cancel-in-progress: false
+
+env:
+  CANONICAL_REPOSITORY: sirixdb/sirix
+  DASHBOARD_URL: https://sirixdb.github.io/sirix/
+  NIGHTLY_DIR: bundles/sirix-query/bench/nightly
+
+jobs:
+  nightly:
+    name: Record the night and publish
+    if: github.repository == 'sirixdb/sirix'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history and tags: the dashboard marks releases, an issue links a commit range.
+          fetch-depth: 0
+          # The build must not see a token that can write; publishing passes it to one git command at a time.
+          persist-credentials: false
+      - name: Install JDK
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - name: Build the JMH jar
+        run: ./gradlew :sirix-benchmarks:jmhJar --no-daemon -x test
+      - name: Install Apache Otava
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --require-hashes --no-deps -r "$NIGHTLY_DIR/requirements.txt"
+      - name: Pull the ledger
+        run: |
+          python3 "$NIGHTLY_DIR/nightly_publish.py" pull-data \
+            --remote "https://github.com/$GITHUB_REPOSITORY.git" --dest "$RUNNER_TEMP/data/ledger.jsonl"
+        env:
+          NIGHTLY_PUSH_TOKEN: ${{ github.token }}
+      - name: Record the night
+        id: record
+        # The recorder's exit status is kept for the last step, so a short night is still published
+        # and analysed before the job reports it as failed.
+        run: |
+          set +e
+          night="$(date -u +%F)"
+          echo "night=$night" >> "$GITHUB_OUTPUT"
+          python3 "$NIGHTLY_DIR/nightly_run.py" \
+            --jar "$(find bundles/sirix-benchmarks/build/libs -name '*-jmh.jar' | head -n 1)" \
+            --java "$JAVA_HOME/bin/java" \
+            --ledger "$RUNNER_TEMP/data/ledger.jsonl" \
+            --night "$night" \
+            --commit "$GITHUB_SHA" \
+            --runner "kind=hosted,provider=github,label=ubuntu-24.04,image=${ImageOS:-unknown}/${ImageVersion:-unknown}" \
+            --budget-seconds 6000 \
+            --out "$RUNNER_TEMP/night"
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" = 2 ]; then
+            echo "::error::The recorder refused to start. For an unknown fingerprint, add the entry printed below to docs/bench/CONDITIONS.md (CONV-303)."
+            python3 bundles/sirix-query/bench/common/bench_ledger.py fingerprint --runner "kind=hosted,provider=github,label=ubuntu-24.04" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+      - name: Analyse
+        if: steps.record.outputs.status == '0' || steps.record.outputs.status == '4'
+        run: |
+          git for-each-ref --format='%(refname:short) %(creatordate:short)' refs/tags > "$RUNNER_TEMP/tags.txt"
+          "$RUNNER_TEMP/venv/bin/python" "$NIGHTLY_DIR/nightly_analysis.py" \
+            --ledger "$RUNNER_TEMP/data/ledger.jsonl" --out "$RUNNER_TEMP/analysis.json" \
+            --tags "$RUNNER_TEMP/tags.txt" --require-otava
+          python3 "$NIGHTLY_DIR/nightly_dashboard.py" \
+            --analysis "$RUNNER_TEMP/analysis.json" --out "$RUNNER_TEMP/site" --repository "$GITHUB_REPOSITORY"
+          python3 bundles/sirix-query/bench/common/bench_trend.py report --ledger "$RUNNER_TEMP/data/ledger.jsonl" \
+            --night "${{ steps.record.outputs.night }}" | tee -a "$GITHUB_STEP_SUMMARY" || true
+      - name: Publish the ledger and the dashboard
+        id: publish
+        if: steps.record.outputs.status == '0' || steps.record.outputs.status == '4'
+        # Each command checks the reserved window itself and exits 3 inside it; the night's rows then stay in
+        # the artifact below and the job says so instead of publishing.
+        run: |
+          if ! python3 "$NIGHTLY_DIR/nightly_window.py" check --margin-minutes 20 --canonical "$CANONICAL_REPOSITORY"; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "Publication deferred: the reserved window or a non-canonical context. The ledger is in the artifact." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 "$NIGHTLY_DIR/nightly_publish.py" push-data \
+            --remote "https://github.com/$GITHUB_REPOSITORY.git" --ledger "$RUNNER_TEMP/data/ledger.jsonl" \
+            --night "${{ steps.record.outputs.night }}" --canonical "$CANONICAL_REPOSITORY"
+          python3 "$NIGHTLY_DIR/nightly_publish.py" push-pages \
+            --remote "https://github.com/$GITHUB_REPOSITORY.git" --site "$RUNNER_TEMP/site" \
+            --canonical "$CANONICAL_REPOSITORY"
+          echo "published=true" >> "$GITHUB_OUTPUT"
+        env:
+          NIGHTLY_PUSH_TOKEN: ${{ github.token }}
+      - name: Open regression issues
+        if: steps.publish.outputs.published == 'true'
+        run: |
+          python3 "$NIGHTLY_DIR/nightly_issues.py" --analysis "$RUNNER_TEMP/analysis.json" \
+            --repository "$GITHUB_REPOSITORY" --canonical "$CANONICAL_REPOSITORY" --dashboard "$DASHBOARD_URL" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Upload the night
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-${{ steps.record.outputs.night }}
+          path: |
+            ${{ runner.temp }}/night
+            ${{ runner.temp }}/data/ledger.jsonl
+            ${{ runner.temp }}/analysis.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Report an incomplete night
+        if: steps.record.outputs.status != '0' && steps.record.outputs.status != ''
+        run: |
+          echo "::error::The recorder ended with status ${{ steps.record.outputs.status }} (2 refused to start, 4 a series is short of its 20 processes, 5 the night is already in the ledger)."
+          exit 1

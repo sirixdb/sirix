@@ -238,6 +238,15 @@ jobs:
       - name: Test the timed gate, the ledger and the kits' run record
         working-directory: bundles/sirix-query/bench/common
         run: python3 -B -m unittest discover -p 'test_*.py'
+      - name: Install the pinned Apache Otava analysis
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --require-hashes --no-deps \
+            -r bundles/sirix-query/bench/nightly/requirements.txt
+      - name: Test the nightly tier (recorder, analysis, window, publisher, issues, dashboard)
+        working-directory: bundles/sirix-query/bench/nightly
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" -B -m unittest discover -p 'test_*.py'
 
   MutationTesting:
     name: PIT changed-source mutation testing

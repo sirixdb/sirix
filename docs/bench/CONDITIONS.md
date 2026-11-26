@@ -20,6 +20,15 @@ How it is used:
 - A **continues** entry keeps the id of the condition it continues. It says what changed, and it
   names the control run in the ledger that shows results stayed comparable.
 
+A **hosted runner** (the nightly workflow's GitHub-hosted `ubuntu-24.04`) has an entry of its own per
+class of machine: its fingerprint is made of the runner's provider and label, the architecture, the CPU model,
+the logical CPU count and the memory, and not of the kernel and firmware that the provider changes with every
+image. `python3 bundles/sirix-query/bench/common/bench_ledger.py fingerprint --runner
+kind=hosted,provider=github,label=ubuntu-24.04` prints it on the runner, and the nightly job's summary prints it
+when it refuses an unknown one. Each CPU model GitHub's pool contains needs its own entry, because CPU time is
+not comparable across processors; the Machine row names the model, Load control says the runner is shared, and
+Benchmark set names the nightly's curated set.
+
 Every entry has the same thirteen rows. The fingerprint covers kernel release, operating system,
 architecture, firmware version, product name, CPU model, logical CPU count, frequency drivers and
 governors, the turbo setting and memory in whole GiB. Readings that vary within one condition are

@@ -272,6 +272,36 @@ The per-change gate runs under these rules:
   A run that leaves no record cannot be compared with the next one, and a machine that changed
   without a record turns a firmware or governor update into a regression nobody can explain.
 
+### The nightly tier
+
+The nightly tier is the third tier of the protocol, and a scheduled workflow
+([nightly-bench.yml](../.github/workflows/nightly-bench.yml)) runs it every evening on a GitHub-hosted
+runner. It builds `main`, runs a curated set of JMH benchmarks in 20 fresh processes, and records three
+figures per benchmark in the results ledger as a single-arm run of tier `nightly`:
+
+- **CPU time per operation** and **allocation per operation** are judged. A shared machine's
+  neighbours do not move them, or far less than they move elapsed time.
+- **Wall-clock time** is recorded in the same processes and shown on the dashboard, marked as
+  informational and never judged on a hosted runner. It will be judged on a dedicated benchmark
+  machine, a second runner kind with its own conditions.
+
+The trend rule of [CONV-304](../spec/CONV-conventions.md#conv-304--nightly-trend-tier) is the judge.
+[Apache Otava](https://otava.apache.org/) (E-divisive means over the nights' levels) runs beside it
+and is advisory: when the two disagree the dashboard and the issue show both, and a change only Otava
+finds says so. Making Otava the judge would be a decision recorded in the specification, not a setting.
+
+The history is durable: the ledger is `ledger.jsonl` on the `nightly-data` branch, appended once a
+night, and the dashboard is a static site on `gh-pages` generated from it, with no script and no
+third-party request. A confirmed upward change of a judged series opens one issue, once, labelled
+`benchmark-regression`, with the commit range and both detectors' answers; it is the investigation
+CONV-304 asks `drift` to be answered with. Close it with the cause, never by widening a bound.
+
+Two rules are enforced in code and not by convention. Nothing public is committed, pushed, deployed or
+opened between 04:00 and 17:30 Europe/Berlin on a weekday: the cron places the job in the evening and
+the publishing code refuses inside the window as well. And nothing is published from a fork, a pull
+request or a topic branch. The pieces, the files and how to run them by hand are in
+[bench/nightly/README.md](../bundles/sirix-query/bench/nightly/README.md).
+
 Machine-specific details — core assignment, load limits, lock paths — belong to the harness
 configuration, not to the protocol. The campaign document's
 [measurement discipline](BENCHMARK_CAMPAIGNS.md#3-measurement-discipline-why-the-numbers-can-be-trusted)
