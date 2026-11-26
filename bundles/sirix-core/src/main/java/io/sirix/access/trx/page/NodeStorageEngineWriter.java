@@ -244,6 +244,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private final Writer storagePageReaderWriter;
 
   /**
+   * First cleanup failure that happened after the last commit crossed its commit point, or
+   * {@code null}. Volatile because the asynchronous commit pipeline hardens on a background thread.
+   * {@code spec: TXN-307}
+   */
+  // Only the reference is published here. Throwable synchronizes its diagnostic mutation; the
+  // hardening thread owns cleanup and readers consume it after the async completion fence.
+  @SuppressWarnings("java:S3077")
+  private volatile @Nullable Throwable postCommitCleanupFailure;
+
+  /**
    * Transaction intent log.
    */
   TransactionIntentLog log;
@@ -1902,6 +1912,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       snapshot.capture(key, node, log.getCurrentGeneration(), page.getPageKey());
     }
+  }
+
+  /**
+   * Live heap-owned record captures; hardening/rollback/close must return this lifecycle budget to
+   * zero.
+   */
+  int retainedRecordCaptureCount() {
+    final WriterRecordSnapshot snapshot = recordSnapshot;
+    return snapshot == null
+        ? 0
+        : snapshot.size();
   }
 
   private void clearRecordSnapshot() {
@@ -4480,8 +4501,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  // Post-durable cleanup must keep running after an Error too: the revision is already committed.
+  @SuppressWarnings("java:S1181")
   public void hardenCommit(final UberPage uberPage, final boolean isIntermediateCommit) {
     storageEngineReader.resourceSession.assertNotInCommitCallback();
+    postCommitCleanupFailure = null;
     {
       final boolean timing = LOGGER.isDebugEnabled();
 
@@ -4490,10 +4514,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final PageReference uberPageReference = new PageReference().setDatabaseId(storageEngineReader.getDatabaseId())
                                                                  .setResourceId(storageEngineReader.getResourceId());
       uberPageReference.setPage(uberPage);
-
-      final long t2 = timing
-          ? System.nanoTime()
-          : 0;
 
       final int revision = uberPage.getRevisionNumber();
 
@@ -4512,10 +4532,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // their represented catalogue even when empty, so later opens cannot inherit the newer catalogue.
       serializeIndexDefinitions(revision);
 
-      final long t3 = timing
-          ? System.nanoTime()
-          : 0;
-
       // CRITICAL crash-safety invariant (write-ahead property): all data pages AND the index
       // catalogue (above) MUST be durable BEFORE either uber-page beacon is written.
       // writeUberPageReference OWNS the entire data-durability protocol — it flushes the buffered
@@ -4526,22 +4542,45 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // duplicated kernel/journal work whose accumulated pressure degraded long commit-heavy runs.
       storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
           uberPage, bufferBytes);
-      // The beacon now makes every foreground prewrite part of a durable reachable revision; an
-      // eventual close must not invalidate those committed offsets.
+
+      // ─────────── The commit point is crossed: revision N is durable (TXN-304). ───────────
+      // Everything below only tidies up after a revision that already EXISTS, so a failure here is
+      // not a commit failure. Each step therefore runs independently — one broken step may not
+      // skip the others — and the first failure is retained for recordPostDurableCleanupFailure,
+      // which logs it, flags the resource for repair and reports it through
+      // postCommitCleanupFailure() so the transaction above can report the commit as the success it
+      // is instead of claiming that nothing was committed (TXN-307, #1380).
+      //
+      // The beacon makes every foreground prewrite part of a durable reachable revision; an
+      // eventual close must not invalidate those committed offsets. These two cannot fail, so they
+      // stay outside the guarded steps.
       hasUncommittedReclaimableWrites = false;
       firstUncommittedPageOffset = Long.MAX_VALUE;
-      clearRecordSnapshot();
-      storagePageReaderWriter.discardSpilledWrites();
-      closeDurableReadPages();
 
-      final long t4 = timing
-          ? System.nanoTime()
-          : 0;
+      try {
+        clearRecordSnapshot();
+      } catch (final RuntimeException | Error failure) {
+        postCommitCleanupFailure = firstPostDurableCleanupFailure(postCommitCleanupFailure, failure);
+      }
+      try {
+        storagePageReaderWriter.discardSpilledWrites();
+      } catch (final RuntimeException | Error failure) {
+        postCommitCleanupFailure = firstPostDurableCleanupFailure(postCommitCleanupFailure, failure);
+      }
+      try {
+        closeDurableReadPages();
+      } catch (final RuntimeException | Error failure) {
+        postCommitCleanupFailure = firstPostDurableCleanupFailure(postCommitCleanupFailure, failure);
+      }
 
       // CRITICAL: Release current page guard BEFORE TIL.clear()
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
       currentNamePage = null;
-      storageEngineReader.closeCurrentPageGuard();
+      try {
+        storageEngineReader.closeCurrentPageGuard();
+      } catch (final RuntimeException | Error failure) {
+        postCommitCleanupFailure = firstPostDurableCleanupFailure(postCommitCleanupFailure, failure);
+      }
 
       // Clear TransactionIntentLog - closes all modified pages. clear() drains the WHOLE log
       // before rethrowing a retained page-close failure, so by the time it throws the memoized
@@ -4549,25 +4588,32 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // both exits (rollback and close guard their clears the same way), or a transaction that
       // survives the rethrow keeps serving recycled frames out of its memo.
       try {
-        log.clear();
-      } finally {
-        clearLocalContainerCaches();
+        try {
+          log.clear();
+        } finally {
+          clearLocalContainerCaches();
+        }
+      } catch (final RuntimeException | Error failure) {
+        postCommitCleanupFailure = firstPostDurableCleanupFailure(postCommitCleanupFailure, failure);
       }
-
-      final long t5 = timing
-          ? System.nanoTime()
-          : 0;
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
         deleteIfExists(commitFile);
-      } catch (final IOException e) {
-        throw new SirixIOException("Commit file could not be deleted: " + commitFile, e);
+      } catch (final IOException | RuntimeException | Error failure) {
+        postCommitCleanupFailure = firstPostDurableCleanupFailure(postCommitCleanupFailure, failure);
       }
 
       if (timing) {
-        LOGGER.debug("Commit phase 2 r{}: indexDefs={}ms uberWrite={}ms tilClear={}ms total={}ms", revision,
-            ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t2));
+        try {
+          LOGGER.debug("Commit phase 2 r{}: revision durable; cleanup finished", revision);
+        } catch (final RuntimeException | Error failure) {
+          postCommitCleanupFailure = firstPostDurableCleanupFailure(postCommitCleanupFailure, failure);
+        }
+      }
+
+      if (postCommitCleanupFailure != null) {
+        recordPostDurableCleanupFailure(revision, postCommitCleanupFailure);
       }
     }
   }
@@ -5180,6 +5226,44 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private void setUserIfPresent() {
     final Optional<User> optionalUser = storageEngineReader.resourceSession.getUser();
     optionalUser.ifPresent(newRevisionRootPage::setUser);
+  }
+
+  @Override
+  public @Nullable Throwable postCommitCleanupFailure() {
+    return postCommitCleanupFailure;
+  }
+
+  /** Retain only the first cause, without allocating suppression storage under memory pressure. */
+  private static Throwable firstPostDurableCleanupFailure(final @Nullable Throwable first, final Throwable failure) {
+    return first == null
+        ? failure
+        : first;
+  }
+
+  /**
+   * Record a cleanup failure that happened after revision {@code revision} became durable: log it,
+   * flag the resource for repair, and publish it through {@link #postCommitCleanupFailure()} so the
+   * transaction above reports the commit as the success it is while making itself terminal.
+   * {@code spec: TXN-307}
+   *
+   * @param revision the revision that IS durable
+   * @param failure the first cleanup failure after that revision became durable
+   */
+  // The resource must be flagged for repair even when the cleanup failure was an Error.
+  @SuppressWarnings("java:S1181")
+  private void recordPostDurableCleanupFailure(final int revision, final Throwable failure) {
+    postCommitCleanupFailure = failure;
+    try {
+      storageEngineReader.resourceSession.requireCommitRecovery();
+    } catch (final RuntimeException | Error _) {
+      // Diagnostics cannot change the known durable result; the original cause remains published.
+    }
+    try {
+      LOGGER.error("Revision {} is durably committed, but cleanup after the commit point failed. The commit stands, "
+          + "the writer is terminal and the resource is flagged for repair.", revision, failure);
+    } catch (final RuntimeException | Error _) {
+      // Diagnostics cannot change the known durable result; the original cause remains published.
+    }
   }
 
   /**
