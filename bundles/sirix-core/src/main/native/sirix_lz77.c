@@ -197,11 +197,12 @@ SLZ_INLINE SLZ_HOT int slz_decode_body(const uint8_t * SLZ_RESTRICT input,
                     return SLZ_ERR_INPUT_EXHAUSTED;
                 }
                 b = input[in_pos++];
-                litLen += b;
-                /* Cap the running sum so a long 0xFF chain cannot wrap litLen past 2^32. */
-                if (checked && SLZ_UNLIKELY(litLen > uncompressed)) {
+                /* Bounded BEFORE the addition and in 64 bits: a 0xFF chain summing to 2^32 would
+                 * otherwise wrap litLen to a small value that every later check accepts. */
+                if (checked && SLZ_UNLIKELY((uint64_t)litLen + b > (uint64_t)uncompressed - outPos)) {
                     return SLZ_ERR_LITERAL_OVERFLOW;
                 }
+                litLen += b;
             } while (b == 0xFF);
             if (SLZ_UNLIKELY(outPos + litLen > uncompressed)) {
                 return SLZ_ERR_LITERAL_OVERFLOW;
@@ -248,10 +249,13 @@ SLZ_INLINE SLZ_HOT int slz_decode_body(const uint8_t * SLZ_RESTRICT input,
                     return SLZ_ERR_INPUT_EXHAUSTED;
                 }
                 b = input[in_pos++];
-                matchLen += b;
-                if (checked && SLZ_UNLIKELY(matchLen > uncompressed)) {
+                /* The four-byte minimum below is part of what this match will emit, so it counts
+                 * against the remaining output here too. */
+                if (checked
+                    && SLZ_UNLIKELY((uint64_t)matchLen + b + SLZ_MIN_MATCH > (uint64_t)uncompressed - outPos)) {
                     return SLZ_ERR_MATCH_OVERFLOW;
                 }
+                matchLen += b;
             } while (b == 0xFF);
         }
         matchLen += SLZ_MIN_MATCH;
@@ -395,6 +399,9 @@ SLZ_INLINE SLZ_HOT int slz_decode_body(const uint8_t * SLZ_RESTRICT input,
             do {
                 if (SLZ_UNLIKELY(in_pos >= in_end)) return SLZ_ERR_INPUT_EXHAUSTED;
                 b = input[in_pos++];
+                if (SLZ_UNLIKELY((uint64_t)litLen + b > (uint64_t)uncompressed - outPos)) {
+                    return SLZ_ERR_LITERAL_OVERFLOW;
+                }
                 litLen += b;
             } while (b == 0xFF);
         }
@@ -417,6 +424,9 @@ SLZ_INLINE SLZ_HOT int slz_decode_body(const uint8_t * SLZ_RESTRICT input,
             do {
                 if (SLZ_UNLIKELY(in_pos >= in_end)) return SLZ_ERR_INPUT_EXHAUSTED;
                 b = input[in_pos++];
+                if (SLZ_UNLIKELY((uint64_t)matchLen + b + SLZ_MIN_MATCH > (uint64_t)uncompressed - outPos)) {
+                    return SLZ_ERR_MATCH_OVERFLOW;
+                }
                 matchLen += b;
             } while (b == 0xFF);
         }

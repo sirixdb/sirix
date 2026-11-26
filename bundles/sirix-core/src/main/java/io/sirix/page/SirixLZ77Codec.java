@@ -1024,6 +1024,9 @@ public final class SirixLZ77Codec {
             throw new IllegalStateException("SirixLZ77Codec: varint overrun");
           }
           b = input[inPos++] & 0xFF;
+          if ((long) litLen + b > uncompressed - outPos) {
+            throw new IllegalStateException("SirixLZ77Codec: literal would overrun output");
+          }
           litLen += b;
         } while (b == 0xFF);
       }
@@ -1068,6 +1071,9 @@ public final class SirixLZ77Codec {
             throw new IllegalStateException("SirixLZ77Codec: varint overrun");
           }
           b = input[inPos++] & 0xFF;
+          if ((long) matchLen + b + MIN_MATCH > uncompressed - outPos) {
+            throw new IllegalStateException("SirixLZ77Codec: match would overrun output");
+          }
           matchLen += b;
         } while (b == 0xFF);
       }

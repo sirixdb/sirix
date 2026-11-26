@@ -241,6 +241,24 @@ final class ProjectionOverflowEncodingTest {
   }
 
   /**
+   * A declared size is not producible merely because tokens follow it. FMT-216 introduces a long run
+   * with an opcode byte and only then its stop-bit count, so a five-byte body spends one byte on the
+   * opcode and can carry a four-byte count at most — 268,435,455 bytes, whatever the remaining bytes
+   * say. Each frame here declares a gibibyte behind five token bytes; the first is the reviewer's,
+   * whose tokens are five one-byte literal runs that between them produce five bytes.
+   */
+  @Test
+  void tokensAfterTheHeaderDoNotMakeAnOversizedDeclarationProducible() {
+    for (final String frame : new String[] {"090003000000400b00000002fe80808080040000000000",
+        "090003000000400b00000000ff80808080040000000000", "090003000000400b00000002fe8080808004fdfdfdfdfd"}) {
+      final byte[] image = HexFormat.of().parseHex(frame);
+      final IllegalStateException refusal =
+          assertThrows(IllegalStateException.class, () -> read(image), "frame " + frame + " must be refused");
+      assertTrue(refusal.getMessage().contains("can produce at most 268435455"), refusal.getMessage());
+    }
+  }
+
+  /**
    * The declared size must still be reachable from a body that really can produce it: a long zero-run
    * of a mebibyte costs the writer a marker, a size varint and one more run token, and no
    * producibility bound may turn that into a refusal. This is the valid counterpart of the frames

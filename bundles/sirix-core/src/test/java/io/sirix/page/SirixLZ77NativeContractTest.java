@@ -8,6 +8,7 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Guards the tail-slack contract between {@link SirixLZ77Codec} and the native decoder.
@@ -180,5 +181,86 @@ final class SirixLZ77NativeContractTest {
         assertEquals(CANARY, output[i], "decoder wrote past the destination at offset " + offset);
       }
     }
+  }
+
+  /**
+   * A length extension that sums to exactly 2^32 must be refused, by whichever decoder runs.
+   *
+   * <p>
+   * FMT-216 sums successive extension bytes "until a byte below 255, included in that sum". The frame
+   * built below declares 64 decoded bytes and then spends 16,843,008 bytes of {@code ff} followed by
+   * {@code f1}, so the literal length reaches {@code 15 + 255 * 16_843_008 + 241}, which is 2^32 to
+   * the byte. A decoder that adds first and bounds afterwards wraps that to zero, skips the literal
+   * and goes on to produce 64 bytes from a malformed frame — the behaviour this rejects.
+   *
+   * <p>
+   * Both decoders are driven through the untrusted entry point: with the frame's array carrying the
+   * documented input tail slack the native loop takes it, and with the array ending at the frame the
+   * native dispatch declines and the Java single pass takes it. The dispatch counters say which ran,
+   * so neither can pass by not being exercised.
+   */
+  @Test
+  void aLengthExtensionSummingToFourGibibytesIsRefusedByWhicheverDecoderRuns() {
+    final byte[] frame = wrappingLiteralExtensionFrame();
+    for (final boolean withSlack : new boolean[] {true, false}) {
+      if (withSlack && !SirixLZ77NativeDecoder.isGuardedAvailable()) {
+        continue;
+      }
+      final byte[] input = Arrays.copyOf(frame, frame.length + (withSlack
+          ? SirixLZ77Codec.NATIVE_INPUT_TAIL_SLACK
+          : 0));
+      final int visible = 64 + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK;
+      final byte[] output = new byte[visible + GUARD];
+      Arrays.fill(output, CANARY);
+      final MemorySegment dst = MemorySegment.ofArray(output).asSlice(0, visible);
+      final long nativeBefore = SirixLZ77Codec.getNativeCallCount();
+      final long javaBefore = SirixLZ77Codec.getJavaCallCount();
+
+      assertThrows(IllegalStateException.class, () -> SirixLZ77Codec.decodeChecked(input, 0, frame.length, dst, 0L),
+          "a literal length summing to 2^32 must be refused (inputSlack=" + withSlack + ")");
+
+      final long natives = SirixLZ77Codec.getNativeCallCount() - nativeBefore;
+      final long javas = SirixLZ77Codec.getJavaCallCount() - javaBefore;
+      if (natives + javas == 1) {
+        assertEquals(withSlack
+            ? 1L
+            : 0L, natives, "the native decoder must be the one refusing when the frame carries input slack");
+        assertEquals(withSlack
+            ? 0L
+            : 1L, javas, "the Java single pass must be the one refusing when it does not");
+      }
+      for (int i = visible; i < output.length; i++) {
+        assertEquals(CANARY, output[i], "a refused frame wrote past the destination (inputSlack=" + withSlack + ")");
+      }
+    }
+  }
+
+  /**
+   * {@code fd 40 | 10 2a 01 00 | f0 [ff x 16_843_008] f1 | 01 00 | f0 28 [2a x 55]} — the frame whose
+   * literal-length extension sums to 2^32. Generated rather than stored: it is sixteen mebibytes.
+   */
+  private static byte[] wrappingLiteralExtensionFrame() {
+    final int fills = 16_843_008;
+    assertEquals(1L << 32, 15L + 255L * fills + 0xF1, "the extension must sum to exactly 2^32");
+    final byte[] frame = new byte[fills + 67];
+    int at = 0;
+    frame[at++] = SirixLZ77Codec.FRAME_MARKER;
+    frame[at++] = 0x40;
+    frame[at++] = 0x10;
+    frame[at++] = 0x2A;
+    frame[at++] = 0x01;
+    frame[at++] = 0x00;
+    frame[at++] = (byte) 0xF0;
+    Arrays.fill(frame, at, at + fills, (byte) 0xFF);
+    at += fills;
+    frame[at++] = (byte) 0xF1;
+    frame[at++] = 0x01;
+    frame[at++] = 0x00;
+    frame[at++] = (byte) 0xF0;
+    frame[at++] = 0x28;
+    Arrays.fill(frame, at, at + 55, (byte) 0x2A);
+    at += 55;
+    assertEquals(frame.length, at, "frame layout");
+    return frame;
   }
 }

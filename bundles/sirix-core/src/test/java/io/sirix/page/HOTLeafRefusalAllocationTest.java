@@ -57,10 +57,15 @@ final class HOTLeafRefusalAllocationTest {
 
   /**
    * FMT-216: the reader must verify that the stored token stream can produce the declared decoded
-   * length "before reserving a destination based on" it. Both frames below carry a byte-run header
-   * with no token byte after it, so neither can produce anything; one declares a mebibyte and the
-   * other sixty-four bytes. Refusing them must therefore cost the same, which is the observable
-   * difference between checking before the reservation and checking after it.
+   * length "before reserving a destination based on" it. The paired frames below each declare a large
+   * and a small size with the SAME token stream, so the only thing the measurement can attribute a
+   * difference to is the declared size.
+   *
+   * <p>
+   * The first pair carries a byte-run header and no token byte at all. The second carries five token
+   * bytes — a declared size is not producible just because some tokens follow it: five body bytes
+   * spend one on the long-run opcode and so leave a four-byte count, which cannot reach the gibibyte
+   * either frame declares.
    */
   @Test
   void refusingAnUnproducibleOverflowPayloadAllocatesIndependentlyOfItsDeclaredSize() throws IOException {
@@ -74,21 +79,34 @@ final class HOTLeafRefusalAllocationTest {
     final ResourceConfiguration config =
         new ResourceConfiguration.Builder("overflow-refusal").versioningApproach(VersioningType.FULL).build();
 
-    final long perRefusal =
-        refusalBytes(config, unproducibleOverflowPayload(1 << 20, new byte[] {(byte) 0x80, (byte) 0x80, 0x40}), bean,
-            thread) - refusalBytes(config, unproducibleOverflowPayload(64, new byte[] {0x40}), bean, thread);
-    System.out.printf("overflowRefusalAllocation=%d bytes per refusal%n", perRefusal);
-    assertTrue(perRefusal < 1024,
-        "refusing the mebibyte frame allocated " + perRefusal + " more bytes than refusing the 64-byte frame");
+    final byte[] noTokens = new byte[0];
+    final long emptyStream =
+        refusalBytes(config, unproducibleOverflowPayload(1 << 20, MEBIBYTE_COUNT, noTokens), bean, thread)
+            - refusalBytes(config, unproducibleOverflowPayload(64, new byte[] {0x40}, noTokens), bean, thread);
+    final byte[] fiveTokens = new byte[5];
+    final long tokenStream =
+        refusalBytes(config, unproducibleOverflowPayload(1 << 30, GIBIBYTE_COUNT, fiveTokens), bean, thread)
+            - refusalBytes(config, unproducibleOverflowPayload(1 << 29, HALF_GIBIBYTE_COUNT, fiveTokens), bean, thread);
+    System.out.printf("overflowRefusalAllocation empty=%d tokens=%d bytes per refusal%n", emptyStream, tokenStream);
+    assertTrue(emptyStream < 1024,
+        "refusing the mebibyte frame allocated " + emptyStream + " more bytes than refusing the 64-byte frame");
+    assertTrue(tokenStream < 1024, "refusing the gibibyte frame with five token bytes allocated " + tokenStream
+        + " more bytes than refusing the half-gibibyte one");
   }
 
+  /** Stop-bit counts of the declared sizes used above, least significant group first. */
+  private static final byte[] MEBIBYTE_COUNT = {(byte) 0x80, (byte) 0x80, 0x40};
+  private static final byte[] GIBIBYTE_COUNT = {(byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x04};
+  private static final byte[] HALF_GIBIBYTE_COUNT = {(byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x02};
+
   /**
-   * Compressed projection {@link io.sirix.page.OverflowPage} image whose byte-run frame is a marker
-   * and {@code sizeVarint} and nothing else: the page and the frame agree on {@code declared} bytes,
-   * and no token can deliver them.
+   * Compressed projection {@link io.sirix.page.OverflowPage} image whose byte-run frame is a marker,
+   * {@code sizeVarint} and {@code tokenBytes}: the page and the frame agree on {@code declared}
+   * bytes, and that token stream cannot deliver them.
    */
-  private static byte[] unproducibleOverflowPayload(final int declared, final byte[] sizeVarint) {
-    final int storedLength = 1 + sizeVarint.length;
+  private static byte[] unproducibleOverflowPayload(final int declared, final byte[] sizeVarint,
+      final byte[] tokenBytes) {
+    final int storedLength = 1 + sizeVarint.length + tokenBytes.length;
     final ByteBuffer image = ByteBuffer.allocate(12 + storedLength).order(ByteOrder.LITTLE_ENDIAN);
     image.put(PageKind.OVERFLOWPAGE.getID())
          .put((byte) 0)
@@ -97,7 +115,8 @@ final class HOTLeafRefusalAllocationTest {
          .putInt(storedLength)
          .put((byte) 2)
          .put(ByteRunCodec.FRAME_MARKER)
-         .put(sizeVarint);
+         .put(sizeVarint)
+         .put(tokenBytes);
     return image.array();
   }
 

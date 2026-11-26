@@ -8861,19 +8861,35 @@ public enum PageKind {
     return true;
   }
 
+  /** A stop-bit count caps at five bytes, the width that still yields a non-negative int. */
+  private static final int MAX_RUN_COUNT_BYTES = 5;
+
   /**
    * The most a codec can produce from {@code bodyBytes} bytes of token stream, as a necessary
    * condition only: exact production stays with the single-pass decoders.
    *
    * <p>
-   * Every token consumes at least one body byte, so the declared size is bounded by the number of
-   * body bytes times the most one token can produce. For the run codecs that is a short run, capped
-   * at 128 output bytes, or a long run whose count is a varint — and a varint can only be as long as
-   * the bytes available, which is why this grows exponentially and goes vacuous once five body bytes
-   * are present. It has to: a twelve-byte zero-run frame legitimately declares a gibibyte of zeros,
-   * and no ratio bound may reject committed data. For LZ77 each length-extension byte adds at most
-   * 255 and each token carries at most 19 from its nibbles against a three-byte overhead, so output
-   * never exceeds 255 per consumed byte.
+   * FMT-216's run-codec opcode table admits exactly two shapes that produce more bytes than they
+   * occupy. A short run is one opcode byte and yields at most 128 output bytes (zero-run
+   * {@code 80..fe}; byte-run's own short forms yield less). A long run is one opcode byte
+   * ({@code ff}, or {@code fd}/{@code fe}) FOLLOWED BY its stop-bit count, so an {@code N}-byte body
+   * leaves at most {@code N - 1} count bytes and a count below {@code 2^(7(N-1))}. Counting the
+   * opcode is what makes the bound real: five body bytes carry a four-byte count, so they cannot
+   * declare more than 268,435,455 bytes however the rest of the frame reads.
+   *
+   * <p>
+   * Over every composition of an {@code N}-byte body the maximum is therefore
+   * {@code max(128N, 2^(7(N-1)) - 1)} — all short runs, or one long run spending the whole body — and
+   * it stops constraining at six body bytes, where a five-byte count already reaches the largest size
+   * the envelope can declare. It has to stop there: a twelve-byte zero-run frame legitimately
+   * declares a gibibyte of zeros, and no ratio bound may reject committed data. At each count width
+   * the bound equals the densest legal encoding exactly, so it refuses only sizes no frame of that
+   * length could carry.
+   *
+   * <p>
+   * For LZ77 each length-extension byte adds at most 255 and each token carries at most 19 from its
+   * nibbles against a three-byte overhead, so output never exceeds 255 per consumed byte — the token
+   * byte is already counted as consumed there.
    */
   private static long maxProducibleOverflowPayload(final int codec, final int bodyBytes) {
     if (bodyBytes <= 0) {
@@ -8882,10 +8898,10 @@ public enum PageKind {
     if (codec == 3) {
       return 255L * bodyBytes;
     }
-    if (bodyBytes >= 5) {
+    if (bodyBytes > 1 + MAX_RUN_COUNT_BYTES) {
       return Integer.MAX_VALUE;
     }
-    return Math.max(128L, (1L << (7 * bodyBytes)) - 1) * bodyBytes;
+    return Math.max(128L * bodyBytes, (1L << (7 * (bodyBytes - 1))) - 1);
   }
 
   /**

@@ -115,14 +115,35 @@
   `4 << 28` to declare a gibibyte, followed by no token byte at all. One gibibyte of heap plus a
   native landing were reserved before the decoder reached its first "input exhausted". The boundary
   now also requires the declared size to be within what the bytes after the frame header could
-  produce: every token consumes at least one body byte, so the ceiling is the body-byte count times
-  the most a single token can emit. For the run codecs that is a 128-byte short run or a long run
-  whose count is a varint no longer than the bytes present, which is why the ceiling climbs
-  exponentially and stops constraining at five body bytes — it has to, because a twelve-byte
-  zero-run frame legitimately declares a gibibyte of zeros and no ratio cap may reject committed
-  data. For LZ77 each extension byte adds at most 255 against a three-byte token overhead, so
-  output never exceeds 255 per consumed byte. The ceiling is a necessary condition only; exact
-  production stays with the single-pass decoders, so no second grammar implementation appears.
+  produce. For the run codecs the ceiling is `max(128N, 2^(7(N-1)) - 1)` over an `N`-byte body: all
+  short runs at 128 output bytes each, or one long run spending the whole body. The `N - 1` is the
+  part worth stating, because the first attempt at this bound got it wrong: FMT-216 introduces a
+  long run with an OPCODE byte and only then its stop-bit count, so an `N`-byte body leaves `N - 1`
+  count bytes, and the frame
+  `09 00 03 00 00 00 40 0b 00 00 00 02 fe 80 80 80 80 04 00 00 00 00 00` — a gibibyte declared
+  behind five token bytes — slipped through a ceiling that allowed any size from five body bytes.
+  Five body bytes carry a four-byte count and so cannot declare more than 268,435,455 bytes however
+  the rest of the frame reads. The ceiling stops constraining at six body bytes, where a five-byte
+  count already reaches the largest size the envelope can declare; it has to stop there, because a
+  twelve-byte zero-run frame legitimately declares a gibibyte of zeros and no cap may reject
+  committed data. At each count width it equals the densest legal encoding exactly, so it refuses
+  only sizes no frame of that length could carry. For LZ77 each extension byte adds at most 255
+  against a three-byte token overhead, so output never exceeds 255 per consumed byte. The ceiling is
+  a necessary condition only; exact production stays with the single-pass decoders, so no second
+  grammar implementation appears.
+- A length must be bounded BEFORE it is added to, and in a wider type. Capping the running literal
+  and match sums only after each addition left two holes. First, it was applied to the native hot
+  loop and not to its own tail loop, nor to the Java single pass — and the tail loop is not an edge
+  case: `safeLimit` is `uncompressed - 64`, so a frame declaring 64 bytes runs one hot iteration and
+  spends the rest of its tokens in the tail. Second, adding first and testing afterwards only
+  survives at all because C's `uint32_t` has headroom above a declared size of at most 2^31-1; the
+  same shape in Java `int` goes negative and passes every later test. The frame
+  `fd 40 | 10 2a 01 00 | f0 [ff x 16,843,008] f1 | 01 00 | f0 28 [2a x 55]` sums its literal
+  extension to exactly 2^32, which wrapped to zero, skipped the literal and let a malformed frame
+  produce its full 64 declared bytes. All four extension loops — native hot, native tail, Java
+  literal, Java match — now test `length + b` (plus the four-byte match minimum, which is part of
+  what the match emits) against the output still owed, in 64-bit arithmetic, before the addition.
+  The frame is refused on its first extension byte rather than after scanning sixteen mebibytes.
 - Lesson: when a boundary dispatches untrusted bytes to several decoders, the bound belongs to each
   decoder, and a decoder whose hot path elides bounds checks needs a separate entry point for
   untrusted input rather than a caller that hopes. Recorded as a fragment in

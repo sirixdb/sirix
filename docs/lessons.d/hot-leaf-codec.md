@@ -209,13 +209,22 @@ there the declared size is the postcondition and the envelope owns the
 bytes past the stored length.
 Hardening one codec and leaving its siblings is not a partial fix but no
 fix, because the codec id is attacker-chosen.
-Two declared lengths agreeing is not a producible length: before reserving
-anything, require the declared size to fit what the bytes after the frame
-header could emit — body bytes times the most one token can produce, which
-for a varint-coded run count must climb exponentially with the bytes present
-and stop constraining where a short legitimate frame really does declare a
-gibibyte. Keep that a necessary condition and leave exact production to the
-decoder, so no second grammar implementation appears.
+Two declared lengths agreeing is not a producible length, and neither is a
+declared length with some tokens after it: before reserving anything, require
+the declared size to fit what the bytes after the frame header could emit.
+Count the opcode bytes when deriving that ceiling — a run's count is
+introduced by an opcode, so an N-byte body carries an (N-1)-byte count, and a
+ceiling that forgets the opcode admits a gibibyte from five bytes. Let it
+climb with the bytes present and stop constraining where a short legitimate
+frame really does declare a gibibyte. Keep it a necessary condition and leave
+exact production to the decoder, so no second grammar implementation appears.
+Bound a running length BEFORE adding to it, against the output still owed and
+in a wider type than the length: adding first and testing afterwards survives
+only on the headroom an unsigned type happens to have, and the same shape in
+signed arithmetic goes negative and passes every later test. Apply it in every
+loop a malformed frame can reach, which includes the tail loop a decoder keeps
+for its last bytes — for a frame declaring less than the hot loop's slack,
+the tail loop is where almost all of its tokens are read.
 Where a decoder's hot path deliberately elides input bounds — tail-slack
 overshoot, or a native entry point handed a length instead of a capacity —
 do not ask its caller to be careful, and do not hand its work to a slower
