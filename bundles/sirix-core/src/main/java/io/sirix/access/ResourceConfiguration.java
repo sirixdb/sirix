@@ -560,37 +560,46 @@ public final class ResourceConfiguration {
   }
 
   /**
-   * Draws a fresh incarnation id for this persisted resource and durably publishes it in its settings
-   * before adopting it (FMT-209, TXN-404). When this returns, the new id is on disk and forced; when
-   * it throws, neither the settings file nor this configuration changed.
+   * Draws a fresh incarnation id for this persisted resource and publishes it in its settings
+   * (FMT-209, TXN-404), durably where the platform provides a directory barrier. On Windows the
+   * rename has no durability barrier; see {@code docs/KNOWN_LIMITATIONS.md#platform}. A failure
+   * before the rename leaves both the settings and this configuration unchanged. After the rename
+   * this configuration adopts the installed id even if the directory barrier or channel close fails;
+   * the failure still propagates.
    *
    * @throws SirixIOException if the settings cannot be read or durably rewritten
    */
   public void publishFreshIncarnationId() {
     final long fresh = drawIncarnationId();
-    writeIncarnationId(resourcePath, fresh);
-    incarnationId = fresh;
+    writeIncarnationId(resourcePath, fresh, this);
   }
 
   /**
-   * Draws a fresh incarnation id for the persisted resource in {@code resourceDirectory} and durably
+   * Draws a fresh incarnation id for the persisted resource in {@code resourceDirectory} and
    * publishes it in its settings (FMT-209: backup restore draws per restored resource before exposing
-   * it). Only the {@code incarnationId} member changes; every other setting is kept as written.
+   * it), durably where the platform provides a directory barrier. On Windows the rename has no
+   * durability barrier; see {@code docs/KNOWN_LIMITATIONS.md#platform}. Only the
+   * {@code incarnationId} member changes; every other setting is kept as written. A failure before
+   * the rename leaves the settings unchanged; a failure after it leaves the new id installed and
+   * still propagates.
    *
    * @param resourceDirectory the resource directory holding {@code ressetting.obj}
    * @throws SirixIOException if the settings are not a valid 1.0 settings document or cannot be
    *         durably rewritten
    */
   public static void publishFreshIncarnationId(final Path resourceDirectory) {
-    writeIncarnationId(requireNonNull(resourceDirectory), drawIncarnationId());
+    writeIncarnationId(requireNonNull(resourceDirectory), drawIncarnationId(), null);
   }
 
   /**
    * Replaces the persisted {@code incarnationId} member with {@code incarnationId}: write a sibling
    * temporary file, force it, atomically move it over the settings and force the directory, so a
-   * crash leaves the old or the new document in full, and the new one durably once this returns.
+   * crash leaves the old or the new document in full, and the new one durably once this returns where
+   * the platform provides a directory barrier. On Windows the rename has no durability barrier; see
+   * {@code docs/KNOWN_LIMITATIONS.md#platform}.
    */
-  private static void writeIncarnationId(final Path resourceDirectory, final long incarnationId) {
+  private static void writeIncarnationId(final Path resourceDirectory, final long incarnationId,
+      final @Nullable ResourceConfiguration configuration) {
     final Path configFile = resourceDirectory.resolve(ResourcePaths.CONFIG_BINARY.getPath());
     final JsonObject settings;
     try {
@@ -613,6 +622,9 @@ public final class ResourceConfiguration {
       }
       DatabaseConfiguration.moveIntoPlace(tmpFile, configFile);
       tmpFile = null;
+      if (configuration != null) {
+        configuration.incarnationId = incarnationId;
+      }
       forceDirectory(resourceDirectory);
     } catch (final IOException e) {
       throw new SirixIOException(configFile + ": cannot publish a new incarnation id", e);
@@ -627,7 +639,12 @@ public final class ResourceConfiguration {
     }
   }
 
-  /** Makes the rename durable. Windows cannot open a directory channel; NTFS journals the rename. */
+  /**
+   * Makes the rename durable where a directory barrier is available. On Windows MoveFileEx runs
+   * without MOVEFILE_WRITE_THROUGH and no directory handle is flushed, so a crash after return can
+   * lose the new id. This is part of the engine-wide directory-metadata durability gap, including the
+   * commit path's index catalogue and .commit marker, tracked as sirix-durable-file-metadata.
+   */
   private static void forceDirectory(final Path directory) throws IOException {
     if (System.getProperty("os.name", "").startsWith("Windows")) {
       return;

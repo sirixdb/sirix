@@ -55,6 +55,15 @@ Categories used:
 
 ## Platform
 
+- **Directory-metadata durability (`sirix-durable-file-metadata`).** On Windows, FMT-209
+  incarnation-id publication on truncate and restore has no directory/write-through barrier, so a
+  crash after return can lose the settings rename and the "durably publish before removal"
+  ordering is not guaranteed. [OpenJDK 25's Windows move implementation](https://raw.githubusercontent.com/openjdk/jdk25u/master/src/java.base/windows/classes/sun/nio/fs/WindowsFileCopy.java)
+  uses `MoveFileEx` without `MOVEFILE_WRITE_THROUGH`, and no directory handle is flushed;
+  [Windows caches filesystem metadata until flushed](https://learn.microsoft.com/en-us/windows/win32/fileio/file-caching).
+  This is part of an engine-wide gap: on every platform the commit path's index catalogue
+  `{revision}.xml` and `.commit` marker, resource creation, the `IN_MEMORY` tombstone rename and
+  the `dbsetting.obj` replace get no directory sync. Follow-up task: `sirix-durable-file-metadata`.
 - **Windows + MEMORY_MAPPED storage: interrupted-first-commit recovery cannot re-initialize in
   place.** Windows hard-locks memory-mapped files, so the recovery path that truncates and
   re-bootstraps a damaged bootstrap-only resource fails while any mapping may still be live.

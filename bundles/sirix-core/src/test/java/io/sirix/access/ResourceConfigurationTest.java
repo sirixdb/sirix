@@ -4,20 +4,133 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.sirix.exception.SirixIOException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedStatic;
 
+import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 
 final class ResourceConfigurationTest {
   @TempDir
   Path directory;
+
+  enum PublicationFailure {
+    TEMPORARY_OPEN, DIRECTORY_OPEN, DIRECTORY_FORCE, DIRECTORY_CLOSE
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void fmt209FailureBeforeRenamePreservesBothIds(final boolean restore) throws Exception {
+    final ResourceConfiguration config = persist(false);
+    final long original = config.getIncarnationId();
+    final byte[] settings = Files.readAllBytes(config.getConfigFile());
+    final IOException failure = new IOException("temporary file unavailable");
+    try (final MockedStatic<FileChannel> channels =
+        failPublication(config, PublicationFailure.TEMPORARY_OPEN, failure)) {
+      assertSame(failure, assertThrows(SirixIOException.class, () -> publish(config, restore)).getCause());
+    }
+    assertArrayEquals(settings, Files.readAllBytes(config.getConfigFile()));
+    assertEquals(original, config.getIncarnationId());
+    assertEquals(original, ResourceConfiguration.deserialize(config.getResource()).getIncarnationId());
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = PublicationFailure.class, names = {"DIRECTORY_OPEN", "DIRECTORY_FORCE", "DIRECTORY_CLOSE"})
+  @EnabledOnOs({OS.LINUX, OS.MAC})
+  void fmt209FailureAfterRenameKeepsTheInstalledId(final PublicationFailure point) throws Exception {
+    for (final boolean restore : new boolean[] {false, true}) {
+      final ResourceConfiguration config = persist(false);
+      final long original = config.getIncarnationId();
+      final JsonObject settings = JsonParser.parseString(Files.readString(config.getConfigFile())).getAsJsonObject();
+      final IOException failure = new IOException("directory barrier unavailable");
+      try (final MockedStatic<FileChannel> channels = failPublication(config, point, failure)) {
+        assertSame(failure, assertThrows(SirixIOException.class, () -> publish(config, restore)).getCause());
+      }
+      final JsonObject installed = JsonParser.parseString(Files.readString(config.getConfigFile())).getAsJsonObject();
+      final long fresh = Long.parseUnsignedLong(installed.get("incarnationId").getAsString(), 16);
+      assertNotEquals(original, fresh);
+      settings.remove("incarnationId");
+      installed.remove("incarnationId");
+      assertEquals(settings, installed);
+      final ResourceConfiguration reopened = ResourceConfiguration.deserialize(config.getResource());
+      assertEquals(fresh, reopened.getIncarnationId());
+      final ResourceConfiguration live = restore
+          ? reopened
+          : config;
+      assertEquals(fresh, live.getIncarnationId());
+      ResourceConfiguration.serialize(live);
+      assertEquals(fresh, ResourceConfiguration.deserialize(config.getResource()).getIncarnationId());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void fmt209SuccessfulPublicationSurvivesSettingsRewrite(final boolean restore) throws Exception {
+    final ResourceConfiguration config = persist(false);
+    final long original = config.getIncarnationId();
+    publish(config, restore);
+    final ResourceConfiguration reopened = ResourceConfiguration.deserialize(config.getResource());
+    final long fresh = reopened.getIncarnationId();
+    assertNotEquals(original, fresh);
+    final ResourceConfiguration live = restore
+        ? reopened
+        : config;
+    assertEquals(fresh, live.getIncarnationId());
+    ResourceConfiguration.serialize(live);
+    assertEquals(fresh, ResourceConfiguration.deserialize(config.getResource()).getIncarnationId());
+  }
+
+  private static void publish(final ResourceConfiguration config, final boolean restore) {
+    if (restore) {
+      ResourceConfiguration.publishFreshIncarnationId(config.getResource());
+    } else {
+      config.publishFreshIncarnationId();
+    }
+  }
+
+  private static MockedStatic<FileChannel> failPublication(final ResourceConfiguration config,
+      final PublicationFailure point, final IOException failure) throws IOException {
+    final FileChannel directoryChannel = mock(FileChannel.class);
+    if (point == PublicationFailure.DIRECTORY_FORCE) {
+      doThrow(failure).when(directoryChannel).force(true);
+    } else if (point == PublicationFailure.DIRECTORY_CLOSE) {
+      doThrow(failure).when(directoryChannel).close();
+    }
+    return mockStatic(FileChannel.class, invocation -> {
+      if (invocation.getMethod().getName().equals("open")) {
+        final Path path = invocation.getArgument(0);
+        if (path.equals(config.getResource())) {
+          if (point == PublicationFailure.DIRECTORY_OPEN) {
+            throw failure;
+          }
+          return directoryChannel;
+        }
+        if (point == PublicationFailure.TEMPORARY_OPEN && path.getFileName().toString().endsWith(".tmp")) {
+          throw failure;
+        }
+      }
+      return invocation.callRealMethod();
+    });
+  }
 
   @Test
   void newResourcesDefaultToSaltedPages() {

@@ -60,7 +60,8 @@ incarnation id as a string of exactly 16 lowercase hexadecimal digits. A documen
 with any other type or spelling, is refused without being rewritten; there is no default. Creation,
 `truncateTo`, whole-resource replacement and backup restore each draw a new id from a
 cryptographically secure RNG; truncate and restore replace only that member, through a forced
-temporary file, an atomic rename and a forced directory. See `IncarnationIdConformanceTest`.
+temporary file, an atomic rename and a forced directory (no directory barrier on Windows; see
+[known platform limitations](KNOWN_LIMITATIONS.md#platform)). See `IncarnationIdConformanceTest`.
 
 ### sirix.data (FILE_CHANNEL, the default)
 
