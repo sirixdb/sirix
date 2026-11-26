@@ -1,5 +1,5 @@
 # Apache Otava 0.8.0 and the two libraries its change point analysis needs, pinned by hash (Python 3.12,
-# manylinux x86_64: the nightly workflow's ubuntu-24.04 runner). Installed with
+# manylinux x86_64; the workflows install that Python with actions/setup-python). Installed with
 #   pip install --require-hashes --no-deps -r requirements.txt
 # Otava's data-source, Slack and Grafana integrations (BigQuery, PostgreSQL, ...) are not used: the
 # tier calls `otava.analysis.compute_change_points` on series it builds from its own ledger, so none

@@ -238,6 +238,11 @@ jobs:
       - name: Test the timed gate, the ledger and the kits' run record
         working-directory: bundles/sirix-query/bench/common
         run: python3 -B -m unittest discover -p 'test_*.py'
+      - name: Set up Python 3.12
+        # The Otava requirements are hash-pinned for CPython 3.12 wheels; the runner's default Python moves.
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
       - name: Install the pinned Apache Otava analysis
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"
