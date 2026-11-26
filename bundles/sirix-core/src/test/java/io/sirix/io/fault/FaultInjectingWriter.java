@@ -137,6 +137,11 @@ public final class FaultInjectingWriter implements Writer {
   }
 
   @Override
+  public void requireCompatibleRevisionRoots(final int lastRevision) {
+    delegate.requireCompatibleRevisionRoots(lastRevision);
+  }
+
+  @Override
   public Writer truncateTo(final int revision) {
     maybeFire(Point.BEFORE_TRUNCATE_TO);
     delegate.truncateTo(revision);

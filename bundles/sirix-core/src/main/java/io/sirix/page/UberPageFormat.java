@@ -15,10 +15,7 @@ final class UberPageFormat {
   private UberPageFormat() {}
 
   static UberPage read(final BytesIn<?> source) {
-    final byte version = source.readByte();
-    if (version != BinaryEncodingVersion.V0.byteVersion()) {
-      throw new UnsupportedStoreFeatureException("Unknown uber page version " + Byte.toUnsignedInt(version));
-    }
+    BinaryEncodingVersion.fromByte(source.readByte());
     final int flags = Byte.toUnsignedInt(source.readByte());
     if ((flags & ~EXTENSION_BLOCK) != 0) {
       throw new UnsupportedStoreFeatureException("Unknown uber page flags 0x" + Integer.toHexString(flags));

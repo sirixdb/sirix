@@ -81,3 +81,346 @@
 - Why tests missed it: the new lifecycle and codec checks asserted the distinct unsupported outcome; the older format suite was not included in their final focused verification.
 - Regression test: retain the existing hostile version fixture and require `UnsupportedStoreFeatureException` specifically. The initial focused run failed this assertion before the test-only repair; the repaired suite passed alongside the documented core/query/MCP work-budget block. Reproduce with `./gradlew :sirix-core:test --tests io.sirix.format.GoldenFormatTest`.
 - Lesson: when an intentional exception classification changes, execute both the new lifecycle regression and existing format-contract checks. No production logic changes in this repair; no new production mutants are introduced.
+
+
+## Format baseline: refusals through repair boundaries
+
+- Fix / issue: FMT-102/FMT-401 review findings R1/R2; FMT-402 evidence correction R3.
+- Symptom: a foreign-format derived resource could be deleted and rebuilt, or a foreign-format
+  revisions file truncated while recovering an interrupted bootstrap. Layout, uber and ordinary
+  page versions also used different diagnostics. A timestamp arithmetic helper asserted only its
+  own output rather than executing the importer.
+- Trigger: open a valid-time source whose derived sibling names `binaryEncoding=V7`, or patch either
+  file's layout version with a valid checksum; alternatively retain only bootstrap beacons and a
+  foreign revisions header with no valid revision records. Exercise FILE_CHANNEL and MEMORY_MAPPED.
+- Root cause: format refusals lacked a shared non-repairable classification. Derived fallback
+  checked feature words without validating file formats; bootstrap proof validated only the data
+  header before interpreting revisions records. The violated invariant is that no repair may
+  reinterpret, delete or truncate foreign-format bytes. Recovery additionally needs each nonzero
+  file identity to match its role and the configured resource UUID.
+- Why tests missed it: direct helper calls bypassed real page decoding and repair owners; bootstrap
+  cases had no foreign revisions header, and derived feature tests omitted foreign settings and
+  superblocks. A second test-only timestamp implementation could pass without an engine adjustment.
+- Regression tests and independent oracle: `FormatRepairBoundaryTest` opens real stores with
+  checksum-valid foreign versions, mismatched UUIDs/roles/strides and missing derived settings.
+  FMT-102/FMT-401 require refusal and byte-for-byte unchanged data, revisions and derived settings;
+  these tests reject rebuilding or truncating the selected settings, superblock and uber-page
+  images; they do not establish full page-envelope protection through repair or recovery.
+  `FormatVersionBaselineTest` decodes
+  foreign uber and revision-root envelopes through cold store opens, including a compatible
+  secondary beacon; the observable oracle is the specified plain refusal and unchanged files.
+  `HistoryPreservingExportImportTest` imports exported timestamps directly and compares with the
+  fixture's known source timestamps, preserving all other history assertions.
+- Verification: the pre-fix failing sequences were traced through the repair branches, without a
+  counterfactual execution in this review phase. The focused run executed 131 tests: 130 passed,
+  with one test-only refusal-count error (20 fixtures were incorrectly counted as 36). After
+  correcting that count, all nine `FormatVersionBaselineTest` tests passed on the targeted rerun.
+  Thus every selected test passed across the initial run and rerun, including both golden suites,
+  `FormatRepairBoundaryTest`, history round-trip, binary-version, bootstrap and store-feature
+  recovery suites. The attached startup tasks also passed. The first compilation required moving
+  the repair fixture into the access package to use its package-private derived-resource builder.
+  Logs: `build/review-format-verification.log`, `build/review-format-baseline-verification.log`;
+  initial JUnit XML: `build/review-format-initial-results/`. Reproduce the full selection with
+  `./gradlew :sirix-core:test --tests io.sirix.format.FormatVersionBaselineTest --tests io.sirix.access.FormatRepairBoundaryTest --tests io.sirix.format.HistoryPreservingExportImportTest --tests io.sirix.format.GoldenFormatTest --tests io.sirix.format.GoldenCompositePageTest --tests io.sirix.BinaryEncodingVersionStrictTest --tests io.sirix.access.InterruptedFirstCommitRecoveryTest --tests io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest`.
+  The outer pipeline owns mutation, work-budget, lint and broader verification phases.
+- Lesson: extend the existing compatibility-before-repair lesson in [LESSONS.md](../LESSONS.md):
+  version refusals need the same repair immunity as required-feature refusals, and every persistent
+  file must establish its identity before interpreting records as evidence that deletion is safe.
+
+## Deferred repair ownership: documentation scope correction
+
+This intermediate gap was resolved by the [foreign-root repair follow-up](#foreign-root-envelopes-at-repair-boundaries);
+[FMT-401](../../spec/FMT-disk-format.md#fmt-401--10-format-baseline) owns current coverage and remaining gaps.
+
+- Findings: R4 and review-1 identify the same remaining ownership gap. Ordinary opens refuse foreign
+  versions before mutation on both persistent backends, but that evidence does not cover derived
+  rebuilding, torn-record healing from the tail log, orphan-spill deletion, crash-leftover truncation
+  or interrupted-first-commit recovery. The mapped bootstrap case can truncate a foreign
+  revision-zero root when its directory record is torn.
+- Root cause of the overstatement: the earlier regression matrix tested foreign settings,
+  superblocks and uber pages through selected repair paths, and page envelopes through ordinary
+  opens. Combining a foreign envelope with repair-triggering state exposes mutations before
+  envelope decoding. Passing those separate fixture groups did not prove the combined invariant.
+- Decision: retain delivered production checks and every behavior test; record the remaining
+  gap in FMT-102/FMT-401 and scope factual claims to ordinary opens. The normative MUST requirements
+  remain the decided target, and FMT-402's three timestamp gaps remain unchanged.
+- Follow-up identified in this round: task `sirix-repair-format-gate`, before any second format version exists.
+  It needs side-effect-free discovery of affected records and envelopes and a resource-bound proof
+  required by every repair entry point, replacing the bare opening snapshot across factories and
+  reaching direct reader and writer APIs. This documentation round adds no production behavior.
+- Verification: 28 focused tests passed with zero failures, errors or skips:
+  `FormatVersionBaselineTest` (9), `GoldenFormatTest` (16), `GoldenCompositePageTest` (2) and
+  `BinaryEncodingVersionStrictTest` (1). The run used `:sirix-core:test` with those four selections
+  and excluded unrelated startup tasks; output is in `build/review-format-doc-scope.log`.
+  Production sources, test bodies, golden pins and the FMT-102/FMT-401 normative paragraphs were
+  unchanged in this round; FMT-402 was unchanged in full.
+- Lesson: document the boundary exercised by a regression matrix. Separate version and recovery
+  tests cannot establish version refusal before recovery side effects; see [LESSONS.md](../LESSONS.md).
+
+
+## History preservation: independent fixture oracle
+
+- Finding: R5. The history round-trip compared export and import outputs from the same helper,
+  allowing consistent loss of content, messages, authors or revision identity to pass.
+- Root cause: checking that two derived results agree does not establish that either preserves the
+  committed fixture required by FMT-402. Timestamp checks already used known input values, but
+  sibling fields lacked that independent oracle.
+- Why tests missed it: the declared `DOCUMENTS`, `MESSAGES` and `AUTHORS` constants were used to
+  write the source, but not to assert its exported or imported records. A serializer returning
+  `[]` for every revision, or consistently blank metadata, could satisfy the former comparison.
+- Regression: `HistoryPreservingExportImportTest` now checks both stages against those constants,
+  revision numbers 1 through the fixture length, and the known source timestamps. The same
+  assertion checks the export in the separate source-byte-preservation test. Revision count,
+  order, increasing timestamps and unchanged source data/revisions files remain checked.
+- Verification: `./gradlew :sirix-core:test --tests io.sirix.format.HistoryPreservingExportImportTest`
+  with unrelated startup tasks excluded passed both tests, with zero failures, errors or skips.
+  Output is recorded in `build/review-history-oracle.log`. No production code changed.
+- Lesson: assert each stage of a round trip against known inputs; agreement between outputs from
+  the same decoder cannot establish preservation. See [LESSONS.md](../LESSONS.md).
+
+## Foreign root envelopes at repair boundaries
+
+- Fix / issue: FMT-401; test findings T1 and test-2, continuing R4/review-1.
+- Symptom: a foreign root with damaged derived settings was rebuilt; orphan spills were deleted,
+  commit-marker recovery truncated files, and torn revision records were healed before refusal.
+  With a lost bootstrap record and tail log, both backends could reinitialize the foreign resource.
+- Trigger: checksummed foreign root envelopes combined with each repair trigger on FILE_CHANNEL
+  and MEMORY_MAPPED, after clearing global caches.
+- Root cause: superblock and uber compatibility were checked before initialization, while root
+  envelope compatibility was deferred until after storage preload and session cleanup. The
+  bootstrap proof considered record reachability but never checked surviving page envelopes.
+- Fix: read-only compatibility discovery checks file identities, the uber page and root envelope
+  before persistent storage initialization. Tail-log discovery cannot heal records. Bootstrap
+  recovery without a root pointer checks the surviving framed prefix; reinitialization and derived
+  rebuilding require a resource-bound compatibility proof. Direct record healing and truncation
+  check their target root envelope before changing files.
+- Why tests missed it: foreign envelopes and recovery triggers were tested separately; existing
+  preservation assertions omitted orphan spills and commit markers.
+- Regression: `FormatRepairBoundaryTest` combines those inputs and compares a manifest of every
+  resource file's length and SHA-256 digest. The independent oracle is FMT-401's refusal without
+  mutation, rejecting an engine that refuses only after cleanup. The supplied SDK probe reproduced
+  all ten backend/scenario failures before the fix (exit 1); the added JUnit regressions also failed
+  before the fix (four failing parameterized invocations, exit 1).
+- Lesson: compatibility discovery is itself a read-only operation; a salvaged pointer is evidence
+  to validate, not permission to repair. See the compatibility-before-repair entry in
+  [LESSONS.md](../LESSONS.md).
+
+- Focused verification: 127 tests passed with no failures, errors or skips across
+  `FormatRepairBoundaryTest`, `FormatVersionBaselineTest`, both interrupted-first-commit suites,
+  `LazyRevisionRecordRecoveryTest`, `ResourceSessionFactoryTest`,
+  `FileChannelWriterFrontierValidationTest` and `HistoryPreservingExportImportTest`
+  (`:sirix-core:test --tests <each named class>`, exit 0). All ten original SDK reproductions
+  passed on the two backends (exit 0), with unchanged whole-resource manifests.
+- Targeted counterfactuals: compiled disposable copies with either root-envelope validation or
+  bounded salvage discovery removed. The existing refusal and mixed-salvage behavior tests each
+  passed against production classes (exit 0) and failed against their respective mutant (exit 1),
+  detecting orphan-spill deletion and an earlier record healed before foreign refusal. Production
+  sources were never replaced by the mutant copies. These two checks are scoped mutation evidence;
+  the outer pipeline owns broader mutation coverage and CI.
+- Storage-budget verification: `ScratchBufferWorkBudgetTest`,
+  `SparseRevisionIndexWorkBudgetTest` and `CommitReinstantiationWorkBudgetTest` passed all eight
+  tests (exit 0), without changing bounds. Verification stayed focused; broad regression and CI
+  remain owned by the outer pipeline.
+
+
+## Beaconless and bounded-history discovery gaps
+
+- Symptom and trigger: with baseline file headers, zero beacon slots, no valid revision record
+  and a surviving foreign envelope, opening could authorize empty-bootstrap truncation. An
+  unknown settings member before `binaryEncoding=V7` could instead authorize derived rebuilding.
+  A checksum-valid historical root inside the tail window could escape checking before cleanup
+  or healing, even while the latest root was compatible.
+- Root cause: the proof boundary confused an absent committed beacon with absent format evidence;
+  its settings fallback relied on ordered deserialization; its bounded record loop treated a valid
+  checksum as proof of envelope compatibility. The invariant is that every readable foreign version
+  within discovery's stated scope must cause refusal before its consumers mutate any resource file.
+- Why tests missed it: bootstrap fixtures retained beacons or contained only garbage, settings
+  fixtures put the version first, and historical tests tore the foreign root's record rather than
+  leaving it checksum-valid.
+- Regression tests and oracle: FMT-401 requires the plain refusal naming the found version and an
+  unchanged whole resource. `FormatRepairBoundaryTest.beaconlessForeignEnvelopePreventsBootstrapTruncation`
+  removes both beacons and all records, with valid or zero data headers;
+  `validHistoricalRootIsCheckedBeforeCleanupOrHealing` retains a checksum-valid foreign historical
+  root and adds an orphan spill, with either a valid or torn latest record;
+  `derivedRepairRefusesForeignFormatsWithoutChangingFiles` now includes unknown fields preceding
+  the foreign settings version (also with a truncated suffix) and a valid foreign historical root.
+  Every case runs on FILE_CHANNEL and MEMORY_MAPPED and compares all resource file names, sizes
+  and SHA-256 content digests. These reject truncation, rebuilding, spill deletion or record healing
+  before refusal. `derivedRepairStillRebuildsWhenNoForeignSettingsVersionIsReadable` is the positive
+  control for V0, absent, null and unreadable versions; the existing interrupted-first-commit suite
+  covers baseline crash-tail recovery.
+- Verification: the pre-fix sequences were traced through the executable paths; no intermediate
+  verification was run, as required by this review phase. One focused Gradle test selection at the
+  end passed all 157 tests with no failures, errors or skips (exit 0), covering the boundary
+  regressions, baseline/error contract, both golden suites, bootstrap and feature recovery, lazy
+  record recovery, direct writer truncation and the three storage work-budget suites. Log:
+  `build/review-format-contained.log`; JUnit XML: `bundles/sirix-core/build/test-results/test/`.
+  The outer pipeline owns mutation, lint and broader validation.
+- Remaining gap: a complete envelope scan before destructive repair is deliberately deferred to
+  `sirix-repair-format-gate`. The latest root, bounded tail window and beaconless framed prefix
+  do not establish compatibility of envelopes outside those subsets or after malformed frames
+  or unwritten gaps. FMT-401 remains partial and the follow-up cannot close.
+- Lesson: extend the compatibility-before-repair lesson in [LESSONS.md](../LESSONS.md): distinguish
+  missing pointers from missing evidence, and checksum validity from format compatibility.
+
+
+## Truncate publication and absent revisions headers
+
+- Symptom: explicit truncate to a foreign historical root published downgraded beacons before
+  refusing its format. Separately, a lost or empty revisions file plus an interrupted-commit
+  marker blocked a FILE_CHANNEL write transaction indefinitely, despite usable tail-log records.
+- Trigger: commit 20 revisions, retain a foreign revision-1 envelope below compatible later roots,
+  cold-open and truncate to revision 1. For recovery, commit a known string at revision 1, remove
+  or empty the revisions file, retain `.commit`, cold-open and begin a write transaction.
+- Root cause: target decoding occurred only in the final I/O truncate, after the caller published
+  beacons. The shared repair gate also demanded a revisions header even when the supported
+  recovery protocol intentionally postpones recreating it until the next commit. Required
+  invariants are target compatibility before publication, and validated data identity plus tail-log
+  roots for an absent revisions header, with strict validation of every present header.
+- Why tests missed it: foreign-root cases lived within the discovery window or invoked the raw
+  writer directly. Recovery cases did not combine a missing revisions header with a commit marker.
+- Regression tests and independent oracle: FMT-401 requires refusal and whole-resource preservation;
+  `FormatRepairBoundaryTest.truncateRefusesForeignFrontierBeforeBeaconPublication` checks every file
+  and the unchanged session revision after a refused truncate on both backends. The recovery
+  contract and known committed string are the oracle for
+  `commitMarkerRecoveryDistinguishesAbsentAndForeignHeaders`: FILE_CHANNEL must commit again and
+  preserve the original content across cold reopen; both backends must preserve all files when a
+  foreign header is present. MEMORY_MAPPED has no lost-record salvage, so its missing/empty cases
+  must still refuse without changing files. Existing beaconless/settings regressions retain both
+  backend coverage for the earlier contained fixes.
+- Verification: failing sequences were traced before editing; the single focused verification
+  passed all 165 selected tests with no failures, errors or skips (exit 0), including these cases,
+  ordinary successful truncate, bootstrap recovery, golden byte pins, plain format diagnostics
+  and storage work budgets. Log: `build/review-format-truncate.log`; JUnit XML:
+  `bundles/sirix-core/build/test-results/test/`. Mutation, lint and broader validation remain
+  owned by the outer pipeline.
+- Remaining gap: complete discovery of envelopes outside the latest root, bounded tail window and
+  recoverable framed prefix remains task `sirix-repair-format-gate`; this task cannot close.
+- Lesson: validate the destination before publishing a transition, and distinguish absent recovery
+  metadata from a present foreign identity. See [LESSONS.md](../LESSONS.md).
+
+
+## Prospective truncate window before publication
+
+- Symptom and trigger: with 20 revisions committed and a foreign revision-1 envelope, a cold
+  open succeeds because the current bounded window is revisions 5–20. Truncating to compatible
+  revision 2 used to publish revision-2 beacons and change the session revision before the I/O
+  gate checked revisions 0–2 and refused the foreign revision. Subsequent opens then failed.
+- Root cause: preflight validated only the selected root, although the post-publication repair
+  gate validates the entire bounded window at the new frontier. The violated invariant is that
+  every format check required at the prospective frontier must pass before beacon publication
+  or session-state changes. Both backends share the same writer and reader boundaries.
+- Fix: expose the existing read-only bounded-root check through Writer and forward it through
+  the fault-injection decorator. Both explicit truncate preflight and direct writer truncate
+  invoke it before mutation. Unsupported writers refuse the check; RAM truncation remains
+  unsupported. The existing target decode and descriptor-bound repair proof remain in place.
+- Why tests missed it: the preceding regression truncated directly to the foreign root, so its
+  target decode caught the problem without exercising a compatible target and foreign neighbor.
+- Regression and independent oracle: FMT-401 requires an unchanged resource after refusal.
+  `FormatRepairBoundaryTest.truncateRefusesForeignFrontierBeforeBeaconPublication` now tries
+  targets 1, 2 and 16 with foreign revision 1 on both backends. It checks the plain format
+  diagnostic, unchanged session revision and every resource file's names, sizes and content
+  digests immediately, after closing and after a fresh cold open. Targets 2 and 16 reject a
+  target-only preflight, including the first revision of a full 16-record prospective window.
+- Verification: the failing sequence was traced before edits; the single focused verification
+  passed all 177 selected tests with no failures, errors or skips (exit 0), including successful
+  truncate, absent-header recovery, the fault decorator, golden byte pins, format diagnostics
+  and storage work budgets. Log: `build/review-format-frontier-window.log`; JUnit XML:
+  `bundles/sirix-core/build/test-results/test/`. The outer pipeline owns mutation, lint and broader
+  validation.
+- Remaining gap: complete discovery beyond the current/latest and bounded prospective windows
+  stays deferred to `sirix-repair-format-gate`; FMT-401 remains partial and the task cannot close.
+- Lesson: when a transition changes the validation frontier, preflight the same bounded evidence
+  that the destination state will require. See [LESSONS.md](../LESSONS.md).
+
+## Incomplete bootstrap tail with revision-zero beacons
+
+- Fix / issue: FMT-401; `review-bootstrap-tail`.
+- Symptom and trigger: feature-free revision-zero beacons survive, but the directory record and
+  tail-log copies are lost and the surviving framed prefix ends in an incomplete baseline frame.
+  Opening repeatedly fails instead of recovering an empty resource on either persistent backend.
+- Root cause: the compatibility gate tolerated non-version prefix failures only when no beacon
+  decoded. A decoded revision-zero beacon takes a separate missing-record path, where the same
+  prefix failure escaped; the recovery attempt repeated that gate and failed before reinitializing.
+  The invariant is that an unreadable first-commit tail permits empty-bootstrap recovery when no
+  foreign version is readable, regardless of whether feature-free revision-zero beacons survived.
+- Fix: apply the existing prefix exception distinction to missing-record discovery as well.
+  Unsupported versions still propagate; non-version failures permit a proof only at revision zero.
+  Recovery still independently proves feature-free bootstrap beacons and no valid revision records
+  before truncation. Intact roots and later-revision failures keep their existing paths.
+- Why tests missed it: beaconless garbage-tail recovery and foreign bootstrap envelope refusal
+  were covered, but no matched pair combined surviving revision-zero beacons, lost records and
+  tail-log copies, and an incomplete prefix.
+- Regression tests and independent oracle: FMT-401 requires usable recovery without a readable
+  foreign version and unchanged resource bytes on foreign refusal.
+  `FormatRepairBoundaryTest.incompleteBootstrapTailRecoversWithoutForeignVersion` commits known
+  content and checks it after a cold reopen;
+  `incompleteBootstrapTailRefusesReadableForeignVersion` requires the plain error naming version 1
+  and compares every resource file's name, length and content digest. Both exercise FILE_CHANNEL
+  and MEMORY_MAPPED with and without revision-zero beacons, retaining the older beaconless cases.
+  The tests reject both unconditional refusal of incomplete tails and swallowing version errors.
+- Verification: the pre-fix failing path was traced statically; no separate counterfactual run was
+  performed because this phase requires all fixes before focused verification. The first focused
+  core run passed 153 of 155 tests; both new recovery cases failed only because the test expected
+  revision 1 for the first commit after empty reinitialization, which creates revision 0. That
+  test-only expectation was corrected while retaining the durable-content oracle. The affected-class
+  rerun (`./gradlew :sirix-core:test --tests io.sirix.access.FormatRepairBoundaryTest`, unrelated
+  startup tasks excluded, 256 MiB/2 GiB test heap) passed all 25 cases with no failures, errors or
+  skips, exit 0. Log: `build/review-bootstrap-tail-rerun.log`; JUnit XML:
+  `bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.FormatRepairBoundaryTest.xml`.
+  The other 130 tests passed in the initial run: bootstrap and feature recovery, both golden
+  suites, format-baseline diagnostics, strict binary versions, sparse revision-index work budgets
+  and scratch-buffer budgets. Mutation, lint and broader validation belong to the outer pipeline.
+- Scope: complete historical envelope discovery remains the named `sirix-repair-format-gate` gap;
+  FMT-401 stays partial and its code+test evidence does not claim completeness or CI confirmation.
+- Lesson: pair recoverable corruption with readable-version refusal across both beacon states;
+  see [LESSONS.md](../LESSONS.md).
+
+### Follow-up: readable version in an incomplete frame
+
+- Fix / issue: FMT-401; `review-partial-envelope-version` together with `review-bootstrap-tail`.
+- Symptom and trigger: valid baseline file identities, missing directory records and tail-log
+  copies, and either zero beacons or feature-free revision-zero beacons allow bootstrap recovery
+  to erase a partial frame whose own envelope already carries a readable foreign version.
+  An unreadable derived-settings fallback can likewise authorize deletion of those bytes.
+- Root cause: frame-length validation ran before decoding any available envelope header. Its
+  short-body error was classified as recoverable even when the available version was foreign.
+  The preceding fix correctly tolerated unreadable prefixes, but completeness cannot distinguish
+  an unreadable version from a readable foreign one.
+- Rule: for an incomplete first-commit frame, a readable foreign version requires refusal with
+  every resource file unchanged; a readable baseline version or absent/unreadable version permits
+  the existing empty-bootstrap proof. The decision table is recorded at the shared prefix boundary
+  and in FMT-401. No scan proceeds beyond the malformed frame.
+- Fix: decode only the available payload through the configured byte pipeline before rejecting
+  the short body. Both memory-segment and stream decoding check the version first. Foreign
+  exceptions still bypass both recovery catches; compatible partial frames still fail committed-root
+  validation. Ordinary complete frames retain their size, version and kind checks. The revision-zero
+  recovery handling and its independent disposable-bootstrap proof remain intact.
+- Why tests missed it: the preceding refusal fixture placed its foreign version in an earlier
+  complete frame, while the incomplete frame had only a kind byte. It could not distinguish
+  decoding the incomplete envelope from rejecting its length without examining its bytes.
+- Regression tests and independent oracle: FMT-401's table supplies the expected outcomes for
+  `FormatRepairBoundaryTest.incompleteFrameWithForeignHeaderIsRefused`,
+  `incompleteFrameWithBaselineHeaderRecovers` and `incompleteFrameWithoutReadableHeaderRecovers`.
+  All three run on FILE_CHANNEL and MEMORY_MAPPED, with and without beacons, using identity and
+  Deflate pipelines to exercise memory-segment and stream decoding. Missing or undecodable headers
+  have zero or one encoded byte. Positive cases commit known content and read it after cold reopen;
+  foreign cases require the diagnostic naming version 1 and identical whole-resource file digests.
+  `incompleteFrameForeignHeaderPreventsDerivedRebuild` covers both readable and unreadable settings;
+  `incompleteBaselineFrameCannotServeAsCommittedRoot` rejects accepting a partial committed root.
+  Earlier complete-envelope, beaconless and recovery tests remain in place.
+- Pre-fix evidence: statically tracing the new foreign-header fixture reaches the old length
+  rejection before `BinaryEncodingVersion.fromByte`, then obtains a recovery proof and truncates.
+  No counterfactual run was performed because this phase requires applying all fixes before focused
+  verification. The focused `:sirix-core:test` selection passed all 165 tests with no failures,
+  errors or skips (exit 0): 35 repair-boundary tests, 95 bootstrap/feature recovery tests, 28 strict
+  version/baseline/golden tests and seven scratch-buffer/revision-index budget tests. Unrelated
+  startup tasks were excluded and the test heap was 256 MiB/2 GiB. Log:
+  `build/review-partial-envelope-version.log`; JUnit XML:
+  `bundles/sirix-core/build/test-results/test/`. Mutation, lint and broader checks belong to the
+  outer pipeline.
+- Scope: FMT-401 remains partial with code+test evidence. Complete discovery outside the current
+  frame, latest root and bounded window remains the `sirix-repair-format-gate` gap; neither that
+  task nor the immutable-corpus or CI evidence gaps are closed here. FMT-402 is unchanged.
+- Lesson: classify recoverability from the version actually readable in the incomplete frame;
+  see [LESSONS.md](../LESSONS.md).

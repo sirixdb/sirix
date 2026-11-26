@@ -23,6 +23,7 @@ import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionRecordKeySet;
 import io.sirix.page.ChunkedBodyConfig;
+import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.ReplayWorkDiagnostics;
@@ -252,6 +253,15 @@ public final class EngineWorkCounters {
 
   /** The HOT leaf counters. Gated: the module's {@code test} block must provide the property. */
   public static final List<WorkCounter> HOT_LEAVES = List.of(HOT_LEAF_LOADS, HOT_FRAGMENTS_WALKED);
+
+  /**
+   * Routing steps through HOT indirect nodes; see {@link HOTIndirectPage#indirectRoutingSteps()} for
+   * the counted operations. Capture one lookup to measure its path depth and detect a degraded spine
+   * (FMT-306).
+   */
+  public static final WorkCounter HOT_INDIRECT_ROUTING_STEPS =
+      WorkCounter.gated("hot.indirectRoutingSteps", "one routing step through a HOT indirect node",
+          HOTIndirectPage::indirectRoutingSteps, "-Dsirix.hot.mergeDiag=true", VersioningType::hotMergeDiagEnabled);
 
   /** Native lane reads during a HOT suffix comparison, excluding its fixed length header. */
   public static final WorkCounter HOT_SUFFIX_PROBE_READS =

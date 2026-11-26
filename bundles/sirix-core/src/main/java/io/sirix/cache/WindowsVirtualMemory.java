@@ -26,8 +26,6 @@ import java.lang.invoke.MethodHandle;
  * has NO overcommit: touching reserved-but-uncommitted pages faults, so unlike POSIX this step is
  * mandatory. Commit charge is bounded by the allocator's physical budget, never the 32
  * GiB-per-class reservation.</li>
- * <li>{@code VirtualFree(MEM_DECOMMIT)} + recommit implements discard-to-zeros (Windows guarantees
- * committed pages start zeroed; {@code MEM_RESET} would NOT guarantee that).</li>
  * <li>{@code VirtualFree(MEM_RELEASE)} drops a whole region at shutdown.</li>
  * </ul>
  *
@@ -42,7 +40,6 @@ final class WindowsVirtualMemory implements VirtualMemory {
 
   private static final long MEM_COMMIT = 0x1000;
   private static final long MEM_RESERVE = 0x2000;
-  private static final long MEM_DECOMMIT = 0x4000;
   private static final long MEM_RELEASE = 0x8000;
   private static final long PAGE_READWRITE = 0x04;
 
@@ -106,28 +103,6 @@ final class WindowsVirtualMemory implements VirtualMemory {
       throw oom;
     } catch (final Throwable t) {
       throw new RuntimeException("Failed to commit slot", t);
-    }
-  }
-
-  @Override
-  public void discardToZeros(final MemorySegment segment) {
-    try {
-      final int freed = (int) VIRTUAL_FREE.invokeExact(segment, segment.byteSize(), MEM_DECOMMIT);
-      if (freed == 0) {
-        LOGGER.debug("VirtualFree(MEM_DECOMMIT) failed on address 0x{}", Long.toHexString(segment.address()));
-        return;
-      }
-      // Recommit immediately: committed pages are guaranteed zeroed, and the slot must stay
-      // touch-safe for its next owner (nothing else in the allocator commits recycled slots).
-      final MemorySegment addr =
-          (MemorySegment) VIRTUAL_ALLOC.invokeExact(segment, segment.byteSize(), MEM_COMMIT, PAGE_READWRITE);
-      if (addr.address() == 0) {
-        throw new OutOfMemoryError("VirtualAlloc(MEM_COMMIT) failed re-committing a discarded slot");
-      }
-    } catch (final OutOfMemoryError oom) {
-      throw oom;
-    } catch (final Throwable t) {
-      throw new RuntimeException("Failed to discard slot contents", t);
     }
   }
 
