@@ -68,6 +68,9 @@ import java.util.function.Predicate;
  * position than {@code parent.MSB} (= no double-use of disc bits on a path; matches C++
  * {@code HOTSingleThreaded.hpp:521-523} {@code assert(parent.MSB <
  *       splitBit)}).</li>
+ * <li><b>I13 — stored-height-exact</b>: every indirect node's persisted height equals the
+ * structural height of the subtree below it — a node above leaves stores 1 (FMT-306). Walked
+ * structure, never the field itself, so this is independent of the writer that maintained it.</li>
  * <li><b>I-Binna-sparse-path</b>: per Binna §4.2 — stored partial p_i of child c_i must satisfy
  * {@code (p_i & ~PEXT(c_i.firstKey, mask)) == 0} (= every bit set in stored is also set in dense
  * PEXT of firstKey). Verified for firstKey only.</li>
@@ -86,6 +89,12 @@ public final class HOTInvariantValidator {
 
   /** Reasonable upper bound for HOT height under all realistic key counts. */
   public static final int DEFAULT_MAX_HEIGHT = 32;
+
+  /**
+   * A subtree whose height the walk could not establish because of a structural defect or depth
+   * limit.
+   */
+  private static final int HEIGHT_UNKNOWN = -1;
 
   private final StorageEngineReader reader;
   private final int maxHeight;
@@ -214,28 +223,35 @@ public final class HOTInvariantValidator {
 
   // ===== walk =====
 
-  private void walk(Page page, int depth, List<HOTIndirectPage> ancestorIndirects) {
+  /**
+   * Walk the subtree rooted at {@code page}.
+   *
+   * @return the structural height of that subtree — 0 for a leaf page, one more than its tallest
+   *         child for an indirect node — or {@link #HEIGHT_UNKNOWN} when a subtree could not be
+   *         walked, so an ancestor does not report a height defect on top of the structural one
+   */
+  private int walk(Page page, int depth, List<HOTIndirectPage> ancestorIndirects) {
     if (depth > maxHeight) {
       addViolation("I9-height-bounded", "depth " + depth + " exceeds maxHeight " + maxHeight, null);
-      return;
+      return HEIGHT_UNKNOWN;
     }
     if (depth > observedHeight)
       observedHeight = depth;
 
     if (page instanceof HOTLeafPage leaf) {
       validateLeaf(leaf, ancestorIndirects);
-      return;
+      return 0;
     }
     if (!(page instanceof HOTIndirectPage indirect)) {
       addViolation("page-kind", "unexpected page kind " + page.getClass().getSimpleName(), null);
-      return;
+      return HEIGHT_UNKNOWN;
     }
 
     // Cycle guard.
     final long pageKey = indirect.getPageKey();
     if (pageKey >= 0 && !visitedIndirectPageKeys.add(pageKey)) {
       addViolation("structure-cycle", "indirect page " + pageKey + " revisited", null);
-      return;
+      return HEIGHT_UNKNOWN;
     }
 
     validateIndirect(indirect);
@@ -247,10 +263,13 @@ public final class HOTInvariantValidator {
     nextAncestors.addAll(ancestorIndirects);
     nextAncestors.add(indirect);
 
+    int tallestChild = HEIGHT_UNKNOWN;
+    boolean everyChildWalked = n > 0;
     for (int i = 0; i < n; i++) {
       final PageReference childRef = indirect.getChildReference(i);
       if (childRef == null) {
         addViolation("null-child", "indirect[" + indirect.getPageKey() + "].child[" + i + "] = null", indirect);
+        everyChildWalked = false;
         continue;
       }
       final Page child = loadPage(childRef);
@@ -266,6 +285,7 @@ public final class HOTInvariantValidator {
                         : "-OPEN"))
                 + ")",
             indirect);
+        everyChildWalked = false;
         continue;
       }
       // I11 — trie-condition: disc bits become strictly less significant down the tree.
@@ -275,7 +295,33 @@ public final class HOTInvariantValidator {
       if (child instanceof HOTIndirectPage childIndirect) {
         validateI11TrieCondition(indirect, childIndirect, i);
       }
-      walk(child, depth + 1, nextAncestors);
+      final int childHeight = walk(child, depth + 1, nextAncestors);
+      if (childHeight == HEIGHT_UNKNOWN) {
+        everyChildWalked = false;
+      } else if (childHeight > tallestChild) {
+        tallestChild = childHeight;
+      }
+    }
+    if (!everyChildWalked) {
+      return HEIGHT_UNKNOWN;
+    }
+    final int structuralHeight = tallestChild + 1;
+    validateStoredHeightExact(indirect, structuralHeight);
+    return structuralHeight;
+  }
+
+  /**
+   * I13 — stored-height-exact. An indirect node's persisted height must equal the structural height
+   * of the subtree below it (FMT-306). The field is wire state and no routing reads it, so a stale
+   * value answers every key correctly; what it corrupts is the next structural decision taken from it
+   * — a sibling merge, a node-type upgrade, a compatible-child fold, scheduling normalization — and
+   * the excess levels a lost outer spine leaves behind. Checking the walked structure instead of the
+   * field is what makes this independent of the writer that maintained it.
+   */
+  private void validateStoredHeightExact(final HOTIndirectPage indirect, final int structuralHeight) {
+    if (indirect.getHeight() != structuralHeight) {
+      addViolation("I13-stored-height-exact", "indirect " + indirect.getPageKey() + " stores height "
+          + indirect.getHeight() + " but its subtree is " + structuralHeight + " level(s) tall", indirect);
     }
   }
 

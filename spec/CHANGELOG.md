@@ -10,6 +10,12 @@
   the TXN-614 pinned start snapshot is unchanged and still unimplemented, so the status moves from
   `designed` to `partial` rather than to a conformance claim. Clarify the clause's copied-resource
   identity, frontier and isolated-verification requirements following backup/restore review.
+- Record the synchronous and pipelined cleanup-failure implementation and regression evidence under
+  [TXN-307](TXN-transactions-durability.md#txn-307--known-durable-commit-survives-cleanup-failure),
+  moving its status to `partial` without changing requirement text. The
+  [TXN-305](TXN-transactions-durability.md#txn-305--known-pre-commit-point-failure) and
+  [TXN-705](TXN-transactions-durability.md#txn-705--unknown-durability-outcome-and-no-fsync-retry)
+  notes distinguish the remaining pre-point reuse and uncertainty gaps.
 
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from
@@ -36,6 +42,17 @@
   keys past it are truncated with an unambiguous marker and read through an exact candidate
   re-check, without insert failure. Names inside the bound pay no re-check record reads. CAS and
   VALIDTIME retain their existing smaller bounds. The cross-kind conformance sweep remains planned.
+- Add [FMT-306](FMT-disk-format.md#fmt-306--hot-stored-height-and-spine-continuity): a HOT
+  indirect node's stored height MUST equal the structural height below it, live in the writing
+  transaction, in every published revision and after cold decode; a structural change below a node
+  MUST be carried back along the whole parent chain, so no reachable ancestor keeps describing the
+  subtree it replaced, including when the ancestor's own height does not change, and a mutation that
+  cannot complete that propagation MUST fail the transaction. Locating a key MUST NOT depend on a
+  stored height, while maintenance MAY read it, so an inexact height is a malformed subtree rather
+  than a cost matter, and the invariant validator MUST compare stored heights with the structure it
+  walks. Height minimality stays out of scope: FMT-302 remains the only height guarantee, and a
+  committed trie MAY exceed the smallest height admissible for its leaf partitioning.
+  [#1457](https://github.com/sirixdb/sirix/issues/1457).
 
 - Make the PR mutation lane's unit of work its blocking criterion. New
   [CONV-205](CONV-conventions.md#conv-205--pr-mutation-lane-mutant-scope) restricts mutant

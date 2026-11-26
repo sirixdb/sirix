@@ -1545,10 +1545,19 @@ final class DatabaseNotificationLifecycleTest {
       // Scope the rejection to the actual submission on this thread; callbacks retain real futures.
       try (MockedStatic<CompletableFuture> submission = mockStatic(CompletableFuture.class, CALLS_REAL_METHODS)) {
         submission.when(() -> CompletableFuture.runAsync(any(Runnable.class))).thenThrow(primary);
-        assertSame(primary, assertThrows(RejectedExecutionException.class, () -> setValue(writer, 3)));
+        // TXN-307: inline hardening committed value 2, so only the next mutation is refused.
+        assertThrows(IllegalStateException.class, () -> setValue(writer, 3));
+        submission.verify(() -> CompletableFuture.runAsync(any(Runnable.class)));
       }
       delivered.get(10, TimeUnit.SECONDS);
+      assertDoesNotThrow(writer::awaitPendingAsyncCommit);
+      assertThrows(IllegalStateException.class, writer::commit);
+      assertThrows(IllegalStateException.class, writer::rollback);
       writer.close();
+      assertEquals(2, fixture.second.getMostRecentRevisionNumber());
+      try (final NodeReadOnlyTrx reader = fixture.second.beginNodeReadOnlyTrx(2)) {
+        assertValue(reader, 2);
+      }
     }
   }
 

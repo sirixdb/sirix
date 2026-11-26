@@ -15,7 +15,12 @@ tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.Com
 
 [[association]]
 class = "io.sirix.access.trx.page.NodeStorageEngineWriter"
-tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.CommitTimestampLateFailureTest"]
+tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.CommitTimestampLateFailureTest", "io.sirix.access.trx.node.PostDurableCleanupFailureTest", "io.sirix.access.trx.page.WriterCatalogueRecoveryTest", "io.sirix.access.trx.page.PostDurableStorageCleanupTest"]
+
+# TXN-307 spans the durable commit result, terminal admission and recovery through a new writer.
+[[association]]
+class = "io.sirix.access.trx.node.AbstractNodeTrxImpl"
+tests = ["io.sirix.access.trx.node.PostDurableCleanupFailureTest", "io.sirix.access.trx.page.WriterCatalogueRecoveryTest", "io.sirix.diff.JsonAsyncCommitSidecarTest"]
 
 [[association]]
 class = "io.sirix.io.filechannel.FileChannelReader"
@@ -181,7 +186,8 @@ tests = ["io.sirix.index.hot.HOTIndirectLevelSplitTest", "io.sirix.index.name.Na
 
 [[association]]
 class = "io.sirix.index.hot.page.HOTIndirectPage"
-tests = ["io.sirix.index.hot.HOTIndirectLevelSplitTest"]
+# FMT-306's routing-work contract is asserted outside the page's package.
+tests = ["io.sirix.index.hot.HOTIndirectLevelSplitTest", "io.sirix.budget.HOTLookupShapeWorkBudgetTest"]
 
 [[association]]
 class = "io.sirix.index.hot.AbstractHOTIndexWriter"
@@ -244,3 +250,20 @@ tests = ["io.sirix.backup.BackupDerivedResourceTest"]
 [[association]]
 class = "io.sirix.cache.BufferManagerImpl"
 tests = ["io.sirix.cache.BackupPressureHandlerTest"]
+
+[[association]]
+class = "io.sirix.page.UberPageFormat"
+tests = ["io.sirix.format.FormatVersionBaselineTest", "io.sirix.access.FormatRepairBoundaryTest"]
+
+[[association]]
+class = "io.sirix.io.filechannel.FileChannelStorage"
+tests = ["io.sirix.access.FormatRepairBoundaryTest"]
+
+[[association]]
+class = "io.sirix.io.memorymapped.MMStorage"
+tests = ["io.sirix.access.FormatRepairBoundaryTest"]
+
+# A decorator must expose the same acknowledged cleanup outcome as the real storage writer.
+[[association]]
+class = "io.sirix.access.trx.page.AbstractForwardingStorageEngineWriter"
+tests = ["io.sirix.access.trx.node.PostDurableCleanupFailureTest"]

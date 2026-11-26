@@ -420,8 +420,10 @@ resource at the desired revision number or timestamp via
 ### Marker recovery
 
 For durable storage, `log/.commit` can remain after a crash, failed commit, aborted
-prewrites or failed teardown. Ordinary close preserves this signal; successful commit or rollback
-removes it. Do not delete it to bypass a failed admission.
+prewrites or failed teardown. Ordinary close preserves this signal; successful commit cleanup or
+rollback removes it. For commits that succeed despite cleanup failure, see the
+[`NodeTrx.commit()` contract](../bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java).
+Do not delete it to bypass a failed admission.
 
 When the marker or process guard requires recovery, ordinary node-bound and
 standalone page writer admission establishes the marker before constructing

@@ -80,7 +80,7 @@ final class WriterConstructionFailureCleanupTest {
   }
 
   @Test
-  void rollbackRecoversAfterSuccessorFailsHalfwayThroughConstruction(@TempDir final Path directory) {
+  void durableCommitSurvivesSuccessorConstructionFailure(@TempDir final Path directory) {
     final Path databasePath = directory.resolve("database");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -98,7 +98,8 @@ final class WriterConstructionFailureCleanupTest {
             throw failure;
           }
         };
-        assertSame(failure, assertThrows(OutOfMemoryError.class, trx::commit));
+        // TXN-307: a successor failure cannot change the durable commit result.
+        assertSame(trx, trx.commit());
         NodeStorageEngineWriter.asyncFlushFaultHook = null;
         final NodeStorageEngineWriter failed = partial.get();
         assertNotNull(failed);
@@ -106,11 +107,16 @@ final class WriterConstructionFailureCleanupTest {
         assertEquals(0, failed.log.liveEntryCount(), "the factory must release the failed writer's intent log");
         assertEquals(1, session.getMostRecentRevisionNumber(), "the predecessor commit is already durable");
         assertTrue(Files.isRegularFile(((InternalResourceSession<?, ?>) session).getCommitFile()));
-        assertDoesNotThrow(trx::rollback, "rollback must recover without entering the already-closed predecessor");
-        assertTrue(trx.moveTo(valueKey));
-        assertEquals(1, trx.getNumberValue().intValue());
-        trx.setNumberValue(2);
-        trx.commit();
+        assertThrows(IllegalStateException.class, trx::commit);
+        assertThrows(IllegalStateException.class, trx::rollback);
+        assertThrows(IllegalStateException.class, () -> trx.setNumberValue(2));
+        assertDoesNotThrow(trx::close);
+        try (final JsonNodeTrx recovered = session.beginNodeTrx()) {
+          assertTrue(recovered.moveTo(valueKey));
+          assertEquals(1, recovered.getNumberValue().intValue());
+          recovered.setNumberValue(2);
+          recovered.commit();
+        }
         try (final var reader = session.beginNodeReadOnlyTrx(1)) {
           assertTrue(reader.moveTo(valueKey));
           assertEquals(1, reader.getNumberValue().intValue());
@@ -126,20 +132,8 @@ final class WriterConstructionFailureCleanupTest {
 
   @ParameterizedTest
   @EnumSource(value = AfterCommitState.class, names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_COMMIT"})
-  void rollbackRetiresProjectionOwnersAfterSuccessorConstructionFailure(final AfterCommitState mode,
+  void terminalCloseRetiresProjectionOwnersAfterSuccessorConstructionFailure(final AfterCommitState mode,
       @TempDir final Path directory) {
-    assertProjectionFailureRecovery(mode, directory, false);
-  }
-
-  @ParameterizedTest
-  @EnumSource(value = AfterCommitState.class, names = {"KEEP_OPEN", "KEEP_OPEN_ASYNC_COMMIT"})
-  void closeRetiresProjectionOwnersAfterSuccessorConstructionFailure(final AfterCommitState mode,
-      @TempDir final Path directory) {
-    assertProjectionFailureRecovery(mode, directory, true);
-  }
-
-  private static void assertProjectionFailureRecovery(final AfterCommitState mode, final Path directory,
-      final boolean close) {
     final Path databasePath = directory.resolve("database");
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
@@ -178,7 +172,8 @@ final class WriterConstructionFailureCleanupTest {
           }
         };
         try {
-          assertSame(failure, assertThrows(OutOfMemoryError.class, trx::insertObjectAsFirstChild));
+          // TXN-307: rotation commits the array, then rejects the next mutation.
+          assertThrows(IllegalStateException.class, trx::insertObjectAsFirstChild);
         } finally {
           NodeStorageEngineWriter.asyncFlushFaultHook = null;
         }
@@ -188,21 +183,16 @@ final class WriterConstructionFailureCleanupTest {
         assertEquals(0, failed.log.liveEntryCount());
         assertEquals(1, session.getMostRecentRevisionNumber());
         assertTrue(Files.isRegularFile(((InternalResourceSession<?, ?>) session).getCommitFile()));
-        if (close) {
-          assertDoesNotThrow(trx::close);
-        } else {
-          assertDoesNotThrow(trx::rollback);
-        }
+        assertThrows(IllegalStateException.class, trx::commit);
+        assertThrows(IllegalStateException.class, trx::rollback);
+        assertDoesNotThrow(trx::close);
         assertTrue(first.isFinished());
         assertTrue(second.isFinished());
         assertNull(ProjectionBulkLoad.active(resourceKey, 0, trx));
         assertNull(ProjectionBulkLoad.active(resourceKey, 1, trx));
         assertSame(unrelated, ProjectionBulkLoad.active(unrelatedKey, 0, unrelatedTrx));
         assertFalse(unrelated.isFinished());
-        final JsonNodeTrx recovered = close
-            ? session.beginNodeTrx()
-            : trx;
-        try {
+        try (final JsonNodeTrx recovered = session.beginNodeTrx()) {
           assertTrue(recovered.moveTo(arrayKey));
           final long objectKey = recovered.insertObjectAsFirstChild().getNodeKey();
           recovered.commit();
@@ -217,9 +207,6 @@ final class WriterConstructionFailureCleanupTest {
             assertFalse(reader.hasFirstChild());
           }
         } finally {
-          if (close) {
-            recovered.close();
-          }
           unrelatedTrx.rollback();
         }
         assertFalse(ProjectionBulkLoad.anyActive());
