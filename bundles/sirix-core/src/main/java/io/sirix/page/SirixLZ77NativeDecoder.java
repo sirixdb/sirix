@@ -50,6 +50,12 @@ public final class SirixLZ77NativeDecoder {
   /** Address resolved in this process; never captured in a native image's build-time heap. */
   private static final MemorySegment DECODE_SYMBOL;
 
+  /** True if the bounds-checked decode symbol resolved as well. */
+  private static final boolean GUARDED_AVAILABLE;
+
+  /** Address of the bounds-checked entry point; see {@link #decodeGuarded}. */
+  private static final MemorySegment GUARDED_SYMBOL;
+
   /**
    * The signature has no library, arena, property or process state; the symbol is passed per call.
    * Native Image initializes this holder at run time by default, because the 25.0.x LTS line rejects
@@ -73,6 +79,7 @@ public final class SirixLZ77NativeDecoder {
   static {
     boolean available = false;
     MemorySegment symbol = null;
+    MemorySegment guarded = null;
 
     if (FORCE_DISABLE) {
       LOGGER.info("SirixLZ77NativeDecoder disabled via sirix.lz77Codec.native.disable");
@@ -85,10 +92,14 @@ public final class SirixLZ77NativeDecoder {
           // skip the byte[] → native-memory copy that would otherwise
           // dominate the per-call latency for small frames.
           symbol = lookup.find("sirix_lz77_decode").orElseThrow();
+          // Resolved separately: a library built before the bounds-checked entry point existed
+          // still serves trusted frames, and the untrusted route falls back to Java rather than
+          // losing its refusals.
+          guarded = lookup.find("sirix_lz77_decode_guarded").orElse(null);
           // Initialize inside the guarded load so unsupported linkage retains the Java fallback.
           DecodeCall.HANDLE.type();
           available = true;
-          LOGGER.info("SirixLZ77NativeDecoder loaded (critical=true)");
+          LOGGER.info("SirixLZ77NativeDecoder loaded (critical=true, guarded={})", guarded != null);
         }
       } catch (final Throwable t) {
         LOGGER.warn("SirixLZ77NativeDecoder failed to load: {} — falling back to Java decoder", t.getMessage());
@@ -97,6 +108,10 @@ public final class SirixLZ77NativeDecoder {
 
     NATIVE_AVAILABLE = available;
     DECODE_SYMBOL = symbol;
+    GUARDED_SYMBOL = available
+        ? guarded
+        : null;
+    GUARDED_AVAILABLE = GUARDED_SYMBOL != null;
   }
 
   private SirixLZ77NativeDecoder() {}
@@ -107,6 +122,14 @@ public final class SirixLZ77NativeDecoder {
    */
   public static boolean isAvailable() {
     return NATIVE_AVAILABLE;
+  }
+
+  /**
+   * @return {@code true} if the bounds-checked entry point resolved, so a frame read from storage can
+   *         be decoded natively without trusting its tokens.
+   */
+  public static boolean isGuardedAvailable() {
+    return GUARDED_AVAILABLE;
   }
 
   /**
@@ -131,6 +154,32 @@ public final class SirixLZ77NativeDecoder {
     if (!NATIVE_AVAILABLE) {
       throw new IllegalStateException("SirixLZ77NativeDecoder: native library not loaded");
     }
+    return invoke(DECODE_SYMBOL, input, inputOff, inputLen, output, outputOff);
+  }
+
+  /**
+   * Decode a frame that may be corrupt. Same result as {@link #decode} on every valid frame; a
+   * refusal instead of a decode when a token, span, count or match bound leaves the stored frame or
+   * the declared decoded size, so no byte following the frame in {@code input} becomes payload.
+   *
+   * <p>
+   * The destination tail-slack precondition of {@link #decode} still applies: the bounds this entry
+   * point adds are the input ones the C entry point could not check, not the output slack its
+   * wildcopy design needs.
+   *
+   * @return number of bytes decoded (equals the {@code uncompressed} value from the frame header)
+   * @throws IllegalStateException if the frame is malformed
+   */
+  public static int decodeGuarded(final byte[] input, final int inputOff, final int inputLen,
+      final MemorySegment output, final long outputOff) {
+    if (!GUARDED_AVAILABLE) {
+      throw new IllegalStateException("SirixLZ77NativeDecoder: bounds-checked entry point not loaded");
+    }
+    return invoke(GUARDED_SYMBOL, input, inputOff, inputLen, output, outputOff);
+  }
+
+  private static int invoke(final MemorySegment entry, final byte[] input, final int inputOff, final int inputLen,
+      final MemorySegment output, final long outputOff) {
     if (input == null || output == null) {
       throw new IllegalArgumentException("input/output");
     }
@@ -163,7 +212,7 @@ public final class SirixLZ77NativeDecoder {
 
     final int rc;
     try {
-      rc = (int) DecodeCall.HANDLE.invokeExact(DECODE_SYMBOL, inputSeg, inputLen, outSlice, (int) outCap);
+      rc = (int) DecodeCall.HANDLE.invokeExact(entry, inputSeg, inputLen, outSlice, (int) outCap);
     } catch (final Throwable t) {
       throw new RuntimeException("SirixLZ77NativeDecoder: FFI call failed", t);
     }

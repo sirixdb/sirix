@@ -47,7 +47,31 @@
   accept-fixtures FMT-216 supplies, with the payloads that text states;
   `everyElectedCodecRoundTripsOnBothOverflowRoutes` proves writer output still round-trips on both
   routes; `ByteRunCodecTest.boundedByTheFrameNotTheBuffer` and `exactFrameConsumptionIsRequired`
-  pin the invariant at the codec, which has three further call sites. Command:
+  pin the invariant at the codec, which has three further call sites.
+  `projectionOverflowRefusesADeclaredSizeNoTokenStreamCouldProduce` drives the gibibyte no-token
+  frame through all three codecs, `aLongRunStillDeclaresFarMoreThanItsStoredBytes` pins the valid
+  counterpart a tightened bound would break, and
+  `HOTLeafRefusalAllocationTest.refusingAnUnproducibleOverflowPayloadAllocatesIndependentlyOfItsDeclaredSize`
+  is the allocation evidence: refusing a frame declaring a mebibyte costs no more than refusing one
+  declaring sixty-four bytes, measured with `ThreadMXBean.getThreadAllocatedBytes` rather than a
+  clock. `validLz77OverflowReadsTakeTheNativeDecoder` asserts the product's own dispatch counters to
+  show a valid codec-3 overflow read on the native decoder with no Java fallback, and
+  `theNativeDecoderItselfRefusesMalformedLz77Frames` uses the same counters to show that a
+  length-extension byte past the frame, a literal span past the frame and a match before the first
+  decoded byte are each refused BY the native decoder rather than by a slower one substituted for
+  it — the evidence that the in-pass C bounds fire.
+  `SirixLZ77NativeContractTest.checkedDecodeMatchesTheSameContractAtEverySlack` holds the guarded
+  entry to the canary contract — identical bytes, never a store past the destination — across the
+  slack matrix that drives both the native loop and the Java pass.
+  Those counters were unobservable in the `test` lane until this change: the same
+  `sirix.lz77Codec.diag.counters` property was configured twice inside one block of
+  `bundles/sirix-core/build.gradle`, deliberately `true` with a comment that a skipping guard "is
+  not guarding", then back to `false` seventy-seven lines later as part of a bulk debug-flag list.
+  The later assignment won, so this guard and the two older ones
+  (`CompressedBlockDecodeTakesTheNativePathTest.aLandingSizedWithTheOutputSlackReachesTheCDecoder`
+  and `SirixLZ77NativeDecoderBenchTest.dispatcherRoutesToNative`) all skipped their dispatch
+  assertion. Removing the duplicate makes all four assert and pass; an explicit `=false` on the
+  command line still wins, as the surviving line documents. Command:
   `./gradlew --max-workers=2 :sirix-core:test --tests 'io.sirix.page.ProjectionOverflowEncodingTest'
   --tests 'io.sirix.page.ByteRunCodecTest'`. Verified by reverting `ByteRunCodec.java` alone and
   re-running: 3 failed, the first reporting `frame 090003400000000300000002fe403f must be refused
@@ -68,14 +92,37 @@
   output. Containment does not depend on the cursor: the bounds-checked core bounds every read above
   by the frame, so an unread byte cannot reach the payload, and bytes past the stored length are the
   envelope's business, which already rejects them.
-- Trade-off recorded: codec `3` now decodes overflow payloads through `decodeChecked`, the
-  bounds-checked core, instead of the native decoder. That was preferred over validating the token
-  stream in a separate pass so the LZ77 grammar keeps exactly one implementation — a validator that
-  drifts from its decoder either rejects valid pages or reopens this hole — and it keeps the read a
-  single allocation-free pass. It costs the native decoder's advantage on this one boundary, which is
-  per large-blob read rather than per record. `decode` is unchanged for every other caller, and the
-  input tail slack the native path needs is still provided. Revisit with a measurement if overflow
-  payload decode shows up in a profile.
+- Safety without the trade-off: the bounds live inside the fast decoder, not beside it.
+  `sirix_lz77.c`'s decode body now takes a compile-time `checked` parameter and is force-inlined
+  twice, so `sirix_lz77_decode` keeps exactly the instruction stream it had and
+  `sirix_lz77_decode_guarded` is the same vectorised loop with the input bounds the C entry point
+  could not check: the token byte, every length-extension byte, the literal span, the two distance
+  bytes, and a cap on the running extension sums so a long `0xFF` chain cannot wrap a 32-bit length.
+  The output bounds were already there — the hot loop's `outPos <= safeLimit` invariant, the
+  per-token overflow tests and the `dist == 0 || dist > outPos` check. A violation returns a negative
+  code that the Java binding turns into `IllegalStateException`. This is the shape LZ4 uses for
+  `LZ4_decompress_safe` versus `LZ4_decompress_fast`: one `LZ4_decompress_generic` body with
+  compile-time flags and thin wrappers, so the grammar still has exactly one implementation — a
+  separate validator that drifts from its decoder either rejects valid pages or reopens the hole.
+  A valid codec-3 overflow payload therefore decodes at native speed, which is what the reads-first
+  criterion requires, and `SirixLZ77Codec.decodeCoreSafe` gives identical refusals in its own single
+  pass wherever the bundled library is absent. The guarded symbol is resolved separately from the
+  fast one, so a library built before it existed still serves trusted frames instead of silently
+  losing a refusal.
+- An agreeing length is not a producible length. The first fix compared the page's declared decoded
+  length with the frame's own and allocated once they matched. `09 00 03 00 00 00 40 06 00 00 00 02
+  fe 80 80 80 80 04` matches on both: a byte-run marker and a five-byte size varint spending
+  `4 << 28` to declare a gibibyte, followed by no token byte at all. One gibibyte of heap plus a
+  native landing were reserved before the decoder reached its first "input exhausted". The boundary
+  now also requires the declared size to be within what the bytes after the frame header could
+  produce: every token consumes at least one body byte, so the ceiling is the body-byte count times
+  the most a single token can emit. For the run codecs that is a 128-byte short run or a long run
+  whose count is a varint no longer than the bytes present, which is why the ceiling climbs
+  exponentially and stops constraining at five body bytes — it has to, because a twelve-byte
+  zero-run frame legitimately declares a gibibyte of zeros and no ratio cap may reject committed
+  data. For LZ77 each extension byte adds at most 255 against a three-byte token overhead, so
+  output never exceeds 255 per consumed byte. The ceiling is a necessary condition only; exact
+  production stays with the single-pass decoders, so no second grammar implementation appears.
 - Lesson: when a boundary dispatches untrusted bytes to several decoders, the bound belongs to each
   decoder, and a decoder whose hot path elides bounds checks needs a separate entry point for
   untrusted input rather than a caller that hopes. Recorded as a fragment in

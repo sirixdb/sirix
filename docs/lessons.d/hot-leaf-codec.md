@@ -201,20 +201,32 @@ branches' stream tests, before trusting a targeted subset. See the
 
 A decode boundary that dispatches on a codec id owes the same frame
 containment to every codec it can reach: reads bounded by the declared
-stored length rather than by the reusable array holding it, counts and
-repeat bytes inside the opcode table, and the declared size corroborated
-by the frame before anything is sized from it. Require exact frame
+stored length rather than by the reusable array holding it, and counts and
+repeat bytes inside the opcode table. Require exact frame
 consumption only where the grammar makes it exact — an encoder that
 appends an optional trailing token leaves a legitimately unread byte, so
 there the declared size is the postcondition and the envelope owns the
 bytes past the stored length.
 Hardening one codec and leaving its siblings is not a partial fix but no
-fix, because the codec id is attacker-chosen. Where a decoder's hot path
-deliberately elides input bounds — tail-slack overshoot, or a native entry
-point handed a length instead of a capacity — do not ask its caller to be
-careful. Give it a second entry point that runs its already bounds-checked
-core, and prefer that over a separate validation pass: one grammar with two
-implementations drifts, and the drift either rejects valid pages or reopens
-the hole. Decode a valid payload before each malformed one so leaked
-scratch is recognisable instead of zeros. See the
+fix, because the codec id is attacker-chosen.
+Two declared lengths agreeing is not a producible length: before reserving
+anything, require the declared size to fit what the bytes after the frame
+header could emit — body bytes times the most one token can produce, which
+for a varint-coded run count must climb exponentially with the bytes present
+and stop constraining where a short legitimate frame really does declare a
+gibibyte. Keep that a necessary condition and leave exact production to the
+decoder, so no second grammar implementation appears.
+Where a decoder's hot path deliberately elides input bounds — tail-slack
+overshoot, or a native entry point handed a length instead of a capacity —
+do not ask its caller to be careful, and do not hand its work to a slower
+decoder either: that pays for safety in latency the change was measured not
+to spend. Put the bounds inside the fast loop and select them at compile
+time, the way LZ4 specialises one decode body into its safe and fast
+entry points. One grammar, two specialisations, no drift; resolve the
+guarded symbol separately so an older library serves trusted frames instead
+of silently losing a refusal.
+Decode a valid payload before each malformed one so leaked
+scratch is recognisable instead of zeros, and measure a refusal's
+allocation against a frame declaring a small size rather than against a
+clock. See the
 [projection overflow postmortem](postmortems/2026-11-26-projection-overflow-unvalidated-frames.md).

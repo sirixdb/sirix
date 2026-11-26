@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 final class ProjectionOverflowEncodingTest {
   private static final ResourceConfiguration CONFIG = new ResourceConfiguration.Builder("projection-overflow").build();
@@ -208,6 +209,103 @@ final class ProjectionOverflowEncodingTest {
       final byte[] frame = HexFormat.of().parseHex("090003" + declared + "0300000000ff40be");
       final IllegalStateException refusal = assertThrows(IllegalStateException.class, () -> read(frame));
       assertTrue(refusal.getMessage().contains("frame declares 64"), refusal.getMessage());
+    }
+  }
+
+  /**
+   * FMT-216: "Before reserving a destination based on the decoded length, the reader MUST verify that
+   * the token stream within the stored region can produce that exact length."
+   *
+   * <p>
+   * Agreement between the two declared lengths is not that verification. Each frame below declares a
+   * gibibyte in the page header AND in its own header — the codec's size varint spends five bytes to
+   * say {@code 4 << 28} — and then carries no token byte at all. Every codec can say this, so each of
+   * the three is driven through the public read. The expected behaviour comes from the specification
+   * sentence above; the behaviour it rejects is a reader that reserves the declared gibibyte and only
+   * then discovers the token stream is empty.
+   */
+  @Test
+  void projectionOverflowRefusesADeclaredSizeNoTokenStreamCouldProduce() {
+    for (final String frame : new String[] {
+        // Zero-run: marker ff, size varint 80 80 80 80 04, no body.
+        "090003000000400600000000ff8080808004",
+        // Byte-run: marker fe, same size varint, no body.
+        "090003000000400600000002fe8080808004",
+        // Sirix LZ77: marker fd, same size varint, no body.
+        "090003000000400600000003fd8080808004"}) {
+      final byte[] image = HexFormat.of().parseHex(frame);
+      final IllegalStateException refusal =
+          assertThrows(IllegalStateException.class, () -> read(image), "frame " + frame + " must be refused");
+      assertTrue(refusal.getMessage().contains("can produce at most"), refusal.getMessage());
+    }
+  }
+
+  /**
+   * The declared size must still be reachable from a body that really can produce it: a long zero-run
+   * of a mebibyte costs the writer a marker, a size varint and one more run token, and no
+   * producibility bound may turn that into a refusal. This is the valid counterpart of the frames
+   * above, and what a bound tightened past the format would break.
+   */
+  @Test
+  void aLongRunStillDeclaresFarMoreThanItsStoredBytes() throws Exception {
+    final byte[] payload = new byte[1 << 20];
+    try (MemorySegmentBytesOut out = new MemorySegmentBytesOut()) {
+      PageKind.OVERFLOWPAGE.serializePage(CONFIG, out, OverflowPage.forProjectionPayload(payload),
+          SerializationType.DATA);
+      final byte[] wire = out.toByteArray();
+      assertTrue(wire.length < 128, "a mebibyte of zeros stores in " + wire.length + " bytes");
+      assertArrayEquals(payload, read(wire).getDataBytes());
+    }
+  }
+
+  /**
+   * A valid compressed projection payload large enough to elect LZ77 must decode through the native
+   * decoder, not a slower fallback: the dispatch counters are the product's own record of which one
+   * ran ({@code -Dsirix.lz77Codec.diag.counters}, on in this lane). A reader that routed storage
+   * bytes to the Java core to make them safe would show the Java counter moving instead.
+   */
+  @Test
+  void validLz77OverflowReadsTakeTheNativeDecoder() throws Exception {
+    assumeTrue(SirixLZ77NativeDecoder.isGuardedAvailable(), "no bundled native decoder on this platform");
+    final byte[] payload = new byte[8192];
+    for (int i = 0; i < payload.length; i++) {
+      payload[i] = (byte) ("sirix-hot-leaf-codec-".charAt(i % 21));
+    }
+    try (MemorySegmentBytesOut out = new MemorySegmentBytesOut()) {
+      PageKind.OVERFLOWPAGE.serializePage(CONFIG, out, OverflowPage.forProjectionPayload(payload),
+          SerializationType.DATA);
+      final byte[] wire = out.toByteArray();
+      assumeTrue(wire[11] == 3, "this payload did not elect LZ77, codec " + wire[11]);
+      final long nativeBefore = SirixLZ77Codec.getNativeCallCount();
+      final long javaBefore = SirixLZ77Codec.getJavaCallCount();
+      assertArrayEquals(payload, read(wire).getDataBytes());
+      assumeTrue(SirixLZ77Codec.getNativeCallCount() + SirixLZ77Codec.getJavaCallCount() > nativeBefore + javaBefore,
+          "dispatch counters are disabled in this run");
+      assertEquals(nativeBefore + 1, SirixLZ77Codec.getNativeCallCount(), "the native decoder must run");
+      assertEquals(javaBefore, SirixLZ77Codec.getJavaCallCount(), "no Java fallback for a valid frame");
+    }
+  }
+
+  /**
+   * The LZ77 refusals must come from the fast decoder itself, not from a slower one substituted to
+   * make them safe. Each frame below violates a different bound inside the token stream — a
+   * length-extension byte past the frame, a literal span past the frame, a match reaching before the
+   * first decoded byte — and the dispatch counters record which decoder refused it.
+   */
+  @Test
+  void theNativeDecoderItselfRefusesMalformedLz77Frames() {
+    assumeTrue(SirixLZ77NativeDecoder.isGuardedAvailable(), "no bundled native decoder on this platform");
+    for (final String frame : new String[] {"0900034000000003000000" + "03fd40f0",
+        "0900034000000004000000" + "03fd40702a", "0900034000000005000000" + "03fd40040500"}) {
+      final byte[] image = HexFormat.of().parseHex(frame);
+      final long nativeBefore = SirixLZ77Codec.getNativeCallCount();
+      final long javaBefore = SirixLZ77Codec.getJavaCallCount();
+      assertThrows(IllegalStateException.class, () -> read(image), "frame " + frame + " must be refused");
+      assumeTrue(SirixLZ77Codec.getNativeCallCount() + SirixLZ77Codec.getJavaCallCount() > nativeBefore + javaBefore,
+          "dispatch counters are disabled in this run");
+      assertEquals(nativeBefore + 1, SirixLZ77Codec.getNativeCallCount(),
+          "frame " + frame + " must be refused by the native decoder");
+      assertEquals(javaBefore, SirixLZ77Codec.getJavaCallCount(), "no Java decoder was substituted");
     }
   }
 

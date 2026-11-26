@@ -509,6 +509,15 @@ public final class SirixLZ77Codec {
   private static final boolean NATIVE_DECODER_ENABLED =
       !Boolean.getBoolean("sirix.lz77Codec.native.disable") && SirixLZ77NativeDecoder.isAvailable();
 
+  /**
+   * Whether {@link #decodeChecked} may use the native bounds-checked decoder. Separate from
+   * {@link #NATIVE_DECODER_ENABLED}: a library built before that entry point existed still serves
+   * trusted frames, and the untrusted route then takes {@link #decodeCoreSafe} rather than losing a
+   * refusal. The same system property disables both.
+   */
+  private static final boolean GUARDED_NATIVE_DECODER_ENABLED =
+      !Boolean.getBoolean("sirix.lz77Codec.native.disable") && SirixLZ77NativeDecoder.isGuardedAvailable();
+
   static {
     if (Boolean.getBoolean("sirix.lz77Codec.diag")) {
       System.out.println("[SirixLZ77Codec] NATIVE_DECODER_ENABLED=" + NATIVE_DECODER_ENABLED);
@@ -667,19 +676,20 @@ public final class SirixLZ77Codec {
    * disk, staged in reusable scratch.
    *
    * <p>
-   * {@link #decode} is a trusted-frame entry point. Its native path is handed a length, not a
-   * capacity, and its hot loop opens with {@code (void)in_end}; the Java fast path likewise elides
-   * per-token input checks because an overshoot lands in the input array's own tail slack. For a
-   * frame this encoder wrote, both are sound and measurably faster. For bytes that may be corrupt
-   * they are not: a literal token claiming more bytes than the frame holds then copies the scratch
-   * tail — an earlier payload — into the result, and the native decoder has no bound at all on how
-   * far past the frame it reads.
+   * {@link #decode} is a trusted-frame entry point: its paths elide per-token input bounds because an
+   * overshoot lands in the input array's own tail slack. For a frame this encoder wrote that is
+   * sound; for bytes that may be corrupt it is not, because a literal token claiming more bytes than
+   * the frame holds then copies the scratch tail — an earlier payload — into the result.
    *
    * <p>
-   * This entry point therefore runs the bounds-checked core, which already enforces every span the
-   * format constrains: literal and length-extension bytes inside the frame, matches no earlier than
-   * the output start, and no write past the declared size. It additionally requires the frame to
-   * produce exactly the size it declares. Allocation-free, single pass.
+   * This entry point decodes in a single bounds-checked pass that enforces every span the format
+   * constrains: literal and length-extension bytes inside the frame, matches no earlier than the
+   * output start, and no write past the declared size; it additionally requires the frame to produce
+   * exactly the size it declares. It keeps the fast decoder: {@code sirix_lz77_decode_guarded}
+   * carries those bounds inside the same vectorised loop the trusted entry point uses, so a valid
+   * frame decodes at native speed and a corrupt one is refused rather than decoded. Where that
+   * library is absent — any platform without the bundled {@code .so} — {@link #decodeCoreSafe} gives
+   * the identical refusals in its own single pass. Allocation-free either way.
    *
    * <p>
    * It does NOT require the frame to be consumed to its last byte, because this format's frames need
@@ -708,7 +718,17 @@ public final class SirixLZ77Codec {
       throw new IllegalStateException("SirixLZ77Codec: frame declares " + uncompressed + " bytes, the output holds "
           + (output.byteSize() - outputOff));
     }
-    final int produced = decodeCoreSafe(input, inPos, inEnd, output, outputOff, uncompressed);
+    final int produced;
+    if (GUARDED_NATIVE_DECODER_ENABLED && inputOff + inputLen + NATIVE_INPUT_TAIL_SLACK <= input.length
+        && outputOff + uncompressed + NATIVE_OUTPUT_TAIL_SLACK <= output.byteSize()) {
+      if (DIAG_COUNTERS)
+        NATIVE_CALLS.incrementAndGet();
+      produced = SirixLZ77NativeDecoder.decodeGuarded(input, inputOff, inputLen, output, outputOff);
+    } else {
+      if (DIAG_COUNTERS)
+        JAVA_CALLS.incrementAndGet();
+      produced = decodeCoreSafe(input, inPos, inEnd, output, outputOff, uncompressed);
+    }
     if (produced != uncompressed) {
       throw new IllegalStateException("SirixLZ77Codec: decoded " + produced + " bytes, expected " + uncompressed);
     }

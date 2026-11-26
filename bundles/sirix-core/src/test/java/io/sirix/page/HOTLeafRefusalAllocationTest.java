@@ -55,6 +55,52 @@ final class HOTLeafRefusalAllocationTest {
     assertTrue(prefix < 1024, "prefix refusal allocated " + prefix + " more bytes for the larger frame");
   }
 
+  /**
+   * FMT-216: the reader must verify that the stored token stream can produce the declared decoded
+   * length "before reserving a destination based on" it. Both frames below carry a byte-run header
+   * with no token byte after it, so neither can produce anything; one declares a mebibyte and the
+   * other sixty-four bytes. Refusing them must therefore cost the same, which is the observable
+   * difference between checking before the reservation and checking after it.
+   */
+  @Test
+  void refusingAnUnproducibleOverflowPayloadAllocatesIndependentlyOfItsDeclaredSize() throws IOException {
+    final var platform = ManagementFactory.getThreadMXBean();
+    assumeTrue(platform instanceof ThreadMXBean);
+    final ThreadMXBean bean = (ThreadMXBean) platform;
+    assumeTrue(bean.isThreadAllocatedMemorySupported());
+    bean.setThreadAllocatedMemoryEnabled(true);
+    Allocators.getInstance().init(1L << 30);
+    final long thread = Thread.currentThread().threadId();
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("overflow-refusal").versioningApproach(VersioningType.FULL).build();
+
+    final long perRefusal =
+        refusalBytes(config, unproducibleOverflowPayload(1 << 20, new byte[] {(byte) 0x80, (byte) 0x80, 0x40}), bean,
+            thread) - refusalBytes(config, unproducibleOverflowPayload(64, new byte[] {0x40}), bean, thread);
+    System.out.printf("overflowRefusalAllocation=%d bytes per refusal%n", perRefusal);
+    assertTrue(perRefusal < 1024,
+        "refusing the mebibyte frame allocated " + perRefusal + " more bytes than refusing the 64-byte frame");
+  }
+
+  /**
+   * Compressed projection {@link io.sirix.page.OverflowPage} image whose byte-run frame is a marker
+   * and {@code sizeVarint} and nothing else: the page and the frame agree on {@code declared} bytes,
+   * and no token can deliver them.
+   */
+  private static byte[] unproducibleOverflowPayload(final int declared, final byte[] sizeVarint) {
+    final int storedLength = 1 + sizeVarint.length;
+    final ByteBuffer image = ByteBuffer.allocate(12 + storedLength).order(ByteOrder.LITTLE_ENDIAN);
+    image.put(PageKind.OVERFLOWPAGE.getID())
+         .put((byte) 0)
+         .put((byte) (PageKind.FLAG_OVERFLOW_PAYLOAD_COMPRESSED | PageKind.FLAG_OVERFLOW_PROJECTION_PAYLOAD))
+         .putInt(declared)
+         .putInt(storedLength)
+         .put((byte) 2)
+         .put(ByteRunCodec.FRAME_MARKER)
+         .put(sizeVarint);
+    return image.array();
+  }
+
   /** Mode-zero kind-12 frame: {@code count} zero slot offsets and a slot region one byte short. */
   private static byte[] truncatedSlotRegion(final int count, final int usedSlotBytes) {
     final ByteBuffer frame = frameHeader(HOTLeafPage.FLAG_NARROW_SLOT_OFFSETS, 0,

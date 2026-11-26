@@ -58,10 +58,12 @@
 #define SLZ_MIN_MATCH    4
 
 /*
- * Tail slack slz_decode_fast requires past `uncompressed` in the destination, and past the frame
+ * Tail slack slz_decode_body requires past `uncompressed` in the destination, and past the frame
  * in the source. The Java caller (SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK /
  * NATIVE_INPUT_TAIL_SLACK) must agree with these two numbers; the destination one is re-checked at
- * the entry point below, the source one cannot be (a length is passed, not a capacity).
+ * the entry points below, the source one cannot be (a length is passed, not a capacity). Both
+ * specialisations need the source slack: the guarded one proves every payload byte lies inside the
+ * frame, but its literal copy still stores 16 bytes at a time and so reads into that slack.
  */
 #define SLZ_DST_TAIL_SLACK 64
 #define SLZ_SRC_TAIL_SLACK 16
@@ -148,13 +150,27 @@ SLZ_INLINE int slz_read_varint(const uint8_t *input, const uint8_t *in_end,
  * Core decode loop. Requires:
  *   - `dst` has ≥ uncompressed + 64 bytes of tail slack
  *   - `input` has ≥ in_len + 16 bytes of tail slack
+ *
+ * `checked` selects the input-bounds contract, and is always a compile-time constant so this
+ * function is specialised twice and the branches below vanish from each copy (the shape
+ * LZ4_decompress_generic uses for its endOnInput parameter):
+ *
+ *   checked == 0  The frame is known to come from this encoder. The hot loop reads tokens,
+ *                 length-extension bytes, literals and distances without testing `in_end`; a
+ *                 malformed frame then reads whatever follows the frame in the caller's buffer.
+ *   checked == 1  The frame may be corrupt. Every byte that becomes payload is proven to lie
+ *                 inside [in_pos, in_end) before it is read, so the tail slack past the frame is
+ *                 only ever touched by a wildcopy overshoot and never interpreted. Violations
+ *                 return a negative code instead of decoding.
+ *
+ * Both specialisations share the output bounds: the hot loop's `outPos <= safeLimit` invariant and
+ * the per-token overflow tests, so no store leaves the declared size in either mode.
  */
-SLZ_HOT
-static int slz_decode_fast(const uint8_t * SLZ_RESTRICT input,
+SLZ_INLINE SLZ_HOT int slz_decode_body(const uint8_t * SLZ_RESTRICT input,
                            size_t in_pos, size_t in_end,
                            uint8_t * SLZ_RESTRICT dst,
-                           uint32_t uncompressed) {
-    (void)in_end;
+                           uint32_t uncompressed,
+                           const int checked) {
     size_t outPos = 0;
     /*
      * The bound the caller's tail-slack contract is derived from, so it must BE the macro rather
@@ -166,6 +182,9 @@ static int slz_decode_fast(const uint8_t * SLZ_RESTRICT input,
         (uncompressed > SLZ_DST_TAIL_SLACK) ? uncompressed - SLZ_DST_TAIL_SLACK : 0;
 
     while (SLZ_LIKELY(outPos <= safeLimit)) {
+        if (checked && SLZ_UNLIKELY(in_pos >= in_end)) {
+            return SLZ_ERR_INPUT_EXHAUSTED;
+        }
         const uint8_t token = input[in_pos++];
         uint32_t litLen = (uint32_t)(token >> 4);
         uint32_t matchLen = (uint32_t)(token & 0x0F);
@@ -174,11 +193,21 @@ static int slz_decode_fast(const uint8_t * SLZ_RESTRICT input,
         if (SLZ_UNLIKELY(litLen == 15)) {
             uint32_t b;
             do {
+                if (checked && SLZ_UNLIKELY(in_pos >= in_end)) {
+                    return SLZ_ERR_INPUT_EXHAUSTED;
+                }
                 b = input[in_pos++];
                 litLen += b;
+                /* Cap the running sum so a long 0xFF chain cannot wrap litLen past 2^32. */
+                if (checked && SLZ_UNLIKELY(litLen > uncompressed)) {
+                    return SLZ_ERR_LITERAL_OVERFLOW;
+                }
             } while (b == 0xFF);
             if (SLZ_UNLIKELY(outPos + litLen > uncompressed)) {
                 return SLZ_ERR_LITERAL_OVERFLOW;
+            }
+            if (checked && SLZ_UNLIKELY(in_pos + litLen > in_end)) {
+                return SLZ_ERR_INPUT_EXHAUSTED;
             }
             if (SLZ_LIKELY(outPos + litLen + 16 <= uncompressed)) {
                 size_t i = 0;
@@ -193,7 +222,11 @@ static int slz_decode_fast(const uint8_t * SLZ_RESTRICT input,
             outPos += litLen;
             if (outPos == uncompressed) break;
         } else if (litLen > 0) {
-            /* litLen ∈ [1, 14]. One 16-byte store. */
+            /* litLen ∈ [1, 14]. One 16-byte store, so the read may reach 15 bytes past the
+             * literal — into the source tail slack the caller guarantees, never into payload. */
+            if (checked && SLZ_UNLIKELY(in_pos + litLen > in_end)) {
+                return SLZ_ERR_INPUT_EXHAUSTED;
+            }
             slz_copy16(dst + outPos, input + in_pos);
             in_pos += litLen;
             outPos += litLen;
@@ -202,14 +235,23 @@ static int slz_decode_fast(const uint8_t * SLZ_RESTRICT input,
         if (SLZ_UNLIKELY(outPos == uncompressed)) break;
 
         /* ---- Match --------------------------------------------------- */
+        if (checked && SLZ_UNLIKELY(in_pos + 2 > in_end)) {
+            return SLZ_ERR_INPUT_EXHAUSTED;
+        }
         const uint32_t dist = (uint32_t)slz_load_u16_le(input + in_pos);
         in_pos += 2;
 
         if (SLZ_UNLIKELY(matchLen == 15)) {
             uint32_t b;
             do {
+                if (checked && SLZ_UNLIKELY(in_pos >= in_end)) {
+                    return SLZ_ERR_INPUT_EXHAUSTED;
+                }
                 b = input[in_pos++];
                 matchLen += b;
+                if (checked && SLZ_UNLIKELY(matchLen > uncompressed)) {
+                    return SLZ_ERR_MATCH_OVERFLOW;
+                }
             } while (b == 0xFF);
         }
         matchLen += SLZ_MIN_MATCH;
@@ -397,12 +439,38 @@ static int slz_decode_fast(const uint8_t * SLZ_RESTRICT input,
     return (int)outPos;
 }
 
+/* Trusted-frame specialisation: no per-token input bounds. */
+SLZ_HOT
+static int slz_decode_fast(const uint8_t * SLZ_RESTRICT input,
+                           size_t in_pos, size_t in_end,
+                           uint8_t * SLZ_RESTRICT dst,
+                           uint32_t uncompressed) {
+    return slz_decode_body(input, in_pos, in_end, dst, uncompressed, 0);
+}
+
+/* Untrusted-frame specialisation: every payload byte is proven to lie inside the frame. */
+SLZ_HOT
+static int slz_decode_guarded(const uint8_t * SLZ_RESTRICT input,
+                              size_t in_pos, size_t in_end,
+                              uint8_t * SLZ_RESTRICT dst,
+                              uint32_t uncompressed) {
+    return slz_decode_body(input, in_pos, in_end, dst, uncompressed, 1);
+}
+
 /*
- * Public native entrypoint.
+ * Shared prologue: marker, declared size and the destination tail slack the decode body needs.
+ *
+ * The body is documented to require tail slack on `output`, and it earns that requirement
+ * honestly: its hot loop stores 8 and 16 bytes at a time and is bounded by
+ * `outPos <= uncompressed - SLZ_DST_TAIL_SLACK` rather than by the individual store widths.
+ * Accepting `uncompressed == output_len` and calling it anyway made the contract advisory — and
+ * this decoder runs against a pointer into the caller's heap, where a store past the end is not a
+ * wrong answer but a corrupted process. Refuse instead, and let the caller decode in a
+ * bounds-checked way.
  */
-SLZ_EXPORT
-int sirix_lz77_decode(const uint8_t *input, int input_len,
-                      uint8_t *output, int output_len) {
+SLZ_INLINE int slz_decode_entry(const uint8_t *input, int input_len,
+                                uint8_t *output, int output_len,
+                                const int checked) {
     if (input == NULL || output == NULL || input_len < 2) {
         return SLZ_ERR_SHORT_FRAME;
     }
@@ -418,17 +486,31 @@ int sirix_lz77_decode(const uint8_t *input, int input_len,
     if (rc != SLZ_OK) return rc;
 
     if (uncompressed == 0) return 0;
-    /*
-     * slz_decode_fast is documented to require tail slack on `output`, and it earns that
-     * requirement honestly: its hot loop stores 8 and 16 bytes at a time and is bounded by
-     * `outPos <= uncompressed - SLZ_DST_TAIL_SLACK` rather than by the individual store widths.
-     * Accepting `uncompressed == output_len` and calling it anyway made the contract advisory —
-     * and this decoder runs against a pointer into the caller's heap, where a store past the end
-     * is not a wrong answer but a corrupted process. Refuse instead, and let the caller decode in
-     * a bounds-checked way.
-     */
     if ((uint64_t)uncompressed + SLZ_DST_TAIL_SLACK > (uint64_t)output_len) {
         return SLZ_ERR_SIZE_MISMATCH;
     }
-    return slz_decode_fast(input, in_pos, in_end, output, uncompressed);
+    return checked
+        ? slz_decode_guarded(input, in_pos, in_end, output, uncompressed)
+        : slz_decode_fast(input, in_pos, in_end, output, uncompressed);
+}
+
+/*
+ * Public native entrypoint for a frame this encoder produced.
+ */
+SLZ_EXPORT
+int sirix_lz77_decode(const uint8_t *input, int input_len,
+                      uint8_t *output, int output_len) {
+    return slz_decode_entry(input, input_len, output, output_len, 0);
+}
+
+/*
+ * Public native entrypoint for a frame that may be corrupt — a payload just read from storage.
+ * Identical output to sirix_lz77_decode on every valid frame; a negative code instead of a decode
+ * on any frame whose tokens, spans, counts or match bounds leave the stored frame or the declared
+ * decoded size.
+ */
+SLZ_EXPORT
+int sirix_lz77_decode_guarded(const uint8_t *input, int input_len,
+                              uint8_t *output, int output_len) {
+    return slz_decode_entry(input, input_len, output, output_len, 1);
 }

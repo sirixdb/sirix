@@ -8862,9 +8862,37 @@ public enum PageKind {
   }
 
   /**
-   * The decoded size the stored frame itself declares. All three payload codecs open with their own
-   * marker byte followed by that size as a varint, so one reader covers them; nothing past the header
-   * is interpreted here, and the five-byte cap keeps the result non-negative.
+   * The most a codec can produce from {@code bodyBytes} bytes of token stream, as a necessary
+   * condition only: exact production stays with the single-pass decoders.
+   *
+   * <p>
+   * Every token consumes at least one body byte, so the declared size is bounded by the number of
+   * body bytes times the most one token can produce. For the run codecs that is a short run, capped
+   * at 128 output bytes, or a long run whose count is a varint — and a varint can only be as long as
+   * the bytes available, which is why this grows exponentially and goes vacuous once five body bytes
+   * are present. It has to: a twelve-byte zero-run frame legitimately declares a gibibyte of zeros,
+   * and no ratio bound may reject committed data. For LZ77 each length-extension byte adds at most
+   * 255 and each token carries at most 19 from its nibbles against a three-byte overhead, so output
+   * never exceeds 255 per consumed byte.
+   */
+  private static long maxProducibleOverflowPayload(final int codec, final int bodyBytes) {
+    if (bodyBytes <= 0) {
+      return 0L;
+    }
+    if (codec == 3) {
+      return 255L * bodyBytes;
+    }
+    if (bodyBytes >= 5) {
+      return Integer.MAX_VALUE;
+    }
+    return Math.max(128L, (1L << (7 * bodyBytes)) - 1) * bodyBytes;
+  }
+
+  /**
+   * The decoded size the stored frame itself declares, refused unless the body that follows the
+   * header could produce it. All three payload codecs open with their own marker byte followed by
+   * that size as a varint, so one reader covers them; nothing past the header is interpreted here,
+   * and the five-byte cap keeps the result non-negative.
    */
   private static int framedOverflowPayloadSize(final byte[] frame, final int storedLength, final int codec) {
     final byte marker = switch (codec) {
@@ -8888,6 +8916,11 @@ public enum PageKind {
       }
       size |= (value & 0x7F) << shift;
       if ((value & 0x80) == 0) {
+        final long producible = maxProducibleOverflowPayload(codec, storedLength - position);
+        if (size > producible) {
+          throw new IllegalStateException("Corrupt OverflowPage payload: codec " + codec + " frame declares " + size
+              + " bytes from " + (storedLength - position) + " token bytes, which can produce at most " + producible);
+        }
         return size;
       }
     }
@@ -8945,8 +8978,9 @@ public enum PageKind {
         final MemorySegment landing = lease.segment();
         produced = switch (codec) {
           case 2 -> ByteRunCodec.decode(in, 0, storedLength, landing, 0L);
-          // decodeChecked, not decode: these bytes come from disk, and decode's native and fast
-          // paths are trusted-frame entry points that would read the scratch tail as payload.
+          // decodeChecked, not decode: these bytes come from disk, and decode is a trusted-frame
+          // entry point that would read the scratch tail as payload. The fast decoder is kept —
+          // decodeChecked carries its bounds inside the same native loop.
           case 3 -> SirixLZ77Codec.decodeChecked(in, 0, storedLength, landing, 0L);
           default -> throw new IllegalStateException("Unknown OverflowPage payload codec " + codec);
         };

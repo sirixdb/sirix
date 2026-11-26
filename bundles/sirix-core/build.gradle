@@ -277,7 +277,6 @@ test {
     def useFastLz4 = project.hasProperty('lz4.fast')
     systemProperty "sirix.lz4.fast.decompress", useFastLz4.toString()
     systemProperty "sirix.lz77Codec.native.disable", System.getProperty("sirix.lz77Codec.native.disable", "false")
-    systemProperty "sirix.lz77Codec.diag.counters", System.getProperty("sirix.lz77Codec.diag.counters", "false")
     // Structural-column kill switches — forwarded so a run can A/B a column off and confirm
     // the page still round-trips with its keys inline.
     ['sirix.parentKeyColumn.disable',

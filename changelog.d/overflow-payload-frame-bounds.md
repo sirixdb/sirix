@@ -8,9 +8,13 @@ section: Fixed
   and the unassigned opcode, as
   [FMT-216](spec/FMT-disk-format.md#fmt-216--projection-overflow-envelope-and-codecs) requires.
   The reader also corroborates the page's decoded length against the size the codec frame itself
-  declares *before* reserving either the decoded array or the native landing, so a garbled length
-  can no longer drive a large reservation from a tiny record. Previously a projection or ordinary
-  overflow page whose frame asked for more bytes than it carried decoded successfully and published
-  bytes left in the decode scratch by an earlier payload. LZ77 overflow payloads decode through the
-  bounds-checked core; the native decoder, whose C hot loop has no input bound, remains in use for
-  frames this writer produced in the same process.
+  declares, and against what the bytes after that frame header could actually produce, *before*
+  reserving either the decoded array or the native landing — so neither a garbled length nor two
+  agreeing lengths with an empty token stream can drive a large reservation from a tiny record.
+  Previously a projection or ordinary overflow page whose frame asked for more bytes than it carried
+  decoded successfully and published bytes left in the decode scratch by an earlier payload, and a
+  frame declaring a gibibyte in both headers reserved it before the decoder could refuse.
+  Decoding speed is unchanged: the native LZ77 decoder gained a second entry point that carries
+  these input bounds inside the same vectorised loop, selected at compile time, so a valid payload
+  still decodes natively and a corrupt one is refused rather than decoded. Platforms without the
+  bundled library give the identical refusals from the Java decoder.
