@@ -64,6 +64,8 @@ Categories used:
   This is part of an engine-wide gap: on every platform the commit path's index catalogue
   `{revision}.xml` and `.commit` marker, resource creation, the `IN_MEMORY` tombstone rename and
   the `dbsetting.obj` replace get no directory sync. Follow-up task: `sirix-durable-file-metadata`.
+  Accepted by captain decision of 2026-11-26 (option C); the engine-wide fix lands before 1.0 as
+  TXN-616, whose shared `DurableFiles` helper the incarnation-id publisher will switch to.
 - **Windows + MEMORY_MAPPED storage: interrupted-first-commit recovery cannot re-initialize in
   place.** Windows hard-locks memory-mapped files, so the recovery path that truncates and
   re-bootstraps a damaged bootstrap-only resource fails while any mapping may still be live.
