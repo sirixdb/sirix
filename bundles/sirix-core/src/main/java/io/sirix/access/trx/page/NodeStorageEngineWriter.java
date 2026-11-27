@@ -854,10 +854,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
      * copy/view failure therefore leaves the live reference heap-backed and unstaged.
      */
     private OverflowPage copyToNative(final OverflowPage page) {
-      final int payloadLength = page.dataLength();
       final long payloadOffset = payloadBytes;
       page.copyDataTo(payloadStorage, payloadOffset);
-      return new OverflowPage(readOnlyPayloadStorage, payloadOffset, payloadLength);
+      return page.stagedView(readOnlyPayloadStorage, payloadOffset);
     }
 
     private void addReserved(final PageReference reference, final int payloadLength, final long localityGroup) {

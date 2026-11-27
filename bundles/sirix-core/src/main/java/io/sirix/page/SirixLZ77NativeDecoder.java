@@ -3,14 +3,10 @@
  */
 package io.sirix.page;
 
+import io.sirix.io.bytepipe.NativeCodecLibrary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.Linker.Option;
@@ -18,7 +14,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
-import java.security.MessageDigest;
 
 /**
  * FFI bridge to the native Sirix LZ77 decoder. Mirrors the wire format of {@link SirixLZ77Codec} so
@@ -31,10 +26,9 @@ import java.security.MessageDigest;
  * heaps vs ~2.2 GB/s for {@code LZ4_decompress_safe} on the same data (LZ4 is our reference
  * baseline).
  *
- * <h2>Loading</h2> The native library ({@code libsirix_lz77.so} on Linux x86_64) is embedded as a
- * classpath resource under {@code /native/linux-x86_64/}. On first use we extract it to a
- * platform-user-scoped temp directory and {@code dlopen} it via {@link SymbolLookup#libraryLookup}.
- * If extraction or {@code dlopen} fails we fall back to the pure-Java decoder transparently.
+ * <h2>Loading</h2> {@link NativeCodecLibrary} loads the bundled library once per process. If
+ * loading fails we fall back to the pure-Java decoder transparently. Staging and platform
+ * requirements are documented in {@code docs/operations.md}.
  *
  * <h2>HFT constraints</h2>
  * <ul>
@@ -55,6 +49,12 @@ public final class SirixLZ77NativeDecoder {
 
   /** Address resolved in this process; never captured in a native image's build-time heap. */
   private static final MemorySegment DECODE_SYMBOL;
+
+  /** True if the bounds-checked decode symbol resolved as well. */
+  private static final boolean GUARDED_AVAILABLE;
+
+  /** Address of the bounds-checked entry point; see {@link #decodeGuarded}. */
+  private static final MemorySegment GUARDED_SYMBOL;
 
   /**
    * The signature has no library, arena, property or process state; the symbol is passed per call.
@@ -79,23 +79,27 @@ public final class SirixLZ77NativeDecoder {
   static {
     boolean available = false;
     MemorySegment symbol = null;
+    MemorySegment guarded = null;
 
     if (FORCE_DISABLE) {
       LOGGER.info("SirixLZ77NativeDecoder disabled via sirix.lz77Codec.native.disable");
     } else {
       try {
-        final Path libPath = extractNativeLib();
-        if (libPath != null) {
-          final SymbolLookup lookup = SymbolLookup.libraryLookup(libPath, Arena.global());
+        final SymbolLookup lookup = NativeCodecLibrary.lookup();
+        if (lookup != null) {
           // critical(true) allows passing heap MemorySegments directly to
           // native code — the JVM pins them during the call. This lets us
           // skip the byte[] → native-memory copy that would otherwise
           // dominate the per-call latency for small frames.
           symbol = lookup.find("sirix_lz77_decode").orElseThrow();
+          // Resolved separately: a library built before the bounds-checked entry point existed
+          // still serves trusted frames, and the untrusted route falls back to Java rather than
+          // losing its refusals.
+          guarded = lookup.find("sirix_lz77_decode_guarded").orElse(null);
           // Initialize inside the guarded load so unsupported linkage retains the Java fallback.
           DecodeCall.HANDLE.type();
           available = true;
-          LOGGER.info("SirixLZ77NativeDecoder loaded from {} (critical=true)", libPath);
+          LOGGER.info("SirixLZ77NativeDecoder loaded (critical=true, guarded={})", guarded != null);
         }
       } catch (final Throwable t) {
         LOGGER.warn("SirixLZ77NativeDecoder failed to load: {} — falling back to Java decoder", t.getMessage());
@@ -104,6 +108,10 @@ public final class SirixLZ77NativeDecoder {
 
     NATIVE_AVAILABLE = available;
     DECODE_SYMBOL = symbol;
+    GUARDED_SYMBOL = available
+        ? guarded
+        : null;
+    GUARDED_AVAILABLE = GUARDED_SYMBOL != null;
   }
 
   private SirixLZ77NativeDecoder() {}
@@ -114,6 +122,14 @@ public final class SirixLZ77NativeDecoder {
    */
   public static boolean isAvailable() {
     return NATIVE_AVAILABLE;
+  }
+
+  /**
+   * @return {@code true} if the bounds-checked entry point resolved, so a frame read from storage can
+   *         be decoded natively without trusting its tokens.
+   */
+  public static boolean isGuardedAvailable() {
+    return GUARDED_AVAILABLE;
   }
 
   /**
@@ -138,6 +154,32 @@ public final class SirixLZ77NativeDecoder {
     if (!NATIVE_AVAILABLE) {
       throw new IllegalStateException("SirixLZ77NativeDecoder: native library not loaded");
     }
+    return invoke(DECODE_SYMBOL, input, inputOff, inputLen, output, outputOff);
+  }
+
+  /**
+   * Decode a frame that may be corrupt. Same result as {@link #decode} on every valid frame; a
+   * refusal instead of a decode when a token, span, count or match bound leaves the stored frame or
+   * the declared decoded size, so no byte following the frame in {@code input} becomes payload.
+   *
+   * <p>
+   * The destination tail-slack precondition of {@link #decode} still applies: the bounds this entry
+   * point adds are the input ones the C entry point could not check, not the output slack its
+   * wildcopy design needs.
+   *
+   * @return number of bytes decoded (equals the {@code uncompressed} value from the frame header)
+   * @throws IllegalStateException if the frame is malformed
+   */
+  public static int decodeGuarded(final byte[] input, final int inputOff, final int inputLen,
+      final MemorySegment output, final long outputOff) {
+    if (!GUARDED_AVAILABLE) {
+      throw new IllegalStateException("SirixLZ77NativeDecoder: bounds-checked entry point not loaded");
+    }
+    return invoke(GUARDED_SYMBOL, input, inputOff, inputLen, output, outputOff);
+  }
+
+  private static int invoke(final MemorySegment entry, final byte[] input, final int inputOff, final int inputLen,
+      final MemorySegment output, final long outputOff) {
     if (input == null || output == null) {
       throw new IllegalArgumentException("input/output");
     }
@@ -170,7 +212,7 @@ public final class SirixLZ77NativeDecoder {
 
     final int rc;
     try {
-      rc = (int) DecodeCall.HANDLE.invokeExact(DECODE_SYMBOL, inputSeg, inputLen, outSlice, (int) outCap);
+      rc = (int) DecodeCall.HANDLE.invokeExact(entry, inputSeg, inputLen, outSlice, (int) outCap);
     } catch (final Throwable t) {
       throw new RuntimeException("SirixLZ77NativeDecoder: FFI call failed", t);
     }
@@ -180,121 +222,6 @@ public final class SirixLZ77NativeDecoder {
           "SirixLZ77NativeDecoder: decode returned error " + rc + " (inputLen=" + inputLen + ")");
     }
     return rc;
-  }
-
-  /**
-   * Extract the embedded {@code libsirix_lz77.so} resource to a temp file on first use. Returns the
-   * path for {@link SymbolLookup#libraryLookup}.
-   *
-   * <p>
-   * Returns {@code null} if the resource is missing for the running platform — caller falls back to
-   * Java decoder.
-   */
-  private static Path extractNativeLib() throws Exception {
-    final String os = System.getProperty("os.name", "").toLowerCase();
-    final String arch = System.getProperty("os.arch", "").toLowerCase();
-
-    final String resourcePath;
-    final String libName;
-    if (os.contains("linux") && (arch.equals("amd64") || arch.equals("x86_64"))) {
-      resourcePath = "/native/linux-x86_64/libsirix_lz77.so";
-      libName = "libsirix_lz77.so";
-    } else if (os.contains("linux") && arch.equals("aarch64")) {
-      resourcePath = "/native/linux-aarch64/libsirix_lz77.so";
-      libName = "libsirix_lz77.so";
-    } else {
-      LOGGER.info("SirixLZ77NativeDecoder: no prebuilt native lib for {} {}", os, arch);
-      return null;
-    }
-
-    try (InputStream in = SirixLZ77NativeDecoder.class.getResourceAsStream(resourcePath)) {
-      if (in == null) {
-        LOGGER.info("SirixLZ77NativeDecoder: resource {} not found on classpath", resourcePath);
-        return null;
-      }
-      final byte[] lib = in.readAllBytes();
-      // Content-addressed, so two builds of the library never contend for one name and a staged
-      // file never has to be rewritten in place. See publishNativeLib for why in-place is fatal.
-      final String stagedName = libName.substring(0, libName.length() - 3) + '-' + digestOf(lib) + ".so";
-      final String dirName = "sirix-native-" + System.getProperty("user.name", "default");
-      // More than one candidate because falling back to the Java decoder costs ~1.8× on every
-      // region decode, and the usual reason for landing there is mundane: a read-only or
-      // noexec /tmp. Losing that much throughput to an unwritable directory, silently, is not an
-      // acceptable default — so try the obvious alternatives before giving up, and say so when we
-      // do (at WARN, not DEBUG: this is a performance cliff, not a detail).
-      // Deliberately only these two: the temp directory, then the user's home. Writing into the
-      // process's working directory would be a surprising side effect of opening a database.
-      final String[] roots = {System.getProperty("java.io.tmpdir"), System.getProperty("user.home")};
-      Exception lastFailure = null;
-      for (final String root : roots) {
-        if (root == null || root.isEmpty()) {
-          continue;
-        }
-        try {
-          final Path dir = Path.of(root, dirName);
-          Files.createDirectories(dir);
-          return publishNativeLib(dir.resolve(stagedName), lib);
-        } catch (final Exception e) {
-          lastFailure = e;
-        }
-      }
-      LOGGER.warn("SirixLZ77NativeDecoder: could not stage {} into any of {} — falling back to the "
-          + "pure-Java decoder, which decompresses roughly 1.8x slower. Point java.io.tmpdir at "
-          + "a writable directory to recover it.", libName, String.join(", ", roots), lastFailure);
-      return null;
-    }
-  }
-
-  /**
-   * Make {@code target} exist with exactly {@code lib}'s bytes, without ever writing into a file
-   * another process may already have mapped.
-   *
-   * <p>
-   * The staging directory is shared by every JVM running as this user, and the previous version of
-   * this method wrote the library straight into it with {@code Files.write}, which truncates and
-   * rewrites in place. A second JVM starting while a first had the library {@code dlopen}ed therefore
-   * pulled the mapped pages out from under it, and the first JVM's next downcall jumped into unmapped
-   * memory — a hard {@code SIGSEGV} at a near-null pc, not a catchable exception, because
-   * {@link Option#critical(boolean) critical} linkage omits the thread-state transition that would
-   * let the VM report it. It reproduced whenever more than one test JVM ran at once, which is the
-   * ordinary case for a parallel Gradle build.
-   *
-   * <p>
-   * Two things make this safe. The name is content-addressed, so an existing file of the right size
-   * already holds the right bytes and is simply reused. And a file that has to be created is written
-   * under a unique temporary name and moved into place with {@link StandardCopyOption#ATOMIC_MOVE}: a
-   * rename swaps the directory entry, so a process holding the previous inode keeps a valid mapping
-   * until it lets go. Losing the race is not an error — the winner staged identical bytes, so the
-   * loser drops its copy and uses theirs.
-   */
-  private static Path publishNativeLib(final Path target, final byte[] lib) throws Exception {
-    if (Files.isReadable(target) && Files.size(target) == lib.length) {
-      return target;
-    }
-    final Path staging = Files.createTempFile(target.getParent(), target.getFileName().toString(), ".tmp");
-    try {
-      Files.write(staging, lib);
-      Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
-      return target;
-    } catch (final Exception e) {
-      Files.deleteIfExists(staging);
-      // Another JVM published the same content first — its bytes are ours, by construction.
-      if (Files.isReadable(target) && Files.size(target) == lib.length) {
-        return target;
-      }
-      throw e;
-    }
-  }
-
-  /** Short, stable content digest for the staged file name. Runs once per JVM. */
-  private static String digestOf(final byte[] lib) throws Exception {
-    final byte[] hash = MessageDigest.getInstance("SHA-256").digest(lib);
-    final StringBuilder out = new StringBuilder(16);
-    for (int i = 0; i < 8; i++) {
-      out.append(Character.forDigit((hash[i] >> 4) & 0xF, 16));
-      out.append(Character.forDigit(hash[i] & 0xF, 16));
-    }
-    return out.toString();
   }
 
 }

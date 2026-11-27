@@ -267,3 +267,25 @@ tests = ["io.sirix.access.FormatRepairBoundaryTest"]
 [[association]]
 class = "io.sirix.access.trx.page.AbstractForwardingStorageEngineWriter"
 tests = ["io.sirix.access.trx.node.PostDurableCleanupFailureTest"]
+
+# FMT-210..217 span wire validation, packed access, cache ownership and mutable leaf operations.
+[[association]]
+class = "io.sirix.index.hot.page.HOTLeafBody"
+tests = ["io.sirix.page.HOTLeafBodyEncodingTest", "io.sirix.page.HOTLeafDirectoryEncodingTest", "io.sirix.page.HOTLeafKeyContractTest"]
+
+[[association]]
+class = "io.sirix.index.hot.page.HOTLeafBodyWriter"
+tests = ["io.sirix.page.HOTLeafBodyEncodingTest", "io.sirix.page.HOTLeafDirectoryEncodingTest", "io.sirix.page.HOTLeafRawWriterTest"]
+
+[[association]]
+class = "io.sirix.index.hot.page.HOTLeafPage"
+tests = ["io.sirix.index.hot.HOTLeafPageTest", "io.sirix.index.hot.HOTLeafPageSplitTest", "io.sirix.index.hot.HOTLeafPageSplitFaithfulTest", "io.sirix.index.hot.page.HOTLeafPageKeyWordTest", "io.sirix.index.hot.page.HOTLeafPageCowTest", "io.sirix.index.hot.page.HOTLeafPageStampTest", "io.sirix.index.hot.page.HOTLeafPageFrameOwnershipTest", "io.sirix.index.hot.page.HOTLeafPagePrefixShrinkCapacityTest", "io.sirix.page.HOTLeafBodyEncodingTest", "io.sirix.page.HOTLeafDirectoryEncodingTest", "io.sirix.io.filechannel.HOTCompactFragmentReadTest", "io.sirix.page.HOTLeafKeyContractTest"]
+
+[[association]]
+class = "io.sirix.page.PageKind"
+tests = ["io.sirix.page.HOTLeafBodyEncodingTest", "io.sirix.page.HOTLeafDirectoryEncodingTest", "io.sirix.page.HOTLeafPageNativeWireTest", "io.sirix.page.ProjectionOverflowEncodingTest", "io.sirix.io.filechannel.HOTCompactFragmentReadTest", "io.sirix.io.filechannel.HOTCompactFragmentBatchReadTest"]
+
+# The bounds-checked native entry point is exercised by persisted overflow-frame contracts.
+[[association]]
+class = "io.sirix.page.SirixLZ77NativeDecoder"
+tests = ["io.sirix.page.ProjectionOverflowEncodingTest"]

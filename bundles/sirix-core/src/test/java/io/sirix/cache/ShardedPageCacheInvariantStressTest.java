@@ -301,7 +301,7 @@ final class ShardedPageCacheInvariantStressTest {
       for (int i = 0; i < HOT_KEYS; i++) {
         refs[i] = new PageReference().setKey(i);
         leaves[i] = new HOTLeafPage(i, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), null,
-            new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+            new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
         cache.put(refs[i], leaves[i]);
       }
 

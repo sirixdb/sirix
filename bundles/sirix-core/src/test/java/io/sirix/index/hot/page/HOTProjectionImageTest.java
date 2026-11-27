@@ -131,7 +131,7 @@ final class HOTProjectionImageTest {
 
   @Test
   void completeImageRejectsMalformedDimensionsSlotsAndUnvisitedSideReferences() throws IOException {
-    final byte[] wire = wire(2);
+    final byte[] wire = wire(2, true);
     final ByteArrayBytesIn input = new ByteArrayBytesIn(wire);
     input.position(3); // kind and envelope
     Utils.getVarLong(input);
@@ -144,7 +144,7 @@ final class HOTProjectionImageTest {
     final int usedAt = (int) input.position();
     final int used = input.readInt();
     final int offsets = (int) input.position();
-    final int slots = offsets + count * Integer.BYTES;
+    final int slots = offsets + count * Short.BYTES;
     input.position(slots + used);
     final int sideCountAt = (int) input.position();
     assertEquals(2, Utils.getVarLong(input));
@@ -162,7 +162,7 @@ final class HOTProjectionImageTest {
     assertThrows(IllegalStateException.class, () -> open(Arrays.copyOf(wire, wire.length + 1)));
 
     final byte[] badOffset = wire.clone();
-    ByteBuffer.wrap(badOffset).order(ByteOrder.LITTLE_ENDIAN).putInt(offsets, -1);
+    ByteBuffer.wrap(badOffset).order(ByteOrder.LITTLE_ENDIAN).putShort(offsets, (short) 0xffff);
     final HOTProjectionImage offsetImage = open(badOffset);
     assertThrows(IllegalStateException.class, () -> offsetImage.select(key(0), -256));
     final byte[] badKeyLength = wire.clone();
@@ -193,7 +193,7 @@ final class HOTProjectionImageTest {
     final int usedAt = (int) input.position();
     final int used = input.readInt();
     final int offsets = (int) input.position();
-    final int slots = offsets + count * Integer.BYTES;
+    final int slots = offsets + count * Short.BYTES;
     // Reverse the physical records and leave retired bytes before each one. Logical slot order
     // remains the independent signed-long key order; serialized offsets need not be monotonic.
     final byte[] relocated = new byte[dense.length + count * 3];
@@ -203,12 +203,12 @@ final class HOTProjectionImageTest {
     changed.putInt(usedAt, used + count * 3);
     int at = 0;
     for (int row = count - 1; row >= 0; row--) {
-      final int offset = original.getInt(offsets + row * Integer.BYTES);
+      final int offset = Short.toUnsignedInt(original.getShort(offsets + row * Short.BYTES));
       final int suffix = original.getShort(slots + offset) & 0xffff;
       final int length = original.getShort(slots + offset + Short.BYTES + suffix) & 0xffff;
       final int recordSize = 2 * Short.BYTES + suffix + length;
       at += 3;
-      changed.putInt(offsets + row * Integer.BYTES, at);
+      changed.putShort(offsets + row * Short.BYTES, (short) at);
       System.arraycopy(dense, slots + offset, relocated, slots + at, recordSize);
       at += recordSize;
     }
@@ -251,9 +251,9 @@ final class HOTProjectionImageTest {
     final int count = input.readInt() & Integer.MAX_VALUE;
     final int used = input.readInt();
     final int offsets = (int) input.position();
-    final int slots = offsets + count * Integer.BYTES;
+    final int slots = offsets + count * Short.BYTES;
     final ByteBuffer changed = ByteBuffer.wrap(wire).order(ByteOrder.LITTLE_ENDIAN);
-    final int offset = changed.getInt(offsets);
+    final int offset = Short.toUnsignedInt(changed.getShort(offsets));
     final int suffix = changed.getShort(slots + offset) & 0xffff;
     changed.putShort(slots + offset + Short.BYTES + suffix, (short) (used + 1));
     final HOTProjectionImage image = open(wire);
@@ -304,7 +304,7 @@ final class HOTProjectionImageTest {
         leaf.setPageReference(row - 6, new PageReference().setKey(row + 1000));
       }
       leaf.setCompleteDump(true);
-      new PagePersister().serializePage(CONFIG, out, leaf, SerializationType.DATA);
+      writeOrdinaryImage(out, leaf);
       return out.toByteArray();
     }
   }
@@ -339,6 +339,10 @@ final class HOTProjectionImageTest {
   }
 
   private static byte[] wire(final int rows) throws IOException {
+    return wire(rows, false);
+  }
+
+  private static byte[] wire(final int rows, final boolean ordinary) throws IOException {
     try (HOTLeafPage leaf = new HOTLeafPage(123, 1, IndexType.PROJECTION);
         MemorySegmentBytesOut out = new MemorySegmentBytesOut(128 * 1024)) {
       for (int row = 0; row < rows; row++) {
@@ -346,8 +350,35 @@ final class HOTProjectionImageTest {
         leaf.setPageReference(row - 256, new PageReference().setKey(row + 1000));
       }
       leaf.setCompleteDump(true);
-      new PagePersister().serializePage(CONFIG, out, leaf, SerializationType.DATA);
+      if (ordinary) {
+        writeOrdinaryImage(out, leaf);
+      } else {
+        new PagePersister().serializePage(CONFIG, out, leaf, SerializationType.DATA);
+      }
       return out.toByteArray();
+    }
+  }
+
+  private static void writeOrdinaryImage(final MemorySegmentBytesOut out, final HOTLeafPage leaf) {
+    out.writeByte((byte) 12);
+    out.writeByte((byte) 0);
+    out.writeByte((byte) 5);
+    Utils.putVarLong(out, leaf.getPageKey());
+    out.writeInt(leaf.getRevision());
+    out.writeByte(IndexType.PROJECTION.getID());
+    out.writeShort((short) leaf.getCommonPrefixLen());
+    out.write(leaf.getCommonPrefix(), 0, leaf.getCommonPrefixLen());
+    out.writeInt(leaf.getEntryCount() | Integer.MIN_VALUE);
+    out.writeInt(leaf.getUsedSlotsSize());
+    for (int slot = 0; slot < leaf.getEntryCount(); slot++) {
+      out.writeShort((short) leaf.getSlotOffset(slot));
+    }
+    out.writeSegment(leaf.slots(), 0, leaf.getUsedSlotsSize());
+    final long[] keys = leaf.overflowPageRefKeysSorted();
+    Utils.putVarLong(out, keys.length);
+    for (final long key : keys) {
+      out.writeLong(key);
+      out.writeLong(leaf.getPageReference(key).getKey());
     }
   }
 

@@ -176,15 +176,19 @@ public final class ZeroRunByteCodec {
     if (input == null || output == null) {
       throw new IllegalArgumentException("input/output");
     }
+    final long outputCapacity = output.byteSize() - outputOff;
+    Objects.checkFromIndexSize(outputOff, outputCapacity, output.byteSize());
+    Objects.checkFromIndexSize(inputOff, inputLen, input.length);
     int inPos = inputOff;
     final int inEnd = inputOff + inputLen;
     if (inPos >= inEnd || input[inPos++] != FRAME_MARKER) {
       throw new IllegalStateException("ZeroRunByteCodec: missing frame marker");
     }
-    final long vr = readVarintPacked(input, inPos);
+    final long vr = readVarintPacked(input, inPos, inEnd);
     inPos = (int) (vr >>> Integer.SIZE);
     final int uncompressed = (int) vr;
 
+    Objects.checkFromIndexSize(0L, uncompressed, outputCapacity);
     long outPos = outputOff;
     final long outEnd = outputOff + uncompressed;
     while (outPos < outEnd) {
@@ -195,7 +199,7 @@ public final class ZeroRunByteCodec {
       if (tag < 0x80) {
         // Literal: (tag + 1) bytes follow.
         final int litLen = tag + 1;
-        if (outPos + litLen > outEnd) {
+        if (litLen > inEnd - inPos || outPos + litLen > outEnd) {
           throw new IllegalStateException("ZeroRunByteCodec: literal overflow");
         }
         MemorySegment.copy(input, inPos, output, ValueLayout.JAVA_BYTE, outPos, litLen);
@@ -211,7 +215,7 @@ public final class ZeroRunByteCodec {
         outPos += zeroLen;
       } else {
         // Long zero run: varint(zeros).
-        final long vr2 = readVarintPacked(input, inPos);
+        final long vr2 = readVarintPacked(input, inPos, inEnd);
         inPos = (int) (vr2 >>> Integer.SIZE);
         final int zeroLen = (int) vr2;
         if (zeroLen < 2 || outPos + zeroLen > outEnd) {
@@ -220,6 +224,9 @@ public final class ZeroRunByteCodec {
         fillZeros(output, outPos, zeroLen);
         outPos += zeroLen;
       }
+    }
+    if (inPos != inEnd) {
+      throw new IllegalStateException("ZeroRunByteCodec: trailing frame bytes");
     }
     return uncompressed;
   }
@@ -322,23 +329,4 @@ public final class ZeroRunByteCodec {
     return pos;
   }
 
-  /**
-   * Reads a varint from {@code input} starting at {@code offset}. The low 32 bits contain the decoded
-   * value, and the high 32 bits contain the next input offset.
-   */
-  private static long readVarintPacked(final byte[] input, final int offset) {
-    int pos = offset;
-    int result = 0;
-    int shift = 0;
-    while (true) {
-      final byte b = input[pos++];
-      result |= (b & 0x7F) << shift;
-      if ((b & 0x80) == 0)
-        break;
-      shift += 7;
-      if (shift > 28)
-        throw new IllegalStateException("varint too long");
-    }
-    return ((long) pos << Integer.SIZE) | (result & 0xFFFFFFFFL);
-  }
 }

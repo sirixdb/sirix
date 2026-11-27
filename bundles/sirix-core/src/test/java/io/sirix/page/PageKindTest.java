@@ -1,16 +1,22 @@
 package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
+import io.sirix.settings.VersioningType;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.LE;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Random;
@@ -27,6 +33,80 @@ final class PageKindTest {
   private static final int HEADER_START = 9;
   private static final int SALT_START = HEADER_START + 24;
   private static final byte[] RECORD = {1, 2, 3};
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void aSlotThatRunsPastTheUsedBytesIsRefusedNotWritten(final boolean allowPackedBody) {
+    Allocators.getInstance().init(1L << 30);
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("corrupt-directory").build();
+    try (Arena arena = Arena.ofConfined(); BytesOut<?> sink = Bytes.elasticHeapByteBuffer()) {
+      final MemorySegment slots = arena.allocate(HOTLeafPage.DEFAULT_SIZE);
+      // Two six-byte slots at offsets 0 and 8, so the second one ends at byte 14.
+      writeSixByteSlot(slots, 0, (byte) 1, (byte) 42);
+      writeSixByteSlot(slots, 8, (byte) 2, (byte) 43);
+      final char[] offsets = new char[HOTLeafPage.MAX_ENTRIES];
+      offsets[1] = 8;
+      // The leaf claims twelve used bytes, exactly the sum of both slots. Writing "twelve bytes, already
+      // dense" would publish a page whose second entry points two bytes past its own payload.
+      try (HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION, slots, null, offsets, 2, 12)) {
+        assertThrows(IllegalStateException.class, () -> PageKind.serializeHOTLeaf(config, sink, page, allowPackedBody));
+        final long position = sink.position();
+        try (HOTLeafPage older = new HOTLeafPage(1, 0, IndexType.PROJECTION)) {
+          page.setCompletePageRef(older);
+          page.markEntryDirty(1);
+          final ResourceConfiguration sliding =
+              ResourceConfiguration.newBuilder("corrupt-sparse-directory")
+                                   .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                   .build();
+          assertThrows(IllegalStateException.class,
+              () -> PageKind.serializeHOTLeaf(sliding, sink, page, allowPackedBody));
+          if (allowPackedBody) {
+            assertEquals(0, position, "packed selection must reject the source before writing its envelope");
+            assertEquals(0, sink.position());
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * One slot as the leaf stores it: suffix length, suffix, value length, value; lengths
+   * little-endian.
+   */
+  private static void writeSixByteSlot(final MemorySegment slots, final long offset, final byte suffix,
+      final byte value) {
+    slots.set(ValueLayout.JAVA_BYTE, offset, (byte) 1);
+    slots.set(ValueLayout.JAVA_BYTE, offset + 1, (byte) 0);
+    slots.set(ValueLayout.JAVA_BYTE, offset + 2, suffix);
+    slots.set(ValueLayout.JAVA_BYTE, offset + 3, (byte) 1);
+    slots.set(ValueLayout.JAVA_BYTE, offset + 4, (byte) 0);
+    slots.set(ValueLayout.JAVA_BYTE, offset + 5, value);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void hotWriterModesPreservePayloadAndSideReferences(final boolean allowPackedBody) {
+    Allocators.getInstance().init(1L << 30);
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("writer-modes").build();
+    final byte[] value = new byte[256];
+    try (HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION);
+        BytesOut<?> sink = Bytes.elasticHeapByteBuffer()) {
+      assertTrue(page.put(new byte[] {7}, value));
+      page.setPageReference(7, new PageReference().setKey(123));
+      PageKind.serializeHOTLeaf(config, sink, page, allowPackedBody);
+      final byte[] wire = sink.toByteArray();
+      assertEquals(HOTLeafPage.FLAG_NARROW_SLOT_OFFSETS, wire[2] & HOTLeafPage.FLAG_NARROW_SLOT_OFFSETS);
+      assertEquals(HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS, wire[2] & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
+      final ByteArrayBytesIn source = new ByteArrayBytesIn(wire);
+      source.position(1);
+      try (HOTLeafPage decoded =
+          (HOTLeafPage) PageKind.HOT_LEAF_PAGE.deserializePage(config, source, SerializationType.DATA)) {
+        assertArrayEquals(value, decoded.getValue(decoded.findEntry(new byte[] {7})));
+        assertEquals(123, decoded.getPageReference(7).getKey());
+        assertEquals(0, source.remaining());
+      }
+    }
+  }
 
   @Test
   void disposableEncodingSaltsOutputWithoutMutatingTheSourceHeader() {

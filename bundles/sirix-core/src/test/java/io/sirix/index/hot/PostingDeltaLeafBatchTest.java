@@ -135,7 +135,7 @@ final class PostingDeltaLeafBatchTest {
 
     private HOTLeafPage newLeaf() {
       final HOTLeafPage leaf = spy(new HOTLeafPage(123L, 1, IndexType.VALIDTIME,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0));
+          arena.allocate(HOTLeafPage.DEFAULT_SIZE), null, new char[HOTLeafPage.MAX_ENTRIES], 0, 0));
       final byte[] composite = new byte[COMPOSITE_LENGTH];
       ValidTimeKeySerializer.INSTANCE.serialize(KEY, composite, 0);
       HOTKeySerializer.writeChunkIdxBE(composite, ValidTimeKeySerializer.KEY_BYTES, 0);

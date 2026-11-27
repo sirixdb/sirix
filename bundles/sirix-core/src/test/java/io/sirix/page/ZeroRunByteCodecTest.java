@@ -25,6 +25,55 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class ZeroRunByteCodecTest {
 
   @Test
+  void boundedFramesRejectBeforeWritingAnInvalidRun() {
+    // A reusable input/output buffer must not turn truncated literal bytes into a write.
+    for (final byte[] frame : new byte[][] {{(byte) 0xff, 2, 1, 7, 8}, {(byte) 0xff, 2, (byte) 0x80}}) {
+      final byte[] output = new byte[16];
+      Arrays.fill(output, (byte) 99);
+      final byte[] untouched = output.clone();
+      final int length = frame.length - 1;
+      assertThrows(IllegalStateException.class, () -> ZeroRunByteCodec.decode(frame, 0, length, output, 3));
+      assertArrayEquals(untouched, output);
+      assertThrows(IllegalStateException.class,
+          () -> ZeroRunByteCodec.decode(frame, 0, length, MemorySegment.ofArray(output), 3));
+      assertArrayEquals(untouched, output);
+    }
+    for (final byte[] frame : new byte[][] {{(byte) 0xff, 2, (byte) 0xff, 3}, {(byte) 0xff, 2, 0, 7, 1, 8, 9}}) {
+      final byte[] output = new byte[16];
+      assertThrows(IllegalStateException.class, () -> ZeroRunByteCodec.decode(frame, 0, frame.length, output, 3));
+      assertThrows(IllegalStateException.class,
+          () -> ZeroRunByteCodec.decode(frame, 0, frame.length, MemorySegment.ofArray(output), 3));
+    }
+  }
+
+  @Test
+  void longRunOfTwoAndFiveByteSizeVarintAreReadable() {
+    final byte[] frame = {(byte) 0xff, (byte) 0x82, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0, (byte) 0xff, 2};
+    final byte[] output = {99, 99, 99, 99};
+    assertEquals(2, ZeroRunByteCodec.decode(frame, 0, frame.length, output, 1));
+    assertArrayEquals(new byte[] {99, 0, 0, 99}, output);
+    Arrays.fill(output, (byte) 99);
+    assertEquals(2, ZeroRunByteCodec.decode(frame, 0, frame.length, MemorySegment.ofArray(output), 1));
+    assertArrayEquals(new byte[] {99, 0, 0, 99}, output);
+  }
+
+  @Test
+  void segmentDecoderRejectsTruncationWithoutReadingReusableScratchTail() {
+    final byte[] valid = {(byte) 0xff, 6, 1, 7, 8, (byte) 0x82};
+    try (Arena arena = Arena.ofConfined()) {
+      final MemorySegment output = arena.allocate(32);
+      for (int length = 0; length < valid.length; length++) {
+        final int truncatedLength = length;
+        assertThrows(IllegalStateException.class, () -> ZeroRunByteCodec.decode(valid, 0, truncatedLength, output, 0));
+      }
+      assertThrows(IllegalStateException.class,
+          () -> ZeroRunByteCodec.decode(new byte[] {(byte) 0xff, 0, 0}, 0, 3, output, 0));
+      assertThrows(IndexOutOfBoundsException.class,
+          () -> ZeroRunByteCodec.decode(valid, 0, valid.length, output.asSlice(0, 5), 0));
+    }
+  }
+
+  @Test
   void heapDecoderMatchesEncodedInputAndSegmentDecoderAcrossRunBoundaries() {
     final SplittableRandom random = new SplittableRandom(0xF17E57);
     for (final int length : new int[] {0, 1, 2, 127, 128, 129, 255, 256, 8193}) {
@@ -81,6 +130,8 @@ final class ZeroRunByteCodecTest {
         {(byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, 0x7f}}) {
       assertThrows(IllegalStateException.class,
           () -> ZeroRunByteCodec.decode(malformed, 0, malformed.length, output, 0));
+      assertThrows(IllegalStateException.class,
+          () -> ZeroRunByteCodec.decode(malformed, 0, malformed.length, MemorySegment.ofArray(output), 0));
     }
     assertThrows(IndexOutOfBoundsException.class, () -> ZeroRunByteCodec.decode(valid, 0, valid.length, output, 30));
     assertThrows(IndexOutOfBoundsException.class, () -> ZeroRunByteCodec.decode(valid, -1, valid.length, output, 0));

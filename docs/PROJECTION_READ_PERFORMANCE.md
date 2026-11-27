@@ -19,9 +19,9 @@ retain their page-copy path. Checksum views have independent positions and exact
 
 With an empty byte pipeline and input borrowing enabled, overflow decoding borrows its serialized
 input directly: both raw and compressed overflow decoders finish with independently owned payload arrays. This removes a
-temporary native-frame allocation, copy, and release. Ordinary record and HOT page decoding still
-uses the owned-buffer pipeline because those pages can retain that storage. Compact HOT fragment
-decoding is described below. Configured byte handlers always run.
+temporary native-frame allocation, copy, and release. Ordinary record and HOT page decoding
+uses the owned-buffer pipeline because those pages can retain that storage. Packed HOT leaves
+retain their metadata and slots under the same frame's lifetime. Configured byte handlers always run.
 
 Batches with multiple page references can submit Linux `POSIX_FADV_WILLNEED` hints for upcoming
 requested offsets before reading and decoding the current run: one hint per coalesced run, covering
@@ -59,14 +59,24 @@ The newest image supplies the side-page reference even when an older fragment su
 Every raw image is guarded through its use, and raw images have a separate cache from complete
 leaves. A requested-slot result never becomes a complete-leaf swizzle.
 
-`FileChannelReader` decodes these raw images into independently GC-owned packed native bytes and an
-exact-size offset directory, without allocating a writable native frame or building routing
-metadata. Scalar misses in one fragment-chain walk share one freshly captured committed file
-extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
-straight into its private result. Compact images are immutable; copies restore full writable capacity.
+`FileChannelReader` decodes these images into independently GC-owned native storage without
+allocating a writable allocator frame or building routing metadata. Mode-zero images have an
+exact-size `char[]` directory; packed images retain the directory, metadata and slots together.
+Scalar misses in one fragment-chain walk share one freshly captured committed file extent. Complete reconstruction retains coalesced batch I/O and copies older projection values
+straight into its private result. Compact images are immutable; writable copies restore full
+writable capacity.
 A decoder-only image is never published as a canonical complete leaf: the complete-leaf cache only
 ever receives a fully built leaf, with its routing index, its off-heap frame accounting and its
-ordinary stamp binding. The persisted leaf layout and all four versioning policies are unchanged.
+ordinary stamp binding. The compact reader handles the persisted
+[leaf body modes](DISK_FORMAT.md#hot-leaves-kind-12-v0)
+under all four versioning policies.
+
+Cache accounting charges the entire native allocation a leaf retains and releases, including
+allocator size-class rounding and a transferred decompression buffer's bytes outside its parsed
+view. An exact-size GC-owned compact image is charged its retained body bytes. Per-page heap
+accounting is additional. `HOTLeafPage.getActualMemorySize` implements this rule;
+`HOTCompactFragmentReadTest` checks both cache copies and transferred backing buffers against the
+allocator's allocation size.
 
 Segment-backed binary searches for eight-byte keys with a nonempty suffix prepare one masked
 probe word per search. When the stored suffix has the expected length and at least eight bytes
@@ -117,11 +127,11 @@ Group-tree reads use selective slot resolution and the same bounded retention.
 
 For self-contained HOT images, the file-channel backend can select the requested projection entry
 from the verified wire bytes without constructing or adopting a native leaf or a side-reference map.
-The complete frame still passes its normal checksum/decompression checks. For bounded uncompressed
-images, the owned heap copy feeds both checksum verification and selection. The immutable envelope
-and ordered side-reference trailer are validated once; each selection checks every slot header it
-visits. One read scope may own one image of at most 64 KiB plus aligned object/array headers, shared
-by that query's related logical reads. Database, resource, revision, durable offset/hash and
+The complete frame passes its normal checksum and byte-handler checks. Selection uses
+the owned wire image and its directory, group prefixes and value references. The immutable envelope and ordered
+side-reference trailer are validated once; each selection checks every slot header it
+visits. One read scope may own one bounded image shared by related logical reads.
+Retained-byte accounting uses the owned image's actual length. Database, resource, revision, durable offset/hash and
 invalidation generation fence reuse, including snapshots restored from an admitted routing entry.
 No transaction, mutable page reference or guard is retained with that snapshot. Scope completion
 releases its ownership; cached routing remains under its entry's byte charge. Larger images are

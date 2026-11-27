@@ -5203,7 +5203,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       throw pendingSidePageMutation("replace", ownerSlotKey, columnSegmentId);
     }
     final PageReference ref = new PageReference();
-    ref.setPage(new OverflowPage(bytes));
+    ref.setPage(OverflowPage.forProjectionPayload(bytes));
     try {
       navResult.leaf().setPageReference(refKey, ref);
 

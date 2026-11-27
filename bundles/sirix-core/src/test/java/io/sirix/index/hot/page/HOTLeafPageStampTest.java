@@ -67,7 +67,7 @@ final class HOTLeafPageStampTest {
    */
   private static HOTLeafPage undersizedLeaf() {
     final MemorySegment memory = Allocators.getInstance().allocate(UNDERSIZED);
-    return new HOTLeafPage(1L, 1, IndexType.CAS, memory, null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    return new HOTLeafPage(1L, 1, IndexType.CAS, memory, null, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
   }
 
   private static byte[] key(final int i) {
@@ -127,7 +127,7 @@ final class HOTLeafPageStampTest {
     final IllegalStateException expectedFailure = new IllegalStateException("injected frame release failure");
     leaf = new HOTLeafPage(1L, 1, IndexType.CAS, memory, () -> {
       throw expectedFailure;
-    }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    }, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
     leaf.setPageReference(7L, new PageReference().setKey(42L));
     leaf.setCompletePageRef(leaf);
     final long binding = leaf.readStampBinding();
@@ -230,7 +230,7 @@ final class HOTLeafPageStampTest {
     // against the (unresolvable) slice would survive into a binding that resolves.
     final MemorySegment base = Allocators.getInstance().allocate(HOTLeafPage.DEFAULT_SIZE);
     final MemorySegment slice = base.asSlice(64, UNDERSIZED);
-    leaf = new HOTLeafPage(1L, 1, IndexType.CAS, slice, null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    leaf = new HOTLeafPage(1L, 1, IndexType.CAS, slice, null, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
     try {
       final long binding = leaf.readStampBinding();
       final long stamp = leaf.readStamp();

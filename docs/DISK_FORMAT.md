@@ -295,9 +295,28 @@ retired ids 7 and 14 are rejected.
 Metadata readers require whole-image consumption after the body: Name, Uber, Indirect,
 RevisionRoot, PathSummary, CAS, Path, DeweyID, Vector, ProjectionIndex, ValidTimeIndex,
 TemporalAggregateIndex, ChangeLogIndex and HOTIndirect pages refuse trailing bytes. This is
-not a blanket rule for opaque overflow payloads or bounded record/HOT-leaf reads.
+not a blanket rule for opaque overflow payloads or bounded record reads. HOT leaves also
+require whole-image consumption under [FMT-211](../spec/FMT-disk-format.md#fmt-211--hot-leaf-directory-and-slot-framing).
 `PageEnvelopeContractTest` pins the skip/refuse, boundary and rewrite rules;
 `LegacyEnvelopeImagesTest` uses immutable base-writer images for every active page kind.
+
+### HOT leaves (kind 12, V0)
+
+The normative kind-12 envelope, u16 directory, packed body modes, slot and trailer
+bounds, and golden images are owned by
+[FMT-210 through FMT-215](../spec/FMT-disk-format.md#fmt-210--hot-leaf-envelope-and-page-local-modes).
+Writer selection is owned by
+[FMT-217](../spec/FMT-disk-format.md#fmt-217--hot-and-projection-writer-conformance).
+The resource byte-handler pipeline still wraps the whole page; kind 12 has no
+kind-local compressor.
+
+### Projection overflow payloads (kind 9, V0)
+
+The normative kind-9 projection flags, codec registry, token grammar, frame bounds
+and golden images are owned by
+[FMT-216](../spec/FMT-disk-format.md#fmt-216--projection-overflow-envelope-and-codecs).
+Projection compression selection is owned by
+[FMT-217](../spec/FMT-disk-format.md#fmt-217--hot-and-projection-writer-conformance).
 
 **Format evolution mechanism:** unreleased node-record/page-body layouts currently evolve in
 place under V0. The hook for a future released-format version decision is `BinaryEncodingVersion`:

@@ -305,8 +305,8 @@ covered by tests selected for another source. `results.json` records unresolved 
 sources. A module where nothing maps reports state `unmapped` instead of running PIT without a
 baseline. This focused selection can omit integration assertions; if a survivor is
 already killed by a broader deterministic test, rerun with that test included and link the report.
-Random jqwik/property exploration, the random model oracle, HOT structural properties and soak
-suites are excluded from the PR mutation baseline; keep exploration in its normal test lane and
+Random jqwik/property exploration, the random model oracle, HOT structural properties, soak
+suites and methods tagged `benchmark` are excluded from the PR mutation baseline; keep exploration in its normal test lane and
 promote discovered seeds to deterministic regressions. The weekly curated core PIT task is unchanged.
 
 The `pr-mutation` artifact contains source selection with its changed-line map, exact targets and
@@ -533,6 +533,31 @@ late native-image properties and values containing commas or whitespace. The
 [Gradle configuration](../gradle/pr-mutation.gradle) owns the encoding for PIT's comma-separated
 CLI and Java launcher argument file; those arguments remain intact across both transports.
 
+## HOT leaf encoding release acceptance
+
+Use the [paired read and allocation gate](../bundles/sirix-benchmarks/scripts/HOT_LEAF_CODEC_GATE.md)
+for the FMT-210 through FMT-217 change. Score the leaf read endpoints
+individually against the recorded main baseline. Apply the zero-allocation criterion on
+the JVM and native image. Record which paths the allocation counters cover.
+Run the existing [work budgets](#running-the-layers) with their existing
+bounds. Include a warmed allocation budget for packed ordinal search and
+sorted intersection with preallocated inputs and results.
+
+Once the leaf endpoints pass, run the SH1 t250k and t1M read legs
+with warm reads, a fresh process with a warm OS cache, and device-cold
+reads. Follow with JSONBench and ClickBench read legs at 10M. Assess
+each projection payload category proposed for default outer compression.
+Record the category, its paired result and the writer setting in the
+change review before enabling the policy. On equivalent datasets and
+revision histories, total stored bytes must fall below main. Report
+bytes and percentage changes for the whole store and by page kind.
+
+Include the packed leaf modes in the HOT eviction reconstruction
+sweeps when both changes are present. Exercise grouped keys, alias
+owners and framed postings under frame replacement. Compare stable
+historical reads and reconstructed keys, values and postings with
+an independent non-evicting oracle.
+
 ## Running the layers
 
 The normal core test task also runs `ValidTimeDisabledLookupCacheTest` in a separate JVM with
@@ -548,6 +573,15 @@ allocation checks, add `--tests 'io.sirix.index.hot.HOTCommitAllocationBudgetTes
 [HOT specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing) owns their allocation contract.
 The same fork runs `CommitTimestampProbeAllocationBudgetTest` with blocking compilation (`-Xbatch`),
 so warmup completes before its unchanged zero-byte probe bound is measured on slower ARM runners.
+
+The normal core task also runs `:sirix-core:hotLeafNarrowVectorAllocationTest`, a clean
+HotSpot C2 fork with `-XX:MaxVectorSize=16`. Its JVM arguments unlock experimental
+options before disabling JVMCI; verify this fork on the CI Temurin JDK as well as
+the workstation JDK, since invalid ordering prevents any test from running.
+It retains the strict raw/encoded codec
+allocation gate and checks both cached lookup overloads against unsigned key ordering
+and zero allocation for byte, short and int partial keys. The normal-width clean fork
+also runs those lookup cases, so narrower-vector coverage does not replace wider-vector coverage.
 
 The normal core task also runs `StorageEpochStoreIdentityTest`,
 `StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM

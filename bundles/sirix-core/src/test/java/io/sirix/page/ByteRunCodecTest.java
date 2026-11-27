@@ -7,10 +7,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Arrays;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -33,7 +35,7 @@ public class ByteRunCodecTest {
   @Test
   @DisplayName("Literal-only input round-trips")
   public void literalOnly() {
-    final byte[] data = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }; // no adjacent duplicates
+    final byte[] data = new byte[] {1, 2, 3, 4, 5, 6, 7, 8}; // no adjacent duplicates
     roundTrip(data);
   }
 
@@ -43,22 +45,23 @@ public class ByteRunCodecTest {
     final byte[] data = new byte[10_000];
     roundTrip(data);
     final byte[] encoded = new byte[ByteRunCodec.maxEncodedSize(data.length)];
-    final int encLen = ByteRunCodec.encode(MemorySegment.ofArray(data), 0L, data.length,
-        encoded, 0);
+    final int encLen = ByteRunCodec.encode(MemorySegment.ofArray(data), 0L, data.length, encoded, 0);
     // 1 marker + 1 varint + 1 long-zero marker + varint(10000) = ~7 bytes.
-    if (encLen > 16) throw new AssertionError("Expected heavy compression: got " + encLen);
+    if (encLen > 16)
+      throw new AssertionError("Expected heavy compression: got " + encLen);
   }
 
   @Test
   @DisplayName("All-non-zero constant-byte input compresses with V2 codec")
   public void allNonZeroConstant() {
     final byte[] data = new byte[10_000];
-    for (int i = 0; i < data.length; i++) data[i] = 0x42;
+    for (int i = 0; i < data.length; i++)
+      data[i] = 0x42;
     roundTrip(data);
     final byte[] encoded = new byte[ByteRunCodec.maxEncodedSize(data.length)];
-    final int encLen = ByteRunCodec.encode(MemorySegment.ofArray(data), 0L, data.length,
-        encoded, 0);
-    if (encLen > 16) throw new AssertionError("Expected V2 const-run compression: got " + encLen);
+    final int encLen = ByteRunCodec.encode(MemorySegment.ofArray(data), 0L, data.length, encoded, 0);
+    if (encLen > 16)
+      throw new AssertionError("Expected V2 const-run compression: got " + encLen);
   }
 
   @Test
@@ -66,13 +69,17 @@ public class ByteRunCodecTest {
   public void mixedContent() {
     // 100 zeros | 100 0x01 | 5 literals | 200 0xFF | 50 literals | 50 zeros
     final java.io.ByteArrayOutputStream bao = new java.io.ByteArrayOutputStream();
-    for (int i = 0; i < 100; i++) bao.write(0);
-    for (int i = 0; i < 100; i++) bao.write(1);
-    bao.write(new byte[] { (byte) 0xAA, (byte) 0xBB, (byte) 0xCC, (byte) 0xDD, (byte) 0xEE },
-        0, 5);
-    for (int i = 0; i < 200; i++) bao.write(0xFF);
-    for (int i = 0; i < 50; i++) bao.write(0x10 + i % 7); // small-varint literals
-    for (int i = 0; i < 50; i++) bao.write(0);
+    for (int i = 0; i < 100; i++)
+      bao.write(0);
+    for (int i = 0; i < 100; i++)
+      bao.write(1);
+    bao.write(new byte[] {(byte) 0xAA, (byte) 0xBB, (byte) 0xCC, (byte) 0xDD, (byte) 0xEE}, 0, 5);
+    for (int i = 0; i < 200; i++)
+      bao.write(0xFF);
+    for (int i = 0; i < 50; i++)
+      bao.write(0x10 + i % 7); // small-varint literals
+    for (int i = 0; i < 50; i++)
+      bao.write(0);
     roundTrip(bao.toByteArray());
   }
 
@@ -88,7 +95,8 @@ public class ByteRunCodecTest {
       for (int i = 0; i + 8 < n; i += rng.nextInt(128) + 16) {
         final byte v = (byte) rng.nextInt(256);
         for (int k = 0; k < 4 + rng.nextInt(32); k++) {
-          if (i + k < n) data[i + k] = v;
+          if (i + k < n)
+            data[i + k] = v;
         }
       }
       roundTrip(data);
@@ -100,19 +108,21 @@ public class ByteRunCodecTest {
   public void runAtTail() {
     // 10 literal + 50 zeros at end.
     final byte[] data = new byte[60];
-    for (int i = 0; i < 10; i++) data[i] = (byte) (0x30 + i);
+    for (int i = 0; i < 10; i++)
+      data[i] = (byte) (0x30 + i);
     // 0x30..0x39 ASCII, no duplicates so literal
     roundTrip(data);
   }
 
   /**
    * {@link ByteRunCodec#maxEncodedSize} is a contract: callers — {@code PageKind} among them — size
-   * the output buffer with it and then encode straight into that buffer, so an encode that exceeds
-   * it is a heap overflow, not a bad compression ratio.
+   * the output buffer with it and then encode straight into that buffer, so an encode that exceeds it
+   * is a heap overflow, not a bad compression ratio.
    *
-   * <p>The bound used to assume one literal header per 128 input bytes, which holds only while the
-   * input has no adjacent duplicates. It does not in general: the literal scan breaks as soon as it
-   * sees two equal bytes so the next iteration can emit a run, so {@code x y y} repeating forces a
+   * <p>
+   * The bound used to assume one literal header per 128 input bytes, which holds only while the input
+   * has no adjacent duplicates. It does not in general: the literal scan breaks as soon as it sees
+   * two equal bytes so the next iteration can emit a run, so {@code x y y} repeating forces a
    * one-byte literal token for every two-byte run and produces four output bytes per three input.
    * Random data hides this — it has adjacent duplicates only about once in 256 bytes — which is why
    * the old bound survived the existing round-trip tests.
@@ -128,8 +138,8 @@ public class ByteRunCodecTest {
   }
 
   /**
-   * The densest expansion the encoder can be driven to: a lone literal byte, then a two-byte
-   * non-zero run, repeating. Four output bytes for every three input bytes.
+   * The densest expansion the encoder can be driven to: a lone literal byte, then a two-byte non-zero
+   * run, repeating. Four output bytes for every three input bytes.
    */
   private static byte[] worstCasePattern(final int length) {
     final byte[] data = new byte[length];
@@ -163,14 +173,56 @@ public class ByteRunCodecTest {
     final int encLen = ByteRunCodec.encode(MemorySegment.ofArray(data), 0L, data.length, encoded, 0);
 
     assertTrue(encLen <= bound,
-        () -> label + " (" + data.length + " bytes) encoded to " + encLen
-            + ", exceeding maxEncodedSize " + bound);
+        () -> label + " (" + data.length + " bytes) encoded to " + encLen + ", exceeding maxEncodedSize " + bound);
 
     // The bound is only worth anything if the encoding it sizes still decodes.
     final byte[] decodedArr = new byte[data.length];
     final int decLen = ByteRunCodec.decode(encoded, 0, encLen, MemorySegment.ofArray(decodedArr), 0L);
     assertEquals(data.length, decLen, () -> label + ": decoded length mismatch");
     assertArrayEquals(data, decodedArr, () -> label + ": decoded content mismatch");
+  }
+
+  /**
+   * FMT-216: every literal and extension span must lie inside the stored length, the frame must be
+   * consumed exactly, long counts below two and zero repeat bytes in nonzero repeat runs must be
+   * refused. The frames are written from the specification's opcode table; a decoder that bounds
+   * spans by the backing array instead would return the bytes an earlier payload left there.
+   */
+  @Test
+  @DisplayName("A frame reading past its stored length is refused, not served from the array tail")
+  public void boundedByTheFrameNotTheBuffer() {
+    final byte[] scratch = new byte[64];
+    final MemorySegment output = MemorySegment.ofArray(new byte[64]);
+    for (final int[] frame : new int[][] {{0xfe, 0x40, 0x3f}, // literal of 64 with no literal byte
+        {0xfe, 0x40, 0x01, 0x2a}, // literal of 2 with one literal byte
+        {0xfe, 0x40, 0xfe, 0x01, 0x2a}, // long repeat count below two
+        {0xfe, 0x40, 0xfd, 0x01}, // long zero-run count below two
+        {0xfe, 0x40, 0xfe, 0x40, 0x00}, // long repeat of the zero byte
+        {0xfe, 0x40, 0xc0, 0x00}, // short repeat of the zero byte
+        {0xfe, 0x40, 0xff}, // unassigned opcode
+        {0xfe, 0x40, 0xfe}, // repeat count truncated
+        {0xfe, 0x40, 0xfe, 0x40}}) { // repeat value byte truncated
+      Arrays.fill(scratch, (byte) 0x2a);
+      for (int i = 0; i < frame.length; i++) {
+        scratch[i] = (byte) frame[i];
+      }
+      final int storedLength = frame.length;
+      assertThrows(IllegalStateException.class, () -> ByteRunCodec.decode(scratch, 0, storedLength, output, 0L),
+          () -> "frame " + Arrays.toString(frame) + " must be refused");
+    }
+  }
+
+  @Test
+  @DisplayName("A frame leaving unconsumed tokens inside its stored length is refused")
+  public void exactFrameConsumptionIsRequired() {
+    final byte[] data = new byte[64];
+    Arrays.fill(data, (byte) 0x2a);
+    final byte[] encoded = new byte[ByteRunCodec.maxEncodedSize(data.length) + 1];
+    final int encLen = ByteRunCodec.encode(MemorySegment.ofArray(data), 0L, data.length, encoded, 0);
+    final MemorySegment output = MemorySegment.ofArray(new byte[64]);
+    assertEquals(64, ByteRunCodec.decode(encoded, 0, encLen, output, 0L));
+    encoded[encLen] = (byte) 0x00;
+    assertThrows(IllegalStateException.class, () -> ByteRunCodec.decode(encoded, 0, encLen + 1, output, 0L));
   }
 
   private static void roundTrip(final byte[] data) {

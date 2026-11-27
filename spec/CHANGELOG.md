@@ -2,6 +2,15 @@
 
 ## 1.0.0 (unreleased)
 
+- Add FMT-210 for kind-12 flags, no kind-local codec and mixed mode-zero/packed history.
+- Add FMT-211 for u16-only slot directories, complete dumps and strict side-reference framing.
+- Add FMT-212 for separate u8 key and value lengths and their slot bounds.
+- Add FMT-213 for prefixes shared by groups of up to 16 HOT keys.
+- Add FMT-214 for posting tags and byte-width frame-of-reference postings in CAS and VALIDTIME leaves.
+- Add FMT-215 for same-frame value aliases to earlier inline owners.
+- Add FMT-216 for kind-9 projection flags, codec assignments and bounded frame validation.
+- Add FMT-217 for writer conformance, with separate selection and inclusive 20% compression acceptance.
+
 - Schedule the nightly trend tier and give it a hosted-runner class
   ([CONV-303](CONV-conventions.md#conv-303--results-ledger-and-conditions-record),
   [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier)). A run row may name its `runner`
@@ -41,7 +50,6 @@
   exhaustion requests relief only from the requesting class. Transfer regressions independently
   exhaust each consumer's admission ceiling, and release residency is measured before access.
   No product behavior changes with this entry.
-
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from
   reporting the index malformed because a leaf was evicted, and the validation that follows a published

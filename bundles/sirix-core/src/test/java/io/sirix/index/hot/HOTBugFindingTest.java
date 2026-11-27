@@ -63,7 +63,7 @@ class HOTBugFindingTest {
 
     private HOTLeafPage createTestLeafPage() {
       MemorySegment slotMemory = arena.allocate(HOTLeafPage.DEFAULT_SIZE);
-      return new HOTLeafPage(1L, 1, IndexType.CAS, slotMemory, null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+      return new HOTLeafPage(1L, 1, IndexType.CAS, slotMemory, null, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
     }
 
     @AfterEach
@@ -612,7 +612,7 @@ class HOTBugFindingTest {
 
     private HOTLeafPage createTestLeafPage() {
       MemorySegment slotMemory = arena.allocate(HOTLeafPage.DEFAULT_SIZE);
-      return new HOTLeafPage(1L, 1, IndexType.CAS, slotMemory, null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+      return new HOTLeafPage(1L, 1, IndexType.CAS, slotMemory, null, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
     }
 
     @AfterEach

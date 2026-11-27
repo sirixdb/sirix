@@ -85,7 +85,7 @@ final class HOTLeafPageFrameOwnershipTest {
     final HOTLeafPage leaf = new HOTLeafPage(102L, 23, IndexType.PROJECTION, oldMemory, () -> {
       allocator.release(oldMemory);
       throw oldReleaseFailure;
-    }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    }, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
     final long oldBinding = leaf.readStampBinding();
 
     try {

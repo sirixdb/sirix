@@ -93,7 +93,7 @@ final class HOTLeafPageCowTest {
     final HOTLeafPage source;
     try (Arena sourceArena = Arena.ofConfined()) {
       source = new HOTLeafPage(2L, 1, IndexType.PATH, sourceArena.allocate(HOTLeafPage.DEFAULT_SIZE), null,
-          new int[HOTLeafPage.MAX_ENTRIES], 0, 1);
+          new char[HOTLeafPage.MAX_ENTRIES], 0, 1);
     }
 
     final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);

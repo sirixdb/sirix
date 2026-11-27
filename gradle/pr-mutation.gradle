@@ -89,6 +89,9 @@ configure(mutationProject) {
             excludedTestClasses = ['io.sirix.property.*', '*JsonModelBasedOracleRandomTest',
                                    '*HOTStructuralPropertyTest*', '*SoakTest*'] +
                     standardTest.excludes.collect { it.replace('/', '.').replace('.class', '') }
+            // Timed loops measure instrumentation overhead, not mutant correctness. Keep the
+            // same classes' untagged round-trip and dispatch assertions in the baseline.
+            excludedGroups = ['benchmark']
             threads = 2
             timestampedReports = false
             // The controlling-JVM agent drains units in completion order: PIT 1.25.5

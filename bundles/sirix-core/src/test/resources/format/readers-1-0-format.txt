@@ -1,0 +1,20 @@
+Immutable compatibility fixture: readers-1-0-format.zip
+Producer: the sirix-core 1.0 format writer of the S1 leaf-codec change (FMT-210..217: kind-12 HOT
+leaves with u16 slot directories). It replaces readers-base-7cd676bcd.zip, whose i32 leaf
+directories the approved FMT-211 amendment retired; 1.0 keeps one format and reads no
+older development stores.
+SHA-256: 5ff9c1c3bec901a0401e57324f36775da507a4a64f0e2d432fb9f90fe9be4f07
+
+The fixture was generated with the same generator as its predecessor (kept with task
+evidence), writing to a fresh directory with the current writer on the runtime classpath.
+It uses the default checksum-verifying configuration, Dewey IDs, path statistics,
+and valid-time paths /[]/from and /[]/to. Five indexes cover name, path, CAS,
+projection and valid time. The initial document is:
+[{"name":"first","from":1,"to":100},{"name":"second","from":2,"to":200}]
+The first name becomes "revised" in revision 2 and "third" in revision 3.
+Only the closed database's .lock file was excluded from the archive.
+
+Do not regenerate with a later writer: this is a previous-writer oracle.
+LegacyPageReadersFixtureTest extracts its own private copy, verifies the prior
+revisions, appends revision 4, and checks the existing page bytes are untouched.
+For the per-kind page-image oracle, see readers-base-pages/README.txt.

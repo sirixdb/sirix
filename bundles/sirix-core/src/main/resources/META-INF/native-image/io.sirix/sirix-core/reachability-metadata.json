@@ -92,7 +92,7 @@
   "resources": [
     {
       "condition": {
-        "typeReached": "io.sirix.page.SirixLZ77NativeDecoder"
+        "typeReached": "io.sirix.io.bytepipe.NativeCodecLibrary"
       },
       "glob": "native/**/libsirix_lz77.so"
     }

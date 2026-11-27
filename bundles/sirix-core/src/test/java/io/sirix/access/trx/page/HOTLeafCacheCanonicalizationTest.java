@@ -30,7 +30,7 @@ class HOTLeafCacheCanonicalizationTest {
 
   private static HOTLeafPage newLeaf(final Arena arena, final long pageKey) {
     return new HOTLeafPage(pageKey, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), null,
-        new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+        new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
   }
 
   private static PageReference cacheKey(final long offset) {
@@ -255,7 +255,7 @@ class HOTLeafCacheCanonicalizationTest {
       final HOTLeafPage failingFirst =
           new HOTLeafPage(201, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             throw new IllegalStateException("expected frame-release failure");
-          }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+          }, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
       final HOTLeafPage guardedSecond = newLeaf(arena, 202);
       assertTrue(guardedSecond.acquireGuard());
 
@@ -276,11 +276,11 @@ class HOTLeafCacheCanonicalizationTest {
       final HOTLeafPage failingFirst =
           new HOTLeafPage(203, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             throw sharedFailure;
-          }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+          }, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
       final HOTLeafPage failingSecond =
           new HOTLeafPage(204, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             throw sharedFailure;
-          }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+          }, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
       final HOTLeafPage guardedThird = newLeaf(arena, 205);
       assertTrue(failingSecond.acquireGuard());
       failingSecond.markOrphaned();

@@ -201,17 +201,21 @@ operator-owned configuration path, for example `io.sirix.rest.SirixVerticle -con
 
 ### `libsirix_lz77.so`
 
-A bundled native LZ77 decoder for Linux x86_64. Embedded as a JAR resource at
-`/native/linux-x86_64/libsirix_lz77.so` and extracted to a temp file at the
-first decode call.
+The bundled Linux x86_64 library contains the native LZ77 decoder and the bounded
+LZ4 range adapter described below. It is
+embedded at `/native/linux-x86_64/libsirix_lz77.so`. `NativeCodecLibrary`
+loads it once per process when either adapter is first requested. Staging uses a content-addressed filename
+under `${java.io.tmpdir}/sirix-native-${user.name}`, trying the same directory
+under `${user.home}` if staging in the temp directory fails. Publication never
+rewrites a library already mapped by another process.
 
 - **If present:** ~1.8× decompression throughput versus the pure-Java fallback
   (measured on a 29 KB string region: 5,637 MB/s native against 3,145 MB/s in
   Java). Region decompression is the single largest term in a cold column scan.
 - **If absent or platform mismatch:** falls back to `SirixLZ77Codec` pure-Java
   decoder, which is correct but slower.
-- **Override:** `-Dsirix.lz77Codec.native.disable=true` forces pure-Java for A/B
-  testing.
+- **Override:** `-Dsirix.lz77Codec.native.disable=true` forces pure-Java LZ77 for
+  A/B testing; it does not disable the shared LZ4 adapter.
 
 The `.so` is **not** committed; the build compiles it **by default** into
 `src/main/resources/native/linux-x86_64/` so it lands in the JAR. It needs `gcc`
@@ -232,6 +236,10 @@ present by default. macOS: `brew install lz4`. Windows: build / install
 
 For read compatibility and write fallback when `liblz4` is unavailable, see
 [the disk-format portability contract](DISK_FORMAT.md#5-pre-freeze-checklist-ranked-decide-before-first-user-data).
+Bounded range decoding also uses the adapter in `libsirix_lz77.so`; if the
+adapter is absent, those calls use the bounds-safe Java LZ4 decoder even when
+system `liblz4` is present. This does not disable native LZ4 compression or
+whole-segment decoding.
 
 ---
 

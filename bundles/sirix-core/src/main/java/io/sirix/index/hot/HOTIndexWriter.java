@@ -44,6 +44,7 @@ import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
+import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -315,6 +316,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     private int baseLength;
     private @Nullable Roaring64Bitmap bits;
     private byte[] baseReadBuffer = new byte[0];
+    /** Heap view of {@link #baseReadBuffer}, re-wrapped only when the buffer grows. */
+    private MemorySegment baseReadSegment = MemorySegment.ofArray(baseReadBuffer);
     private long maximumBit;
     private int liveCount;
     private final boolean[] liveRemove;
@@ -352,8 +355,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
       }
       if (baseReadBuffer.length < length) {
         baseReadBuffer = new byte[Math.max(length, baseReadBuffer.length * 2)];
+        baseReadSegment = MemorySegment.ofArray(baseReadBuffer);
       }
-      leaf.copyRefInto(ref, 0, baseReadBuffer, 0, length);
+      leaf.copyOrdinaryValueInto(ref, baseReadSegment, 0);
       bits = NodeReferencesSerializer.deserializeChunk(baseReadBuffer, 0, length).getNodeKeys();
       baseLength = length;
       baseExists = true;
@@ -449,7 +453,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
         return view;
       }
       final long ref = baseLeaf.valueRef(index);
-      final int length = HOTLeafPage.refLength(ref);
+      // The ordinary length, not the stored one: a packed leaf stores a hot posting as a short
+      // frame-of-reference, and judging that frame cold would ignore the chunk's live deltas.
+      final int length = baseLeaf.ordinaryValueLength(ref);
       if (NodeReferencesSerializer.isReferenced(baseLeaf, ref)) {
         view.readBase(NodeReferencesSerializer.resolveReferencedPayload(baseLeaf,
             NodeReferencesSerializer.referencedKey(baseLeaf, ref),

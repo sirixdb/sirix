@@ -53,7 +53,7 @@ final class HOTGuardedPageHandoffTest {
         final NodeStorageEngineReader storage = new NodeStorageEngineReader(1, session, new UberPage(), 1, disk,
             buffers, mock(RevisionRootPageReader.class), null)) {
       final HOTLeafPage leaf = new HOTLeafPage(123L, 1, IndexType.PATH, arena.allocate(HOTLeafPage.DEFAULT_SIZE), null,
-          new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+          new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
       final PageReference reference = new PageReference().setKey(123L);
       when(disk.read(any(PageReference.class), any(ResourceConfiguration.class))).thenReturn(leaf);
 

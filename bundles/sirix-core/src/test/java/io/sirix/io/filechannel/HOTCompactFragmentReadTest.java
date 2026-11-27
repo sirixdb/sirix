@@ -3,6 +3,9 @@ package io.sirix.io.filechannel;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.cache.Allocators;
+import io.sirix.cache.FrameSlotAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.ShardedPageCache;
 import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope;
 import io.sirix.index.hot.cache.HOTMiniPageCache.ReadScope.ImageSnapshot;
@@ -12,6 +15,7 @@ import io.sirix.index.IndexType;
 import io.sirix.io.PageHasher;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.index.hot.page.HOTProjectionRead;
@@ -27,6 +31,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -118,7 +123,8 @@ final class HOTCompactFragmentReadTest {
     try (FileChannelReader reader = reader(new AtomicReference<>(frame(wire)), new ByteHandlerPipeline());
         HOTLeafPage compact = assertInstanceOf(HOTLeafPage.class, reader.readHOTLeafFragment(reference(), CONFIG))) {
       assertTrue(compact.isCompactImage(), "this charge is only interesting for a compact image");
-      final long packed = compact.slots().byteSize();
+      final long packed = compact.slots().byteSize() + 64L * Short.BYTES;
+      assertEquals(packed, compact.getActualMemorySize(), "charge the retained narrow directory");
       final long perPageHeap = compact.estimatedCanonicalCacheRetainedHeapBytes();
       final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1L << 20);
       final PageReference key = new PageReference().setKey(123).setDatabaseId(0).setResourceId(0);
@@ -131,6 +137,145 @@ final class HOTCompactFragmentReadTest {
       cache.remove(key);
       assertEquals(0L, cache.getCurrentWeightBytes());
     }
+  }
+
+  /**
+   * A cached packed leaf must be charged the allocator frame it retains, not the packed bytes it
+   * reads through.
+   *
+   * <p>
+   * {@code copyForCache} — the copy {@code NodeStorageEngineReader} publishes into
+   * {@link ShardedPageCache} — asks the allocator for the packed body's size, and the allocator
+   * answers with a whole size-class slot that the page's releaser frees in full. 128 seven-byte
+   * projection keys with distinct 255-byte values pack into a 34,048-byte body, which the allocator
+   * serves from its 65,536-byte class: a charge of 34,048 leaves 31,488 retained native bytes outside
+   * every budget, so eviction returns memory the cache never counted.
+   *
+   * <p>
+   * The expectation comes from the allocator itself — ask it for the same size and read back the
+   * segment it hands out — rather than from {@code getActualMemorySize}, which is the method under
+   * test. {@link FrameSlotAllocator#SIZE_CLASSES} is the published contract behind that answer.
+   */
+  @Test
+  void aCachedPackedCopyIsChargedTheAllocatorFrameItRetains() throws IOException {
+    final byte[] wire;
+    try (HOTLeafPage original = wideValueLeaf()) {
+      wire = serialize(original);
+    }
+    try (FileChannelReader reader = reader(new AtomicReference<>(frame(wire)), new ByteHandlerPipeline());
+        HOTLeafPage compact = assertInstanceOf(HOTLeafPage.class, reader.readHOTLeafFragment(reference(), CONFIG));
+        HOTLeafPage cached = compact.copyForCache()) {
+      // Directory plus slot region, by the u16-only FMT-211 directory contract.
+      final long bodyBytes = WIDE_VALUE_ROWS * (long) Short.BYTES + cached.slots().byteSize();
+      assertEquals(34_048L, bodyBytes, "the packed body of the reviewer's leaf");
+      final long ownedBytes = allocatorFrameFor(bodyBytes);
+      assertEquals(65_536L, ownedBytes, "the allocator serves that body from its 64 KiB class");
+      assertTrue(ownedBytes > bodyBytes, "this charge is only interesting when the frame exceeds the body");
+
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1L << 20);
+      final PageReference key = new PageReference().setKey(321).setDatabaseId(0).setResourceId(0);
+      cache.put(key, cached);
+      assertEquals(ownedBytes + cached.estimatedCanonicalCacheRetainedHeapBytes(), cache.getCurrentWeightBytes(),
+          "a packed cache copy must be charged the native frame it will release, not its packed bytes");
+      cache.remove(key);
+      assertEquals(0L, cache.getCurrentWeightBytes());
+    }
+  }
+
+  /**
+   * An ordinary read that takes ownership of a decompression buffer must be charged that buffer, not
+   * the decompressed view inside it.
+   *
+   * <p>
+   * {@code DecompressionResult} carries both: {@code segment()} is the bounded view a page parses,
+   * and {@code backingBuffer()} is the pooled allocation its {@code releaser} frees — in production
+   * {@code FFILz4Compressor} builds exactly this pair as {@code buffer.asSlice(0, uncompressedSize)}
+   * over an {@code ALLOCATOR.allocate(...)} frame, so a ~34 KB image sits inside a 64 KiB frame.
+   * Taking {@code transferOwnership()} makes the page responsible for the whole frame, so recording
+   * the view leaves the rest of it outside every cache budget.
+   *
+   * <p>
+   * The result below is built from the real allocator in that same shape, so the expectation is the
+   * allocator's own answer for the image's size rather than anything the page reports. Both ownership
+   * handoffs are covered: the reviewer's wide-value leaf packs and takes the packed retain path,
+   * while a fixed-word projection leaf stays mode zero and takes the ordinary zero-copy slot handoff.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void anOwnedDecompressionBufferIsChargedInFullNotJustItsDecompressedView(final boolean packed) throws IOException {
+    final byte[] wire;
+    try (HOTLeafPage original = packed
+        ? wideValueLeaf()
+        : fixedWordLeaf()) {
+      wire = serialize(original);
+    }
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
+    final MemorySegment backing = allocator.allocate(wire.length);
+    final long ownedBytes = backing.byteSize();
+    assertTrue(ownedBytes > wire.length,
+        "this charge is only interesting when the frame exceeds the image: " + ownedBytes + " vs " + wire.length);
+    MemorySegment.copy(wire, 0, backing, ValueLayout.JAVA_BYTE, 0L, wire.length);
+    final MemorySegment view = backing.asSlice(0, wire.length);
+    final ByteHandler.DecompressionResult transferred =
+        new ByteHandler.DecompressionResult(view, backing, () -> allocator.release(backing), new AtomicBoolean(false));
+
+    try (HOTLeafPage page = assertInstanceOf(HOTLeafPage.class, new PagePersister().deserializePage(CONFIG,
+        new MemorySegmentBytesIn(view), SerializationType.DATA, transferred))) {
+      assertEquals(packed, page.hasPackedBody(), "the fixture must exercise the intended ownership handoff");
+      assertFalse(page.isCompactImage(), "an ordinary read keeps the transferred frame, it does not copy out of it");
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1L << 20);
+      final PageReference key = new PageReference().setKey(654).setDatabaseId(0).setResourceId(0);
+      cache.put(key, page);
+      assertEquals(ownedBytes + page.estimatedCanonicalCacheRetainedHeapBytes(), cache.getCurrentWeightBytes(),
+          "a transferred decompression buffer must be charged in full, not as its decompressed view");
+      cache.remove(key);
+      assertEquals(0L, cache.getCurrentWeightBytes());
+    }
+  }
+
+  /** What the allocator actually hands out for {@code bytes}, asked of the allocator itself. */
+  private static long allocatorFrameFor(final long bytes) {
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
+    final MemorySegment probe = allocator.allocate(bytes);
+    try {
+      return probe.byteSize();
+    } finally {
+      allocator.release(probe);
+    }
+  }
+
+  private static final int WIDE_VALUE_ROWS = 128;
+
+  /**
+   * A fixed-word projection leaf: every key is eight bytes including the common prefix, which FMT-217
+   * keeps in mode zero, so the read takes the ordinary zero-copy slot handoff rather than the packed
+   * retain path.
+   */
+  private static HOTLeafPage fixedWordLeaf() {
+    final HOTLeafPage page = new HOTLeafPage(123, 9, IndexType.PROJECTION);
+    for (int row = 0; row < 32; row++) {
+      final byte[] word = {(byte) row, 21, 22, 23, 24, 25, 26, 27};
+      assertTrue(page.put(word, value(row)));
+    }
+    page.setCompleteDump(true);
+    return page;
+  }
+
+  /**
+   * The reviewer's leaf: 128 seven-byte keys, each with a distinct 255-byte value. The keys differ in
+   * their FIRST byte so the page shares no common prefix and every key is stored as a seven-byte
+   * suffix, which is what makes each slot `1 + 7 + 1 + 255` bytes.
+   */
+  private static HOTLeafPage wideValueLeaf() {
+    final HOTLeafPage page = new HOTLeafPage(123, 9, IndexType.PROJECTION);
+    for (int row = 0; row < WIDE_VALUE_ROWS; row++) {
+      final byte[] wideKey = {(byte) row, 11, 12, 13, 14, 15, 16};
+      final byte[] wideValue = new byte[255];
+      Arrays.fill(wideValue, (byte) row);
+      assertTrue(page.put(wideKey, wideValue));
+    }
+    page.setCompleteDump(true);
+    return page;
   }
 
   @Test
@@ -234,7 +379,7 @@ final class HOTCompactFragmentReadTest {
     }
     try (FileChannelReader reader = reader(new AtomicReference<>(frame(wire)), new ByteHandlerPipeline());
         HOTLeafPage compact = assertInstanceOf(HOTLeafPage.class, reader.readHOTLeafFragment(reference(), CONFIG))) {
-      assertEquals(17, offsetDirectoryLength(compact));
+      assertEquals(0, offsetDirectoryLength(compact), "the compact leaf reads its directory in place");
       try (HOTLeafPage copy = compact.copy()) {
         assertEquals(HOTLeafPage.MAX_ENTRIES, offsetDirectoryLength(copy));
         for (int row = 17; row < HOTLeafPage.MAX_ENTRIES; row++) {
@@ -243,7 +388,7 @@ final class HOTCompactFragmentReadTest {
         assertEquals(HOTLeafPage.MAX_ENTRIES, copy.size());
         assertFalse(copy.put(key(HOTLeafPage.MAX_ENTRIES), value(1)));
       }
-      assertEquals(17, offsetDirectoryLength(compact));
+      assertEquals(0, offsetDirectoryLength(compact), "the compact leaf reads its directory in place");
       final Class<? extends Throwable> rejection = HOTLeafPage.class.desiredAssertionStatus()
           ? AssertionError.class
           : IllegalStateException.class;
@@ -265,7 +410,7 @@ final class HOTCompactFragmentReadTest {
         }
         assertEquals(1, compact.getGuardCount());
         assertEquals(17, compact.size());
-        assertEquals(17, offsetDirectoryLength(compact));
+        assertEquals(0, offsetDirectoryLength(compact), "the compact leaf reads its directory in place");
         assertTrue(compact.isCompactImage());
         assertArrayEquals(wire, serialize(compact));
         try (HOTLeafPage copy = compact.copyForRead()) {
@@ -467,7 +612,7 @@ final class HOTCompactFragmentReadTest {
   private static int offsetDirectoryLength(final HOTLeafPage page) throws Exception {
     final Field directory = HOTLeafPage.class.getDeclaredField("slotOffsets");
     directory.setAccessible(true);
-    return ((int[]) directory.get(page)).length;
+    return ((char[]) directory.get(page)).length;
   }
 
   private static HOTLeafPage leaf(final int count) {

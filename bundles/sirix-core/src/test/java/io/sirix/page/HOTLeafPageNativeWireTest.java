@@ -68,7 +68,7 @@ final class HOTLeafPageNativeWireTest {
       assertEquals(3, actualSink.segmentWriteCount);
       assertSame(pageA.slots(), actualSink.segmentSource);
       assertArrayEquals(firstAWire, secondAWire, "A/B/A reuse must not retain page B's bounds or payload");
-      assertArrayEquals(serializeWithLegacyHeapPayload(config, pageA), secondAWire,
+      assertArrayEquals(serializeWithHeapPayload(config, pageA), secondAWire,
           "the native bulk write must not change the V0 HOT-leaf wire layout");
     } finally {
       pageB.close();
@@ -97,7 +97,7 @@ final class HOTLeafPageNativeWireTest {
       assertEquals(34, sink.segmentWriteCount, "sparse serialization must issue one exact segment copy per dirty slot");
       assertSame(pageA.slots(), sink.segmentSource);
       assertArrayEquals(firstAWire, secondAWire, "A/B/A reuse must not retain page B's packed offsets or payload");
-      assertArrayEquals(serializeWithLegacyHeapPayload(config, pageA), secondAWire,
+      assertArrayEquals(serializeWithHeapPayload(config, pageA), secondAWire,
           "the direct two-pass sparse encoding must retain the packed V0 wire");
     } finally {
       pageB.close();
@@ -128,10 +128,10 @@ final class HOTLeafPageNativeWireTest {
       final byte[] pageBWire = serialize(config, sink, pageB);
       final byte[] secondAWire = serialize(config, sink, pageA);
 
-      assertArrayEquals(serializeWithLegacyHeapPayload(config, pageB), pageBWire,
+      assertArrayEquals(serializeWithHeapPayload(config, pageB), pageBWire,
           "allocation-free large-prefix sort must retain the legacy signed-long wire order");
       assertArrayEquals(firstAWire, secondAWire, "A/B/A scratch reuse must ignore page B's stale sorted-key tail");
-      assertArrayEquals(serializeWithLegacyHeapPayload(config, pageA), secondAWire,
+      assertArrayEquals(serializeWithHeapPayload(config, pageA), secondAWire,
           "reusable primitive key scratch must retain deterministic signed-long ordering");
 
       coldPage = (HOTLeafPage) new PagePersister().deserializePage(config, Bytes.wrapForRead(secondAWire),
@@ -198,12 +198,12 @@ final class HOTLeafPageNativeWireTest {
     HOTLeafPage coldPage = null;
 
     try {
-      PageKind.HOT_LEAF_PAGE.serializePage(config, sink, page, SerializationType.DATA);
+      PageKind.serializeHOTLeaf(config, sink, page, false);
       final byte[] firstWire = sink.toByteArray();
 
       // The second pass reuses the already-sized sink: this is the recurring pinned-spill shape.
       sink.clear();
-      PageKind.HOT_LEAF_PAGE.serializePage(config, sink, page, SerializationType.DATA);
+      PageKind.serializeHOTLeaf(config, sink, page, false);
       assertEquals(firstWire.length, sink.position());
 
       // writeSegment is a synchronous copy, not an ownership hand-off. Reusing both source and sink
@@ -243,14 +243,14 @@ final class HOTLeafPageNativeWireTest {
           assertTrue(original.put(keyOf(i), Arrays.copyOf(valueOf(i), 1 + i % 23)));
         }
         original.setCompleteDump(true);
-        final byte[] wire = serializeWithLegacyHeapPayload(config, original);
+        final byte[] wire = serializeWithHeapPayload(config, original);
         assertDecodedLeaf(config, original, new ByteArrayBytesIn(wire), wire.length);
 
         try (Arena arena = Arena.ofConfined()) {
           final MemorySegment nativeWire = arena.allocate(wire.length + 8L);
           for (int shift = 0; shift < 8; shift++) {
             MemorySegment.copy(wire, 0, nativeWire, ValueLayout.JAVA_BYTE, shift, wire.length);
-            final MemorySegmentBytesIn source = new MemorySegmentBytesIn(nativeWire);
+            final MemorySegmentBytesIn source = new MemorySegmentBytesIn(nativeWire.asSlice(0L, shift + wire.length));
             source.position(shift);
             assertDecodedLeaf(config, original, source, shift + wire.length);
           }
@@ -262,32 +262,32 @@ final class HOTLeafPageNativeWireTest {
   }
 
   @Test
-  void sparseOffsetReadLeavesFollowingLeafUnread() throws IOException {
+  void sparseAndFollowingLeafReadTheirOwnBoundedFrames() throws IOException {
     final ResourceConfiguration config = slidingConfig("hot-leaf-sparse-offsets");
     final HOTLeafPage base = populatedLeaf(64);
     final HOTLeafPage changed = base.copy();
     try {
       assertTrue(changed.put(keyOf(64), valueOf(64)));
       assertEquals(1, changed.getDirtyEntryCount());
-      final byte[] sparseWire = serializeWithLegacyHeapPayload(config, changed);
-      final byte[] nextWire = serializeWithLegacyHeapPayload(config, base);
+      final byte[] sparseWire = serializeWithHeapPayload(config, changed);
+      final byte[] nextWire = serializeWithHeapPayload(config, base);
       final byte[] stream = Arrays.copyOf(sparseWire, sparseWire.length + nextWire.length);
       System.arraycopy(nextWire, 0, stream, sparseWire.length, nextWire.length);
-      final BytesIn<?>[] sources =
-          {new ByteArrayBytesIn(stream), new MemorySegmentBytesIn(MemorySegment.ofArray(stream))};
-      for (final BytesIn<?> source : sources) {
-        final HOTLeafPage sparse =
-            (HOTLeafPage) new PagePersister().deserializePage(config, source, SerializationType.DATA);
-        try {
-          assertEquals(1, sparse.getEntryCount(), "only the changed slot belongs to this fragment");
-          assertArrayEquals(keyOf(64), sparse.getKey(0));
-          assertArrayEquals(valueOf(64), sparse.getValue(0));
-          assertEquals(sparseWire.length, source.position(), "the following leaf must remain unread");
-          assertDecodedLeaf(config, base, source, stream.length);
-        } finally {
-          sparse.close();
-        }
+      try (HOTLeafPage sparse = (HOTLeafPage) new PagePersister().deserializePage(config,
+          new ByteArrayBytesIn(sparseWire), SerializationType.DATA)) {
+        assertEquals(1, sparse.getEntryCount(), "only the changed slot belongs to this fragment");
+        assertArrayEquals(keyOf(64), sparse.getKey(0));
+        assertArrayEquals(valueOf(64), sparse.getValue(0));
       }
+      final MemorySegment bytes = MemorySegment.ofArray(stream);
+      try (HOTLeafPage sparse = (HOTLeafPage) new PagePersister().deserializePage(config,
+          new MemorySegmentBytesIn(bytes.asSlice(0, sparseWire.length)), SerializationType.DATA)) {
+        assertEquals(1, sparse.getEntryCount());
+        assertArrayEquals(keyOf(64), sparse.getKey(0));
+        assertArrayEquals(valueOf(64), sparse.getValue(0));
+      }
+      assertDecodedLeaf(config, base, new ByteArrayBytesIn(nextWire), nextWire.length);
+      assertDecodedLeaf(config, base, new MemorySegmentBytesIn(bytes.asSlice(sparseWire.length)), nextWire.length);
     } finally {
       changed.close();
       base.close();
@@ -299,12 +299,12 @@ final class HOTLeafPageNativeWireTest {
     final ResourceConfiguration config = fullConfig("hot-leaf-truncated-offsets");
     final HOTLeafPage original = populatedLeaf(17);
     try {
-      final byte[] wire = serializeWithLegacyHeapPayload(config, original);
+      final byte[] wire = serializeWithHeapPayload(config, original);
       final byte[] truncated = Arrays.copyOf(wire, wire.length - original.getUsedSlotsSize() - 1);
       final BytesIn<?>[] sources =
           {new ByteArrayBytesIn(truncated), new MemorySegmentBytesIn(MemorySegment.ofArray(truncated))};
       for (final BytesIn<?> source : sources) {
-        assertThrows(IndexOutOfBoundsException.class,
+        assertThrows(IllegalStateException.class,
             () -> new PagePersister().deserializePage(config, source, SerializationType.DATA));
       }
     } finally {
@@ -332,17 +332,21 @@ final class HOTLeafPageNativeWireTest {
   private static byte[] serialize(final ResourceConfiguration config, final MemorySegmentBytesOut sink,
       final HOTLeafPage page) {
     sink.clear();
-    PageKind.HOT_LEAF_PAGE.serializePage(config, sink, page, SerializationType.DATA);
+    PageKind.serializeHOTLeaf(config, sink, page, false);
     return sink.toByteArray();
   }
 
-  private static byte[] serializeWithLegacyHeapPayload(final ResourceConfiguration config, final HOTLeafPage page) {
+  private static byte[] serializeWithHeapPayload(final ResourceConfiguration config, final HOTLeafPage page) {
     try (MemorySegmentBytesOut sink = new MemorySegmentBytesOut(SERIALIZATION_CAPACITY)) {
       final boolean hasSegmentReferences = page.segmentRefCount() > 0;
       sink.writeByte(PageKind.HOT_LEAF_PAGE.getID());
-      PageKind.writeVersionAndFlags(sink, hasSegmentReferences
-          ? HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS
-          : 0);
+      final int flags = (hasSegmentReferences
+          ? 1
+          : 0)
+          | (page.getEntryCount() == 0
+              ? 0
+              : 4);
+      PageKind.writeVersionAndFlags(sink, (byte) flags);
       Utils.putVarLong(sink, page.getPageKey());
       sink.writeInt(page.getRevision());
       sink.writeByte(page.getIndexType().getID());
@@ -366,7 +370,7 @@ final class HOTLeafPageNativeWireTest {
         final int[] packedOffsets = new int[dirtyCount];
         assertEquals(dirtyBytes, page.packDirtyEntries(packedPayload, packedOffsets));
         for (int i = 0; i < dirtyCount; i++) {
-          sink.writeInt(packedOffsets[i]);
+          sink.writeShort((short) packedOffsets[i]);
         }
         sink.write(packedPayload);
       } else {
@@ -375,7 +379,7 @@ final class HOTLeafPageNativeWireTest {
             : page.getEntryCount());
         sink.writeInt(page.getUsedSlotsSize());
         for (int i = 0; i < page.getEntryCount(); i++) {
-          sink.writeInt(page.getSlotOffset(i));
+          sink.writeShort((short) page.getSlotOffset(i));
         }
 
         final byte[] slotPayload = new byte[page.getUsedSlotsSize()];

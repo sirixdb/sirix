@@ -538,7 +538,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-${{ matrix.os }}-${{ matrix.lane.name }}
-          path: '**/build/reports/tests/test'
+          path: |
+            **/build/reports/tests/
+            **/build/test-results/
           retention-days: 14
 
   TestRestApi:

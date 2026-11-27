@@ -1332,8 +1332,9 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
   `gcc -O3 … -fPIC -shared` (opt out `-Psirix.nativeLz77.skip`; skipped without gcc)
   (see [`buildNativeLz77` in the core build](../bundles/sirix-core/build.gradle)).
   **The resulting `libsirix_lz77.so` is a build output, ignored by git** (`bundles/sirix-core/.gitignore:7`).
-  Java binds it with an unbound constant downcall and `Linker.Option.critical(true)` (heap arrays pinned), extracts the
-  library to a content-addressed name under `${java.io.tmpdir}/sirix-native-${user.name}`, and falls back to the Java
+  Java binds it with an unbound constant downcall and `Linker.Option.critical(true)` (heap arrays pinned).
+  Shared library loading and staging are specified in [Operations](operations.md#libsirix_lz77so).
+  LZ77 falls back to the Java
   decoder with `-Dsirix.lz77Codec.native.disable=true` or when slack requirements fail (16 input bytes, output
   capacity + 64) (`core/page/SirixLZ77NativeDecoder.java:66-287`; `core/page/SirixLZ77Codec.java:482-574`). Overflow
   payload decode destinations are specified by
@@ -1342,8 +1343,9 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
   [NATIVE_IMAGE.md](NATIVE_IMAGE.md)). `.../sirix-core/reachability-metadata.json:4-17` registers the LZ77 downcall
   `jint(void*, jint, void*, jint)` with `critical: {allowHeapAccess: true}`, `:18-26` **the `posix_fadvise`
   signature `jint(jint, jlong, jlong, jint)`** — added by this PR, so the open question of whether the hints
-  silently turn off in a native image no longer arises from a missing registration — and `:95-102` the resource glob
-  `native/**/libsirix_lz77.so`.
+  silently turn off in a native image no longer arises from a missing registration.
+  The authoritative resource conditions and additional codec-adapter signatures are in
+  [`reachability-metadata.json`](../bundles/sirix-core/src/main/resources/META-INF/native-image/io.sirix/sirix-core/reachability-metadata.json).
 - **FFM downcall initialization.** The portable default, optimized-build opt-in, toolchain
   constraints and measured Q2/Q3 call-path cost are documented in
   [Optional constant FFM adapters for optimized builds](NATIVE_IMAGE.md#optional-constant-ffm-adapters-for-optimized-builds).

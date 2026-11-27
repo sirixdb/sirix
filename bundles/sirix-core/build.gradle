@@ -277,7 +277,6 @@ test {
     def useFastLz4 = project.hasProperty('lz4.fast')
     systemProperty "sirix.lz4.fast.decompress", useFastLz4.toString()
     systemProperty "sirix.lz77Codec.native.disable", System.getProperty("sirix.lz77Codec.native.disable", "false")
-    systemProperty "sirix.lz77Codec.diag.counters", System.getProperty("sirix.lz77Codec.diag.counters", "false")
     // Structural-column kill switches — forwarded so a run can A/B a column off and confirm
     // the page still round-trips with its keys inline.
     ['sirix.parentKeyColumn.disable',
@@ -345,14 +344,38 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform()
+    testLogging {
+        events 'failed'
+        exceptionFormat = 'full'
+    }
     filter {
         includeTestsMatching 'io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest'
         includeTestsMatching 'io.sirix.budget.InlineSlotCopyAllocationBudgetTest'
         includeTestsMatching 'io.sirix.budget.LifecycleLockAllocationBudgetTest'
         includeTestsMatching 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'
         includeTestsMatching 'io.sirix.budget.HotWriterLeafRetentionAllocationBudgetTest'
+        includeTestsMatching 'io.sirix.page.HOTLeafCodecAllocationTest'
+        includeTestsMatching 'io.sirix.page.HOTLeafRefusalAllocationTest'
+        includeTestsMatching 'io.sirix.index.hot.page.HOTLeafLookupAllocationTest'
+        includeTestsMatching 'io.sirix.io.bytepipe.JavaLz4BlockDecoderAllocationTest'
         includeTestsMatching 'io.sirix.index.name.NameIndexRecheckAllocationBudgetTest'
         includeTestsMatching 'io.sirix.budget.CommitTimestampProbeAllocationBudgetTest'
+    }
+}
+
+def hotLeafNarrowVectorAllocationTest = tasks.register('hotLeafNarrowVectorAllocationTest', Test) {
+    group = 'verification'
+    description = 'Checks HOT lookup and codec allocations with 128-bit HotSpot vectors in a clean JVM.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    testLogging {
+        events 'failed'
+        exceptionFormat = 'full'
+    }
+    filter {
+        includeTestsMatching 'io.sirix.page.HOTLeafCodecAllocationTest'
+        includeTestsMatching 'io.sirix.index.hot.page.HOTLeafLookupAllocationTest'
     }
 }
 
@@ -455,7 +478,7 @@ tasks.register('confinedWriterArenaLeakCheck', JavaExec) {
 // finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
 gradle.projectsEvaluated {
     def standardTest = tasks.named('test', Test).get()
-    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests + lz4OwnershipTests).each { testTask ->
+    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, hotLeafNarrowVectorAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests + lz4OwnershipTests).each { testTask ->
         testTask.configure { isolatedTest ->
             standardTest.copyTo(isolatedTest)
             // copyTo flattens argument providers (including JaCoCo) into jvmArgs. Keep only
@@ -506,6 +529,11 @@ gradle.projectsEvaluated {
         // Finish warmup compilations before measuring allocations, including on slower CI runners.
         jvmArgs '-Xbatch'
     }
+    hotLeafNarrowVectorAllocationTest.configure {
+        // C2 must exercise its software-vector fallback even on wider-vector/GraalVM workstations.
+        // Temurin requires the experimental unlock before even disabling JVMCI.
+        jvmArgs '-Xbatch', '-XX:+UnlockExperimentalVMOptions', '-XX:-UseJVMCICompiler', '-XX:MaxVectorSize=16'
+    }
     storageEpochStoreIdentityTest.configure {
         systemProperty 'sirix.codecBakeoff.probeInterval', '1'
     }
@@ -513,8 +541,9 @@ gradle.projectsEvaluated {
 
 // The standard test excludes these suites, so its execution data alone omits their coverage.
 tasks.named('jacocoTestReport') {
-    executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(),
-            storageEpochStoreIdentityTest.get(), configurationStartupTest.get(), allocatorColdStartupTest.get(), cleanerStartupTest.get()
+    executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(), hotLeafNarrowVectorAllocationTest.get(),
+            storageEpochStoreIdentityTest.get(), configurationStartupTest.get(),
+            allocatorColdStartupTest.get(), cleanerStartupTest.get()
     executionData sharedArenaPolicyTests.collect { it.get() }
     executionData lz4OwnershipTests.collect { it.get() }
 }
@@ -564,6 +593,10 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
     exclude 'io/sirix/budget/InlineSlotCopyAllocationBudgetTest*.class'
+    exclude 'io/sirix/page/HOTLeafCodecAllocationTest*.class'
+    exclude 'io/sirix/page/HOTLeafRefusalAllocationTest*.class'
+    exclude 'io/sirix/index/hot/page/HOTLeafLookupAllocationTest*.class'
+    exclude 'io/sirix/io/bytepipe/JavaLz4BlockDecoderAllocationTest*.class'
     exclude 'io/sirix/budget/LifecycleLockAllocationBudgetTest*.class'
     exclude 'io/sirix/index/hot/HOTCommitAllocationBudgetTest*.class'
     exclude 'io/sirix/budget/HotWriterLeafRetentionAllocationBudgetTest*.class'
@@ -574,6 +607,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'
     dependsOn validTimeDisabledLookupCacheTest
     dependsOn dictionaryReadViewAllocationTest
+    dependsOn hotLeafNarrowVectorAllocationTest
     dependsOn storageEpochStoreIdentityTest
 }
 

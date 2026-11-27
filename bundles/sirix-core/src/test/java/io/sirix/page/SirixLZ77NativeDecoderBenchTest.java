@@ -5,6 +5,7 @@ package io.sirix.page;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -103,6 +104,7 @@ final class SirixLZ77NativeDecoderBenchTest {
 
   @Test
   @DisplayName("native decoder ns/byte bench — targets ≥ 5 GB/s")
+  @Tag("benchmark")
   void nativeDecodeSpeedBench() {
     if (!SirixLZ77NativeDecoder.isAvailable()) {
       System.out.println("[native bench] skipping: native library not available");
@@ -168,6 +170,7 @@ final class SirixLZ77NativeDecoderBenchTest {
 
   @Test
   @DisplayName("full-codec ns/byte bench via SirixLZ77Codec.decode with native ON")
+  @Tag("benchmark")
   void codecDispatchSpeedBench() {
     final CompressedFrame encoded = buildCompressed();
     try (Arena arena = Arena.ofConfined()) {
@@ -191,6 +194,7 @@ final class SirixLZ77NativeDecoderBenchTest {
 
   @Test
   @DisplayName("compare native vs java decode on same input")
+  @Tag("benchmark")
   void compareNativeVsJava() {
     final CompressedFrame encoded = buildCompressed();
     try (Arena arena = Arena.ofConfined()) {

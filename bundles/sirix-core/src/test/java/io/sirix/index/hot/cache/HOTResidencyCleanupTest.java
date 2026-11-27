@@ -39,7 +39,7 @@ final class HOTResidencyCleanupTest {
     final MemorySegment memory = nativeImage
         ? arena.allocate(HOTLeafPage.DEFAULT_SIZE)
         : MemorySegment.ofArray(new byte[0]);
-    return new HOTLeafPage(1, 1, IndexType.PROJECTION, memory, null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    return new HOTLeafPage(1, 1, IndexType.PROJECTION, memory, null, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
   }
 
   private static HOTLeafPage failDetach(final HOTLeafPage page, final Error failure) {
