@@ -9,6 +9,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.page.PagePersister;
 import io.sirix.page.SerializationType;
 import io.sirix.exception.SirixIOException;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.IOStorage;
 import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.Reader;
@@ -439,7 +440,7 @@ public final class FileChannelStorage implements IOStorage {
     if (!Files.exists(concreteStorage)) {
       openingUberPage.getFeatures().requireWritable();
       Files.createDirectories(concreteStorage.getParent());
-      Files.createFile(concreteStorage);
+      DurableFiles.createFile(concreteStorage);
     }
 
     return concreteStorage;
@@ -522,7 +523,7 @@ public final class FileChannelStorage implements IOStorage {
   private synchronized void createRevisionsOffsetFileIfNotExists(Path revisionsOffsetFilePath) throws IOException {
     if (!Files.exists(revisionsOffsetFilePath)) {
       openingUberPage.getFeatures().requireWritable();
-      Files.createFile(revisionsOffsetFilePath);
+      DurableFiles.createFile(revisionsOffsetFilePath);
     }
   }
 

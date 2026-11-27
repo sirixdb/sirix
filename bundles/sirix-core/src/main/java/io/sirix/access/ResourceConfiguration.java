@@ -41,6 +41,7 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -560,12 +561,11 @@ public final class ResourceConfiguration {
   }
 
   /**
-   * Draws a fresh incarnation id for this persisted resource and publishes it in its settings
-   * (FMT-209, TXN-404), durably where the platform provides a directory barrier. On Windows the
-   * rename has no durability barrier; see {@code docs/KNOWN_LIMITATIONS.md#platform}. A failure
-   * before the rename leaves both the settings and this configuration unchanged. After the rename
-   * this configuration adopts the installed id even if the directory barrier or channel close fails;
-   * the failure still propagates.
+   * Draws a fresh incarnation id for this persisted resource and durably publishes it in its settings
+   * (FMT-209, TXN-404; durable on return through TXN-616's {@code DurableFiles}). A failure before
+   * the rename leaves both the settings and this configuration unchanged. After the rename this
+   * configuration adopts the installed id even if the directory barrier fails; the failure still
+   * propagates.
    *
    * @throws SirixIOException if the settings cannot be read or durably rewritten
    */
@@ -575,13 +575,11 @@ public final class ResourceConfiguration {
   }
 
   /**
-   * Draws a fresh incarnation id for the persisted resource in {@code resourceDirectory} and
+   * Draws a fresh incarnation id for the persisted resource in {@code resourceDirectory} and durably
    * publishes it in its settings (FMT-209: backup restore draws per restored resource before exposing
-   * it), durably where the platform provides a directory barrier. On Windows the rename has no
-   * durability barrier; see {@code docs/KNOWN_LIMITATIONS.md#platform}. Only the
-   * {@code incarnationId} member changes; every other setting is kept as written. A failure before
-   * the rename leaves the settings unchanged; a failure after it leaves the new id installed and
-   * still propagates.
+   * it; durable on return through TXN-616's {@code DurableFiles}). Only the {@code incarnationId}
+   * member changes; every other setting is kept as written. A failure before the rename leaves the
+   * settings unchanged; a failure after it leaves the new id installed and still propagates.
    *
    * @param resourceDirectory the resource directory holding {@code ressetting.obj}
    * @throws SirixIOException if the settings are not a valid 1.0 settings document or cannot be
@@ -593,10 +591,9 @@ public final class ResourceConfiguration {
 
   /**
    * Replaces the persisted {@code incarnationId} member with {@code incarnationId}: write a sibling
-   * temporary file, force it, atomically move it over the settings and force the directory, so a
-   * crash leaves the old or the new document in full, and the new one durably once this returns where
-   * the platform provides a directory barrier. On Windows the rename has no durability barrier; see
-   * {@code docs/KNOWN_LIMITATIONS.md#platform}.
+   * temporary file, force it and replace the settings with it through {@code DurableFiles} (TXN-616),
+   * so a crash leaves the old or the new document in full, and the new one durably once this returns,
+   * on every platform.
    */
   private static void writeIncarnationId(final Path resourceDirectory, final long incarnationId,
       final @Nullable ResourceConfiguration configuration) {
@@ -618,14 +615,21 @@ public final class ResourceConfiguration {
         while (bytes.hasRemaining()) {
           channel.write(bytes);
         }
-        channel.force(true);
       }
-      DatabaseConfiguration.moveIntoPlace(tmpFile, configFile);
+      // TXN-616: the one content force the crash model and every platform recognise.
+      DurableFiles.forceFile(tmpFile);
+      try {
+        // TXN-616: atomic and durable on return on every platform, Windows included.
+        DatabaseConfiguration.moveIntoPlace(tmpFile, configFile);
+      } catch (final SirixIOException notDurable) {
+        // The replacement happened but its directory entry could not be made durable: the file
+        // already holds the new id, so the live configuration adopts it before the failure propagates.
+        tmpFile = null;
+        adopt(configuration, incarnationId);
+        throw notDurable;
+      }
       tmpFile = null;
-      if (configuration != null) {
-        configuration.incarnationId = incarnationId;
-      }
-      forceDirectory(resourceDirectory);
+      adopt(configuration, incarnationId);
     } catch (final IOException e) {
       throw new SirixIOException(configFile + ": cannot publish a new incarnation id", e);
     } finally {
@@ -639,16 +643,9 @@ public final class ResourceConfiguration {
     }
   }
 
-  /**
-   * Makes the rename durable where a directory barrier is available. Windows skips the barrier; the
-   * accepted limitation and its follow-up are owned by {@code docs/KNOWN_LIMITATIONS.md#platform}.
-   */
-  private static void forceDirectory(final Path directory) throws IOException {
-    if (System.getProperty("os.name", "").startsWith("Windows")) {
-      return;
-    }
-    try (final FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
-      channel.force(true);
+  private static void adopt(final @Nullable ResourceConfiguration configuration, final long incarnationId) {
+    if (configuration != null) {
+      configuration.incarnationId = incarnationId;
     }
   }
 
@@ -960,6 +957,9 @@ public final class ResourceConfiguration {
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
+    // Contents only: the settings file's name is made durable by the resource creation that wrote
+    // it, together with the rest of the resource directory (TXN-616).
+    DurableFiles.forceFile(configFile);
 
     // Database config.
     DatabaseConfiguration.serialize(config.databaseConfig);

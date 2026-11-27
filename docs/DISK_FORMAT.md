@@ -59,7 +59,7 @@ The required `incarnationId` tail member follows the
 [CONF-102 schema](../spec/CONF-configuration.md#persisted-resource-schema-conf-102).
 Its generation, lifecycle and settings-rewrite invariants are owned by
 [FMT-209](../spec/FMT-disk-format.md#fmt-209--conditional-write-resource-metadata);
-publication durability is subject to the [platform limitation](KNOWN_LIMITATIONS.md#platform).
+its publication on truncate and restore is a durable settings replace (TXN-616).
 
 ### sirix.data (FILE_CHANNEL, the default)
 
@@ -90,6 +90,10 @@ this refusal.
 flush the buffered page tail → write missing superblocks → stage the revision-record tail log
 in both beacon slots → force the data file (write-ahead barrier) → write SECONDARY then
 PRIMARY beacon images → make the beacons durable before acknowledging the commit.
+
+The required directory-entry publication is owned by
+[TXN-616](../spec/TXN-transactions-durability.md#txn-616--directory-entry-durability);
+the file-content forces described here do not replace those barriers.
 
 The defaults are `sirix.commit.preallocated=true`, `sirix.commit.bufferedBeacons=true`
 and `sirix.commit.lazyRevisionRecord=true`. With preallocation and buffered beacons,

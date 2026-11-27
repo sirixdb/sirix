@@ -23,8 +23,8 @@
   Focused command: `./gradlew :sirix-core:test --tests io.sirix.access.ResourceConfigurationTest --tests io.sirix.access.IncarnationIdConformanceTest`.
 - Lesson: adopt installed state at its publication boundary even when later durability work fails;
   propagate the durability error before destructive work. Record platform guarantees from actual
-  barriers. See the lesson fragment collected into [LESSONS.md](../LESSONS.md) and
-  [known platform limitations](../KNOWN_LIMITATIONS.md#platform). The Windows metadata gap remains
-  tracked as `sirix-durable-file-metadata`; this fix adds no platform barrier or default.
+  barriers. See the lesson fragment collected into [LESSONS.md](../LESSONS.md). The Windows
+  metadata gap this fix originally recorded was closed by TXN-616: the publisher now replaces the
+  settings through `DurableFiles`, durable on return on every platform.
 - Vision check: keeps identity consistent with persisted history without changing hot paths,
   query cost, supported formats or defaults; reports the existing durability gap honestly.

@@ -35,16 +35,15 @@ import com.google.gson.stream.JsonWriter;
 import io.sirix.api.Database;
 import org.jspecify.annotations.Nullable;
 import io.sirix.exception.SirixIOException;
+import io.sirix.io.DurableFiles;
 
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.concurrent.ConcurrentHashMap;
@@ -383,19 +382,18 @@ public final class DatabaseConfiguration {
   }
 
   /**
-   * Atomically replaces {@code configFile} with {@code tmpFile}, retrying the transient Windows
-   * sharing violation a concurrent reader can raise. A non-transient failure (e.g. a genuinely
-   * unwritable directory) exhausts the bounded retries and is rethrown to the caller unchanged.
+   * Atomically and durably replaces {@code configFile} with {@code tmpFile} (TXN-616), retrying the
+   * transient Windows sharing violation a concurrent reader can raise. A non-transient failure (e.g.
+   * a genuinely unwritable directory) exhausts the bounded retries and is rethrown to the caller
+   * unchanged; a replacement that happened but cannot be made durable fails at once with a
+   * {@link SirixIOException} naming the directory.
    */
   static void moveIntoPlace(final Path tmpFile, final Path configFile) throws IOException {
     IOException lastError = null;
     for (int attempt = 0; attempt < CONFIG_IO_MAX_ATTEMPTS; attempt++) {
       try {
-        try {
-          Files.move(tmpFile, configFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (final AtomicMoveNotSupportedException e) {
-          Files.move(tmpFile, configFile, StandardCopyOption.REPLACE_EXISTING);
-        }
+        // Keep settings replacement atomic; an unsupported atomic move must fail.
+        DurableFiles.replace(tmpFile, configFile);
         return;
       } catch (final FileSystemException e) {
         // Only the OS-level file-system errors (sharing/lock violation on Windows) are worth
@@ -432,6 +430,7 @@ public final class DatabaseConfiguration {
         jsonWriter.name("maxSegmentAllocationSize").value(config.maxSegmentAllocationSize);
         jsonWriter.endObject();
       }
+      DurableFiles.forceFile(tmpFile);
       moveIntoPlace(tmpFile, configFile);
     } catch (final IOException e) {
       if (tmpFile != null) {

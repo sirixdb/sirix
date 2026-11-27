@@ -2,6 +2,21 @@
 
 ## 1.0.0 (unreleased)
 
+- Schedule the nightly trend tier and give it a hosted-runner class
+  ([CONV-303](CONV-conventions.md#conv-303--results-ledger-and-conditions-record),
+  [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier)). A run row may name its `runner`
+  (`dedicated` or `hosted`, provider, label, image); a hosted runner is fingerprinted by its class
+  (label, architecture, CPU model, logical CPUs, memory) instead of its kernel, which the provider
+  changes with every image, and a different CPU model is a different condition. The nightly tier
+  judges CPU time and allocation per operation on a hosted runner and records wall-clock time as
+  informational. A zero allocation level is compared one byte up. Apache Otava is allowed as an
+  advisory second opinion; both answers are reported when they disagree, and an issue is opened once
+  per confirmed upward change, never from a fork. Nothing public is committed, pushed, deployed or
+  opened between 04:00 and 17:30 Europe/Berlin on a weekday, and the publishing code enforces it.
+  The ledger of the nightly tier is the one ledger that is committed, on the `nightly-data` branch.
+  Making Otava the judge is not decided here.
+  Decided by the maintainer on 2026-11-26: a hosted runner is fingerprinted by its class, not by its
+  kernel or image.
 - Record the derived half of
   [TXN-613](TXN-transactions-durability.md#txn-613--backups-include-derived-resources) as
   implemented: a backup copies each backed-up resource's hidden `$derived` resource, a restore
@@ -26,6 +41,10 @@
   exhaustion requests relief only from the requesting class. Transfer regressions independently
   exhaust each consumer's admission ceiling, and release residency is measured before access.
   No product behavior changes with this entry.
+- Add [TXN-616](TXN-transactions-durability.md#txn-616--directory-entry-durability),
+  the authoritative directory-entry durability contract, including barrier placement, platform
+  requirements, failure handling and lifecycle retries. Update the related marker-loss requirement
+  in TXN-602 and the settings guarantees in CONF-101 and CONF-103.
 
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from

@@ -4,15 +4,18 @@
 
     bench_ledger.py capture --out DIR [--data PATH] [--java NAME=PATH ...]
         Write DIR/environment.json. No ledger is needed; a kit without one still captures.
-    bench_ledger.py fingerprint
+    bench_ledger.py fingerprint [--runner SPEC]
         Print the fingerprint of this machine's environment and the fields it is made of.
     bench_ledger.py begin --out DIR --tier gate|control|nightly --kit NAME --arm SPEC [--arm SPEC]
                           [--data PATH] [--night YYYY-MM-DD] [--min-pairs N] [--benchmark NAME ...]
+                          [--runner kind=dedicated|hosted,provider=NAME,label=NAME[,image=TEXT]]
         Open a run: capture the environment, find its conditions entry, write DIR/run.json.
         Refuses, before any timed process, when no conditions entry holds the fingerprint.
         SPEC is name,commit=<40 hex>,binary=jvm|native|native-pgo[,dirty=true][,java=PATH|,runtime=TEXT].
+        A hosted runner is fingerprinted by its class, not by its kernel (CONV-303).
     bench_ledger.py record --run DIR --benchmark NAME --metric NAME --unit UNIT --arm ARM --value V ...
-    bench_ledger.py import-jmh --run DIR --json FILE --arm ARM --process N [--pair N --position P | --allocation-leg]
+    bench_ledger.py import-jmh --run DIR --json FILE --arm ARM --process N
+                               [--pair N --position P | --allocation-leg | --cpu-leg]
     bench_ledger.py import-clickbench --run DIR --json FILE --arm ARM --process N [--pair N --position P] [--log FILE]
     bench_ledger.py import-jsonbench --run DIR --json FILE --query N --attempt N --process N [--log FILE]
         Add measurement rows to DIR/measurements.jsonl.
@@ -59,6 +62,11 @@ HEAD = "head"
 PAIRED_ARMS = (timed_gate.BASELINE, timed_gate.CANDIDATE)
 BINARIES = ("jvm", "native", "native-pgo")
 NIGHTLY_MIN_PROCESSES = 20
+DEDICATED = "dedicated"
+HOSTED = "hosted"
+RUNNER_KINDS = (DEDICATED, HOSTED)
+CPU_METRIC = "cpu_ns_per_op"
+CPU_PROFILER_METRIC = "cpu.time.norm"  # CpuTimeProfiler of :sirix-benchmarks, process CPU ns per operation
 QUANTILE = timed_gate.QUANTILE_PERCENT / 100
 
 ENVIRONMENT_FILE = "environment.json"
@@ -339,11 +347,29 @@ def _distinct(cpufreq: Mapping[str, Mapping[str, Any]], field: str) -> list[str]
     return sorted({value if isinstance(value, str) else json.dumps(value) for value in values})
 
 
-def fingerprint_fields(environment: Mapping[str, Any]) -> dict[str, Any]:
-    """The part of a capture that identifies a condition; readings that vary within one are left out."""
+def fingerprint_fields(environment: Mapping[str, Any], runner: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The part of a capture that identifies a condition; readings that vary within one are left out.
+
+    A hosted runner is identified by its class: the provider's label, the architecture, the CPU model, the
+    logical CPU count and the memory. Its kernel, operating-system point release, firmware and frequency
+    readings change with every image the provider rolls out, and the time series must survive that;
+    the image is recorded in the run's `runner` instead, so a level change on the night of an image
+    change can be read as one.
+    """
+    memory = environment["memory_total_kb"]
+    memory_gib = round(memory / (1024 * 1024)) if isinstance(memory, int) else memory
+    if runner is not None and runner.get("kind") == HOSTED:
+        return {
+            "runner_kind": HOSTED,
+            "runner_provider": runner["provider"],
+            "runner_label": runner["label"],
+            "architecture": environment["architecture"],
+            "cpu_model": environment["cpu"]["model"],
+            "logical_cpus": environment["cpu"]["threads"],
+            "memory_gib": memory_gib,
+        }
     cpufreq = environment["cpufreq"]
     unread = "unavailable" in cpufreq
-    memory = environment["memory_total_kb"]
     return {
         "kernel_release": environment["kernel_release"],
         "os": environment["os"],
@@ -355,13 +381,13 @@ def fingerprint_fields(environment: Mapping[str, Any]) -> dict[str, Any]:
         "cpufreq_drivers": cpufreq if unread else _distinct(cpufreq, "driver"),
         "governors": cpufreq if unread else _distinct(cpufreq, "governor"),
         "turbo": environment["turbo"],
-        "memory_gib": round(memory / (1024 * 1024)) if isinstance(memory, int) else memory,
+        "memory_gib": memory_gib,
     }
 
 
-def fingerprint(environment: Mapping[str, Any]) -> str:
+def fingerprint(environment: Mapping[str, Any], runner: Mapping[str, Any] | None = None) -> str:
     """SHA-256 of the canonical JSON of the fingerprint fields."""
-    canonical = json.dumps(fingerprint_fields(environment), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    canonical = json.dumps(fingerprint_fields(environment, runner), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -447,7 +473,7 @@ def conditions_id(conditions: Path, value: str) -> str | None:
     return None
 
 
-def _field_differences(ledger: Path, environment: Mapping[str, Any]) -> str:
+def _field_differences(ledger: Path, environment: Mapping[str, Any], runner: Mapping[str, Any] | None = None) -> str:
     previous = None
     if ledger.exists():
         for row in read_ledger(ledger):
@@ -455,7 +481,8 @@ def _field_differences(ledger: Path, environment: Mapping[str, Any]) -> str:
                 previous = row
     if previous is None:
         return "the ledger holds no earlier run to compare with"
-    before, now = fingerprint_fields(previous["environment"]), fingerprint_fields(environment)
+    before = fingerprint_fields(previous["environment"], previous.get("runner"))
+    now = fingerprint_fields(environment, runner)
     changed = [
         f"{name}: {json.dumps(before.get(name))} -> {json.dumps(now[name])}"
         for name in now
@@ -586,6 +613,25 @@ def _is_value(row: Mapping[str, Any]) -> bool:
     return value > 0 or (row["metric"] == timed_gate.ALLOCATION_METRIC and value >= 0)
 
 
+def _validate_runner(row: Mapping[str, Any]) -> None:
+    """CONV-303: a run's optional `runner`; a nightly run on a hosted runner names its class and image."""
+    runner = row.get("runner")
+    if runner is None:
+        _check("runner" not in row, row, "'runner' must be an object when present")
+        return
+    _check(isinstance(runner, dict), row, "'runner' must be an object")
+    _check(runner.get("kind") in RUNNER_KINDS, row, f"runner 'kind' must be one of {', '.join(RUNNER_KINDS)}")
+    for name in ("provider", "label"):
+        _check(_is_text(runner.get(name)), row, f"runner '{name}' must be a name")
+    _check("image" not in runner or _is_text(runner["image"]), row, "runner 'image' must be the image's version text")
+
+
+def runner_kind(row: Mapping[str, Any]) -> str:
+    """The kind of runner a run row records; a run that names none ran on a dedicated machine."""
+    runner = row.get("runner")
+    return runner["kind"] if runner else DEDICATED
+
+
 def _validate_run(row: Mapping[str, Any]) -> None:
     _check(_is_text(row.get("started_at")), row, "'started_at' must be a UTC time")
     _check(row.get("tier") in TIERS, row, f"'tier' must be one of {', '.join(TIERS)}")
@@ -599,6 +645,7 @@ def _validate_run(row: Mapping[str, Any]) -> None:
     _check(_is_text(row.get("kit")), row, "'kit' must name the kit")
     _validate_arms(row)
     _validate_plan(row)
+    _validate_runner(row)
     _check(_is_text(row.get("conditions")), row, "'conditions' must be the id of a conditions entry")
     _check(
         isinstance(row.get("fingerprint"), str) and bool(_HEX64.match(row["fingerprint"])),
@@ -607,7 +654,7 @@ def _validate_run(row: Mapping[str, Any]) -> None:
     )
     _check(isinstance(row.get("environment"), dict), row, "'environment' must be the capture")
     _check(
-        fingerprint(row["environment"]) == row["fingerprint"],
+        fingerprint(row["environment"], row.get("runner")) == row["fingerprint"],
         row,
         "'fingerprint' is not the fingerprint of 'environment'",
     )
@@ -781,6 +828,30 @@ def parse_arm(spec: str) -> tuple[str, dict[str, str]]:
     return name, fields
 
 
+def parse_runner(spec: str) -> dict[str, str]:
+    """kind=dedicated|hosted,provider=NAME,label=NAME[,image=TEXT]; the image text may hold commas."""
+    parts = re.split(r",(?=(?:kind|provider|label|image)=)", spec)
+    fields: dict[str, str] = {}
+    for part in parts:
+        key, separator, value = part.partition("=")
+        if not separator or key not in ("kind", "provider", "label", "image"):
+            raise LedgerError(f"runner: expected kind=..,provider=..,label=..[,image=..], got {part!r}")
+        if key in fields:
+            raise LedgerError(f"runner: '{key}' is given twice")
+        fields[key] = value.strip()
+    for name in ("kind", "provider", "label"):
+        if not fields.get(name):
+            raise LedgerError(f"runner: '{name}' is required")
+    if fields["kind"] not in RUNNER_KINDS:
+        raise LedgerError(f"runner: kind must be one of {', '.join(RUNNER_KINDS)}, got {fields['kind']!r}")
+    for name in ("provider", "label"):
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", fields[name]):
+            raise LedgerError(f"runner: {name} is letters, digits, dots, underscores and hyphens, got {fields[name]!r}")
+    if "image" in fields and not fields["image"]:
+        del fields["image"]
+    return fields
+
+
 def _ledger_path() -> Path:
     value = os.environ.get(LEDGER_ENV)
     if not value:
@@ -840,8 +911,12 @@ def begin(
     root: Path = Path("/"),
     runner: Runner = _system_runner,
     now: datetime.datetime | None = None,
+    runner_spec: str | None = None,
 ) -> dict[str, Any]:
-    """Open a run in a fresh directory: capture, resolve the conditions entry, write run.json."""
+    """Open a run in a fresh directory: capture, resolve the conditions entry, write run.json.
+
+    runner_spec names the runner class a hosted or dedicated run measured on (see parse_runner).
+    """
     ledger = ledger or _ledger_path()
     conditions = conditions or default_conditions_path()
     if not out.is_dir():
@@ -861,7 +936,8 @@ def begin(
         runtimes={name: fields["runtime"] for name, fields in parsed.items() if "runtime" in fields},
     )
     arms = _arms_of(parsed, environment)
-    value = fingerprint(environment)
+    runner_record = parse_runner(runner_spec) if runner_spec else None
+    value = fingerprint(environment, runner_record)
     _write_json(out / ENVIRONMENT_FILE, environment)
     row: dict[str, Any] = {
         "schema": SCHEMA,
@@ -878,12 +954,14 @@ def begin(
     }
     if night is not None:
         row["night"] = night
+    if runner_record is not None:
+        row["runner"] = runner_record
     validate_row(row)  # arms, plan and tier are refused here, before the conditions record is consulted
     entry = conditions_id(conditions, value)
     if entry is None:
         raise LedgerError(
             f"no entry of {conditions} holds this environment's fingerprint {value}; it "
-            f"{_field_differences(ledger, environment)}. Add a dated entry (new baseline, or continues with the control "
+            f"{_field_differences(ledger, environment, runner_record)}. Add a dated entry (new baseline, or continues with the control "
             f"run that shows results stayed comparable) before measuring; `bench_ledger.py fingerprint` prints the fields."
         )
     row["conditions"] = entry
@@ -1220,7 +1298,9 @@ def _allocation_per_operation(result: Mapping[str, Any], profiled: Mapping[str, 
     return float(profiled["score"]) / batch
 
 
-def _jmh_row(result: Mapping[str, Any], base: Mapping[str, Any], allocation_leg: bool, source: str) -> dict[str, Any]:
+def _jmh_row(
+    result: Mapping[str, Any], base: Mapping[str, Any], allocation_leg: bool, source: str, cpu_leg: bool = False
+) -> list[dict[str, Any]]:
     name = ".".join(str(result["benchmark"]).split(".")[-2:])
     series = {
         **base,
@@ -1236,7 +1316,7 @@ def _jmh_row(result: Mapping[str, Any], base: Mapping[str, Any], allocation_leg:
         if profiled is None:
             raise LedgerError(f"{source} {name}: an allocation leg needs the GC profiler's gc.alloc.rate.norm")
         value = _allocation_per_operation(result, profiled, name, source)
-        return {**series, "metric": timed_gate.ALLOCATION_METRIC, "unit": "B/op", "value": value}
+        return [{**series, "metric": timed_gate.ALLOCATION_METRIC, "unit": "B/op", "value": value}]
     if profiled is not None:
         raise LedgerError(f"{source} {name}: a timed process must not carry the allocation profiler")
     if result.get("mode") not in _JMH_TIME_MODES:
@@ -1250,7 +1330,16 @@ def _jmh_row(result: Mapping[str, Any], base: Mapping[str, Any], allocation_leg:
     samples = [value for fork in metric.get("rawData") or [] for value in fork]
     if samples:
         row["samples"] = {"count": len(samples), "min": min(samples), "max": max(samples)}
-    return row
+    if not cpu_leg:
+        return [row]
+    cpu = (result.get("secondaryMetrics") or {}).get(CPU_PROFILER_METRIC)
+    if cpu is None:
+        raise LedgerError(f"{source} {name}: a CPU leg needs the CPU profiler's {CPU_PROFILER_METRIC}")
+    if cpu.get("scoreUnit") != "ns/op":
+        raise LedgerError(f"{source} {name}: {CPU_PROFILER_METRIC} must be in ns/op, got {cpu.get('scoreUnit')!r}")
+    # The same process also yields the wall-clock row above: CPU time is the figure a nightly judges on a
+    # shared runner, wall-clock time is recorded beside it for information.
+    return [row, {**series, "metric": CPU_METRIC, "unit": "ns/op", "value": cpu["score"]}]
 
 
 def jmh_rows(
@@ -1261,20 +1350,24 @@ def jmh_rows(
     position: int | None,
     process: int,
     allocation_leg: bool = False,
+    cpu_leg: bool = False,
     reject_reason: str | None = None,
     source: str = "result",
 ) -> list[dict[str, Any]]:
     """The results of one JMH invocation with a single fork per benchmark.
 
     A timed process must not carry the allocation profiler, and an allocation leg contributes no timed
-    measurement: the two are refused when mixed.
+    measurement: the two are refused when mixed. A CPU leg is a timed process that carries the CPU
+    profiler besides: it yields the wall-clock row and the CPU time row of each benchmark.
     """
+    if allocation_leg and cpu_leg:
+        raise LedgerError(f"{source}: an allocation leg is measured apart from time and carries no CPU profiler")
     if not isinstance(document, list) or not document:
         raise LedgerError(f"{source}: not a JMH JSON result list")
     base = _base_row(
         arm, None if allocation_leg else pair, None if allocation_leg else position, process, reject_reason, None
     )
-    return [_jmh_row(result, base, allocation_leg, source) for result in document]
+    return [row for result in document for row in _jmh_row(result, base, allocation_leg, source, cpu_leg)]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1317,7 +1410,8 @@ def _arguments() -> argparse.ArgumentParser:
     capture.add_argument("--data", type=Path)
     capture.add_argument("--java", action="append")
 
-    commands.add_parser("fingerprint")
+    printing = commands.add_parser("fingerprint")
+    printing.add_argument("--runner", metavar="SPEC", help="the runner class of a hosted run, as `begin --runner`")
 
     opening = commands.add_parser("begin")
     opening.add_argument("--out", required=True, type=Path)
@@ -1328,6 +1422,7 @@ def _arguments() -> argparse.ArgumentParser:
     opening.add_argument("--night")
     opening.add_argument("--min-pairs", type=int, default=timed_gate.MIN_PAIRS)
     opening.add_argument("--benchmark", action="append")
+    opening.add_argument("--runner", metavar="SPEC", help="kind=dedicated|hosted,provider=NAME,label=NAME[,image=TEXT]")
 
     def measured(command: argparse.ArgumentParser, *, paired: bool) -> None:
         command.add_argument("--run", required=True, type=Path)
@@ -1350,6 +1445,7 @@ def _arguments() -> argparse.ArgumentParser:
     measured(jmh, paired=True)
     jmh.add_argument("--json", required=True, type=Path)
     jmh.add_argument("--allocation-leg", action="store_true")
+    jmh.add_argument("--cpu-leg", action="store_true")
 
     clickbench = commands.add_parser("import-clickbench")
     measured(clickbench, paired=True)
@@ -1396,6 +1492,7 @@ def _measured(args: argparse.Namespace) -> int:
             position=args.position,
             process=args.process,
             allocation_leg=args.allocation_leg,
+            cpu_leg=args.cpu_leg,
             reject_reason=args.rejected,
             source=args.json.name,
         )
@@ -1436,10 +1533,11 @@ def _capture(args: argparse.Namespace) -> int:
     return 0
 
 
-def _fingerprint(_args: argparse.Namespace) -> int:
+def _fingerprint(args: argparse.Namespace) -> int:
     environment = capture_environment()
-    print(fingerprint(environment))
-    print(json.dumps(fingerprint_fields(environment), indent=2))
+    runner_record = parse_runner(args.runner) if args.runner else None
+    print(fingerprint(environment, runner_record))
+    print(json.dumps(fingerprint_fields(environment, runner_record), indent=2))
     return 0
 
 
@@ -1453,6 +1551,7 @@ def _begin(args: argparse.Namespace) -> int:
         night=args.night,
         min_pairs=args.min_pairs,
         benchmarks=args.benchmark,
+        runner_spec=args.runner,
     )
     print(f"run {row['run']} opened under condition {row['conditions']}")
     return 0

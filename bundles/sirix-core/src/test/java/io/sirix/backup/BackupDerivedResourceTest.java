@@ -16,6 +16,7 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.index.aggregate.DerivedIndexTestSupport;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.StorageType;
 import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.io.IOStorage;
@@ -389,9 +390,9 @@ final class BackupDerivedResourceTest {
   void completedCopyPreservesInterruption() {
     final Path backupDir = tempDir.resolve("completed-copy");
     final Path settings = backupDir.resolve("dbsetting.obj");
-    try (final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+    try (final MockedStatic<DurableFiles> files = mockStatic(DurableFiles.class, invocation -> {
       final Object result = invocation.callRealMethod();
-      if (invocation.getMethod().getName().equals("move") && invocation.getArgument(1).equals(settings)) {
+      if (invocation.getMethod().getName().equals("replace") && invocation.getArgument(1).equals(settings)) {
         Thread.currentThread().interrupt();
       }
       return result;
