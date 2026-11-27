@@ -89,7 +89,10 @@ final class FrameReuseAllocationBudgetTest {
         measured = bean.getThreadAllocatedBytes(thread) - before;
         before = bean.getThreadAllocatedBytes(thread);
         for (int cycle = 0; cycle < CYCLES; cycle++) {
-          sink = backing.asSlice(0, SLOT_BYTES).reinterpret(SLOT_BYTES, Arena.ofShared(), null);
+          // The control deliberately measures the unclosed shared-arena allocation path.
+          @SuppressWarnings("MustBeClosedChecker")
+          final MemorySegment segment = backing.asSlice(0, SLOT_BYTES).reinterpret(SLOT_BYTES, Arena.ofShared(), null);
+          sink = segment;
         }
         control = bean.getThreadAllocatedBytes(thread) - before;
       }
