@@ -9,6 +9,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -42,9 +43,8 @@ import static java.util.Objects.requireNonNull;
  * that failure as an unknown durability outcome and never retry it (TXN-705).
  *
  * <p>
- * None of this runs per record or per page: an ordinary commit calls nothing here, a commit that
- * writes an index catalogue issues one barrier, and creation, removal, settings replacement and
- * backup issue one per directory they change.
+ * None of this runs per record or per page. Barrier placement and commit-path cost are owned by
+ * TXN-616 in {@code spec/TXN-transactions-durability.md}.
  */
 public final class DurableFiles {
 
@@ -156,8 +156,8 @@ public final class DurableFiles {
    *
    * @param source the existing file or directory
    * @param target an absent sibling name
-   * @throws IOException if the rename itself fails, {@link java.nio.file.FileAlreadyExistsException}
-   *         if {@code target} exists; nothing was renamed
+   * @throws IOException if the rename itself fails, {@link FileAlreadyExistsException} if
+   *         {@code target} exists; nothing was renamed
    * @throws SirixIOException naming the directory if the rename happened but cannot be made durable
    */
   public static void rename(final Path source, final Path target) throws IOException {

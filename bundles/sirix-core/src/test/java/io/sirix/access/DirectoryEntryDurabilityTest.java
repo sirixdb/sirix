@@ -329,13 +329,15 @@ final class DirectoryEntryDurabilityTest {
 
   @ParameterizedTest
   @CsvSource({"FILE_CHANNEL,false,false", "FILE_CHANNEL,true,false", "MEMORY_MAPPED,false,false",
-      "MEMORY_MAPPED,true,false", "FILE_CHANNEL,false,true", "FILE_CHANNEL,true,true",
-      "MEMORY_MAPPED,false,true", "MEMORY_MAPPED,true,true"})
+      "MEMORY_MAPPED,true,false", "FILE_CHANNEL,false,true", "FILE_CHANNEL,true,true", "MEMORY_MAPPED,false,true",
+      "MEMORY_MAPPED,true,true"})
   void tombstoneCleanupPublishesFailedRenamesBeforeDeletingContents(final StorageType storageType,
       final boolean cleanupAtOpen, final boolean derived) throws IOException {
     final Path database = createDatabaseWithResource(storageType);
     final Path resources = database.resolve("resources");
-    final String name = derived ? RESOURCE + "$derived" : RESOURCE;
+    final String name = derived
+        ? RESOURCE + "$derived"
+        : RESOURCE;
     if (derived) {
       Files.move(resources.resolve(RESOURCE), resources.resolve(name));
     }
@@ -343,7 +345,8 @@ final class DirectoryEntryDurabilityTest {
     final Path retainedRevisions = temp.resolve("retained-revisions");
     Files.copy(resources.resolve(name).resolve("data/sirix.data"), retainedData);
     Files.copy(resources.resolve(name).resolve("data/sirix.revisions"), retainedRevisions);
-    final LocalJsonDatabaseFactory factory = new LocalJsonDatabaseFactory(new WriteLocksRegistry(), new PathBasedPool<>());
+    final LocalJsonDatabaseFactory factory =
+        new LocalJsonDatabaseFactory(new WriteLocksRegistry(), new PathBasedPool<>());
     final Database<JsonResourceSession> db = derived
         ? factory.createDatabase(DatabaseConfiguration.deserialize(database), new User("durability", UUID.randomUUID()))
         : Databases.openJsonDatabase(database);
@@ -383,7 +386,8 @@ final class DirectoryEntryDurabilityTest {
     final Path database = createDatabaseWithResource(StorageType.FILE_CHANNEL);
     final Path resources = database.resolve("resources");
     final Database<JsonResourceSession> db = Databases.openJsonDatabase(database);
-    assertTrue(db.createResource(ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
+    assertTrue(
+        db.createResource(ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
     try (final MockedStatic<FileChannel> ignored = refuseDirectoryOpen(resources)) {
       assertThrows(SirixIOException.class, () -> db.removeResource(RESOURCE));
       assertThrows(SirixIOException.class, () -> db.removeResource("other"));
@@ -404,8 +408,8 @@ final class DirectoryEntryDurabilityTest {
     final List<Arguments> cases = new ArrayList<>();
     for (final StorageType storage : new StorageType[] {StorageType.FILE_CHANNEL, StorageType.MEMORY_MAPPED}) {
       for (final String step : new String[] {"keyset-force", "keyset-directory", "settings-force",
-          "database-settings-force", "database-directory", "resource-directory", "bootstrap",
-          "bootstrap-refusal", "resources-directory"}) {
+          "database-settings-force", "database-directory", "resource-directory", "bootstrap", "bootstrap-refusal",
+          "resources-directory"}) {
         cases.add(Arguments.of(storage, step, false));
         cases.add(Arguments.of(storage, step, true));
       }
@@ -419,18 +423,22 @@ final class DirectoryEntryDurabilityTest {
       final boolean derived) throws IOException {
     final Path database = root.resolve("db");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
-    final String name = derived ? RESOURCE + "$derived" : RESOURCE;
+    final String name = derived
+        ? RESOURCE + "$derived"
+        : RESOURCE;
     final Path resource = database.resolve("resources").resolve(name);
     final boolean encrypted = step.startsWith("keyset");
-    final ResourceConfiguration.Builder builder = ResourceConfiguration.newBuilder(name)
-        .storageType(storageType).storeDiffs(false);
+    final ResourceConfiguration.Builder builder =
+        ResourceConfiguration.newBuilder(name).storageType(storageType).storeDiffs(false);
     if (encrypted) {
       builder.byteHandlerPipeline(new ByteHandlerPipeline(new Encryptor(resource)));
     }
     final Exception refused = step.equals("bootstrap-refusal")
-        ? new SirixException("injected " + step) : new IOException("injected " + step);
+        ? new SirixException("injected " + step)
+        : new IOException("injected " + step);
     final AtomicBoolean failed = new AtomicBoolean();
-    final LocalJsonDatabaseFactory factory = new LocalJsonDatabaseFactory(new WriteLocksRegistry(), new PathBasedPool<>());
+    final LocalJsonDatabaseFactory factory =
+        new LocalJsonDatabaseFactory(new WriteLocksRegistry(), new PathBasedPool<>());
     try (final Database<JsonResourceSession> db = derived
         ? factory.createDatabase(DatabaseConfiguration.deserialize(database), new User("durability", UUID.randomUUID()))
         : Databases.openJsonDatabase(database);
@@ -444,8 +452,8 @@ final class DirectoryEntryDurabilityTest {
           case "keyset-force" -> resource.resolve("encryption/encryptionKey.json").equals(path);
           case "keyset-directory" -> resource.resolve("encryption").equals(path);
           case "settings-force" -> resource.resolve("ressetting.obj").equals(path);
-          case "database-settings-force" -> database.equals(path.getParent())
-              && path.getFileName().toString().startsWith("dbsetting");
+          case "database-settings-force" ->
+            database.equals(path.getParent()) && path.getFileName().toString().startsWith("dbsetting");
           case "database-directory" -> database.equals(path);
           case "resource-directory" -> resource.equals(path);
           case "bootstrap", "bootstrap-refusal" -> resource.resolve("data").equals(path);
@@ -471,7 +479,8 @@ final class DirectoryEntryDurabilityTest {
       assertThrows(SirixUsageException.class, () -> db.beginResourceSession(name));
       assertThrows(SirixUsageException.class, () -> db.getResourceID(name));
       model.materialize(crashed);
-      assertTrue(createResource(db, ResourceConfiguration.newBuilder(name).storageType(storageType).storeDiffs(false).build(), derived),
+      assertTrue(createResource(db,
+          ResourceConfiguration.newBuilder(name).storageType(storageType).storeDiffs(false).build(), derived),
           "the failed creation must release its name and lifetime");
       try (final JsonResourceSession session = db.beginResourceSession(name);
           final JsonNodeTrx trx = session.beginNodeTrx()) {
@@ -502,7 +511,8 @@ final class DirectoryEntryDurabilityTest {
         }
         return invocation.callRealMethod();
       })) {
-        final SirixIOException failure = assertThrows(SirixIOException.class, () -> db.createResource(resource(storageType)));
+        final SirixIOException failure =
+            assertThrows(SirixIOException.class, () -> db.createResource(resource(storageType)));
         assertSame(primary.get(), failure.getCause(), "retirement must preserve the original publication failure");
         assertEquals(1, failure.getSuppressed().length, "retirement publication failure must also be reported");
         assertFalse(Files.exists(resources.resolve(RESOURCE)), "retirement must remove the failed public name");
@@ -515,8 +525,8 @@ final class DirectoryEntryDurabilityTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"FILE_CHANNEL,sirix.data", "FILE_CHANNEL,sirix.revisions",
-      "MEMORY_MAPPED,sirix.data", "MEMORY_MAPPED,sirix.revisions"})
+  @CsvSource({"FILE_CHANNEL,sirix.data", "FILE_CHANNEL,sirix.revisions", "MEMORY_MAPPED,sirix.data",
+      "MEMORY_MAPPED,sirix.revisions"})
   void storageFileCreationRetriesItsFailedBarrier(final StorageType storageType, final String filename)
       throws IOException {
     final Path database = createDatabaseWithResource(storageType);
@@ -557,7 +567,9 @@ final class DirectoryEntryDurabilityTest {
 
   private static boolean createResource(final Database<JsonResourceSession> db, final ResourceConfiguration config,
       final boolean derived) {
-    return derived ? ((LocalDatabase<?, ?>) db).createResource(config, null) : db.createResource(config);
+    return derived
+        ? ((LocalDatabase<?, ?>) db).createResource(config, null)
+        : db.createResource(config);
   }
 
   private static MockedStatic<FileChannel> refuseDirectoryOpen(final Path directory) {

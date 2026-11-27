@@ -392,7 +392,7 @@ public final class DatabaseConfiguration {
     IOException lastError = null;
     for (int attempt = 0; attempt < CONFIG_IO_MAX_ATTEMPTS; attempt++) {
       try {
-        // A sibling temporary file never crosses filesystems, so the atomic rename is always available.
+        // Keep settings replacement atomic; an unsupported atomic move must fail.
         DurableFiles.replace(tmpFile, configFile);
         return;
       } catch (final FileSystemException e) {

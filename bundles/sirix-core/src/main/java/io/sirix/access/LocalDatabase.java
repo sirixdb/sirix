@@ -557,7 +557,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   /**
    * Refuse reserved resource names: derived-index names for a user store, and the retirement marker
-   * of IN_MEMORY tombstones (TXN-615).
+   * of retirement tombstones (TXN-615, TXN-616).
    */
   private void requireCreatableResourceName(final ResourceConfiguration resourceConfig, final boolean hasUserStore) {
     if (hasUserStore && DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(resourceConfig.getName()))) {
@@ -861,7 +861,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
     pendingCleanup.remove(resourceFile);
     removeTombstones(List.of(tombstone));
-    return Files.notExists(tombstone) ? null : tombstone;
+    return Files.notExists(tombstone)
+        ? null
+        : tombstone;
   }
 
   private void discardInMemoryResourceState(final Path resourceFile) {
@@ -999,9 +1001,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   /**
-   * Sort the entries of the resources folder: retirement tombstones are deleted at once (adding any
-   * that remain to {@code remaining}); provably IN_MEMORY resources are remembered for cleanup and
-   * collected as derived resources or sources.
+   * Sort the entries of the resources folder: retirement tombstones share a publication barrier
+   * before cleanup (adding any that remain to {@code remaining}); provably IN_MEMORY resources are
+   * remembered for cleanup and collected as derived resources or sources.
    */
   private void collectInMemoryResources(final Path resources, final List<Path> derived, final List<Path> sources,
       final List<Path> remaining) throws IOException {

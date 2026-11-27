@@ -6,6 +6,7 @@ package io.sirix.io;
 import io.sirix.exception.SirixIOException;
 
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Path;
 
 /**
@@ -26,7 +27,7 @@ interface DirectoryBarriers {
    * removal of {@code source}'s name from its directory.
    *
    * @param replaceExisting whether an existing {@code target} is replaced; otherwise the move fails
-   *        with {@link java.nio.file.FileAlreadyExistsException}
+   *        with {@link FileAlreadyExistsException}
    * @throws IOException if the move itself fails; nothing was moved
    * @throws SirixIOException naming the directory if the move happened but cannot be made durable
    */
