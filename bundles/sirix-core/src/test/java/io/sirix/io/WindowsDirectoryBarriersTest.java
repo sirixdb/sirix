@@ -6,6 +6,8 @@ package io.sirix.io;
 import io.sirix.exception.SirixIOException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.lang.foreign.MemoryLayout;
@@ -185,6 +187,16 @@ final class WindowsDirectoryBarriersTest {
     final Path target = temp.resolve("tombstone");
     new WindowsDirectoryBarriers(fake.bind()).move(source, target, false);
     assertEquals(List.of("MoveFileExW " + win32(source) + " -> " + win32(target) + " flags=8"), fake.calls);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void crossDirectoryMovesAreRefusedBeforeCallingKernel32(final boolean replace) throws ReflectiveOperationException {
+    final FakeKernel32 fake = new FakeKernel32();
+    final WindowsDirectoryBarriers barriers = new WindowsDirectoryBarriers(fake.bind());
+    assertThrows(IllegalArgumentException.class,
+        () -> barriers.move(temp.resolve("from/source"), temp.resolve("to/target"), replace));
+    assertTrue(fake.calls.isEmpty());
   }
 
   @Test

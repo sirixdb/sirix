@@ -4,11 +4,16 @@
 package io.sirix.io;
 
 import io.sirix.exception.SirixIOException;
+import io.sirix.crash.DirectoryCrashModel;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedStatic;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
@@ -21,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.Mockito.mockStatic;
 
 /**
  * TXN-616 platform barrier: runs the real barrier of whichever platform executes it (directory
@@ -58,17 +65,6 @@ final class DurableFilesTest {
   }
 
   @Test
-  void batchedBarriersSyncEachDirectoryOnce() throws IOException {
-    final Path first = Files.createDirectory(temp.resolve("first"));
-    final Path second = Files.createDirectory(temp.resolve("second"));
-    final List<Path> barriers = new ArrayList<>();
-    try (final DurableFiles.Observation ignored = DurableFiles.observeBarriers(barriers::add)) {
-      DurableFiles.syncDirectories(List.of(first, second, first.resolve("..").resolve("first")));
-    }
-    assertEquals(List.of(first, second), barriers);
-  }
-
-  @Test
   void replaceSwapsContentsAndSyncsTheDirectory() throws IOException {
     final Path target = Files.writeString(temp.resolve("settings"), "old", StandardCharsets.UTF_8);
     final Path source = Files.writeString(temp.resolve("settings.tmp"), "new", StandardCharsets.UTF_8);
@@ -81,19 +77,36 @@ final class DurableFilesTest {
     assertEquals(List.of(temp.toAbsolutePath()), barriers);
   }
 
-  @Test
-  void renameAcrossDirectoriesSyncsBoth() throws IOException {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void crossDirectoryMovesAreRefusedWithoutChangingNames(final boolean replace) throws IOException {
     final Path from = Files.createDirectory(temp.resolve("from"));
     final Path to = Files.createDirectory(temp.resolve("to"));
-    final Path moved = Files.createDirectory(from.resolve("resource"));
-    Files.writeString(moved.resolve("file"), "content", StandardCharsets.UTF_8);
+    final Path source = Files.writeString(from.resolve("source"), "source");
+    final Path target = Files.writeString(to.resolve("target"), "target");
+    assertThrows(IllegalArgumentException.class, () -> {
+      if (replace) {
+        DurableFiles.replace(source, target);
+      } else {
+        DurableFiles.rename(source, target);
+      }
+    });
+    assertEquals("source", Files.readString(source));
+    assertEquals("target", Files.readString(target));
+  }
+
+  @Test
+  void siblingRenamePreservesTheDirectoryContents() throws IOException {
+    final Path source = Files.createDirectory(temp.resolve("resource"));
+    Files.writeString(source.resolve("file"), "content");
+    final Path target = temp.resolve("tombstone");
     final List<Path> barriers = new ArrayList<>();
     try (final DurableFiles.Observation ignored = DurableFiles.observeBarriers(barriers::add)) {
-      DurableFiles.rename(moved, to.resolve("tombstone"));
+      DurableFiles.rename(source, target);
     }
-    assertEquals("content", Files.readString(to.resolve("tombstone").resolve("file"), StandardCharsets.UTF_8));
-    assertFalse(Files.exists(moved));
-    assertEquals(List.of(to.toAbsolutePath(), from.toAbsolutePath()), barriers);
+    assertFalse(Files.exists(source));
+    assertEquals("content", Files.readString(target.resolve("file")));
+    assertEquals(List.of(temp), barriers);
   }
 
   @Test
@@ -120,8 +133,56 @@ final class DurableFilesTest {
     }
     assertTrue(Files.isDirectory(leaf));
     final Path a = temp.toAbsolutePath().resolve("a");
-    assertEquals(List.of(temp.toAbsolutePath(), a, a.resolve("b")), barriers,
-        "only the new names need a barrier, and an existing directory needs none");
+    assertEquals(List.of(temp.toAbsolutePath(), a, a.resolve("b"), a.resolve("b")), barriers,
+        "each call must make the accepted leaf name durable");
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 2})
+  void directoryCreationRetrySurvivesAnAncestorBarrierFailure(final int failedAncestor) throws IOException {
+    final Path root = Files.createDirectory(temp.resolve("fs"));
+    assumeTrue(DirectoryCrashModel.supported(root));
+    final Path leaf = root.resolve("a/b/c");
+    final Path directory = switch (failedAncestor) {
+      case 0 -> root;
+      case 1 -> root.resolve("a");
+      default -> root.resolve("a/b");
+    };
+    try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, temp.resolve("links"))) {
+      try (final MockedStatic<FileChannel> ignored = mockStatic(FileChannel.class, invocation -> {
+        if (invocation.getMethod().getName().equals("open") && directory.equals(invocation.getArgument(0))) {
+          throw new IOException("directory open refused");
+        }
+        return invocation.callRealMethod();
+      })) {
+        assertThrows(SirixIOException.class, () -> DurableFiles.createDirectories(leaf));
+      }
+      DurableFiles.createDirectories(leaf);
+      model.materialize(temp.resolve("crashed"));
+    }
+    assertTrue(Files.isDirectory(temp.resolve("crashed/a/b/c")),
+        "a successful retry must publish the complete directory chain");
+  }
+
+  @Test
+  void existingDirectoryRetryMakesItsNameDurable() throws IOException {
+    final Path root = Files.createDirectory(temp.resolve("fs"));
+    assumeTrue(DirectoryCrashModel.supported(root));
+    final Path leaf = root.resolve("existing");
+    try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, temp.resolve("links"))) {
+      Files.createDirectory(leaf);
+      try (final MockedStatic<FileChannel> ignored = mockStatic(FileChannel.class, invocation -> {
+        if (invocation.getMethod().getName().equals("open") && root.equals(invocation.getArgument(0))) {
+          throw new IOException("directory open refused");
+        }
+        return invocation.callRealMethod();
+      })) {
+        assertThrows(SirixIOException.class, () -> DurableFiles.createDirectories(leaf));
+      }
+      DurableFiles.createDirectories(leaf);
+      model.materialize(temp.resolve("crashed"));
+    }
+    assertTrue(Files.isDirectory(temp.resolve("crashed/existing")));
   }
 
   @Test

@@ -43,6 +43,7 @@ final class PosixDirectoryBarriers implements DirectoryBarriers {
 
   @Override
   public void move(final Path source, final Path target, final boolean replaceExisting) throws IOException {
+    final Path directory = DurableFiles.siblingDirectory(source, target);
     if (replaceExisting) {
       Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     } else {
@@ -52,11 +53,6 @@ final class PosixDirectoryBarriers implements DirectoryBarriers {
       }
       Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
     }
-    final Path targetDirectory = DurableFiles.parentOf(target);
-    final Path sourceDirectory = DurableFiles.parentOf(source);
-    syncDirectory(targetDirectory);
-    if (!DurableFiles.sameDirectory(sourceDirectory, targetDirectory)) {
-      syncDirectory(sourceDirectory);
-    }
+    syncDirectory(directory);
   }
 }

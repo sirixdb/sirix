@@ -84,6 +84,7 @@ final class WindowsDirectoryBarriers implements DirectoryBarriers {
 
   @Override
   public void move(final Path source, final Path target, final boolean replaceExisting) throws IOException {
+    DurableFiles.siblingDirectory(source, target);
     final int flags = replaceExisting
         ? MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING
         : MOVEFILE_WRITE_THROUGH;

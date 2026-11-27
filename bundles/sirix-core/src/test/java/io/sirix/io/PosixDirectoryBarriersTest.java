@@ -8,6 +8,8 @@ import io.sirix.utils.OS;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +27,7 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 /**
  * TXN-616 clauses 1 and 2: on POSIX systems the barrier is a force of a channel opened read-only on
- * the directory itself, and a durable rename forces each directory whose entries it changed.
+ * the directory itself, and a durable sibling rename forces their shared directory.
  */
 final class PosixDirectoryBarriersTest {
 
@@ -68,15 +70,27 @@ final class PosixDirectoryBarriersTest {
     assertEquals(List.of("open " + temp + " READ", "force " + temp + " true", "close " + temp), opener.calls);
   }
 
-  @Test
-  void renameAcrossDirectoriesForcesTargetThenSource() throws IOException {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void crossDirectoryMovesAreRefusedBeforeChangingNames(final boolean replace) throws IOException {
     final Path from = Files.createDirectory(temp.resolve("from"));
     final Path to = Files.createDirectory(temp.resolve("to"));
-    final Path moved = Files.createDirectory(from.resolve("resource"));
-    barriers.move(moved, to.resolve("tombstone"), false);
-    assertTrue(Files.isDirectory(to.resolve("tombstone")));
-    assertEquals(List.of("open " + to + " READ", "force " + to + " true", "close " + to, "open " + from + " READ",
-        "force " + from + " true", "close " + from), opener.calls);
+    final Path source = Files.writeString(from.resolve("source"), "source");
+    final Path target = Files.writeString(to.resolve("target"), "target");
+    assertThrows(IllegalArgumentException.class, () -> barriers.move(source, target, replace));
+    assertEquals("source", Files.readString(source));
+    assertEquals("target", Files.readString(target));
+    assertTrue(opener.calls.isEmpty());
+  }
+
+  @Test
+  void siblingRenameForcesTheDirectoryOnce() throws IOException {
+    final Path source = Files.createDirectory(temp.resolve("resource"));
+    final Path target = temp.resolve("tombstone");
+    barriers.move(source, target, false);
+    assertFalse(Files.exists(source));
+    assertTrue(Files.isDirectory(target));
+    assertEquals(List.of("open " + temp + " READ", "force " + temp + " true", "close " + temp), opener.calls);
   }
 
   @Test

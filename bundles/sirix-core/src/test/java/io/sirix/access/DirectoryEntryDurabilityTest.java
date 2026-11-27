@@ -3,6 +3,7 @@
  */
 package io.sirix.access;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.api.Database;
@@ -13,7 +14,13 @@ import io.sirix.backup.BackupManager;
 import io.sirix.crash.DirectoryCrashModel;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixUsageException;
+import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
+import io.sirix.io.Writer;
+import io.sirix.io.filechannel.FileChannelStorage;
+import io.sirix.io.memorymapped.MMStorage;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.service.json.serialize.JsonSerializer;
@@ -24,10 +31,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedStatic;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,6 +51,8 @@ import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mockStatic;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -114,11 +127,15 @@ final class DirectoryEntryDurabilityTest {
         "a returned settings replacement must survive the crash");
   }
 
-  @Test
-  void createdDatabaseSurvivesACrash() throws IOException {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void createdDatabaseSurvivesACrash(final boolean existingTarget) throws IOException {
     final Path database = root.resolve("db");
     try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
       model.governContents(DirectoryEntryDurabilityTest::isSettings);
+      if (existingTarget) {
+        Files.createDirectory(database);
+      }
       assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
       model.materialize(crashed);
     }
@@ -263,11 +280,104 @@ final class DirectoryEntryDurabilityTest {
   }
 
   @Test
-  void backupSurvivesACrash() throws IOException {
+  void databaseRemovalRetryCannotSkipTheFailedSettingsBarrier() throws IOException {
+    final Path database = root.resolve("db");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
+    try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
+      try (final MockedStatic<FileChannel> ignored = refuseDirectoryOpen(database)) {
+        assertThrows(SirixIOException.class, () -> Databases.removeDatabase(database));
+      }
+      assertFalse(Files.exists(database.resolve("dbsetting.obj")));
+      Databases.removeDatabase(database);
+      model.materialize(crashed);
+    }
+    reopenCold();
+    assertFalse(Databases.existsDatabase(crashedDatabase()), "the successful retry must not resurrect settings");
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void resourceRemovalRetryCannotSkipTheFailedRenameBarrier(final StorageType storageType) throws IOException {
+    final Path database = createDatabaseWithResource(storageType);
+    final Path resources = database.resolve("resources");
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(database);
+        final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
+      try (final MockedStatic<FileChannel> ignored = refuseDirectoryOpen(resources)) {
+        assertThrows(SirixIOException.class, () -> db.removeResource(RESOURCE));
+      }
+      assertFalse(Files.exists(resources.resolve(RESOURCE)), "the rename precedes its failed barrier");
+      db.removeResource(RESOURCE);
+      assertThrows(SirixUsageException.class, () -> db.getResourceID(RESOURCE));
+      model.materialize(crashed);
+    }
+    reopenCold();
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(crashedDatabase())) {
+      assertFalse(db.existsResource(RESOURCE), "the successful retry must not resurrect the resource");
+      assertTrue(db.listResources().isEmpty());
+      assertTrue(db.createResource(resource(storageType)));
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"FILE_CHANNEL,sirix.data", "FILE_CHANNEL,sirix.revisions",
+      "MEMORY_MAPPED,sirix.data", "MEMORY_MAPPED,sirix.revisions"})
+  void storageFileCreationRetriesItsFailedBarrier(final StorageType storageType, final String filename)
+      throws IOException {
+    final Path database = createDatabaseWithResource(storageType);
+    final ResourceConfiguration config =
+        ResourceConfiguration.deserialize(database.resolve("resources").resolve(RESOURCE));
+    final Path data = config.resourcePath.resolve("data");
+    final Path failedFile = data.resolve(filename);
+    final IOStorage storage = storageType == StorageType.FILE_CHANNEL
+        ? new FileChannelStorage(config, Caffeine.newBuilder().buildAsync())
+        : new MMStorage(config, Caffeine.newBuilder().buildAsync());
+    try {
+      Files.delete(data.resolve("sirix.data"));
+      Files.delete(data.resolve("sirix.revisions"));
+      try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
+        try (final MockedStatic<FileChannel> ignored = mockStatic(FileChannel.class, invocation -> {
+          if (invocation.getMethod().getName().equals("open") && data.equals(invocation.getArgument(0))
+              && Files.exists(failedFile)) {
+            throw new IOException("directory open refused");
+          }
+          return invocation.callRealMethod();
+        })) {
+          assertThrows(SirixIOException.class, storage::createWriter);
+        }
+        assertFalse(Files.exists(failedFile), "a failed publication must leave the file absent for retry");
+        try (final Writer writer = storage.createWriter()) {
+          model.materialize(crashed);
+        }
+        final int published = model.barriers().size();
+        try (final Writer writer = storage.createWriter()) {
+          assertEquals(published, model.barriers().size(), "opening existing files must add no barrier");
+        }
+      }
+    } finally {
+      storage.close();
+    }
+    assertStorageFilesSurvived();
+  }
+
+  private static MockedStatic<FileChannel> refuseDirectoryOpen(final Path directory) {
+    return mockStatic(FileChannel.class, invocation -> {
+      if (invocation.getMethod().getName().equals("open") && directory.equals(invocation.getArgument(0))) {
+        throw new IOException("directory open refused");
+      }
+      return invocation.callRealMethod();
+    });
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void backupSurvivesACrash(final boolean existingTarget) throws IOException {
     final Path database = createDatabaseWithResource(StorageType.FILE_CHANNEL);
     final Path backup = root.resolve("backup");
     try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
       model.governContents(path -> path.startsWith("backup"));
+      if (existingTarget) {
+        Files.createDirectory(backup);
+      }
       BackupManager.backupDatabase(database, backup);
       model.materialize(crashed);
     }
@@ -277,14 +387,18 @@ final class DirectoryEntryDurabilityTest {
     assertCommittedDocument(restored);
   }
 
-  @Test
-  void restoredDatabaseSurvivesACrash() throws IOException {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void restoredDatabaseSurvivesACrash(final boolean existingTarget) throws IOException {
     final Path database = createDatabaseWithResource(StorageType.FILE_CHANNEL);
     final Path backup = temp.resolve("backup");
     BackupManager.backupDatabase(database, backup);
     Databases.clearGlobalCaches();
     try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
       model.governContents(path -> path.startsWith("restored"));
+      if (existingTarget) {
+        Files.createDirectory(root.resolve("restored"));
+      }
       BackupManager.restoreDatabase(backup, root.resolve("restored"));
       model.materialize(crashed);
     }

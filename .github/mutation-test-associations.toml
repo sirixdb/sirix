@@ -276,7 +276,7 @@ tests = ["io.sirix.access.DirectoryEntryDurabilityTest"]
 
 [[association]]
 class = "io.sirix.io.DurableFiles"
-tests = ["io.sirix.io.WindowsDirectoryBarriersTest", "io.sirix.access.DirectoryEntryDurabilityTest"]
+tests = ["io.sirix.io.DurableFilesTest", "io.sirix.io.WindowsDirectoryBarriersTest", "io.sirix.access.DirectoryEntryDurabilityTest"]
 
 [[association]]
 class = "io.sirix.io.Kernel32Calls"

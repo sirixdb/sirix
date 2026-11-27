@@ -33,7 +33,7 @@ import static java.util.Objects.requireNonNull;
  * Windows.</li>
  * <li>{@link #replace(Path, Path)} and {@link #rename(Path, Path)} are atomic renames that are
  * durable on return: {@code MoveFileExW} with {@code MOVEFILE_WRITE_THROUGH} on Windows, an atomic
- * move followed by the barrier on the directories involved elsewhere.</li>
+ * move followed by the barrier on their shared directory elsewhere.</li>
  * </ul>
  *
  * <p>
@@ -110,24 +110,6 @@ public final class DurableFiles {
   }
 
   /**
-   * Issues one barrier per distinct directory, in the given order.
-   *
-   * @param directories existing directories; duplicates are synced once
-   * @throws SirixIOException naming the first directory whose barrier fails
-   */
-  public static void syncDirectories(final List<Path> directories) {
-    requireNonNull(directories, "directories");
-    final List<Path> done = new ArrayList<>(directories.size());
-    for (final Path directory : directories) {
-      final Path normalized = requireNonNull(directory, "directory").toAbsolutePath().normalize();
-      if (!done.contains(normalized)) {
-        syncDirectory(directory);
-        done.add(normalized);
-      }
-    }
-  }
-
-  /**
    * Forces the contents and file-size metadata of an existing regular file, for files written through
    * streams that offer no force of their own.
    *
@@ -159,7 +141,7 @@ public final class DurableFiles {
    * {@code source}, and once this returns, the latter. The caller forces the contents of
    * {@code source} first.
    *
-   * @param source the file to move, usually a forced temporary sibling of {@code target}
+   * @param source the forced file to move, a sibling of {@code target}
    * @param target the name to replace or create
    * @throws IOException if the move itself fails; nothing was replaced
    * @throws SirixIOException naming the directory if the move happened but cannot be made durable
@@ -173,7 +155,7 @@ public final class DurableFiles {
    * before returning.
    *
    * @param source the existing file or directory
-   * @param target an absent name on the same filesystem
+   * @param target an absent sibling name
    * @throws IOException if the rename itself fails, {@link java.nio.file.FileAlreadyExistsException}
    *         if {@code target} exists; nothing was renamed
    * @throws SirixIOException naming the directory if the rename happened but cannot be made durable
@@ -183,10 +165,11 @@ public final class DurableFiles {
   }
 
   /**
-   * Creates {@code directory} and every missing ancestor, and makes each new name durable before
-   * returning. Entries later created inside {@code directory} need their own barrier.
+   * Creates {@code directory} and every missing ancestor, and makes their names durable before
+   * returning, including the name of an existing target directory. Entries later created inside
+   * {@code directory} need their own barrier.
    *
-   * @param directory the directory to create; an existing directory is left as it is
+   * @param directory the directory to create or accept
    * @throws IOException if a directory cannot be created
    * @throws SirixIOException naming the directory whose barrier fails
    */
@@ -196,10 +179,34 @@ public final class DurableFiles {
     for (Path ancestor = absolute; ancestor != null && Files.notExists(ancestor); ancestor = ancestor.getParent()) {
       missing.add(ancestor);
     }
-    Files.createDirectories(absolute);
-    // Outermost first: each barrier makes one new name durable inside a directory that already is.
+    if (missing.isEmpty()) {
+      Files.createDirectories(absolute);
+      if (absolute.getParent() != null) {
+        syncDirectory(absolute.getParent());
+      }
+    }
     for (int i = missing.size() - 1; i >= 0; i--) {
-      syncDirectory(missing.get(i).getParent());
+      final Path created = missing.get(i);
+      Files.createDirectories(created);
+      syncCreatedEntry(created);
+    }
+  }
+
+  public static void createFile(final Path file) throws IOException {
+    Files.createFile(requireNonNull(file, "file"));
+    syncCreatedEntry(file);
+  }
+
+  private static void syncCreatedEntry(final Path entry) {
+    try {
+      syncDirectory(parentOf(entry));
+    } catch (final SirixIOException failure) {
+      try {
+        Files.delete(entry);
+      } catch (final IOException cleanupFailure) {
+        failure.addSuppressed(cleanupFailure);
+      }
+      throw failure;
     }
   }
 
@@ -207,12 +214,8 @@ public final class DurableFiles {
     requireNonNull(source, "source");
     requireNonNull(target, "target");
     final Path targetDirectory = parentOf(target);
-    final Path sourceDirectory = parentOf(source);
     PLATFORM.move(source, target, replaceExisting);
     notifyBarrier(targetDirectory);
-    if (!sameDirectory(sourceDirectory, targetDirectory)) {
-      notifyBarrier(sourceDirectory);
-    }
   }
 
   static Path parentOf(final Path path) {
@@ -223,8 +226,12 @@ public final class DurableFiles {
     return parent;
   }
 
-  static boolean sameDirectory(final Path first, final Path second) {
-    return first.toAbsolutePath().normalize().equals(second.toAbsolutePath().normalize());
+  static Path siblingDirectory(final Path source, final Path target) {
+    final Path directory = parentOf(source);
+    if (!directory.equals(parentOf(target))) {
+      throw new IllegalArgumentException("Durable moves require sibling names: " + source + " -> " + target);
+    }
+    return directory;
   }
 
   static SirixIOException barrierFailure(final Path directory, final Throwable cause) {

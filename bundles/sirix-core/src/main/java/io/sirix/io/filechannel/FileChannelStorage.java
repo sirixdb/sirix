@@ -440,9 +440,7 @@ public final class FileChannelStorage implements IOStorage {
     if (!Files.exists(concreteStorage)) {
       openingUberPage.getFeatures().requireWritable();
       Files.createDirectories(concreteStorage.getParent());
-      Files.createFile(concreteStorage);
-      // Before the bootstrap commit point can publish revision 0 into it (TXN-616).
-      DurableFiles.syncDirectory(concreteStorage.getParent());
+      DurableFiles.createFile(concreteStorage);
     }
 
     return concreteStorage;
@@ -525,8 +523,7 @@ public final class FileChannelStorage implements IOStorage {
   private synchronized void createRevisionsOffsetFileIfNotExists(Path revisionsOffsetFilePath) throws IOException {
     if (!Files.exists(revisionsOffsetFilePath)) {
       openingUberPage.getFeatures().requireWritable();
-      Files.createFile(revisionsOffsetFilePath);
-      DurableFiles.syncDirectory(revisionsOffsetFilePath.toAbsolutePath().getParent());
+      DurableFiles.createFile(revisionsOffsetFilePath);
     }
   }
 

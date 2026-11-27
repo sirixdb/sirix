@@ -47,3 +47,61 @@
   --tests 'io.sirix.io.*DirectoryBarriersTest' --tests io.sirix.io.DurableFilesTest`.
 - Lesson: a durability claim names what it covers. A content force makes bytes durable, not a name
   to reach them by. See [Lessons](../LESSONS.md).
+
+## Review follow-up: existing targets and failed barriers
+
+- Symptom and trigger: an empty backup, restore or database target created before the operation
+  could disappear after a crash. A removal or storage-file creation whose namespace change succeeded
+  but whose directory force failed could then return success on retry without publishing that change.
+- Root cause: existence and absence checks were treated as proof of an earlier successful barrier.
+  Nested directory creation also created descendants before knowing whether the ancestor name was
+  durable. A retry could therefore bypass an unpublished ancestor as well as an unpublished leaf.
+- Correction: accepted existing targets force their parent; missing directories are created and
+  published from the outside inward, deleting the just-created entry when publication fails.
+  Both persistent backends use the same create-and-publish boundary for data and revisions files,
+  which removes a failed creation before rethrowing. Database removal forces after every settings
+  deletion attempt; absent-resource removal forces the resources directory and completes the same
+  registration cleanup as a successful rename. Ordinary storage opens gain no barriers.
+- Why the original tests missed it: targets were always absent and all engine-level directory
+  forces succeeded. Failure coverage stopped at the platform primitive, without exercising a second
+  operation against the namespace left by failure.
+- Regressions and oracle: TXN-616 requires the successful operation's names to survive a crash.
+  `DirectoryEntryDurabilityTest` now exercises existing targets for all three operations, failed
+  settings deletion and resource rename followed by retry, and failed data/revisions creation on
+  both backends. `DurableFilesTest` covers every ancestor barrier of a three-level directory chain
+  and an existing target's failed barrier. Directory-channel open failures are injected at the
+  filesystem boundary; `DirectoryCrashModel` independently materializes the names made durable.
+  These cases reject skipping a barrier because the target exists or the removed source is absent.
+  They were derived before the fix; a separate failing-before run was not performed because this
+  review round permits only one focused verification after all fixes.
+- Backup cancellation coverage: `completedCopyPreservesInterruption` injects cancellation after
+  `DurableFiles.replace` returns, the durable publication boundary, rather than after the raw move
+  but before its new directory barrier. Its successful-copy, preserved-interruption and restorable-copy
+  assertions are unchanged. The other backup interruption cases retain their failure/quiescence
+  boundaries.
+- Focused verification: all 88 tests passed with
+  `./gradlew :sirix-core:test --tests io.sirix.access.DirectoryEntryDurabilityTest
+  --tests 'io.sirix.io.*DirectoryBarriersTest' --tests io.sirix.io.DurableFilesTest
+  --tests 'io.sirix.backup.*' --max-workers=2`, excluding the unrelated isolated prerequisite
+  test tasks. Mutation, broader tests and lint remain with the outer pipeline.
+- Simplification: unused batch barriers were removed. Replacement and rename accept sibling names
+  only, enforced before either platform changes a name. Platform tests reject both cross-directory
+  operations, and retain successful sibling replacement and rename cases.
+- Lesson: a namespace lookup reports current visibility, not durability. Exercise the second call
+  after an injected barrier failure and verify its crash state, including every ancestor of a new
+  directory chain.
+
+### Vision check for the review corrections
+
+Contract class: **restore** (TXN-616 and the recorded review decisions).
+
+| Rule | Verdict | Evidence |
+| --- | --- | --- |
+| The advantages to protect | aligns | Crash regressions preserve resource storage and its names; versioning layout is unchanged. |
+| History is the data model | aligns | Completed operations keep their data reachable after a crash; revision contents are unchanged. |
+| Speed is part of correctness | aligns | Storage rollback runs only on creation failure; existing-file opens add no barrier. |
+| A fast answer is the same answer | aligns | Both persistent backends use `DurableFiles.createFile` and the same retry tests. |
+| The specification decides behaviour | aligns | TXN-616 states existing-target, retry and sibling-move guarantees before implementation. |
+| One format, one route | aligns | Shared publication and sibling validation replace duplicate or unused paths; no format changes. |
+| A library first | aligns | Changes remain in the embedded core; no service or process dependency is added. |
+| Scope | aligns | Corrections are limited to durable metadata and its regression evidence. |

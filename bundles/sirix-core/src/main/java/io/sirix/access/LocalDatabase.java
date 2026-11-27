@@ -699,24 +699,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       removePersistentResourceDirectory(resourceFile);
       AbstractResourceSession.forgetCommitRecovery(resourceFile);
 
-      this.writeLocks.removeWriteLock(resourceFile);
-
-      // Construct the path used as key in the cache repositories
-      // This matches StorageType.getIntegerRevisionFileDataAsyncCache and getRevisionIndexHolder
-      final var cacheKey =
-          resourceFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(IOStorage.FILENAME);
-
-      final var cache = StorageType.CACHE_REPOSITORY.remove(cacheKey);
-      if (cache != null) {
-        cache.synchronous().invalidateAll();
-      }
-
-      // Clear the optimized revision index for this resource
-      StorageType.REVISION_INDEX_REPOSITORY.remove(cacheKey);
-
-      // Drop the name<->ID bimap entry — it used to survive removal, so getResourceID(name)
-      // kept answering with the dead resource's ID.
-      biMapInverseRemove(canonicalName);
+      forgetResource(resourceFile, canonicalName);
+    } else if (Files.notExists(resourceFile)) {
+      DurableFiles.syncDirectory(resourceFile.getParent());
+      AbstractResourceSession.forgetCommitRecovery(resourceFile);
+      forgetResource(resourceFile, canonicalName);
     }
 
     final String derivedName = resourceFile.getFileName() + DerivedIndexMaintainer.SUFFIX;

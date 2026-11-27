@@ -531,9 +531,8 @@ public final class Databases {
   private static void removeDatabaseFiles(final Path path) throws IOException {
     // Settings first, durably: a crash during the deletions below leaves a directory that no longer
     // opens as a database and that removeDatabase can still clear (TXN-616).
-    if (Files.deleteIfExists(path.resolve(DatabaseConfiguration.DatabasePaths.CONFIG_BINARY.getFile()))) {
-      DurableFiles.syncDirectory(path);
-    }
+    Files.deleteIfExists(path.resolve(DatabaseConfiguration.DatabasePaths.CONFIG_BINARY.getFile()));
+    DurableFiles.syncDirectory(path);
     final Path lockPath = path.resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile());
     try (final Stream<Path> children = Files.list(path)) {
       for (final Path child : children.toList()) {

@@ -22,8 +22,8 @@ interface DirectoryBarriers {
   void syncDirectory(Path directory);
 
   /**
-   * Atomically moves {@code source} to {@code target}; durable on return, including the removal of
-   * {@code source}'s name from its directory.
+   * Atomically moves {@code source} to its sibling {@code target}; durable on return, including the
+   * removal of {@code source}'s name from its directory.
    *
    * @param replaceExisting whether an existing {@code target} is replaced; otherwise the move fails
    *        with {@link java.nio.file.FileAlreadyExistsException}
