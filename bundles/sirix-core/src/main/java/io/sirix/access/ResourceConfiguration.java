@@ -38,6 +38,7 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -748,6 +749,9 @@ public final class ResourceConfiguration {
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
+    // Contents only: the settings file's name is made durable by the resource creation that wrote
+    // it, together with the rest of the resource directory (TXN-616).
+    DurableFiles.forceFile(configFile);
 
     // Database config.
     DatabaseConfiguration.serialize(config.databaseConfig);

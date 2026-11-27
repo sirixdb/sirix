@@ -27,6 +27,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.exception.UnsupportedStoreFeatureException;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.IOStorage;
 import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.page.StoreFeatures;
@@ -492,7 +493,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // A leftover of a former IN_MEMORY resource holds nothing: retry its removal (TXN-615 clause 7).
     final String name = path.getFileName().toString();
-    if (hiddenInMemoryLeftovers.contains(name) && path.equals(retireInMemoryResource(path, name))) {
+    if (hiddenInMemoryLeftovers.contains(name) && retireInMemoryResource(path, name) != null) {
       return false;
     }
 
@@ -500,42 +501,63 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     if (Files.exists(path)) {
       return false;
     }
-    boolean returnVal = createResourceStructure(resourceConfig, path);
+    boolean returnVal;
+    try {
+      returnVal = createResourceStructure(resourceConfig, path);
 
-    if (returnVal) {
-      // If everything was correct so far, initialize storage.
+      if (returnVal) {
+        // If everything was correct so far, initialize storage.
 
-      // Serialization of the config. Bump the persisted max resource ID BEFORE serializing:
-      // ResourceConfiguration.serialize() re-writes the database config as its last step, and the
-      // old ordering left dbConfig's max at the OLD value at that moment (setMaximumResourceID ran
-      // afterwards, in memory only). The on-disk counter therefore stayed one behind, so after a
-      // reopen the next createResource re-assigned the SAME id — colliding in the resource bimap
-      // and, because the GLOBAL BufferManager keys caches by (databaseId, resourceId), serving one
-      // resource's cached pages for another (cross-resource data leak).
-      resourceID.set(dbConfig.getMaxResourceID());
-      resourceConfig.setID(resourceID.getAndIncrement());
-      dbConfig.setMaximumResourceID(resourceID.get());
-      ResourceConfiguration.serialize(resourceConfig);
-      biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
+        // Serialization of the config. Bump the persisted max resource ID BEFORE serializing:
+        // ResourceConfiguration.serialize() re-writes the database config as its last step, and the
+        // old ordering left dbConfig's max at the OLD value at that moment (setMaximumResourceID ran
+        // afterwards, in memory only). The on-disk counter therefore stayed one behind, so after a
+        // reopen the next createResource re-assigned the SAME id — colliding in the resource bimap
+        // and, because the GLOBAL BufferManager keys caches by (databaseId, resourceId), serving one
+        // resource's cached pages for another (cross-resource data leak).
+        resourceID.set(dbConfig.getMaxResourceID());
+        resourceConfig.setID(resourceID.getAndIncrement());
+        dbConfig.setMaximumResourceID(resourceID.get());
+        ResourceConfiguration.serialize(resourceConfig);
 
-      returnVal = bootstrapResource(resourceConfig, userStore);
+        // The settings and folder names must be durable before revision 0 commits into the resource;
+        // the resource's own name becomes durable last, once it is complete (TXN-616).
+        DurableFiles.syncDirectory(path);
+        returnVal = bootstrapResource(resourceConfig, userStore);
+        if (returnVal) {
+          DurableFiles.syncDirectory(path.toAbsolutePath().getParent());
+        }
+      }
+    } catch (final RuntimeException | Error failure) {
+      try {
+        removeFailedResourceCreation(path);
+      } catch (final RuntimeException | Error cleanupFailure) {
+        failure.addSuppressed(cleanupFailure);
+      }
+      throw failure;
     }
-
     if (!returnVal) {
-      // If something was not correct, delete the partly created substructure.
-      biMapInverseRemove(resourceConfig.getResource().getFileName().toString());
-      SirixFiles.recursiveRemove(resourceConfig.resourcePath);
+      removeFailedResourceCreation(path);
     }
-
-    // Note: With global BufferManager, no per-resource setup needed.
-    // Cache keys include (databaseId, resourceId) to prevent collisions.
-
     return returnVal;
+  }
+
+  private void removeFailedResourceCreation(final Path path) {
+    // User-store admission can fail after the database session opens, before bootstrap owns it.
+    final T shared = resourceStore.getOpenResourceSession(path);
+    if (shared != null) {
+      shared.close();
+    }
+    discardInMemoryResourceState(path);
+    AbstractResourceSession.forgetCommitRecovery(path);
+    if (Files.exists(path)) {
+      removePersistentResourceDirectory(path);
+    }
   }
 
   /**
    * Refuse reserved resource names: derived-index names for a user store, and the retirement marker
-   * of IN_MEMORY tombstones (TXN-615).
+   * of retirement tombstones (TXN-615, TXN-616).
    */
   private void requireCreatableResourceName(final ResourceConfiguration resourceConfig, final boolean hasUserStore) {
     if (hasUserStore && DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(resourceConfig.getName()))) {
@@ -584,6 +606,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
             KeysetHandle.generateNew(PredefinedStreamingAeadParameters.AES256_CTR_HMAC_SHA256_4KB);
         final String keysetJson = TinkJsonProtoKeysetFormat.serializeKeyset(handle, InsecureSecretKeyAccess.get());
         Files.writeString(encryptionKeyPath, keysetJson);
+        // Without its keyset no page of the resource can be read again (TXN-616).
+        DurableFiles.forceFile(encryptionKeyPath);
+        DurableFiles.syncDirectory(createdPath);
       } catch (final GeneralSecurityException | IOException e) {
         throw new IllegalStateException(e);
       }
@@ -686,28 +711,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       // resource must never be served the removed store's decoded columns.
       ProjectionIndexCatalog.invalidateUnder(resourceFile.toAbsolutePath().toString());
 
-      // Instantiate the database for deletion.
-      SirixFiles.recursiveRemove(resourceFile);
+      removePersistentResourceDirectory(resourceFile);
       AbstractResourceSession.forgetCommitRecovery(resourceFile);
 
-      this.writeLocks.removeWriteLock(resourceFile);
-
-      // Construct the path used as key in the cache repositories
-      // This matches StorageType.getIntegerRevisionFileDataAsyncCache and getRevisionIndexHolder
-      final var cacheKey =
-          resourceFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(IOStorage.FILENAME);
-
-      final var cache = StorageType.CACHE_REPOSITORY.remove(cacheKey);
-      if (cache != null) {
-        cache.synchronous().invalidateAll();
-      }
-
-      // Clear the optimized revision index for this resource
-      StorageType.REVISION_INDEX_REPOSITORY.remove(cacheKey);
-
-      // Drop the name<->ID bimap entry — it used to survive removal, so getResourceID(name)
-      // kept answering with the dead resource's ID.
-      biMapInverseRemove(canonicalName);
+      forgetResource(resourceFile, canonicalName);
+    } else if (Files.notExists(resourceFile)) {
+      DurableFiles.syncDirectory(resourceFile.getParent());
+      AbstractResourceSession.forgetCommitRecovery(resourceFile);
+      forgetResource(resourceFile, canonicalName);
     }
 
     final String derivedName = resourceFile.getFileName() + DerivedIndexMaintainer.SUFFIX;
@@ -716,6 +727,23 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       removeResourceInternal(derivedName);
     }
     return this;
+  }
+
+  /**
+   * Remove a persistent resource directory so that a crash can never bring it back (TXN-616): rename
+   * it to a reserved tombstone name and make that rename durable, then delete the tombstone. A crash
+   * before the rename leaves the intact resource; after it, a tombstone that no listing shows and
+   * that the next open deletes. A failed deletion still reports the failure, but leaves only such a
+   * tombstone.
+   */
+  private void removePersistentResourceDirectory(final Path resourceFile) {
+    final Path tombstone = resourceFile.resolveSibling(InMemoryResources.RETIRED_MARKER + UUID.randomUUID());
+    try {
+      DurableFiles.rename(resourceFile, tombstone);
+    } catch (final IOException e) {
+      throw new SirixIOException("Could not remove resource " + resourceFile, e);
+    }
+    SirixFiles.recursiveRemove(tombstone);
   }
 
   /** Drop what this process caches for a resource's content, before its files go. */
@@ -776,7 +804,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * hidden from this instance. Retirement renames it to {@code $retired-<uuid>}, independently of the
    * original name length.
    *
-   * @return the original directory or tombstone that remains, or {@code null} if neither remains
+   * @return the original directory if it could not be renamed, or {@code null} once its public name
+   *         is absent; any retained tombstone is tracked in {@code pendingCleanup}
    */
   private @Nullable Path retireInMemoryResource(final Path resourceFile, final String name) {
     rememberCleanup(resourceFile);
@@ -798,7 +827,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // recursive delete could empty the directory and then fail to remove it, leaving an unprovable
     // leftover that TXN-615 clause 6 would have to treat as persistent.
     final Path remaining = retireDirectory(resourceFile);
-    if (!resourceFile.equals(remaining)) {
+    if (remaining == null) {
       hiddenInMemoryLeftovers.remove(name);
     } else {
       hiddenInMemoryLeftovers.add(name);
@@ -832,9 +861,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       return resourceFile;
     }
     pendingCleanup.remove(resourceFile);
-    return removeTombstone(tombstone)
-        ? null
-        : tombstone;
+    removeTombstones(List.of(tombstone));
+    // Only the original name can block recreation or retain a derived resource's source proof.
+    // removeTombstones retains failed cleanup in pendingCleanup for close and reopen to report.
+    return null;
   }
 
   private void discardInMemoryResourceState(final Path resourceFile) {
@@ -871,7 +901,15 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   synchronized void retryPendingCleanup(final boolean retireOriginals) {
+    pendingCleanup.keySet().removeIf(Files::notExists);
     final List<Path> paths = List.copyOf(pendingCleanup.keySet());
+    final List<Path> tombstones = new ArrayList<>();
+    for (final var entry : pendingCleanup.entrySet()) {
+      if (entry.getValue().source() == null) {
+        tombstones.add(entry.getKey());
+      }
+    }
+    removeTombstones(tombstones);
     for (int pass = 0; pass < 2; pass++) {
       for (final Path path : paths) {
         final CleanupProof proof = pendingCleanup.get(path);
@@ -880,9 +918,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         }
         final String name = path.getFileName().toString();
         if (proof.source() == null) {
-          if (pass == 0) {
-            removeTombstone(path);
-          }
           continue;
         }
         if (DerivedIndexMaintainer.isDerivedResourceName(name) != (pass == 0)) {
@@ -909,24 +944,29 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
   }
 
-  /**
-   * Delete a retired resource directory. Its reserved name keeps it out of every listing, so a
-   * failure only leaves garbage for the next cleanup.
-   *
-   * @return whether the tombstone is gone
-   */
-  private boolean removeTombstone(final Path tombstone) {
-    rememberCleanup(tombstone);
+  private void removeTombstones(final List<Path> tombstones) {
+    if (tombstones.isEmpty()) {
+      return;
+    }
+    for (final Path tombstone : tombstones) {
+      rememberCleanup(tombstone);
+    }
     try {
-      SirixFiles.recursiveRemove(tombstone);
-    } catch (final RuntimeException removalFailure) {
-      logger.warn("Could not delete retired resource directory {}", tombstone, removalFailure);
+      DurableFiles.syncDirectory(tombstones.getFirst().getParent());
+    } catch (final RuntimeException barrierFailure) {
+      logger.warn("Could not publish retired resource directories {}", tombstones, barrierFailure);
+      return;
     }
-    if (Files.notExists(tombstone)) {
-      pendingCleanup.remove(tombstone);
-      return true;
+    for (final Path tombstone : tombstones) {
+      try {
+        SirixFiles.recursiveRemove(tombstone);
+      } catch (final RuntimeException removalFailure) {
+        logger.warn("Could not delete retired resource directory {}", tombstone, removalFailure);
+      }
+      if (Files.notExists(tombstone)) {
+        pendingCleanup.remove(tombstone);
+      }
     }
-    return false;
   }
 
 
@@ -936,7 +976,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * settings are the proof that they are in-memory state, so a source stays on disk (hidden) while
    * its derived resource could not be removed.
    *
-   * @return a failure naming every directory that could not be removed, or {@code null}
+   * @return a scan or original-name retirement failure; tombstones remain in {@code pendingCleanup}
    */
   private synchronized @Nullable SirixIOException retireInMemoryResources() {
     final Path resources = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
@@ -962,18 +1002,17 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   /**
-   * Sort the entries of the resources folder: retirement tombstones are deleted at once (adding any
-   * that remain to {@code remaining}); provably IN_MEMORY resources are remembered for cleanup and
-   * collected as derived resources or sources.
+   * Sort the entries of the resources folder: retirement tombstones share a publication barrier
+   * before cleanup (adding any that remain to {@code remaining}); provably IN_MEMORY resources are
+   * remembered for cleanup and collected as derived resources or sources.
    */
   private void collectInMemoryResources(final Path resources, final List<Path> derived, final List<Path> sources,
       final List<Path> remaining) throws IOException {
+    final List<Path> tombstones = new ArrayList<>();
     try (final Stream<Path> stream = Files.list(resources)) {
       for (final Path resource : stream.toList()) {
         if (InMemoryResources.isRetiredResourceName(resource.getFileName().toString())) {
-          if (!removeTombstone(resource)) {
-            remaining.add(resource);
-          }
+          tombstones.add(resource);
         } else if (Files.isDirectory(resource) && InMemoryResources.isInMemoryOwned(resource)) {
           rememberCleanup(resource);
           if (DerivedIndexMaintainer.isDerivedResourceName(resource.getFileName().toString())) {
@@ -984,10 +1023,16 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         }
       }
     }
+    removeTombstones(tombstones);
+    for (final Path tombstone : tombstones) {
+      if (pendingCleanup.containsKey(tombstone)) {
+        remaining.add(tombstone);
+      }
+    }
   }
 
   /**
-   * Retire the derived resources first, adding what remains to {@code remaining}.
+   * Retire the derived resources first, adding original names that remain to {@code remaining}.
    *
    * @return the names of the sources whose settings must stay on disk as proof for a derived resource
    *         that could not leave its name
@@ -999,9 +1044,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       final Path leftover = retireInMemoryResource(resource, name);
       if (leftover != null) {
         remaining.add(leftover);
-        if (leftover.equals(resource)) {
-          keptSources.add(name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length()));
-        }
+        keptSources.add(name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length()));
       }
     }
     return keptSources;

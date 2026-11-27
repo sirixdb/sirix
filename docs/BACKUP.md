@@ -11,6 +11,11 @@ Backup and restore apply the strict [store feature policy](DISK_FORMAT.md#uberpa
 before opening resources or creating a target, including hidden derived resources in the preflight.
 Retirement tombstones are not resources and are ignored by that preflight.
 
+Backup and restore are durable when they return successfully, under
+[TXN-616](../spec/TXN-transactions-durability.md#txn-616--directory-entry-durability).
+That requirement owns the file-content and directory-entry barriers, including existing empty
+targets, and the strict `SirixIOException` failure contract for unsupported directory barriers.
+
 ## Backup (CLI)
 
 ```bash
@@ -141,7 +146,7 @@ run alongside its original without any manual step.
 ## Cold-copy alternative (stopped server)
 
 If the SirixDB process is stopped (or the database is guaranteed to have no active writer), a
-plain recursive copy is an equally valid backup of its persistent resources — no tooling required:
+plain recursive copy preserves the committed history of its persistent resources:
 
 ```bash
 cp -a /path/to/database /path/to/backup-dir     # or rsync -a
@@ -152,6 +157,9 @@ the runtime files the CLI skips (`.lock`, `log/.commit`, `*.tmp*`). `restore` ac
 too — or simply point the server at the copied directory. Do **not** cold-copy while a writer is
 active: a commit could interleave with the copy and leave the data/revisions pair inconsistent; use
 `BackupManager` within the owning process for an online backup instead.
+
+These copy commands do not establish the API's durable-on-return guarantee; use the backup API or
+CLI when the completed copy must survive a power loss immediately.
 
 Copying IN_MEMORY settings does not preserve their committed state; their lifetime and
 leftover cleanup follow TXN-615.

@@ -8,6 +8,7 @@ import io.sirix.api.Database;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
+import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.io.StorageType;
 import java.io.IOException;
@@ -31,6 +32,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.MockedStatic;
 
 import static io.sirix.access.InMemoryLifetimeFixture.commitFirstValue;
 import static io.sirix.access.InMemoryLifetimeFixture.commitNextValue;
@@ -49,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.Mockito.mockStatic;
 
 /**
  * TXN-615 acceptance criteria on one database instance and its reopen: AC2 (handles), AC3
@@ -588,6 +591,48 @@ final class LocalDatabaseInMemoryLifetimeTest {
       createResource(database, VOLATILE, StorageType.IN_MEMORY);
       assertFalse(Files.exists(derived));
       try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+        assertEquals(0, session.getMostRecentRevisionNumber());
+        assertFalse(hasContent(session));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void lastCloseRetainsSourceProofUntilDerivedRenameCanComplete(final Model model) throws IOException {
+    createDatabase(model, databasePath());
+    final Database<? extends ResourceSession<?, ?>> database = open(model, databasePath());
+    createResource(database, VOLATILE, StorageType.IN_MEMORY);
+    try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+      commitFirstValue(session, model, "old");
+      assertTrue(hasContent(session));
+    }
+    createResource(database, "derived-fixture", StorageType.FILE_CHANNEL);
+    final Path source = resourceDirectory(VOLATILE).toRealPath();
+    final Path derived = source.resolveSibling(VOLATILE + "$derived");
+    Files.move(resourceDirectory("derived-fixture"), derived);
+    try {
+      try (final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+        if (invocation.getMethod().getName().equals("move") && derived.equals(invocation.getArgument(0))) {
+          throw new IOException("derived rename refused");
+        }
+        return invocation.callRealMethod();
+      })) {
+        final SirixIOException failure = assertThrows(SirixIOException.class, database::close);
+        assertTrue(failure.getMessage().contains(derived.toString()));
+        assertTrue(Files.isDirectory(derived), "a refused rename must retain the derived directory");
+        assertEquals(StorageType.IN_MEMORY, ResourceConfiguration.deserialize(source).getStorageType(),
+            "TXN-615 clause 8: the source settings must remain as proof while the derived name remains");
+      }
+    } finally {
+      database.close();
+    }
+    assertFalse(Files.exists(source));
+    assertFalse(Files.exists(derived));
+    try (Database<? extends ResourceSession<?, ?>> reopened = open(model, databasePath())) {
+      assertTrue(reopened.listResources().isEmpty());
+      createResource(reopened, VOLATILE, StorageType.IN_MEMORY);
+      try (ResourceSession<?, ?> session = reopened.beginResourceSession(VOLATILE)) {
         assertEquals(0, session.getMostRecentRevisionNumber());
         assertFalse(hasContent(session));
       }

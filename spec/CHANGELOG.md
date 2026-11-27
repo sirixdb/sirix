@@ -41,6 +41,10 @@
   exhaustion requests relief only from the requesting class. Transfer regressions independently
   exhaust each consumer's admission ceiling, and release residency is measured before access.
   No product behavior changes with this entry.
+- Add [TXN-616](TXN-transactions-durability.md#txn-616--directory-entry-durability),
+  the authoritative directory-entry durability contract, including barrier placement, platform
+  requirements, failure handling and lifecycle retries. Update the related marker-loss requirement
+  in TXN-602 and the settings guarantees in CONF-101 and CONF-103.
 
 - Record the structural validator as evidence for
   [FMT-304](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime). Clause 3 forbids a mutation from

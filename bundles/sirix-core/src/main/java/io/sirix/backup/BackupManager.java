@@ -17,6 +17,7 @@ import io.sirix.cache.BufferManagerImpl;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.utils.SirixFiles;
 
@@ -220,7 +221,7 @@ public final class BackupManager {
     final boolean[] interrupted = {false};
     try {
       try {
-        Files.createDirectories(target);
+        DurableFiles.createDirectories(target);
       } catch (final IOException e) {
         throw new SirixIOException("Could not create backup target directory " + target + ".", e);
       }
@@ -237,7 +238,7 @@ public final class BackupManager {
 
           final Path targetResources = target.resolve(RESOURCES_DIR);
           try {
-            Files.createDirectories(targetResources);
+            DurableFiles.createDirectories(targetResources);
           } catch (final IOException e) {
             throw new SirixIOException("Could not create " + targetResources + ".", e);
           }
@@ -261,6 +262,8 @@ public final class BackupManager {
             }
             totalBytes += copied.totalBytesCopied();
           }
+          // Each resource copy synced its own entries; their names in resources/ need this barrier.
+          DurableFiles.syncDirectory(targetResources);
           totalBytes += reconcileResourceIds(target);
         } finally {
           interrupted[0] |= Thread.interrupted();
@@ -479,7 +482,7 @@ public final class BackupManager {
     boolean success = false;
     try {
       try {
-        Files.createDirectories(target);
+        DurableFiles.createDirectories(target);
       } catch (final IOException e) {
         throw new SirixIOException("Could not create restore target directory " + target + ".", e);
       }
@@ -691,7 +694,7 @@ public final class BackupManager {
         public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
           final Path relativePath = sourceRoot.relativize(dir);
           if (relativePath.toString().isEmpty()) {
-            Files.createDirectories(targetRoot); // the root itself
+            Files.createDirectories(targetRoot); // the root itself; its caller makes the name durable
           } else {
             if (skipSubtree.test(relativePath)) {
               return FileVisitResult.SKIP_SUBTREE;
@@ -707,8 +710,22 @@ public final class BackupManager {
           if (skipSubtree.test(relativePath) || skipFile.test(relativePath)) {
             return FileVisitResult.CONTINUE;
           }
-          Files.copy(file, targetRoot.resolve(relativePath), StandardCopyOption.COPY_ATTRIBUTES);
+          final Path copy = targetRoot.resolve(relativePath);
+          Files.copy(file, copy, StandardCopyOption.COPY_ATTRIBUTES);
+          // A backup or restore is durable when it returns (TXN-616): contents here, names below.
+          DurableFiles.forceFile(copy);
           bytesCopied[0] += attrs.size();
+          return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(final Path dir, final @Nullable IOException failure)
+            throws IOException {
+          if (failure != null) {
+            throw failure;
+          }
+          // Every entry of this directory's copy exists now, including its subdirectories.
+          DurableFiles.syncDirectory(targetRoot.resolve(sourceRoot.relativize(dir)));
           return FileVisitResult.CONTINUE;
         }
       });

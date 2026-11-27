@@ -85,6 +85,10 @@ flush the buffered page tail → write missing superblocks → stage the revisio
 in both beacon slots → force the data file (write-ahead barrier) → write SECONDARY then
 PRIMARY beacon images → make the beacons durable before acknowledging the commit.
 
+The required directory-entry publication is owned by
+[TXN-616](../spec/TXN-transactions-durability.md#txn-616--directory-entry-durability);
+the file-content forces described here do not replace those barriers.
+
 The defaults are `sirix.commit.preallocated=true`, `sirix.commit.bufferedBeacons=true`
 and `sirix.commit.lazyRevisionRecord=true`. With preallocation and buffered beacons,
 the beacon images are ordinary buffered writes followed by **one `force(false)`** on the
