@@ -40,6 +40,7 @@ public final class HOTLeafBody {
   private static final VarHandle ARRAY_INT_BE = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.BIG_ENDIAN);
   // Borrowed selectors keep only a synchronous, thread-confined view. They clear the backing
   // before returning the copied result, so a query retains neither its bytes nor its allocator frame.
+  @SuppressWarnings("java:S5164") // Backing references are cleared in selectBorrowed's finally block.
   private static final ThreadLocal<HOTLeafBody> BORROWED = ThreadLocal.withInitial(HOTLeafBody::new);
 
   // All source coordinates are relative to the directory start. Once published a body is immutable.

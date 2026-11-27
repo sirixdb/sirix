@@ -293,6 +293,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Stages relocated slot offsets until a compacting replacement has copied every byte successfully.
    */
+  @SuppressWarnings("java:S5164") // Fixed 512-entry owned array; reuse avoids per-compaction allocation.
   private static final ThreadLocal<char[]> COMPACT_OFFSETS_SCRATCH =
       ThreadLocal.withInitial(() -> new char[MAX_ENTRIES]);
 
@@ -1979,6 +1980,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     return copyStoredValue(index, valueRef(index));
   }
 
+  @SuppressWarnings("javabugs:S6416") // An unreadable ref must throw, as copyStoredValue documents.
   private byte[] copyStoredValue(final int index, final long ref) {
     final int length = refLength(ref);
     if (length < 0) {
@@ -3601,7 +3603,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       length = refLength(value);
       MemorySegment.copy(slotMemory, from, destination, to, length);
     }
-    destination.set(JAVA_SHORT_UNALIGNED, to - Short.BYTES, (short) length);
+    destination.set(JAVA_SHORT_UNALIGNED, to - (long) Short.BYTES, (short) length);
     return to + length - start;
   }
 

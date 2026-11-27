@@ -49,9 +49,9 @@ public final class HOTPostingFrame {
     }
 
     destination.set(ValueLayout.JAVA_BYTE, output, TAG);
-    destination.set(ValueLayout.JAVA_BYTE, output + 1, (byte) count);
-    destination.set(SHORT_BE, output + 2, (short) base);
-    destination.set(ValueLayout.JAVA_BYTE, output + 4, (byte) width);
+    destination.set(ValueLayout.JAVA_BYTE, output + 1L, (byte) count);
+    destination.set(SHORT_BE, output + 2L, (short) base);
+    destination.set(ValueLayout.JAVA_BYTE, output + 4L, (byte) width);
     long previous = first;
     for (int ordinal = 1; ordinal < count; ordinal++) {
       final long bit = rawOrdinal(source, start, ordinal);
@@ -175,7 +175,7 @@ public final class HOTPostingFrame {
     final int count = count(source, start);
     final int shape = shape(source, start);
     destination.set(ValueLayout.JAVA_BYTE, output, RAW);
-    destination.set(ValueLayout.JAVA_BYTE, output + 1, (byte) count);
+    destination.set(ValueLayout.JAVA_BYTE, output + 1L, (byte) count);
     for (int ordinal = 0; ordinal < count; ordinal++) {
       destination.set(LONG_BE, output + 2L + (long) Long.BYTES * ordinal, ordinalAt(source, start, shape, ordinal));
     }

@@ -12,6 +12,8 @@ import java.util.Arrays;
 public final class HOTLeafBodyWriter {
   private static final int MAX_ENTRIES = HOTLeafPage.MAX_ENTRIES;
   private static final int GROUP_SIZE = 1 << HOTLeafBody.GROUP_SHIFT;
+  // Fixed-size owned primitive buffers only; retain per thread to keep serialization allocation-free.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<HOTLeafBodyWriter> WRITER = ThreadLocal.withInitial(HOTLeafBodyWriter::new);
 
   private final int[] keys = new int[MAX_ENTRIES];
@@ -72,7 +74,7 @@ public final class HOTLeafBodyWriter {
       if (keyLength > sourceUsed - key - Short.BYTES) {
         throw invalidSourceSlot(index);
       }
-      final int valueLength = Short.toUnsignedInt(SegmentAccess.getShortLE(slots, key + keyLength));
+      final int valueLength = Short.toUnsignedInt(SegmentAccess.getShortLE(slots, (long) key + keyLength));
       final int value = key + keyLength + Short.BYTES;
       ordinaryBytes += 2 * Short.BYTES + keyLength + valueLength;
       if (valueLength > sourceUsed - value || ordinaryBytes > sourceUsed) {
@@ -162,8 +164,8 @@ public final class HOTLeafBodyWriter {
       if (end - start > 1) {
         final int last = end - 1;
         final int max = Math.min(255, Math.min(keyLengths[start], keyLengths[last]));
-        final long mismatch =
-            MemorySegment.mismatch(slots, keys[start], keys[start] + max, slots, keys[last], keys[last] + max);
+        final long mismatch = MemorySegment.mismatch(slots, keys[start], keys[start] + (long) max, slots, keys[last],
+            keys[last] + (long) max);
         length = mismatch < 0
             ? max
             : (int) mismatch;
@@ -197,8 +199,8 @@ public final class HOTLeafBodyWriter {
       while (hashTable[cell] != 0) {
         final int candidate = hashTable[cell] - 1;
         final int candidateAt = values[candidate];
-        if (hashes[candidate] == hash && valueLengths[candidate] == len && MemorySegment.mismatch(data, at, at + len,
-            valueSource(slots, candidate), candidateAt, candidateAt + len) < 0) {
+        if (hashes[candidate] == hash && valueLengths[candidate] == len && MemorySegment.mismatch(data, at,
+            at + (long) len, valueSource(slots, candidate), candidateAt, candidateAt + (long) len) < 0) {
           owners[i] = candidate;
           shared[i >>> 3] |= (byte) (1 << (i & 7));
           saving += len - Short.BYTES;
@@ -223,10 +225,10 @@ public final class HOTLeafBodyWriter {
     long hash = length;
     int i = 0;
     for (; i <= length - Long.BYTES; i += Long.BYTES) {
-      hash = Long.rotateLeft(hash, 23) ^ SegmentAccess.getLongLE(data, start + i);
+      hash = Long.rotateLeft(hash, 23) ^ SegmentAccess.getLongLE(data, start + (long) i);
     }
     for (; i < length; i++) {
-      hash = Long.rotateLeft(hash, 5) ^ (SegmentAccess.getByte(data, start + i) & 255L);
+      hash = Long.rotateLeft(hash, 5) ^ (SegmentAccess.getByte(data, start + (long) i) & 255L);
     }
     hash *= 0x9e3779b97f4a7c15L;
     return (int) (hash ^ (hash >>> Integer.SIZE));
@@ -252,7 +254,7 @@ public final class HOTLeafBodyWriter {
           ? groupLengths[i >>> HOTLeafBody.GROUP_SHIFT]
           : 0;
       writeLength(sink, keyLengths[i] - skip, keyWidth);
-      sink.writeSegment(slots, keys[i] + skip, keyLengths[i] - skip);
+      sink.writeSegment(slots, keys[i] + (long) skip, keyLengths[i] - (long) skip);
       writeLength(sink, valueLengths[i], valueWidth);
       if (sharing && owners[i] >= 0) {
         sink.writeShort((short) (owners[i] * Short.BYTES));

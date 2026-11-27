@@ -305,8 +305,8 @@ covered by tests selected for another source. `results.json` records unresolved 
 sources. A module where nothing maps reports state `unmapped` instead of running PIT without a
 baseline. This focused selection can omit integration assertions; if a survivor is
 already killed by a broader deterministic test, rerun with that test included and link the report.
-Random jqwik/property exploration, the random model oracle, HOT structural properties and soak
-suites are excluded from the PR mutation baseline; keep exploration in its normal test lane and
+Random jqwik/property exploration, the random model oracle, HOT structural properties, soak
+suites and methods tagged `benchmark` are excluded from the PR mutation baseline; keep exploration in its normal test lane and
 promote discovered seeds to deterministic regressions. The weekly curated core PIT task is unchanged.
 
 The `pr-mutation` artifact contains source selection with its changed-line map, exact targets and

@@ -360,7 +360,7 @@ truncated, oversized or unterminated stop-bit fields.
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [HOTLeafBody.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBody.java); [HOTLeafBodyWriter.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBodyWriter.java)
-- **Verified by:** [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java) **Planned:** SlotLengthWidthConformance through independent fixtures for both mixed-width modes and both boundaries.
+- **Verified by:** [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java); [HOTLeafKeyContractTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafKeyContractTest.java) **Planned:** SlotLengthWidthConformance through independent fixtures for both mixed-width modes and both boundaries.
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** The width boundary and malformed-frame matrix requires a default-lane record.
 
@@ -393,7 +393,7 @@ fields and suffixes or inline values that cross a slot boundary.
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [HOTLeafBody.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBody.java); [HOTLeafBodyWriter.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBodyWriter.java)
-- **Verified by:** [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java) **Planned:** GroupPrefixConformance with independent complete frames at group boundaries and malformed metadata.
+- **Verified by:** [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java); [HOTLeafKeyContractTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafKeyContractTest.java) **Planned:** GroupPrefixConformance with independent complete frames at group boundaries and malformed metadata.
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** The complete golden boundary and malformed metadata matrix is pending.
 
