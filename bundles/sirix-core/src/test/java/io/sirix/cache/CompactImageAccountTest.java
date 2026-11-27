@@ -69,6 +69,27 @@ final class CompactImageAccountTest {
             + allocator.getPhysicalMemoryBytes() + " account=" + account + " after " + after);
   }
 
+  private static void closeLeaseKeepingSlabs(final FrameSlotAllocator allocator, final MemCompactSeam.Pool pool,
+      final Object lease) {
+    final long mapped = pool.slabBytes();
+    final long charged = allocator.getPhysicalMemoryBytes();
+    pool.close(lease);
+    assertEquals(mapped, pool.slabBytes(), "MEM-302 releasing a lease keeps every mapped slab");
+    assertEquals(charged, allocator.getPhysicalMemoryBytes(), "MEM-302 releasing a lease keeps its charge");
+  }
+
+  private static void closeDecodeKeepingSlabs(final FrameSlotAllocator allocator, final MemCompactSeam.Pool pool,
+      final Object decoded) {
+    final long mapped = pool.slabBytes();
+    final long charged = allocator.getPhysicalMemoryBytes() - allocator.scratch().regionBytes()
+        - pool.fallbackImageBytes() - pool.metadataBytes();
+    pool.closeDecoded(decoded);
+    assertEquals(mapped, pool.slabBytes(), "MEM-302 closing a decode keeps every mapped slab");
+    assertEquals(charged, allocator.getPhysicalMemoryBytes() - allocator.scratch().regionBytes()
+        - pool.fallbackImageBytes() - pool.metadataBytes(), "MEM-302 closing a decode keeps its slab charge");
+    assertTrue(allocator.getPhysicalMemoryBytes() >= mapped, "MEM-302 every mapped slab stays charged");
+  }
+
   @ParameterizedTest(name = "seed {0}")
   @ValueSource(longs = {1L, 7L, 42L, 1_000_003L, 20_261_126L})
   @DisplayName("MEM-301: account <= share and inside committedBytes after every step of a seeded sequence; shutdown returns it to 0")
@@ -95,7 +116,7 @@ final class CompactImageAccountTest {
           case 2 -> {
             name = "release";
             if (!leases.isEmpty()) {
-              pool.close(leases.remove(random.nextInt(leases.size())));
+              closeLeaseKeepingSlabs(allocator, pool, leases.remove(random.nextInt(leases.size())));
             }
           }
           case 3, 4 -> {
@@ -105,14 +126,14 @@ final class CompactImageAccountTest {
           default -> {
             name = "close decode";
             if (!decodes.isEmpty()) {
-              pool.closeDecoded(decodes.remove(random.nextInt(decodes.size())));
+              closeDecodeKeepingSlabs(allocator, pool, decodes.remove(random.nextInt(decodes.size())));
             }
           }
         }
         assertAccount(allocator, pool, unit, name + " (step " + step + ", seed " + seed + ")");
       }
-      leases.forEach(pool::close);
-      decodes.forEach(pool::closeDecoded);
+      leases.forEach(lease -> closeLeaseKeepingSlabs(allocator, pool, lease));
+      decodes.forEach(decoded -> closeDecodeKeepingSlabs(allocator, pool, decoded));
       leases.clear();
       decodes.clear();
       quiesce(allocator);
@@ -120,8 +141,8 @@ final class CompactImageAccountTest {
       assertEquals(pool.accountBytes(), allocator.getPhysicalMemoryBytes(),
           "MEM-301 with nothing else live, committedBytes is exactly the account");
     } finally {
-      leases.forEach(pool::close);
-      decodes.forEach(pool::closeDecoded);
+      leases.forEach(lease -> closeLeaseKeepingSlabs(allocator, pool, lease));
+      decodes.forEach(decoded -> closeDecodeKeepingSlabs(allocator, pool, decoded));
       pool.shutdown();
       assertEquals(0L, pool.accountBytes(), "MEM-301 shutdown returns the account to 0");
       quiesce(allocator);
@@ -158,7 +179,7 @@ final class CompactImageAccountTest {
       assertNotNull(lease, "MEM-301 the lease is admitted once the reservation can be served");
       assertTrue(pool.slabBytes() > 0, "the admitted lease mapped a slab");
       assertAccount(allocator, pool, unit, "the admitted lease");
-      pool.close(lease);
+      closeLeaseKeepingSlabs(allocator, pool, lease);
     } finally {
       held.forEach(FrameSlotAllocator.FrameSlot::close);
       pool.shutdown();
@@ -188,7 +209,7 @@ final class CompactImageAccountTest {
         last = pool.decode(key, imageBytes);
         assertTrue(pool.retainedByCache(last), "MEM-301 an image the account admits is retained by the cache");
         assertFalse(pool.scratchBacked(last), "an admitted image is not decoded into scratch");
-        pool.closeDecoded(last);
+        closeDecodeKeepingSlabs(allocator, pool, last);
         assertAccount(allocator, pool, unit, "decode of key " + key);
       }
       evictedAfter = pool.evictedImageBytes();
@@ -220,10 +241,13 @@ final class CompactImageAccountTest {
     try {
       // Open decodes guard their cache entries: nothing can be evicted, so the account fills for good.
       Object fallback = null;
+      ScratchStats scratchBeforeFallback = null;
       for (long key = 0; key < 4096 && fallback == null; key++) {
+        final ScratchStats beforeDecode = allocator.scratch().stats();
         final Object decoded = pool.decode(key, imageBytes);
         if (pool.scratchBacked(decoded)) {
           fallback = decoded;
+          scratchBeforeFallback = beforeDecode;
         } else {
           assertTrue(pool.retainedByCache(decoded), "an image served from the pool is retained by the cache");
           pinned.add(decoded);
@@ -234,23 +258,31 @@ final class CompactImageAccountTest {
       final long cachedCount = pool.cachedImageCount();
       final long cachedBytes = pool.cachedImageBytes();
       final long evicted = pool.evictedImageBytes();
-      final long scratchHeld = allocator.scratch().regionBytes();
+      assertNotNull(scratchBeforeFallback);
+      final ScratchStats scratchHeld = allocator.scratch().stats();
       assertFalse(pool.retainedByCache(fallback), "MEM-301 the scratch decode is not retained by the cache");
       assertTrue(pool.decodedBytes(fallback) >= imageBytes, "the scratch decode holds the whole image");
       final MemorySegment segment = pool.decodedSegment(fallback);
       assertTrue(segment.isNative(), "MEM-301 the uncached decode is native scratch, not GC-owned memory");
       assertTrue(segment.byteSize() >= imageBytes, "the scratch segment holds the whole image");
-      assertTrue(scratchHeld > 0L, "the uncached decode is held in a scratch lease charged to the allocator");
+      assertEquals(scratchBeforeFallback.totalLentBuffers() + 1L, scratchHeld.totalLentBuffers(),
+          "the uncached decode holds one scratch lease");
+      assertTrue(scratchHeld.lentBytes() >= scratchBeforeFallback.lentBytes() + imageBytes,
+          "the scratch lease holds the whole image and is charged to the allocator");
       assertTrue(account <= pool.shareBytes(), "MEM-301 the account stays within the share");
       assertAccount(allocator, pool, unit, "an uncached decode");
-      pool.closeDecoded(fallback);
+      closeDecodeKeepingSlabs(allocator, pool, fallback);
       assertEquals(account, pool.accountBytes(), "an uncached decode does not touch the account");
       assertEquals(cachedCount, pool.cachedImageCount(), "the cache does not retain the uncached decode");
       assertEquals(cachedBytes, pool.cachedImageBytes(), "the cache bytes are those of before the uncached decode");
       assertEquals(evicted, pool.evictedImageBytes(), "guarded images are never evicted");
-      assertTrue(allocator.scratch().regionBytes() < scratchHeld, "closing the decode returns its scratch lease");
+      final ScratchStats scratchReturned = allocator.scratch().stats();
+      assertEquals(scratchBeforeFallback.totalLentBuffers(), scratchReturned.totalLentBuffers(),
+          "closing the decode returns its scratch lease");
+      assertEquals(scratchBeforeFallback.lentBytes(), scratchReturned.lentBytes(),
+          "closing the decode returns all borrowed scratch bytes");
     } finally {
-      pinned.forEach(pool::closeDecoded);
+      pinned.forEach(decoded -> closeDecodeKeepingSlabs(allocator, pool, decoded));
       pool.shutdown();
       quiesce(allocator);
       allocator.shutdown();
@@ -274,9 +306,11 @@ final class CompactImageAccountTest {
         leases.add(lease);
       }
       assertFalse(leases.isEmpty(), "the fixture must map at least one slab");
-      leases.forEach(pool::close);
-      leases.clear();
       final long mapped = pool.slabBytes();
+      final long charged = allocator.getPhysicalMemoryBytes();
+      leases.forEach(lease -> closeLeaseKeepingSlabs(allocator, pool, lease));
+      leases.clear();
+      assertEquals(charged, allocator.getPhysicalMemoryBytes(), "MEM-302 releasing leases refunds no slab charge");
       assertTrue(mapped > 0L, "slabs are mapped");
       assertEquals(mapped, pool.slabBytes(), "MEM-302 idle slabs stay mapped after every lease was released");
       assertTrue(allocator.getPhysicalMemoryBytes() >= mapped, "MEM-302 idle slabs stay charged");
@@ -309,7 +343,7 @@ final class CompactImageAccountTest {
       assertEquals(0L, allocator.getPhysicalMemoryBytes() - FrameBudgetOracle.chargedFrameBytes(allocator),
           "MEM-302 shutdown refunds the slabs, leaving only frame charges");
     } finally {
-      leases.forEach(pool::close);
+      leases.forEach(lease -> closeLeaseKeepingSlabs(allocator, pool, lease));
       frames.forEach(FrameSlotAllocator.FrameSlot::close);
       pool.shutdown();
       quiesce(allocator);

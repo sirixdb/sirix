@@ -8,6 +8,7 @@ import io.sirix.cache.RecordingVirtualMemory.Kind;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -153,62 +155,63 @@ final class FrameReleaseFailureTest {
 
   @Test
   @DisplayName("MEM-107 (d) shutdown racing a transfer ends with committedBytes 0 and no OS call after the regions went back")
+  @Timeout(value = 30, unit = TimeUnit.SECONDS)
   void shutdownRacingATransferLeavesNothingCharged() throws InterruptedException {
     final MemPoolFixture fixture = MemPoolFixture.create(4096L);
     final FrameSlotAllocator allocator = fixture.allocator;
     fixture.releaseAll(fixture.fill(CLASS_IDX));
-    final AtomicBoolean stop = new AtomicBoolean();
-    final CountDownLatch started = new CountDownLatch(2);
+    final CountDownLatch releaseEntered = new CountDownLatch(1);
+    final CountDownLatch finishRelease = new CountDownLatch(1);
+    final CountDownLatch shutdownStarted = new CountDownLatch(1);
     final ConcurrentLinkedQueue<Throwable> unexpected = new ConcurrentLinkedQueue<>();
-    final Thread[] workers = new Thread[2];
-    for (int worker = 0; worker < workers.length; worker++) {
-      workers[worker] = new Thread(() -> {
-        started.countDown();
-        while (!stop.get()) {
-          try {
-            if (allocator.reserveScratchCommittedBytes(2 * MIB)) {
-              allocator.refundCommittedBytes(2 * MIB);
-            }
-            final FrameSlotAllocator.FrameSlot slot =
-                allocator.allocateSlot(FrameSlotAllocator.SIZE_CLASSES[CLASS_IDX]);
-            if (slot != null) {
-              slot.close();
-            }
-          } catch (final IllegalStateException shutDown) {
-            return;
-          } catch (final Throwable failure) {
-            unexpected.add(failure);
-            return;
-          }
+    fixture.vm.observeRuns(run -> {
+      releaseEntered.countDown();
+      try {
+        finishRelease.await();
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new AssertionError(e);
+      }
+    });
+    final Thread transfer = new Thread(() -> {
+      try {
+        if (allocator.reserveScratchCommittedBytes(2 * MIB)) {
+          allocator.refundCommittedBytes(2 * MIB);
         }
-      }, "mem-107-worker-" + worker);
-      workers[worker].start();
-    }
-    started.await();
-    for (long spin = 0; spin < 200_000_000L && fixture.vm.callsOf(Kind.RELEASE_RUN).isEmpty(); spin++) {
-      Thread.onSpinWait();
-    }
-
-    IllegalStateException refused = null;
-    for (int attempt = 0; attempt < 10_000; attempt++) {
+      } catch (final IllegalStateException shutDown) {
+        return;
+      } catch (final Throwable failure) {
+        unexpected.add(failure);
+      }
+    }, "mem-107-transfer");
+    final Thread shutdown = new Thread(() -> {
+      shutdownStarted.countDown();
       try {
         allocator.shutdown();
-        refused = null;
-        break;
-      } catch (final IllegalStateException liveOwner) {
-        refused = liveOwner;
-        Thread.onSpinWait();
+      } catch (final Throwable failure) {
+        unexpected.add(failure);
       }
-    }
-    stop.set(true);
-    for (final Thread worker : workers) {
-      worker.join();
+    }, "mem-107-shutdown");
+    try {
+      transfer.start();
+      assertTrue(releaseEntered.await(10, TimeUnit.SECONDS), "a transfer is inside a release call");
+      shutdown.start();
+      shutdownStarted.await();
+      while (shutdown.getState() == Thread.State.RUNNABLE && !Thread.currentThread().isInterrupted()) {
+        Thread.yield();
+      }
+    } finally {
+      finishRelease.countDown();
+      transfer.join();
+      if (shutdown.getState() != Thread.State.NEW) {
+        shutdown.join();
+      }
+      allocator.shutdown();
     }
 
-    assertEquals(null, refused, "shutdown completes once the momentary frame owners are gone");
-    assertEquals(List.of(), List.copyOf(unexpected), "workers see only the shutdown refusal");
+    assertEquals(List.of(), List.copyOf(unexpected), "the transfer and shutdown complete without unexpected failure");
     assertEquals(0L, allocator.getPhysicalMemoryBytes(),
         "MEM-107 (d): committedBytes is 0 after a shutdown that raced a transfer");
-    assertEquals(0, fixture.vm.callsAfterRegionsReleased(), "MEM-107 (d): no OS call after the regions were released");
+    assertEquals(0, fixture.vm.callsAfterRegionsReleased(), "MEM-107 (d): no OS call targets a released region");
   }
 }

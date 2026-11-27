@@ -25,12 +25,11 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * and the change that lands MEM-103/104 must keep it.
  *
  * <p>
- * "Unchanged" is measured against the floor the API itself imposes: the page-frame handle and the
- * slice (or the scoped identity segment of {@code allocate}) that the call returns to its caller. A
- * control builds exactly those objects outside the allocator, with the sink that keeps them from
- * being scalar-replaced; the allocator's cycle must allocate no more than the control. The
- * optimistic read returns a primitive and must allocate nothing at all. A positive control proves
- * the measurement sees allocation.
+ * "Unchanged" permits a fixed 40-byte frame handle in the clean allocation fork's 64-bit JVM
+ * layout (compressed references and class pointers, 8-byte alignment, ordinary object headers),
+ * plus a JDK segment slice measured independently. Neither allowance executes the production
+ * handle constructor. The scoped-segment control uses only the JDK API. Optimistic reads must
+ * allocate nothing, and a positive control proves the measurement sees allocation.
  */
 @Isolated
 @MemPlanned(step = 1, value = {"MEM-102"})
@@ -41,6 +40,7 @@ final class FrameReuseAllocationBudgetTest {
   private static final int CYCLES = 16_384;
   private static final int PASSES = 9;
   private static final int REFILL = 64;
+  private static final long HANDLE_BYTES = 40L;
   private static volatile Object sink;
 
   @Test
@@ -57,7 +57,7 @@ final class FrameReuseAllocationBudgetTest {
       long control = 0L;
       for (int pass = 0; pass < PASSES; pass++) {
         measured = slotCycles(allocator, bean, thread);
-        control = handleControl(allocator, backing, bean, thread);
+        control = CYCLES * HANDLE_BYTES + sliceControl(backing, bean, thread);
       }
       assertTrue(measured <= control, "allocateSlot/close allocated " + measured + " bytes over " + CYCLES
           + " cycles, more than the " + control + " bytes of the handle and slice they return");
@@ -132,13 +132,7 @@ final class FrameReuseAllocationBudgetTest {
           }
         }
         measured = bean.getThreadAllocatedBytes(thread) - before;
-        before = bean.getThreadAllocatedBytes(thread);
-        for (int round = 0; round < rounds; round++) {
-          for (int index = 0; index < REFILL; index++) {
-            held[index] = new FrameSlotAllocator.FrameSlot(allocator, CLASS_IDX, 0, 0L, backing.asSlice(0, SLOT_BYTES));
-          }
-        }
-        control = bean.getThreadAllocatedBytes(thread) - before;
+        control = CYCLES * HANDLE_BYTES + sliceControl(backing, bean, thread);
       }
       assertTrue(measured <= control, "a refill cycle allocated " + measured + " bytes, more than the " + control
           + " bytes of the handles and slices it returns");
@@ -199,11 +193,10 @@ final class FrameReuseAllocationBudgetTest {
     return bean.getThreadAllocatedBytes(thread) - before;
   }
 
-  private static long handleControl(final FrameSlotAllocator allocator, final MemorySegment backing,
-      final ThreadMXBean bean, final long thread) {
+  private static long sliceControl(final MemorySegment backing, final ThreadMXBean bean, final long thread) {
     final long before = bean.getThreadAllocatedBytes(thread);
     for (int cycle = 0; cycle < CYCLES; cycle++) {
-      sink = new FrameSlotAllocator.FrameSlot(allocator, CLASS_IDX, 0, 0L, backing.asSlice(0, SLOT_BYTES));
+      sink = backing.asSlice(0, SLOT_BYTES);
     }
     return bean.getThreadAllocatedBytes(thread) - before;
   }

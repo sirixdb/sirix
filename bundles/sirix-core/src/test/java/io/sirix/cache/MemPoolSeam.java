@@ -11,9 +11,7 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The one place where the MEM step-1 tests touch allocator members that do not exist yet. The tests
@@ -37,8 +35,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <th>Required by</th>
  * </tr>
  * <tr>
- * <td>constructor {@code (long budgetBytes, VirtualMemory vm)}, or a static factory taking the same
- * parameters</td>
+ * <td>constructor {@code (long budgetBytes, VirtualMemory vm)}</td>
  * <td>an allocator whose OS calls go to {@code vm} and whose OS page size is the one {@code vm}
  * reports</td>
  * <td>MEM-101, 102, 103, 104, 105, 107</td>
@@ -69,6 +66,12 @@ import java.util.concurrent.atomic.AtomicLong;
  * <td>{@code static void setReleaseEverythingOnReleaseForTesting(boolean)}</td>
  * <td>the worst-case switch of MEM-104: every release of a slot returns it to the OS</td>
  * <td>MEM-104</td>
+ * </tr>
+ * <tr>
+ * <td>{@code PressureListener.onPressure(ShortfallKind kind, long amount, int requestingClass)},
+ * with {@code FrameSlotAllocator.ShortfallKind.BYTES} or {@code SLOTS}</td>
+ * <td>the shortfall kind, amount and requesting class; non-frame requests use class -1</td>
+ * <td>MEM-103, MEM-202</td>
  * </tr>
  * </table>
  *
@@ -111,34 +114,35 @@ final class MemPoolSeam {
    * @throws AssertionError naming the missing seam when the allocator cannot be injected
    */
   static FrameSlotAllocator newAllocator(final long budgetBytes, final RecordingVirtualMemory vm) {
-    for (final Constructor<?> constructor : FrameSlotAllocator.class.getDeclaredConstructors()) {
-      final Class<?>[] types = constructor.getParameterTypes();
-      if (types.length == 2 && types[0] == long.class && types[1] == VirtualMemory.class) {
-        constructor.setAccessible(true);
-        try {
-          return (FrameSlotAllocator) constructor.newInstance(budgetBytes, vm.virtualMemory());
-        } catch (final InvocationTargetException e) {
-          throw rethrow(e.getCause());
-        } catch (final ReflectiveOperationException e) {
-          throw new AssertionError(e);
-        }
-      }
+    try {
+      final Constructor<FrameSlotAllocator> constructor =
+          FrameSlotAllocator.class.getDeclaredConstructor(long.class, VirtualMemory.class);
+      constructor.setAccessible(true);
+      return constructor.newInstance(budgetBytes, vm.virtualMemory());
+    } catch (final NoSuchMethodException e) {
+      throw missing("FrameSlotAllocator(long budgetBytes, VirtualMemory vm)", "MEM-101 (injectable VirtualMemory)", 1);
+    } catch (final InvocationTargetException e) {
+      throw rethrow(e.getCause());
+    } catch (final ReflectiveOperationException e) {
+      throw new AssertionError(e);
     }
-    for (final Method method : FrameSlotAllocator.class.getDeclaredMethods()) {
-      final Class<?>[] types = method.getParameterTypes();
-      if (Modifier.isStatic(method.getModifiers()) && method.getReturnType() == FrameSlotAllocator.class
-          && types.length == 2 && types[0] == long.class && types[1] == VirtualMemory.class) {
-        method.setAccessible(true);
-        try {
-          return (FrameSlotAllocator) method.invoke(null, budgetBytes, vm.virtualMemory());
-        } catch (final InvocationTargetException e) {
-          throw rethrow(e.getCause());
-        } catch (final ReflectiveOperationException e) {
-          throw new AssertionError(e);
-        }
-      }
+  }
+
+  static Method pressureMethod() {
+    try {
+      final Class<?> kind = Class.forName("io.sirix.cache.FrameSlotAllocator$ShortfallKind");
+      return FrameSlotAllocator.PressureListener.class.getMethod("onPressure", kind, long.class, int.class);
+    } catch (final ReflectiveOperationException e) {
+      throw missing("PressureListener.onPressure(ShortfallKind, long, int)", "MEM-103, MEM-202", 1);
     }
-    throw missing("FrameSlotAllocator(long budgetBytes, VirtualMemory vm)", "MEM-101 (injectable VirtualMemory)", 1);
+  }
+
+  static Object pressureKind(final boolean slotShortfall) {
+    try {
+      return pressureMethod().getParameterTypes()[0].getField(slotShortfall ? "SLOTS" : "BYTES").get(null);
+    } catch (final ReflectiveOperationException e) {
+      throw missing("ShortfallKind.BYTES / ShortfallKind.SLOTS", "MEM-103, MEM-202", 1);
+    }
   }
 
   /** Slots of {@code classIdx} ever minted ({@code nextFreshIndex}). */
@@ -219,8 +223,7 @@ final class MemPoolSeam {
   }
 
   /**
-   * Installs a pressure listener that counts its invocations and records the byte argument of each,
-   * whatever shape {@link FrameSlotAllocator.PressureListener} has (MEM-202 gives it the shortfall).
+   * Installs a pressure listener that counts invocations of the fixed MEM-202 shortfall contract.
    * Closing restores the listener that was registered before.
    */
   static PressureProbe installPressureProbe() {
@@ -230,13 +233,12 @@ final class MemPoolSeam {
   /** A counting {@link FrameSlotAllocator.PressureListener}; closing restores the previous one. */
   static final class PressureProbe implements AutoCloseable {
     private final AtomicInteger fired = new AtomicInteger();
-    private final AtomicLong lastShortfall = new AtomicLong(-1L);
-    private final List<Long> shortfalls = new ArrayList<>();
     private final List<Object[]> invocations = new ArrayList<>();
     private final FrameSlotAllocator.PressureListener previous = FrameSlotAllocator.pressureListener();
     private volatile Runnable inside;
 
     private PressureProbe() {
+      final Method onPressure = pressureMethod();
       final InvocationHandler handler = (proxy, method, args) -> {
         if (method.getDeclaringClass() == Object.class) {
           return method.getName().equals("hashCode")
@@ -245,21 +247,13 @@ final class MemPoolSeam {
                   ? proxy == args[0]
                   : "PressureProbe";
         }
+        if (!method.equals(onPressure)) {
+          throw new AssertionError("unexpected pressure operation: " + method);
+        }
+        PressureRequest.decode(args);
         fired.incrementAndGet();
         synchronized (invocations) {
-          invocations.add(args == null
-              ? new Object[0]
-              : args.clone());
-        }
-        if (args != null) {
-          for (final Object argument : args) {
-            if (argument instanceof Long shortfall) {
-              lastShortfall.set(shortfall);
-              synchronized (shortfalls) {
-                shortfalls.add(shortfall);
-              }
-            }
-          }
+          invocations.add(args.clone());
         }
         final Runnable action = inside;
         if (action != null) {
@@ -281,26 +275,13 @@ final class MemPoolSeam {
       return fired.get();
     }
 
-    /** The last shortfall argument the listener received, or {@code -1} when it had none. */
-    long lastShortfall() {
-      return lastShortfall.get();
-    }
-
     /**
      * The arguments of every invocation, in order. MEM-103 and MEM-202 pass the shortfall kind (byte or
-     * slot), its amount and the requesting frame class; the chapter fixes no parameter types, so a
-     * listener decodes them with {@link PressureRequest}.
+     * slot), its amount and the requesting frame class, decoded by {@link PressureRequest}.
      */
     List<Object[]> invocations() {
       synchronized (invocations) {
         return new ArrayList<>(invocations);
-      }
-    }
-
-    /** Every shortfall argument received, in order. */
-    List<Long> shortfalls() {
-      synchronized (shortfalls) {
-        return new ArrayList<>(shortfalls);
       }
     }
 
@@ -310,29 +291,20 @@ final class MemPoolSeam {
     }
   }
 
-  /**
-   * A pressure request decoded by shape from the arguments of one listener invocation: an
-   * {@code int}/{@link Integer} in the class range is the requesting frame class, a {@code long} is
-   * the amount (bytes for a byte shortfall, slots for a slot shortfall), and any other argument whose
-   * {@code toString()} contains {@code SLOT} (case-insensitively) marks a slot shortfall. A request
-   * without a kind argument is a byte request.
-   */
   record PressureRequest(boolean slotShortfall, long amount, int requestingClass) {
 
-    /** Decode {@code args}; the class is {@code -1} when none was passed. */
     static PressureRequest decode(final Object[] args) {
-      boolean slot = false;
-      long amount = -1L;
-      int requestingClass = -1;
-      for (final Object argument : args) {
-        if (argument instanceof Long value) {
-          amount = value;
-        } else if (argument instanceof Integer value && value >= 0 && value < FrameSlotAllocator.SIZE_CLASSES.length) {
-          requestingClass = value;
-        } else if (argument != null && !(argument instanceof Number) && !(argument instanceof Boolean)
-            && argument.toString().toUpperCase(Locale.ROOT).contains("SLOT")) {
-          slot = true;
-        }
+      if (args == null || args.length != 3 || !(args[0] instanceof Enum<?> kind)
+          || !(args[1] instanceof Long amount) || !(args[2] instanceof Integer requestingClass)) {
+        throw new AssertionError("expected (ShortfallKind, long amount, int requestingClass)");
+      }
+      final boolean slot = switch (kind.name()) {
+        case "BYTES" -> false;
+        case "SLOTS" -> true;
+        default -> throw new AssertionError("unexpected shortfall kind: " + kind.name());
+      };
+      if (kind.getDeclaringClass() != pressureMethod().getParameterTypes()[0]) {
+        throw new AssertionError("unexpected shortfall kind type: " + kind.getDeclaringClass());
       }
       return new PressureRequest(slot, amount, requestingClass);
     }

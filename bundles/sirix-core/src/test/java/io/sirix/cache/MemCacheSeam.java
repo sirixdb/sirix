@@ -9,8 +9,6 @@ import io.sirix.page.PageReference;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -31,7 +29,7 @@ import java.util.Map;
  * <th>Required by</th>
  * </tr>
  * <tr>
- * <td>on {@link BufferManagerImpl}: a constructor or static factory
+ * <td>on {@link BufferManagerImpl}: the constructor
  * {@code (long frameBudgetBytes, HeapCacheBudget.PropertyLookup properties, HeapCacheBudget heap)}
  * </td>
  * <td>a buffer manager whose frame-holding caches share the one frame budget
@@ -41,8 +39,8 @@ import java.util.Map;
  * <td>MEM-201, MEM-202</td>
  * </tr>
  * <tr>
- * <td>on {@link FrameSlotAllocator.PressureListener}: one method taking one {@code long}, the
- * shortfall in bytes</td>
+ * <td>{@code PressureListener.onPressure(ShortfallKind kind, long amount, int requestingClass)};
+ * {@code ShortfallKind.BYTES} or {@code SLOTS}, as bound by {@link MemPoolSeam}</td>
  * <td>the pressure listener the buffer manager registers evicts by priority up to that
  * shortfall</td>
  * <td>MEM-202</td>
@@ -74,39 +72,25 @@ final class MemCacheSeam {
    * A buffer manager with one shared frame budget of {@code frameBudgetBytes}, whose optional caps
    * come from {@code properties}.
    *
-   * @throws AssertionError naming the missing seam when no such constructor or factory exists
+   * @throws AssertionError naming the missing seam when the constructor does not exist
    */
   static BufferManagerImpl newBufferManager(final long frameBudgetBytes, final Map<String, String> properties,
       final HeapCacheBudget heap) {
     final HeapCacheBudget.PropertyLookup lookup = lookup(properties);
-    for (final Constructor<?> constructor : BufferManagerImpl.class.getDeclaredConstructors()) {
-      if (matches(constructor.getParameterTypes())) {
-        constructor.setAccessible(true);
-        try {
-          return (BufferManagerImpl) constructor.newInstance(frameBudgetBytes, lookup, heap);
-        } catch (final InvocationTargetException e) {
-          throw rethrowCause(e);
-        } catch (final ReflectiveOperationException e) {
-          throw new AssertionError(e);
-        }
-      }
+    try {
+      final Constructor<BufferManagerImpl> constructor = BufferManagerImpl.class.getDeclaredConstructor(
+          long.class, HeapCacheBudget.PropertyLookup.class, HeapCacheBudget.class);
+      constructor.setAccessible(true);
+      return constructor.newInstance(frameBudgetBytes, lookup, heap);
+    } catch (final NoSuchMethodException e) {
+      throw missing(
+          "BufferManagerImpl(long frameBudgetBytes, HeapCacheBudget.PropertyLookup properties, HeapCacheBudget heap)",
+          "MEM-201 (one frame budget, optional caps)", 2);
+    } catch (final InvocationTargetException e) {
+      throw rethrowCause(e);
+    } catch (final ReflectiveOperationException e) {
+      throw new AssertionError(e);
     }
-    for (final Method method : BufferManagerImpl.class.getDeclaredMethods()) {
-      if (Modifier.isStatic(method.getModifiers()) && method.getReturnType() == BufferManagerImpl.class
-          && matches(method.getParameterTypes())) {
-        method.setAccessible(true);
-        try {
-          return (BufferManagerImpl) method.invoke(null, frameBudgetBytes, lookup, heap);
-        } catch (final InvocationTargetException e) {
-          throw rethrowCause(e);
-        } catch (final ReflectiveOperationException e) {
-          throw new AssertionError(e);
-        }
-      }
-    }
-    throw missing(
-        "BufferManagerImpl(long frameBudgetBytes, HeapCacheBudget.PropertyLookup properties, HeapCacheBudget heap)",
-        "MEM-201 (one frame budget, optional caps)", 2);
   }
 
   /**
@@ -131,72 +115,14 @@ final class MemCacheSeam {
     if (listener == null) {
       throw new AssertionError("no pressure listener is registered; construct the BufferManagerImpl first");
     }
-    for (final Method method : FrameSlotAllocator.PressureListener.class.getMethods()) {
-      if (Modifier.isStatic(method.getModifiers()) || method.isDefault()) {
-        continue;
-      }
-      final Object[] arguments = argumentsFor(method, slotShortfall, amount, requestingClass);
-      if (arguments == null) {
-        continue;
-      }
-      try {
-        method.invoke(listener, arguments);
-        return;
-      } catch (final InvocationTargetException e) {
-        throw rethrowCause(e);
-      } catch (final ReflectiveOperationException e) {
-        throw new AssertionError(e);
-      }
+    final Method method = MemPoolSeam.pressureMethod();
+    try {
+      method.invoke(listener, MemPoolSeam.pressureKind(slotShortfall), amount, requestingClass);
+    } catch (final InvocationTargetException e) {
+      throw rethrowCause(e);
+    } catch (final ReflectiveOperationException e) {
+      throw new AssertionError(e);
     }
-    throw missing("FrameSlotAllocator.PressureListener#onPressure(shortfall kind, long amount, int requestingClass)",
-        "MEM-103 / MEM-202 (the listener receives the shortfall kind, amount and requesting class)", 2);
-  }
-
-  /**
-   * The arguments for {@code method}, built by parameter shape like
-   * {@link MemPoolSeam.PressureRequest} decodes them: a {@code long} is the amount, an {@code int}
-   * the requesting class, a {@code boolean} or an enum the kind (the enum constant whose name
-   * contains {@code SLOT} or {@code BYTE}). Returns {@code null} when the method has no {@code long}
-   * amount or a parameter of another shape.
-   */
-  private static Object[] argumentsFor(final Method method, final boolean slotShortfall, final long amount,
-      final int requestingClass) {
-    final Class<?>[] types = method.getParameterTypes();
-    final Object[] arguments = new Object[types.length];
-    boolean hasAmount = false;
-    for (int i = 0; i < types.length; i++) {
-      final Class<?> type = types[i];
-      if (type == long.class && !hasAmount) {
-        arguments[i] = amount;
-        hasAmount = true;
-      } else if (type == int.class) {
-        arguments[i] = requestingClass;
-      } else if (type == boolean.class) {
-        arguments[i] = slotShortfall;
-      } else if (type.isEnum()) {
-        arguments[i] = kindConstant(type, slotShortfall);
-        if (arguments[i] == null) {
-          return null;
-        }
-      } else {
-        return null;
-      }
-    }
-    return hasAmount
-        ? arguments
-        : null;
-  }
-
-  private static Object kindConstant(final Class<?> enumType, final boolean slotShortfall) {
-    final String wanted = slotShortfall
-        ? "SLOT"
-        : "BYTE";
-    for (final Object constant : enumType.getEnumConstants()) {
-      if (constant.toString().toUpperCase(Locale.ROOT).contains(wanted)) {
-        return constant;
-      }
-    }
-    return null;
   }
 
   /**
@@ -274,11 +200,6 @@ final class MemCacheSeam {
       throw error;
     }
     throw new AssertionError(cause);
-  }
-
-  private static boolean matches(final Class<?>[] types) {
-    return types.length == 3 && types[0] == long.class && types[1] == HeapCacheBudget.PropertyLookup.class
-        && types[2] == HeapCacheBudget.class;
   }
 
   // The caches of BufferManagerImpl are typed for their production pages. Their sharded caches only

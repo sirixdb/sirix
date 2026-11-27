@@ -42,8 +42,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @MemPlanned(step = 1, value = {"MEM-104"})
 final class OptimisticReaderReleaseStressTest {
 
-  private static final int SLOT_BYTES = (int) FrameSlotAllocator.SIZE_CLASSES[0];
-  private static final int WORDS = SLOT_BYTES / Long.BYTES;
   private static final int SLOTS = 8;
   private static final int STABLE_SLOTS = SLOTS / 2;
   private static final int READERS = 3;
@@ -58,18 +56,27 @@ final class OptimisticReaderReleaseStressTest {
     MemPoolSeam.releaseEverythingOnRelease(true);
     final FrameSlotAllocator allocator = new FrameSlotAllocator(32L * 1024 * 1024);
     try {
-      run(allocator);
+      final long pageBytes = MemPlatformSeam.osPageBytes(VirtualMemory.forCurrentPlatform());
+      int classIdx = 0;
+      while (classIdx < FrameSlotAllocator.SIZE_CLASSES.length
+          && FrameSlotAllocator.SIZE_CLASSES[classIdx] < pageBytes) {
+        classIdx++;
+      }
+      assertTrue(classIdx < FrameSlotAllocator.SIZE_CLASSES.length, "a slot class must cover an OS page");
+      run(allocator, classIdx);
     } finally {
       MemPoolSeam.releaseEverythingOnRelease(false);
       allocator.shutdown();
     }
   }
 
-  private static void run(final FrameSlotAllocator allocator) throws InterruptedException {
+  private static void run(final FrameSlotAllocator allocator, final int classIdx) throws InterruptedException {
+    final long slotBytes = FrameSlotAllocator.SIZE_CLASSES[classIdx];
+    final long returnedBefore = MemPoolSeam.slotsReturned(allocator, classIdx);
     final FrameSlotAllocator.FrameSlot[] owned = new FrameSlotAllocator.FrameSlot[SLOTS];
     final AtomicReferenceArray<MemorySegment> segments = new AtomicReferenceArray<>(SLOTS);
     for (int index = 0; index < SLOTS; index++) {
-      owned[index] = allocator.allocateSlot(SLOT_BYTES);
+      owned[index] = allocator.allocateSlot(slotBytes);
       assertEquals(index, owned[index].slotIndex(), "the first slots of a class are minted in order");
       segments.set(index, owned[index].segment());
       publish(owned[index]);
@@ -88,7 +95,7 @@ final class OptimisticReaderReleaseStressTest {
         try {
           while (!done.get()) {
             final int index = random.nextInt(SLOTS);
-            final long result = readOnce(allocator, segments.get(index), index);
+            final long result = readOnce(allocator, segments.get(index), classIdx, index);
             if (result == 0L) {
               discarded.incrementAndGet();
             } else if (result == 1L) {
@@ -121,7 +128,7 @@ final class OptimisticReaderReleaseStressTest {
         for (int spin = 0; spin < heldSpins; spin++) {
           Thread.onSpinWait();
         }
-        final FrameSlotAllocator.FrameSlot reissued = allocator.allocateSlot(SLOT_BYTES);
+        final FrameSlotAllocator.FrameSlot reissued = allocator.allocateSlot(slotBytes);
         assertTrue(reissued.slotIndex() < SLOTS, "a reissued slot is one of the " + SLOTS + " minted slots, was "
             + reissued.slotIndex() + " (MEM-105: a returned slot is re-charged before a fresh index is minted)");
         owned[reissued.slotIndex()] = reissued;
@@ -131,6 +138,8 @@ final class OptimisticReaderReleaseStressTest {
           Thread.onSpinWait();
         }
       }
+      assertTrue(MemPoolSeam.slotsReturned(allocator, classIdx) > returnedBefore,
+          "the worst-case churn actually returned slots to the OS");
     } finally {
       done.set(true);
       for (final Thread thread : threads) {
@@ -154,7 +163,7 @@ final class OptimisticReaderReleaseStressTest {
   private static void publish(final FrameSlotAllocator.FrameSlot slot) {
     final long pattern = mix(slot.versionAtAlloc());
     final MemorySegment segment = slot.segment();
-    for (int word = 1; word < WORDS; word++) {
+    for (int word = 1; word < segment.byteSize() / Long.BYTES; word++) {
       segment.set(ValueLayout.JAVA_LONG, (long) word * Long.BYTES, pattern);
     }
     WORD.setRelease(segment, 0L, pattern);
@@ -167,8 +176,9 @@ final class OptimisticReaderReleaseStressTest {
    *         validation), {@code 1} validated and every word is the owner's, {@code 2} validated but a
    *         word is not the owner's
    */
-  private static long readOnce(final FrameSlotAllocator allocator, final MemorySegment segment, final int index) {
-    final long version = allocator.acquireVersion(0, index);
+  private static long readOnce(final FrameSlotAllocator allocator, final MemorySegment segment,
+      final int classIdx, final int index) {
+    final long version = allocator.acquireVersion(classIdx, index);
     if ((version & 1L) != 0L) {
       return 0L;
     }
@@ -177,13 +187,13 @@ final class OptimisticReaderReleaseStressTest {
       return 0L;
     }
     boolean foreign = false;
-    for (int word = 1; word < WORDS; word++) {
+    for (int word = 1; word < segment.byteSize() / Long.BYTES; word++) {
       if (segment.get(ValueLayout.JAVA_LONG, (long) word * Long.BYTES) != expected) {
         foreign = true;
       }
     }
     VarHandle.acquireFence();
-    if (!allocator.validateVersion(0, index, version)) {
+    if (!allocator.validateVersion(classIdx, index, version)) {
       return 0L;
     }
     return foreign

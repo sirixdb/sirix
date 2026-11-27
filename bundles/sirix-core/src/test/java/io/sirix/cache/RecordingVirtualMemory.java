@@ -11,9 +11,9 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -24,26 +24,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * a release call.
  *
  * <p>
- * The chapter fixes behavior, not method names, so the fake is a dynamic proxy over whatever
- * {@link VirtualMemory} declares, and classifies calls by shape. It delegates every call to the
- * real backend of the platform, so the memory it hands out is real and a release really releases;
- * only the recording, the injected failures and the page size are the fake's own.
- *
- * <ul>
- * <li>{@code reserve(long)}: records the region. The first seven reservations are the seven size
- * classes, in class order. The fake aligns every region to {@value #REGION_ALIGNMENT} bytes, so a
- * granule-aligned run is aligned in absolute address whatever page size the test configures.</li>
- * <li>{@code commitFresh(MemorySegment)}, {@code populate(MemorySegment)}: recorded.</li>
- * <li>{@code release(MemorySegment)} on a whole region: shutdown. Every call after the last region
- * went back is counted in {@link #callsAfterRegionsReleased()}.</li>
- * <li>A no-argument method whose name contains {@code page} and {@code size} or {@code bytes}: the
- * OS page size; answered with {@link #osPageBytes()}.</li>
- * <li>Any other method whose first parameter is a {@link MemorySegment}: a <em>release run</em>
- * ({@link Kind#RELEASE_RUN}), or, when its name contains {@code recharge}, {@code reuse} or
- * {@code recommit}, <em>re-charge advice</em> ({@link Kind#RECHARGE}). A run is the segment itself
- * (a slice of one size class's region).</li>
- * <li>A new method of any other shape is delegated and recorded as {@link Kind#OTHER}.</li>
- * </ul>
+ * The proxy binds the exact operations in {@link MemPlatformSeam}'s contract table, together
+ * with {@code reserve(long)}, {@code commitFresh(MemorySegment)}, {@code populate(MemorySegment)}
+ * and {@code release(MemorySegment)}. The first seven reservations are the size classes in order;
+ * every region is aligned to {@value #REGION_ALIGNMENT} bytes. Calls delegate to real memory
+ * except for explicit failure, page-size and OS-effect controls.
  */
 final class RecordingVirtualMemory {
 
@@ -83,7 +68,7 @@ final class RecordingVirtualMemory {
   private final List<MemorySegment> regions = new CopyOnWriteArrayList<>();
   private final List<MemorySegment> regionBackings = new CopyOnWriteArrayList<>();
   private final AtomicInteger seq = new AtomicInteger();
-  private final AtomicInteger regionsReleased = new AtomicInteger();
+  private final List<AtomicBoolean> releasedRegions = new CopyOnWriteArrayList<>();
   private final AtomicInteger callsAfterRegionsReleased = new AtomicInteger();
   private final AtomicInteger failReleaseRuns = new AtomicInteger();
   private final AtomicInteger failRecharges = new AtomicInteger();
@@ -156,7 +141,7 @@ final class RecordingVirtualMemory {
     return regions.get(classIdx);
   }
 
-  /** Calls made after the last size-class region was given back. Must stay zero (MEM-107 d). */
+  /** Calls targeting a region whose release has begun. Must stay zero (MEM-107 d). */
   int callsAfterRegionsReleased() {
     return callsAfterRegionsReleased.get();
   }
@@ -234,7 +219,6 @@ final class RecordingVirtualMemory {
     @Override
     public Object invoke(final Object self, final Method method, final Object[] args) throws Throwable {
       final String name = method.getName();
-      final Class<?>[] types = method.getParameterTypes();
       if (method.getDeclaringClass() == Object.class) {
         return switch (name) {
           case "toString" -> "RecordingVirtualMemory[" + osPageBytes + "]";
@@ -243,27 +227,33 @@ final class RecordingVirtualMemory {
           default -> throw new UnsupportedOperationException(name);
         };
       }
-      if (types.length == 0 && isPageSizeQuery(name)) {
-        final Class<?> result = method.getReturnType();
-        return result == int.class
-            ? (Object) (int) osPageBytes
-            : (Object) osPageBytes;
+      if (name.equals(MemPlatformSeam.OS_PAGE_BYTES)) {
+        return osPageBytes;
       }
-      if (types.length == 1 && types[0] == long.class && name.equals("reserve")) {
+      if (name.equals("reserve")) {
         return reserve((long) args[0], method);
       }
-      if (types.length >= 1 && types[0] == MemorySegment.class) {
-        final MemorySegment segment = (MemorySegment) args[0];
-        return switch (name) {
-          case "commitFresh" -> record(method, args, Kind.COMMIT_FRESH, segment);
-          case "populate" -> record(method, args, Kind.POPULATE, segment);
-          case "release" -> releaseRegion(method, args, segment);
-          default -> isRechargeName(name)
-              ? recharge(method, args, segment)
-              : releaseRun(method, args, segment);
-        };
+      final MemorySegment segment = (MemorySegment) args[0];
+      requireLiveTarget(segment);
+      return switch (name) {
+        case "commitFresh" -> record(method, args, Kind.COMMIT_FRESH, segment);
+        case "populate" -> record(method, args, Kind.POPULATE, segment);
+        case "release" -> releaseRegion(method, args, segment);
+        case MemPlatformSeam.RELEASE_RUN -> releaseRun(method, args, segment);
+        case MemPlatformSeam.RECHARGE -> recharge(method, args, segment);
+        default -> throw new AssertionError("unexpected VirtualMemory operation: " + method);
+      };
+    }
+
+    private void requireLiveTarget(final MemorySegment target) {
+      for (int index = 0; index < regions.size(); index++) {
+        final MemorySegment region = regions.get(index);
+        if (target.address() < region.address() + region.byteSize()
+            && target.address() + target.byteSize() > region.address() && releasedRegions.get(index).get()) {
+          callsAfterRegionsReleased.incrementAndGet();
+          throw new AssertionError("VirtualMemory call targets released region " + index);
+        }
       }
-      return delegate(method, args);
     }
 
     private Object reserve(final long asked, final Method method) throws Throwable {
@@ -289,6 +279,7 @@ final class RecordingVirtualMemory {
         final long aligned = (address + REGION_ALIGNMENT - 1L) & -REGION_ALIGNMENT;
         region = backing.asSlice(aligned - address, bytes);
       }
+      releasedRegions.add(new AtomicBoolean());
       regionBackings.add(backing);
       regions.add(region);
       calls.add(
@@ -305,25 +296,18 @@ final class RecordingVirtualMemory {
       }
       calls.add(new Call(seq.getAndIncrement(), Kind.RELEASE_REGION, method.getName(), segment.address(),
           segment.byteSize(), index, 0, 0, false));
-      final Object result = delegate(method, new Object[] {regionBackings.get(index)});
-      regionsReleased.incrementAndGet();
-      return result;
+      releasedRegions.get(index).set(true);
+      return delegate(method, new Object[] {regionBackings.get(index)});
     }
 
     private Object record(final Method method, final Object[] args, final Kind kind, final MemorySegment segment)
         throws Throwable {
-      if (regionsReleased.get() >= regions.size() && !regions.isEmpty()) {
-        callsAfterRegionsReleased.incrementAndGet();
-      }
       calls.add(new Call(seq.getAndIncrement(), kind, method.getName(), segment.address(), segment.byteSize(), -1, -1,
           0, false));
       return delegate(method, args);
     }
 
     private Object releaseRun(final Method method, final Object[] args, final MemorySegment run) throws Throwable {
-      if (regionsReleased.get() >= regions.size() && !regions.isEmpty()) {
-        callsAfterRegionsReleased.incrementAndGet();
-      }
       final boolean fail = failReleaseRuns.getAndUpdate(n -> n > 0
           ? n - 1
           : 0) > 0;
@@ -333,12 +317,13 @@ final class RecordingVirtualMemory {
       if (current != null) {
         current.beforeRun(call);
       }
+      requireLiveTarget(run);
       if (fail) {
-        return failure(method, releaseFailure, "injected release failure");
+        return failure(releaseFailure, "injected release failure");
       }
       if (suppressOsEffect) {
         osEffectSuppressed.incrementAndGet();
-        return success(method);
+        return true;
       }
       return delegate(method, args);
     }
@@ -349,11 +334,11 @@ final class RecordingVirtualMemory {
           : 0) > 0;
       calls.add(locate(Kind.RECHARGE, method.getName(), run, fail));
       if (fail) {
-        return failure(method, rechargeFailure, "injected re-charge failure");
+        return failure(rechargeFailure, "injected re-charge failure");
       }
       if (suppressOsEffect) {
         osEffectSuppressed.incrementAndGet();
-        return success(method);
+        return true;
       }
       return delegate(method, args);
     }
@@ -372,45 +357,18 @@ final class RecordingVirtualMemory {
       return new Call(seq.getAndIncrement(), kind, name, address, run.byteSize(), -1, -1, 0, injected);
     }
 
-    private Object failure(final Method method, final Failure mode, final String message) {
+    private Object failure(final Failure mode, final String message) {
       if (mode == Failure.THROW) {
         throw new IllegalStateException(message);
       }
-      final Class<?> result = method.getReturnType();
-      if (result == boolean.class) {
-        return false;
-      }
-      if (result == int.class) {
-        return -1;
-      }
-      if (result == long.class) {
-        return -1L;
-      }
-      if (result == void.class) {
-        throw new IllegalStateException(message + " (the call returns void: it can only fail by throwing)");
-      }
-      return null;
-    }
-
-    private Object success(final Method method) {
-      final Class<?> result = method.getReturnType();
-      if (result == boolean.class) {
-        return true;
-      }
-      if (result == int.class) {
-        return 0;
-      }
-      if (result == long.class) {
-        return 0L;
-      }
-      return null;
+      return false;
     }
 
     private Object delegate(final Method method, final Object[] args) throws Throwable {
       if (unmapped) {
         return method.getName().equals("commitFresh") || method.getName().equals("populate")
             ? (Object) false
-            : success(method);
+            : true;
       }
       try {
         return method.invoke(real, args);
@@ -420,13 +378,4 @@ final class RecordingVirtualMemory {
     }
   }
 
-  private static boolean isPageSizeQuery(final String name) {
-    final String lower = name.toLowerCase(Locale.ROOT);
-    return lower.contains("page") && (lower.contains("size") || lower.contains("bytes"));
-  }
-
-  private static boolean isRechargeName(final String name) {
-    final String lower = name.toLowerCase(Locale.ROOT);
-    return lower.contains("recharge") || lower.contains("reuse") || lower.contains("recommit");
-  }
 }

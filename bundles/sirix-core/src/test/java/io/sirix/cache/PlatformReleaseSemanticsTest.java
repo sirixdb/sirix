@@ -90,12 +90,12 @@ final class PlatformReleaseSemanticsTest {
   void readAfterReleaseDoesNotFaultAndFollowsThePlatformContract() {
     assertTrue(MemPlatformSeam.releaseRun(vm, runA), "the release call reports success");
 
-    final long[] counts = classify(runA);
+    final long[] counts = classify(runA, PATTERN);
     assertEquals(0L, counts[2], "a released run reads zeros or the old pattern, never anything else");
     if (OS.isLinux()) {
       assertEquals(runA.byteSize() / Long.BYTES, counts[0], "Linux reads zeros after MADV_DONTNEED");
     }
-    assertEquals(runB.byteSize() / Long.BYTES, classify(runB)[1], "the neighbouring run keeps its contents");
+    assertEquals(runB.byteSize() / Long.BYTES, classify(runB, PATTERN)[1], "the neighbouring run keeps its contents");
   }
 
   @Test
@@ -116,11 +116,13 @@ final class PlatformReleaseSemanticsTest {
   @Test
   @DisplayName("MEM-104: released memory stays mapped, readable and writable for the allocator's lifetime")
   void releasedMemoryStaysAccessibleAcrossRepeatedReleases() {
+    long lastWritten = PATTERN;
     for (int round = 0; round < 4; round++) {
       assertTrue(MemPlatformSeam.releaseRun(vm, runA));
-      assertEquals(0L, classify(runA)[2], "round " + round + ": no foreign bytes");
-      fill(runA, PATTERN + round);
-      assertEquals(runA.byteSize() / Long.BYTES, count(runA, PATTERN + round), "round " + round + ": writable");
+      assertEquals(0L, classify(runA, lastWritten)[2], "round " + round + ": no foreign bytes");
+      lastWritten = PATTERN + round;
+      fill(runA, lastWritten);
+      assertEquals(runA.byteSize() / Long.BYTES, count(runA, lastWritten), "round " + round + ": writable");
     }
   }
 
@@ -187,13 +189,13 @@ final class PlatformReleaseSemanticsTest {
   }
 
   /** @return {zero words, old-pattern words, any other words} */
-  private static long[] classify(final MemorySegment segment) {
+  static long[] classify(final MemorySegment segment, final long lastWritten) {
     final long[] counts = new long[3];
     for (long offset = 0; offset < segment.byteSize(); offset += Long.BYTES) {
       final long word = segment.get(ValueLayout.JAVA_LONG, offset);
       counts[word == 0L
           ? 0
-          : word == PATTERN
+          : word == lastWritten
               ? 1
               : 2]++;
     }
