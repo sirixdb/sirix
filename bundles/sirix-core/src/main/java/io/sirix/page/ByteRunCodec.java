@@ -25,7 +25,7 @@ import java.util.Objects;
  * </ul>
  *
  * <h2>Wire format</h2>
- * 
+ *
  * <pre>
  *   byte    marker = 0xFE   // distinguishes V2 frames from V1 (0xFF)
  *   varint  uncompressedSize

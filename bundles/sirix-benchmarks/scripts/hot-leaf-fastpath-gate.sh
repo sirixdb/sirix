@@ -26,7 +26,8 @@ pairs=5
 
 build() { # <source tree> <destination jar>
   "$1/gradlew" -p "$1" --no-daemon --quiet :sirix-benchmarks:jmhJar
-  cp "$(ls "$1"/bundles/sirix-benchmarks/build/libs/*-jmh.jar | head -1)" "$2"
+  local jars=("$1"/bundles/sirix-benchmarks/build/libs/*-jmh.jar)
+  cp "${jars[0]}" "$2"
 }
 
 mkdir "$work/reference"

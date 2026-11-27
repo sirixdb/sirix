@@ -126,9 +126,10 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   /**
    * iter#08 — when {@code true}, the cursor stays positioned on the current valid entry without
    * materialising a new {@link Entry} record per advance. Callers use {@link #currentKeySlice()} /
-   * {@link #currentValueSlice()} / {@link #currentLeafPage()} + {@link #advance()} to walk entries
-   * zero-alloc. The standard {@link Iterator} API ({@link #hasNext}/{@link #next}) continues to work
-   * against the same positional state for callers that prefer it.
+   * {@link #currentValueSlice()} / {@link #currentLeafPage()} + {@link #advance()} to walk entries.
+   * Value materialization follows {@link #currentValueSlice()}'s representation contract. The
+   * standard {@link Iterator} API ({@link #hasNext}/{@link #next}) continues to work against the same
+   * positional state for callers that prefer it.
    */
   private boolean positionedValid = false;
 
@@ -426,9 +427,9 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   }
 
   /**
-   * iter#08 zero-alloc fast-path — advance past the current entry. Callers must have consumed the
-   * current entry (via {@link #currentKeySlice}, {@link #currentValueSlice}, {@link #currentLeafPage}
-   * + {@link #currentEntryIndex}, or {@link HOTLeafPage#decodeKey8BE}) BEFORE calling this. After it
+   * Advance past the current entry. Callers must have consumed the current entry (via
+   * {@link #currentKeySlice}, {@link #currentValueSlice}, {@link #currentLeafPage} +
+   * {@link #currentEntryIndex}, or {@link HOTLeafPage#decodeKey8BE}) BEFORE calling this. After it
    * returns, {@link #hasNext} reports whether a new valid entry is now positioned.
    *
    * <p>

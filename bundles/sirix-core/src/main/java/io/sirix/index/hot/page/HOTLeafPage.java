@@ -315,8 +315,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private MemorySegment slotMemory;
   private Runnable releaser;
   /**
-   * Per-entry packed offsets: MAX_ENTRIES long for every writable leaf. An immutable compact image
-   * owns exactly {@code entryCount} offsets; every copy restores full writable capacity.
+   * Per-entry offsets for ordinary slots: MAX_ENTRIES long for every writable leaf. An immutable
+   * compact mode-zero image owns exactly {@code entryCount} offsets; writable copies restore full
+   * capacity. Packed images keep their directory in {@link #packedBody} instead.
    */
   private final char[] slotOffsets;
   private int entryCount;
