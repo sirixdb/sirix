@@ -7,6 +7,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.access.json.LocalJsonDatabaseFactory;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -28,6 +29,7 @@ import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.utils.SirixFiles;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -62,6 +64,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.RETURNS_DEFAULTS;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -90,7 +95,8 @@ final class DirectoryEntryDurabilityTest {
 
   @BeforeEach
   void setUp() throws IOException {
-    root = Files.createDirectories(temp.resolve("fs"));
+    // Database admission resolves symlinks (notably /var on macOS); Encryptor compares paths.
+    root = Files.createDirectories(temp.resolve("fs")).toRealPath();
     links = temp.resolve("links");
     crashed = temp.resolve("crashed");
     assumeTrue(DirectoryCrashModel.supported(root), "the crash model needs file keys (not available on Windows)");
@@ -311,12 +317,18 @@ final class DirectoryEntryDurabilityTest {
     final Path resources = database.resolve("resources");
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(database);
         final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
+      final long resourceId;
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+        resourceId = db.getResourceID(RESOURCE);
+        assertEquals(DOCUMENT, serialize(session, 1));
+      }
       try (final MockedStatic<FileChannel> ignored = refuseDirectoryOpen(resources)) {
         assertThrows(SirixIOException.class, () -> db.removeResource(RESOURCE));
       }
       assertFalse(Files.exists(resources.resolve(RESOURCE)), "the rename precedes its failed barrier");
       db.removeResource(RESOURCE);
       assertThrows(SirixUsageException.class, () -> db.getResourceID(RESOURCE));
+      assertEquals(null, db.getResourceName(resourceId), "removal must drop both directions of the name/ID mapping");
       model.materialize(crashed);
     }
     reopenCold();
@@ -324,6 +336,83 @@ final class DirectoryEntryDurabilityTest {
       assertFalse(db.existsResource(RESOURCE), "the successful retry must not resurrect the resource");
       assertTrue(db.listResources().isEmpty());
       assertTrue(db.createResource(resource(storageType)));
+    }
+  }
+
+  /**
+   * TXN-613/616: restoring a clean backup at a removed path must not inherit recovery obligations
+   * from a failed creation or removal. A clean writer needs no recovery truncation; a filesystem
+   * refusing truncation therefore still admits it, and its restored document remains readable.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void restoredBackupDoesNotInheritRemovedRecoveryObligations(final boolean failedCreation) throws IOException {
+    final Path database = root.resolve("db");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
+    final Path empty = temp.resolve("empty-backup");
+    BackupManager.backupDatabase(database, empty);
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(database)) {
+      assertTrue(db.createResource(resource(StorageType.FILE_CHANNEL)));
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOCUMENT), JsonNodeTrx.Commit.NO);
+        trx.commit();
+      }
+    }
+    final Path healthy = temp.resolve("healthy-backup");
+    BackupManager.backupDatabase(database, healthy);
+    final Path resources = database.resolve("resources");
+    if (failedCreation) {
+      Databases.removeDatabase(database);
+      BackupManager.restoreDatabase(empty, database);
+      final AtomicBoolean failed = new AtomicBoolean();
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(database);
+          final MockedStatic<FileChannel> channels = mockStatic(FileChannel.class, invocation -> {
+            final FileChannel channel = (FileChannel) invocation.callRealMethod();
+            final Path path = invocation.getArgument(0);
+            if (!path.equals(resources.resolve(RESOURCE).resolve("data/sirix.data"))) {
+              return channel;
+            }
+            return mock(FileChannel.class, call -> {
+              if (call.getMethod().getName().equals("force") && failed.compareAndSet(false, true)) {
+                throw new IOException("bootstrap data force refused");
+              }
+              return delegatesTo(channel).answer(call);
+            });
+          })) {
+        final ResourceConfiguration config = resource(StorageType.FILE_CHANNEL);
+        assertThrows(SirixIOException.class, () -> db.createResource(config));
+        assertTrue(failed.get(), "the bootstrap must reach the injected data force");
+        assertFalse(db.existsResource(RESOURCE));
+      }
+    } else {
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(database)) {
+        try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+          ((AbstractResourceSession<?, ?>) session).requireCommitRecovery();
+        }
+        try (final MockedStatic<FileChannel> channels = refuseDirectoryOpen(resources)) {
+          assertThrows(SirixIOException.class, () -> db.removeResource(RESOURCE));
+        }
+        db.removeResource(RESOURCE);
+      }
+    }
+    Databases.removeDatabase(database);
+    BackupManager.restoreDatabase(healthy, database);
+    try (final MockedStatic<FileChannel> channels = mockStatic(FileChannel.class, invocation -> {
+      final FileChannel channel = (FileChannel) invocation.callRealMethod();
+      return mock(FileChannel.class, call -> {
+        if (call.getMethod().getName().equals("truncate")) {
+          throw new IOException("clean restored storage must not need recovery truncation");
+        }
+        return delegatesTo(channel).answer(call);
+      });
+    });
+        final Database<JsonResourceSession> db = Databases.openJsonDatabase(database);
+        final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
+      assertEquals(DOCUMENT, serialize(session, 1));
+      try (final JsonNodeTrx trx = session.beginNodeTrx()) {
+        assertEquals(2, trx.getRevisionNumber());
+      }
     }
   }
 
@@ -404,6 +493,40 @@ final class DirectoryEntryDurabilityTest {
     }
   }
 
+  /** TXN-615/616: losing the public name does not discharge a retained tombstone's cleanup. */
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void inMemoryCloseRetainsFailedTombstonePublicationForReopen(final boolean alreadyRemoved) throws IOException {
+    final Path database = root.resolve("db");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
+    final Path resources = database.resolve("resources");
+    final Database<JsonResourceSession> db = Databases.openJsonDatabase(database);
+    assertTrue(db.createResource(resource(StorageType.IN_MEMORY)));
+    try {
+      try (final MockedStatic<FileChannel> channels = refuseDirectoryOpen(resources)) {
+        final SirixIOException failure = assertThrows(SirixIOException.class, db::close);
+        assertTrue(failure.getMessage().contains("$retired-"), "close must report the retained tombstone");
+        assertFalse(Files.exists(resources.resolve(RESOURCE)));
+        try (final Stream<Path> entries = Files.list(resources)) {
+          assertEquals(1, entries.count(), "a failed barrier must retain the complete tombstone");
+        }
+      }
+      if (alreadyRemoved) {
+        SirixFiles.recursiveRemove(resources);
+        assertFalse(Files.exists(resources), "a completed external cleanup leaves no directory to force");
+      }
+    } finally {
+      db.close();
+    }
+    if (alreadyRemoved) {
+      Files.createDirectory(resources);
+    }
+    try (final Database<JsonResourceSession> reopened = Databases.openJsonDatabase(database)) {
+      assertTrue(reopened.listResources().isEmpty());
+      assertTrue(reopened.createResource(resource(StorageType.IN_MEMORY)));
+    }
+  }
+
   static Stream<Arguments> failedCreationCases() {
     final List<Arguments> cases = new ArrayList<>();
     for (final StorageType storage : new StorageType[] {StorageType.FILE_CHANNEL, StorageType.MEMORY_MAPPED}) {
@@ -415,6 +538,34 @@ final class DirectoryEntryDurabilityTest {
       }
     }
     return cases.stream();
+  }
+
+  /** TXN-616: failed admission must close the already-open database-owned session before removal. */
+  @Test
+  @SuppressWarnings("unchecked")
+  void failedUserStoreAdmissionClosesTheBootstrapSession() {
+    final Path database = root.resolve("db");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
+    final LocalJsonDatabaseFactory factory =
+        new LocalJsonDatabaseFactory(new WriteLocksRegistry(), new PathBasedPool<>());
+    try (final Database<JsonResourceSession> db = factory.createDatabase(DatabaseConfiguration.deserialize(database),
+        new User("durability", UUID.randomUUID()))) {
+      final AtomicReference<JsonResourceSession> opened = new AtomicReference<>();
+      final IllegalStateException refusal = new IllegalStateException("user-store admission refused");
+      final ResourceStore<JsonResourceSession> userStore = mock(ResourceStore.class, invocation -> {
+        if (invocation.getMethod().getName().equals("beginResourceSession")) {
+          opened.set(db.beginResourceSession(RESOURCE));
+          throw refusal;
+        }
+        return RETURNS_DEFAULTS.answer(invocation);
+      });
+      final ResourceConfiguration config = resource(StorageType.FILE_CHANNEL);
+      final LocalDatabase<?, ?> local = (LocalDatabase<?, ?>) db;
+      assertSame(refusal, assertThrows(IllegalStateException.class, () -> local.createResource(config, userStore)));
+      assertTrue(opened.get().isClosed(), "rollback must close the database-owned session before retiring its files");
+      assertFalse(db.existsResource(RESOURCE));
+      assertFalse(Files.exists(database.resolve("resources").resolve(RESOURCE)));
+    }
   }
 
   @ParameterizedTest
@@ -598,6 +749,26 @@ final class DirectoryEntryDurabilityTest {
     final Path restored = temp.resolve("restored");
     BackupManager.restoreDatabase(crashed.resolve("backup"), restored);
     assertCommittedDocument(restored);
+  }
+
+  /** TXN-616: an empty database still needs its resources directory after backup and restore. */
+  @Test
+  void emptyBackupSurvivesACrashAndAcceptsItsFirstResource() throws IOException {
+    final Path database = root.resolve("db");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
+    final Path backup = root.resolve("backup");
+    try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
+      model.governContents(path -> path.startsWith("backup"));
+      BackupManager.backupDatabase(database, backup);
+      model.materialize(crashed);
+    }
+    reopenCold();
+    final Path restored = temp.resolve("restored");
+    BackupManager.restoreDatabase(crashed.resolve("backup"), restored);
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(restored)) {
+      assertTrue(db.listResources().isEmpty());
+      assertTrue(db.createResource(resource(StorageType.FILE_CHANNEL)));
+    }
   }
 
   @ParameterizedTest

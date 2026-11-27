@@ -185,6 +185,37 @@ final class DurableFilesTest {
     assertTrue(Files.isDirectory(temp.resolve("crashed/existing")));
   }
 
+  /** TXN-616: rollback errors must not replace the directory barrier's original failure. */
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void failedCreationRetainsBothBarrierAndCleanupFailures(final boolean directory) {
+    final Path entry = temp.resolve("entry");
+    final IOException barrierFailure = new IOException("directory force refused");
+    final IOException cleanupFailure = new IOException("entry deletion refused");
+    try (final MockedStatic<FileChannel> channels = mockStatic(FileChannel.class, invocation -> {
+      if (invocation.getMethod().getName().equals("open") && temp.equals(invocation.getArgument(0))) {
+        throw barrierFailure;
+      }
+      return invocation.callRealMethod();
+    }); final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {
+      if (invocation.getMethod().getName().equals("delete") && entry.equals(invocation.getArgument(0))) {
+        throw cleanupFailure;
+      }
+      return invocation.callRealMethod();
+    })) {
+      final SirixIOException failure = assertThrows(SirixIOException.class, () -> {
+        if (directory) {
+          DurableFiles.createDirectories(entry);
+        } else {
+          DurableFiles.createFile(entry);
+        }
+      });
+      assertEquals(barrierFailure, failure.getCause());
+      assertEquals(List.of(cleanupFailure), List.of(failure.getSuppressed()));
+      assertTrue(Files.exists(entry), "the refused cleanup leaves the entry for a later attempt");
+    }
+  }
+
   @Test
   void forceFileForcesAnExistingFileAndNamesAMissingOne() throws IOException {
     DurableFiles.forceFile(Files.writeString(temp.resolve("file"), "bytes", StandardCharsets.UTF_8));

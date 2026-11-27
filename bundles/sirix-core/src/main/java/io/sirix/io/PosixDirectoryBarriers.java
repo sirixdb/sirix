@@ -3,8 +3,6 @@
  */
 package io.sirix.io;
 
-import io.sirix.exception.SirixIOException;
-
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.FileAlreadyExistsException;

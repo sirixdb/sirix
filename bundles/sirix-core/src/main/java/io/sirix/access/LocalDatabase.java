@@ -493,7 +493,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // A leftover of a former IN_MEMORY resource holds nothing: retry its removal (TXN-615 clause 7).
     final String name = path.getFileName().toString();
-    if (hiddenInMemoryLeftovers.contains(name) && path.equals(retireInMemoryResource(path, name))) {
+    if (hiddenInMemoryLeftovers.contains(name) && retireInMemoryResource(path, name) != null) {
       return false;
     }
 
@@ -519,7 +519,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         resourceConfig.setID(resourceID.getAndIncrement());
         dbConfig.setMaximumResourceID(resourceID.get());
         ResourceConfiguration.serialize(resourceConfig);
-        biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
         // The settings and folder names must be durable before revision 0 commits into the resource;
         // the resource's own name becomes durable last, once it is complete (TXN-616).
@@ -544,6 +543,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   private void removeFailedResourceCreation(final Path path) {
+    // User-store admission can fail after the database session opens, before bootstrap owns it.
     final T shared = resourceStore.getOpenResourceSession(path);
     if (shared != null) {
       shared.close();
@@ -804,7 +804,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * hidden from this instance. Retirement renames it to {@code $retired-<uuid>}, independently of the
    * original name length.
    *
-   * @return the original directory or tombstone that remains, or {@code null} if neither remains
+   * @return the original directory if it could not be renamed, or {@code null} once its public name
+   *         is absent; any retained tombstone is tracked in {@code pendingCleanup}
    */
   private @Nullable Path retireInMemoryResource(final Path resourceFile, final String name) {
     rememberCleanup(resourceFile);
@@ -826,7 +827,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // recursive delete could empty the directory and then fail to remove it, leaving an unprovable
     // leftover that TXN-615 clause 6 would have to treat as persistent.
     final Path remaining = retireDirectory(resourceFile);
-    if (!resourceFile.equals(remaining)) {
+    if (remaining == null) {
       hiddenInMemoryLeftovers.remove(name);
     } else {
       hiddenInMemoryLeftovers.add(name);
@@ -861,9 +862,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
     pendingCleanup.remove(resourceFile);
     removeTombstones(List.of(tombstone));
-    return Files.notExists(tombstone)
-        ? null
-        : tombstone;
+    // Only the original name can block recreation or retain a derived resource's source proof.
+    // removeTombstones retains failed cleanup in pendingCleanup for close and reopen to report.
+    return null;
   }
 
   private void discardInMemoryResourceState(final Path resourceFile) {
@@ -975,7 +976,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * settings are the proof that they are in-memory state, so a source stays on disk (hidden) while
    * its derived resource could not be removed.
    *
-   * @return a failure naming every directory that could not be removed, or {@code null}
+   * @return a scan or original-name retirement failure; tombstones remain in {@code pendingCleanup}
    */
   private synchronized @Nullable SirixIOException retireInMemoryResources() {
     final Path resources = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
@@ -1031,7 +1032,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   /**
-   * Retire the derived resources first, adding what remains to {@code remaining}.
+   * Retire the derived resources first, adding original names that remain to {@code remaining}.
    *
    * @return the names of the sources whose settings must stay on disk as proof for a derived resource
    *         that could not leave its name
@@ -1043,9 +1044,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       final Path leftover = retireInMemoryResource(resource, name);
       if (leftover != null) {
         remaining.add(leftover);
-        if (leftover.equals(resource)) {
-          keptSources.add(name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length()));
-        }
+        keptSources.add(name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length()));
       }
     }
     return keptSources;

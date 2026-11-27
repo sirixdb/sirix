@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.Objects.requireNonNull;
 
@@ -78,7 +79,7 @@ public final class DurableFiles {
       ? new WindowsDirectoryBarriers(Kernel32Calls.Native.KERNEL32)
       : PosixDirectoryBarriers.INSTANCE;
 
-  private static volatile @Nullable BarrierObserver observer;
+  private static final AtomicReference<@Nullable BarrierObserver> OBSERVER = new AtomicReference<>();
 
   private DurableFiles() {
     throw new AssertionError("static utility");
@@ -93,9 +94,8 @@ public final class DurableFiles {
    */
   public static Observation observeBarriers(final BarrierObserver barrierObserver) {
     requireNonNull(barrierObserver, "barrierObserver");
-    final BarrierObserver previous = observer;
-    observer = barrierObserver;
-    return () -> observer = previous;
+    final BarrierObserver previous = OBSERVER.getAndSet(barrierObserver);
+    return () -> OBSERVER.set(previous);
   }
 
   /**
@@ -129,7 +129,7 @@ public final class DurableFiles {
     } catch (final IOException e) {
       throw new SirixIOException("Cannot make the contents of " + file + " durable", e);
     }
-    final BarrierObserver current = observer;
+    final BarrierObserver current = OBSERVER.get();
     if (current != null) {
       current.afterForce(file);
     }
@@ -239,7 +239,7 @@ public final class DurableFiles {
   }
 
   private static void notifyBarrier(final Path directory) {
-    final BarrierObserver current = observer;
+    final BarrierObserver current = OBSERVER.get();
     if (current != null) {
       current.afterBarrier(directory);
     }
