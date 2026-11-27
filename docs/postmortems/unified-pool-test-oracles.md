@@ -21,3 +21,37 @@ the synchronization itself from hiding an unmap that happened while the transfer
 
 Vision check: these changes protect the specified bytes, reader safety and counted allocation cost;
 they add no runtime behavior, persisted setting or default and preserve the independent test contract.
+
+
+## Follow-up: simulated geometry, shutdown and initial pool capacity
+
+- Fix / issue: Follow-up review R9–R11; the R2 scratch-lease gauges, R3 pre-close retention snapshots
+  and R6 per-region lifetime checks were already present and remain intact.
+- Symptom: The fake could fail valid simulated-page releases on a host with larger pages; a shutdown
+  that spins while draining transfers could deadlock the harness; a pool with prepaid slabs or metadata
+  could fail the refused-reservation test despite obeying MEM-301.
+- Trigger: Release a 16 KiB run at a 16 KiB offset on a 64 KiB-page host; pause a transfer and wait
+  for a spinning shutdown to stop being RUNNABLE; exhaust frame budget then request an available warm
+  pool slot while assuming its reservation must fail.
+- Root cause: R9 mixed simulated geometry with host primitives. R10 used scheduler state as a
+  synchronization contract and rejected the allocator's permitted transient refusal. R11 confused
+  construction with an empty account and warm capacity with a new reservation.
+- Why tests missed it: Planned allocator and compact-pool APIs are absent from the baseline, and the
+  existing oracle regressions did not execute release/recharge simulation or these planned interleavings.
+- Regression tests: `MemTestOracleRegressionTest.simulatedPrimitivesPreserveBytesAndHonorInjectedFailures`
+  executes the recording invocation boundary for the fixed release/recharge contract with 16/64 KiB
+  geometry, patterned real memory, returned and thrown failures, and stale targets. A test-local interface
+  supplies those fixed method descriptors while the baseline VirtualMemory interface lacks them; it
+  supplies no alternate production binding. `FrameReleaseFailureTest` now bounds its gate and joins,
+  always opens the gate after shutdown starts, accepts an overlapping refusal, and retries after the
+  transfer finishes. `CompactImageAccountTest.refusedReservationMakesThePoolRefuseTheLease` holds all
+  admitted warm leases until refusal, compares against pre-request snapshots, and frees both frame
+  owners and warm leases before checking readmission. These last two acceptance scenarios remain planned
+  until their implementation lands; no runtime conformance result for them is claimed.
+- Lesson: Simulated geometry must have simulated effects; use protocol events rather than scheduler
+  states for race coordination; exhaust warm capacity before attributing refusal to a new reservation.
+
+The shared fake has one release/recharge mode: success without touching bytes, or an injected failure.
+The unused OS-effect toggle and counter are removed. Real OS effects remain the responsibility of
+`PlatformReleaseSemanticsTest` and `OptimisticReaderReleaseStressTest`, which use the real backend.
+The existing clean allocation fork and exact reflective contracts are unchanged.

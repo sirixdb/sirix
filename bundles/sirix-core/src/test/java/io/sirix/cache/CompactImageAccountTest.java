@@ -155,33 +155,47 @@ final class CompactImageAccountTest {
   @DisplayName("MEM-301: a refused reservation makes the pool refuse the lease and leaves the account untouched")
   void refusedReservationMakesThePoolRefuseTheLease() {
     final long unit = MemCompactSeam.slabUnitBytes();
+    final long leaseBytes = unit / 4;
     final FrameSlotAllocator allocator = newAllocator(unit);
     final MemCompactSeam.Pool pool = MemCompactSeam.create(allocator, SHARE_UNITS * unit);
     final List<FrameSlotAllocator.FrameSlot> held = new ArrayList<>();
+    final List<Object> warmLeases = new ArrayList<>();
     try {
-      // Owned frames (nothing a transfer can claim) take the whole frame limit.
       FrameSlotAllocator.FrameSlot frame;
       while ((frame = allocator.allocateSlot(FrameSlotAllocator.SIZE_CLASSES[LARGEST_CLASS])) != null) {
         held.add(frame);
       }
-      final long committed = allocator.getPhysicalMemoryBytes();
-      assertFalse(held.isEmpty(), "the fixture must fill the budget with owned frames");
-      assertNull(pool.lease(unit / 4), "MEM-301 a refused reservation makes the pool refuse the lease");
-      assertEquals(0L, pool.slabBytes(), "no slab is mapped for a refused reservation");
-      assertEquals(0L, pool.accountBytes(), "a refused lease leaves the account untouched");
-      assertEquals(committed, allocator.getPhysicalMemoryBytes(), "a refused lease charges nothing");
+      assertFalse(held.isEmpty(), "the fixture must fill the remaining budget with owned frames");
+      Object next = null;
+      for (int attempt = 0; attempt <= SHARE_UNITS * 4; attempt++) {
+        final long slabsBefore = pool.slabBytes();
+        final long accountBefore = pool.accountBytes();
+        final long committedBefore = allocator.getPhysicalMemoryBytes();
+        next = pool.lease(leaseBytes);
+        if (next == null) {
+          assertEquals(slabsBefore, pool.slabBytes(), "no slab is mapped for a refused reservation");
+          assertEquals(accountBefore, pool.accountBytes(), "a refused lease leaves the account untouched");
+          assertEquals(committedBefore, allocator.getPhysicalMemoryBytes(), "a refused lease charges nothing");
+          break;
+        }
+        warmLeases.add(next);
+        assertAccount(allocator, pool, unit, "exhausting available pool capacity");
+      }
+      assertNull(next, "MEM-301 after warm capacity is exhausted the pool refuses a lease needing growth");
       assertAccount(allocator, pool, unit, "a refused lease");
 
-      // Once the frames are recycled, the same request is admitted: the budget moved (MEM-103).
       held.forEach(FrameSlotAllocator.FrameSlot::close);
       held.clear();
-      final Object lease = pool.lease(unit / 4);
-      assertNotNull(lease, "MEM-301 the lease is admitted once the reservation can be served");
-      assertTrue(pool.slabBytes() > 0, "the admitted lease mapped a slab");
+      warmLeases.forEach(lease -> closeLeaseKeepingSlabs(allocator, pool, lease));
+      warmLeases.clear();
+      final Object lease = pool.lease(leaseBytes);
+      assertNotNull(lease, "MEM-301 the lease is admitted once capacity and budget are available");
+      assertTrue(pool.slabBytes() > 0, "the admitted lease has a mapped slab");
       assertAccount(allocator, pool, unit, "the admitted lease");
       closeLeaseKeepingSlabs(allocator, pool, lease);
     } finally {
       held.forEach(FrameSlotAllocator.FrameSlot::close);
+      warmLeases.forEach(lease -> closeLeaseKeepingSlabs(allocator, pool, lease));
       pool.shutdown();
       quiesce(allocator);
       allocator.shutdown();

@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -167,7 +168,7 @@ final class FrameReleaseFailureTest {
     fixture.vm.observeRuns(run -> {
       releaseEntered.countDown();
       try {
-        finishRelease.await();
+        assertTrue(finishRelease.await(10, TimeUnit.SECONDS), "the release gate opens");
       } catch (final InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new AssertionError(e);
@@ -188,24 +189,25 @@ final class FrameReleaseFailureTest {
       shutdownStarted.countDown();
       try {
         allocator.shutdown();
+      } catch (final IllegalStateException inFlight) {
+        return;
       } catch (final Throwable failure) {
         unexpected.add(failure);
       }
     }, "mem-107-shutdown");
+    transfer.setDaemon(true);
+    shutdown.setDaemon(true);
     try {
       transfer.start();
       assertTrue(releaseEntered.await(10, TimeUnit.SECONDS), "a transfer is inside a release call");
       shutdown.start();
-      shutdownStarted.await();
-      while (shutdown.getState() == Thread.State.RUNNABLE && !Thread.currentThread().isInterrupted()) {
-        Thread.yield();
-      }
+      assertTrue(shutdownStarted.await(10, TimeUnit.SECONDS), "shutdown attempts to overlap the gated transfer");
     } finally {
       finishRelease.countDown();
-      transfer.join();
-      if (shutdown.getState() != Thread.State.NEW) {
-        shutdown.join();
-      }
+      transfer.join(10_000L);
+      shutdown.join(10_000L);
+      assertFalse(transfer.isAlive(), "the transfer finishes once the release gate opens");
+      assertFalse(shutdown.isAlive(), "the overlapping shutdown attempt finishes");
       allocator.shutdown();
     }
 

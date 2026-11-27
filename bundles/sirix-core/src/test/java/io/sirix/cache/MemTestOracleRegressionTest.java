@@ -3,6 +3,7 @@
  */
 package io.sirix.cache;
 
+import io.sirix.cache.RecordingVirtualMemory.Failure;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -11,11 +12,16 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class MemTestOracleRegressionTest {
 
@@ -51,5 +57,56 @@ final class MemTestOracleRegressionTest {
     assertDoesNotThrow(() -> vm.populate(second.asSlice(0L, 4096L)));
     vm.release(second);
     assertEquals(3, recording.callsAfterRegionsReleased());
+  }
+
+  @ParameterizedTest
+  @ValueSource(longs = {16384L, 65536L})
+  @DisplayName("MEM-104 recording boundary simulates release and recharge for its reported page geometry")
+  void simulatedPrimitivesPreserveBytesAndHonorInjectedFailures(final long pageBytes) throws Throwable {
+    final RecordingVirtualMemory recording = RecordingVirtualMemory.withOsPageBytes(pageBytes);
+    final VirtualMemory vm = recording.virtualMemory();
+    final MemorySegment region = vm.reserve(3L * pageBytes);
+    final MemorySegment run = region.asSlice(pageBytes, pageBytes);
+    final byte[] expected = new byte[(int) pageBytes];
+    Arrays.fill(expected, (byte) 0x5A);
+    try {
+      vm.commitFresh(region);
+      run.copyFrom(MemorySegment.ofArray(expected));
+      assertTrue(invokePrimitive(recording, MemPlatformSeam.RELEASE_RUN, run));
+      assertTrue(invokePrimitive(recording, MemPlatformSeam.RECHARGE, run));
+      assertArrayEquals(expected, run.toArray(ValueLayout.JAVA_BYTE), "simulated OS calls touch no bytes");
+      for (final Failure mode : Failure.values()) {
+        recording.failNextReleaseRuns(1, mode);
+        recording.failNextRecharges(1, mode);
+        if (mode == Failure.RETURN_FAILURE) {
+          assertFalse(invokePrimitive(recording, MemPlatformSeam.RELEASE_RUN, run));
+          assertFalse(invokePrimitive(recording, MemPlatformSeam.RECHARGE, run));
+        } else {
+          assertThrows(IllegalStateException.class,
+              () -> invokePrimitive(recording, MemPlatformSeam.RELEASE_RUN, run));
+          assertThrows(IllegalStateException.class,
+              () -> invokePrimitive(recording, MemPlatformSeam.RECHARGE, run));
+        }
+        assertArrayEquals(expected, run.toArray(ValueLayout.JAVA_BYTE), "injected failures touch no bytes");
+      }
+    } finally {
+      vm.release(region);
+    }
+    assertThrows(AssertionError.class, () -> invokePrimitive(recording, MemPlatformSeam.RELEASE_RUN, run));
+    assertThrows(AssertionError.class, () -> invokePrimitive(recording, MemPlatformSeam.RECHARGE, run));
+    assertEquals(2, recording.callsAfterRegionsReleased());
+  }
+
+  private static boolean invokePrimitive(final RecordingVirtualMemory recording, final String operation,
+      final MemorySegment run) throws Throwable {
+    final Method method = ReleasePrimitives.class.getMethod(operation, MemorySegment.class);
+    return (boolean) Proxy.getInvocationHandler(recording.virtualMemory())
+                          .invoke(recording.virtualMemory(), method, new Object[] {run});
+  }
+
+  private interface ReleasePrimitives {
+    boolean releaseRun(MemorySegment run);
+
+    boolean recharge(MemorySegment run);
   }
 }

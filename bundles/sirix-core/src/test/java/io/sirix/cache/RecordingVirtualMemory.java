@@ -15,7 +15,6 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The recording {@link VirtualMemory} fake of the MEM chapter's step-1 tests (MEM-101, MEM-102,
@@ -27,8 +26,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * The proxy binds the exact operations in {@link MemPlatformSeam}'s contract table, together
  * with {@code reserve(long)}, {@code commitFresh(MemorySegment)}, {@code populate(MemorySegment)}
  * and {@code release(MemorySegment)}. The first seven reservations are the size classes in order;
- * every region is aligned to {@value #REGION_ALIGNMENT} bytes. Calls delegate to real memory
- * except for explicit failure, page-size and OS-effect controls.
+ * every region is aligned to {@value #REGION_ALIGNMENT} bytes. Reservations, fresh commitments,
+ * population and whole-region releases delegate to real memory unless mapping is disabled. Run
+ * release and re-charge report success without touching memory, except for injected failures.
  */
 final class RecordingVirtualMemory {
 
@@ -42,7 +42,7 @@ final class RecordingVirtualMemory {
 
   /** How an injected failure shows. */
   enum Failure {
-    /** The call returns its failure value: {@code false}, or {@code -1} for a numeric result. */
+    /** The call returns {@code false}. */
     RETURN_FAILURE,
     /** The call throws a {@link RuntimeException}. */
     THROW
@@ -72,11 +72,9 @@ final class RecordingVirtualMemory {
   private final AtomicInteger callsAfterRegionsReleased = new AtomicInteger();
   private final AtomicInteger failReleaseRuns = new AtomicInteger();
   private final AtomicInteger failRecharges = new AtomicInteger();
-  private final AtomicLong osEffectSuppressed = new AtomicLong();
   private volatile Failure releaseFailure = Failure.RETURN_FAILURE;
   private volatile Failure rechargeFailure = Failure.RETURN_FAILURE;
   private volatile RunObserver observer;
-  private volatile boolean suppressOsEffect;
   private volatile boolean unmapped;
   private volatile int refuseReserveAt = -1;
   private final Map<Integer, Long> capSlots = new HashMap<>();
@@ -202,19 +200,6 @@ final class RecordingVirtualMemory {
     this.observer = runObserver;
   }
 
-  /**
-   * Do not forward release runs to the OS: the fake reports success and the memory keeps its
-   * contents. For tests that assert the allocator's protocol, not the OS's behavior.
-   */
-  void suppressOsEffect(final boolean suppress) {
-    this.suppressOsEffect = suppress;
-  }
-
-  /** Release runs and re-charge advice whose OS effect was suppressed. */
-  long suppressedOsEffects() {
-    return osEffectSuppressed.get();
-  }
-
   private final class Handler implements InvocationHandler {
     @Override
     public Object invoke(final Object self, final Method method, final Object[] args) throws Throwable {
@@ -239,8 +224,8 @@ final class RecordingVirtualMemory {
         case "commitFresh" -> record(method, args, Kind.COMMIT_FRESH, segment);
         case "populate" -> record(method, args, Kind.POPULATE, segment);
         case "release" -> releaseRegion(method, args, segment);
-        case MemPlatformSeam.RELEASE_RUN -> releaseRun(method, args, segment);
-        case MemPlatformSeam.RECHARGE -> recharge(method, args, segment);
+        case MemPlatformSeam.RELEASE_RUN -> releaseRun(method, segment);
+        case MemPlatformSeam.RECHARGE -> recharge(method, segment);
         default -> throw new AssertionError("unexpected VirtualMemory operation: " + method);
       };
     }
@@ -307,7 +292,7 @@ final class RecordingVirtualMemory {
       return delegate(method, args);
     }
 
-    private Object releaseRun(final Method method, final Object[] args, final MemorySegment run) throws Throwable {
+    private Object releaseRun(final Method method, final MemorySegment run) {
       final boolean fail = failReleaseRuns.getAndUpdate(n -> n > 0
           ? n - 1
           : 0) > 0;
@@ -321,14 +306,10 @@ final class RecordingVirtualMemory {
       if (fail) {
         return failure(releaseFailure, "injected release failure");
       }
-      if (suppressOsEffect) {
-        osEffectSuppressed.incrementAndGet();
-        return true;
-      }
-      return delegate(method, args);
+      return true;
     }
 
-    private Object recharge(final Method method, final Object[] args, final MemorySegment run) throws Throwable {
+    private Object recharge(final Method method, final MemorySegment run) {
       final boolean fail = failRecharges.getAndUpdate(n -> n > 0
           ? n - 1
           : 0) > 0;
@@ -336,11 +317,7 @@ final class RecordingVirtualMemory {
       if (fail) {
         return failure(rechargeFailure, "injected re-charge failure");
       }
-      if (suppressOsEffect) {
-        osEffectSuppressed.incrementAndGet();
-        return true;
-      }
-      return delegate(method, args);
+      return true;
     }
 
     private Call locate(final Kind kind, final String name, final MemorySegment run, final boolean injected) {
