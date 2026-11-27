@@ -1,6 +1,7 @@
 package io.sirix.access;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
@@ -424,7 +425,7 @@ final class IncarnationIdConformanceTest {
   static Stream<Arguments> malformedMembers() {
     return Stream.of(Arguments.of("number", new JsonPrimitive(1234567890123L)),
         Arguments.of("zero as a number", new JsonPrimitive(0)), Arguments.of("boolean", new JsonPrimitive(true)),
-        Arguments.of("null", com.google.gson.JsonNull.INSTANCE), Arguments.of("empty string", new JsonPrimitive("")),
+        Arguments.of("null", JsonNull.INSTANCE), Arguments.of("empty string", new JsonPrimitive("")),
         Arguments.of("15 digits", new JsonPrimitive("0123456789abcde")),
         Arguments.of("17 digits", new JsonPrimitive("0123456789abcdef0")),
         Arguments.of("uppercase hex", new JsonPrimitive("0123456789ABCDEF")),
