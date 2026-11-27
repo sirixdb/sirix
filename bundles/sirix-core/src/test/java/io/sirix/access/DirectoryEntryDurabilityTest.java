@@ -6,6 +6,7 @@ package io.sirix.access;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.PathParser;
+import io.sirix.access.json.LocalJsonDatabaseFactory;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -14,8 +15,10 @@ import io.sirix.backup.BackupManager;
 import io.sirix.crash.DirectoryCrashModel;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.io.DurableFiles;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.Writer;
@@ -30,6 +33,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -42,13 +47,17 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import static io.brackit.query.util.path.Path.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -319,6 +328,193 @@ final class DirectoryEntryDurabilityTest {
   }
 
   @ParameterizedTest
+  @CsvSource({"FILE_CHANNEL,false,false", "FILE_CHANNEL,true,false", "MEMORY_MAPPED,false,false",
+      "MEMORY_MAPPED,true,false", "FILE_CHANNEL,false,true", "FILE_CHANNEL,true,true",
+      "MEMORY_MAPPED,false,true", "MEMORY_MAPPED,true,true"})
+  void tombstoneCleanupPublishesFailedRenamesBeforeDeletingContents(final StorageType storageType,
+      final boolean cleanupAtOpen, final boolean derived) throws IOException {
+    final Path database = createDatabaseWithResource(storageType);
+    final Path resources = database.resolve("resources");
+    final String name = derived ? RESOURCE + "$derived" : RESOURCE;
+    if (derived) {
+      Files.move(resources.resolve(RESOURCE), resources.resolve(name));
+    }
+    final Path retainedData = temp.resolve("retained-data");
+    final Path retainedRevisions = temp.resolve("retained-revisions");
+    Files.copy(resources.resolve(name).resolve("data/sirix.data"), retainedData);
+    Files.copy(resources.resolve(name).resolve("data/sirix.revisions"), retainedRevisions);
+    final LocalJsonDatabaseFactory factory = new LocalJsonDatabaseFactory(new WriteLocksRegistry(), new PathBasedPool<>());
+    final Database<JsonResourceSession> db = derived
+        ? factory.createDatabase(DatabaseConfiguration.deserialize(database), new User("durability", UUID.randomUUID()))
+        : Databases.openJsonDatabase(database);
+    try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
+      try (final MockedStatic<FileChannel> ignored = refuseDirectoryOpen(resources)) {
+        assertThrows(SirixIOException.class, () -> db.removeResource(name));
+        if (cleanupAtOpen) {
+          assertThrows(SirixIOException.class, db::close);
+          try (final Stream<Path> entries = Files.list(resources)) {
+            final Path tombstone = entries.findFirst().orElseThrow();
+            assertEquals(-1L, Files.mismatch(retainedData, tombstone.resolve("data/sirix.data")),
+                "failed cleanup must preserve every committed data byte");
+            assertEquals(-1L, Files.mismatch(retainedRevisions, tombstone.resolve("data/sirix.revisions")),
+                "failed cleanup must preserve revision metadata");
+          }
+        }
+      }
+      if (cleanupAtOpen) {
+        try (final Database<JsonResourceSession> reopened = Databases.openJsonDatabase(database)) {
+          assertTrue(reopened.listResources().isEmpty());
+        }
+      } else {
+        db.close();
+      }
+      model.materialize(crashed);
+    } finally {
+      db.close();
+    }
+    reopenCold();
+    try (final Database<JsonResourceSession> reopened = Databases.openJsonDatabase(crashedDatabase())) {
+      assertFalse(reopened.existsResource(name), "completed cleanup must not resurrect a deleted resource");
+    }
+  }
+
+  @Test
+  void aCleanupPassPublishesAllExistingTombstonesWithOneBarrier() throws IOException {
+    final Path database = createDatabaseWithResource(StorageType.FILE_CHANNEL);
+    final Path resources = database.resolve("resources");
+    final Database<JsonResourceSession> db = Databases.openJsonDatabase(database);
+    assertTrue(db.createResource(ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
+    try (final MockedStatic<FileChannel> ignored = refuseDirectoryOpen(resources)) {
+      assertThrows(SirixIOException.class, () -> db.removeResource(RESOURCE));
+      assertThrows(SirixIOException.class, () -> db.removeResource("other"));
+    }
+    final List<Path> barriers = new ArrayList<>();
+    try (final DurableFiles.Observation ignored = DurableFiles.observeBarriers(barriers::add)) {
+      db.close();
+    } finally {
+      db.close();
+    }
+    assertEquals(List.of(resources), barriers, "the cleanup pass shares one parent barrier across both tombstones");
+    try (final Stream<Path> entries = Files.list(resources)) {
+      assertEquals(0, entries.count());
+    }
+  }
+
+  static Stream<Arguments> failedCreationCases() {
+    final List<Arguments> cases = new ArrayList<>();
+    for (final StorageType storage : new StorageType[] {StorageType.FILE_CHANNEL, StorageType.MEMORY_MAPPED}) {
+      for (final String step : new String[] {"keyset-force", "keyset-directory", "settings-force",
+          "database-settings-force", "database-directory", "resource-directory", "bootstrap",
+          "bootstrap-refusal", "resources-directory"}) {
+        cases.add(Arguments.of(storage, step, false));
+        cases.add(Arguments.of(storage, step, true));
+      }
+    }
+    return cases.stream();
+  }
+
+  @ParameterizedTest
+  @MethodSource("failedCreationCases")
+  void failedResourceCreationCannotAdmitLaterWrites(final StorageType storageType, final String step,
+      final boolean derived) throws IOException {
+    final Path database = root.resolve("db");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
+    final String name = derived ? RESOURCE + "$derived" : RESOURCE;
+    final Path resource = database.resolve("resources").resolve(name);
+    final boolean encrypted = step.startsWith("keyset");
+    final ResourceConfiguration.Builder builder = ResourceConfiguration.newBuilder(name)
+        .storageType(storageType).storeDiffs(false);
+    if (encrypted) {
+      builder.byteHandlerPipeline(new ByteHandlerPipeline(new Encryptor(resource)));
+    }
+    final Exception refused = step.equals("bootstrap-refusal")
+        ? new SirixException("injected " + step) : new IOException("injected " + step);
+    final AtomicBoolean failed = new AtomicBoolean();
+    final LocalJsonDatabaseFactory factory = new LocalJsonDatabaseFactory(new WriteLocksRegistry(), new PathBasedPool<>());
+    try (final Database<JsonResourceSession> db = derived
+        ? factory.createDatabase(DatabaseConfiguration.deserialize(database), new User("durability", UUID.randomUUID()))
+        : Databases.openJsonDatabase(database);
+        final DirectoryCrashModel model = DirectoryCrashModel.start(root, links)) {
+      try (final MockedStatic<FileChannel> ignored = mockStatic(FileChannel.class, invocation -> {
+        if (!invocation.getMethod().getName().equals("open")) {
+          return invocation.callRealMethod();
+        }
+        final Path path = invocation.getArgument(0);
+        final boolean fail = switch (step) {
+          case "keyset-force" -> resource.resolve("encryption/encryptionKey.json").equals(path);
+          case "keyset-directory" -> resource.resolve("encryption").equals(path);
+          case "settings-force" -> resource.resolve("ressetting.obj").equals(path);
+          case "database-settings-force" -> database.equals(path.getParent())
+              && path.getFileName().toString().startsWith("dbsetting");
+          case "database-directory" -> database.equals(path);
+          case "resource-directory" -> resource.equals(path);
+          case "bootstrap", "bootstrap-refusal" -> resource.resolve("data").equals(path);
+          case "resources-directory" -> resource.getParent().equals(path);
+          default -> throw new AssertionError(step);
+        };
+        if (fail && failed.compareAndSet(false, true)) {
+          throw refused;
+        }
+        return invocation.callRealMethod();
+      })) {
+        if (step.equals("bootstrap-refusal")) {
+          assertFalse(createResource(db, builder.build(), derived));
+        } else {
+          final SirixIOException failure =
+              assertThrows(SirixIOException.class, () -> createResource(db, builder.build(), derived));
+          assertSame(refused, failure.getCause(), "rollback must preserve the original filesystem refusal");
+        }
+      }
+      assertTrue(failed.get(), "the selected durability boundary must have been reached");
+      assertFalse(Files.exists(resource), "a failed creation must leave its name unavailable to sessions");
+      assertFalse(db.existsResource(name));
+      assertThrows(SirixUsageException.class, () -> db.beginResourceSession(name));
+      assertThrows(SirixUsageException.class, () -> db.getResourceID(name));
+      model.materialize(crashed);
+      assertTrue(createResource(db, ResourceConfiguration.newBuilder(name).storageType(storageType).storeDiffs(false).build(), derived),
+          "the failed creation must release its name and lifetime");
+      try (final JsonResourceSession session = db.beginResourceSession(name);
+          final JsonNodeTrx trx = session.beginNodeTrx()) {
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(DOCUMENT), JsonNodeTrx.Commit.NO);
+        trx.commit();
+      }
+    }
+    reopenCold();
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(crashedDatabase())) {
+      assertFalse(db.existsResource(name), "the failed attempt must not appear after a crash");
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void failedCreationPreservesItsErrorWhenRetirementPublicationAlsoFails(final StorageType storageType)
+      throws IOException {
+    final Path database = root.resolve("db");
+    assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
+    final Path resources = database.resolve("resources");
+    final AtomicReference<IOException> primary = new AtomicReference<>();
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(database)) {
+      try (final MockedStatic<FileChannel> ignored = mockStatic(FileChannel.class, invocation -> {
+        if (invocation.getMethod().getName().equals("open") && resources.equals(invocation.getArgument(0))) {
+          final IOException failure = new IOException("Cannot publish " + resources);
+          primary.compareAndSet(null, failure);
+          throw failure;
+        }
+        return invocation.callRealMethod();
+      })) {
+        final SirixIOException failure = assertThrows(SirixIOException.class, () -> db.createResource(resource(storageType)));
+        assertSame(primary.get(), failure.getCause(), "retirement must preserve the original publication failure");
+        assertEquals(1, failure.getSuppressed().length, "retirement publication failure must also be reported");
+        assertFalse(Files.exists(resources.resolve(RESOURCE)), "retirement must remove the failed public name");
+        assertThrows(SirixUsageException.class, () -> db.beginResourceSession(RESOURCE));
+      }
+    }
+    try (final Stream<Path> entries = Files.list(resources)) {
+      assertEquals(0, entries.count(), "a later cleanup must finish the pending retirement");
+    }
+  }
+
+  @ParameterizedTest
   @CsvSource({"FILE_CHANNEL,sirix.data", "FILE_CHANNEL,sirix.revisions",
       "MEMORY_MAPPED,sirix.data", "MEMORY_MAPPED,sirix.revisions"})
   void storageFileCreationRetriesItsFailedBarrier(final StorageType storageType, final String filename)
@@ -357,6 +553,11 @@ final class DirectoryEntryDurabilityTest {
       storage.close();
     }
     assertStorageFilesSurvived();
+  }
+
+  private static boolean createResource(final Database<JsonResourceSession> db, final ResourceConfiguration config,
+      final boolean derived) {
+    return derived ? ((LocalDatabase<?, ?>) db).createResource(config, null) : db.createResource(config);
   }
 
   private static MockedStatic<FileChannel> refuseDirectoryOpen(final Path directory) {

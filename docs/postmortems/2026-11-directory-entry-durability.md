@@ -105,3 +105,39 @@ Contract class: **restore** (TXN-616 and the recorded review decisions).
 | One format, one route | aligns | Shared publication and sibling validation replace duplicate or unused paths; no format changes. |
 | A library first | aligns | Changes remain in the embedded core; no service or process dependency is added. |
 | Scope | aligns | Corrections are limited to durable metadata and its regression evidence. |
+
+## Review follow-up: creation rollback and deferred tombstone cleanup
+
+- Trigger and symptom: a resource tombstone rename could succeed before its parent barrier failed.
+  Close or reopen then deleted the tombstone's contents without first publishing the rename, so a
+  crash could resurrect the original name with damaged contents. Separately, resource creation could
+  fail during keyset/settings publication, bootstrap, or final parent publication while leaving an
+  openable directory available for later acknowledged writes.
+- Root cause: durability was enforced on initial publication and explicit removal retries, but the
+  owner of deferred cleanup did not enforce the same ordering; resource creation's cleanup covered
+  false returns and bypassed exceptions from its publication steps.
+- Correction: one shared tombstone cleanup boundary publishes the parent before deleting contents,
+  batching already-discovered tombstones into one barrier per pass. Failure retains the pending
+  tombstones unchanged. The complete resource-creation operation now rolls back both false returns
+  and exceptions through existing state cleanup and durable tombstone retirement, preserving the
+  original exception if retirement also fails. Both persistent backends and internal derived
+  creation use that boundary. Successful persistent removal still uses its single rename barrier.
+- Regression oracles: TXN-616 requires failed creation to leave no resource available for sessions,
+  and requires publication before destructive tombstone cleanup. `DirectoryEntryDurabilityTest`
+  injects failure at each creation durability stage for source and derived resources on both
+  backends, rejects session and ID lookup afterward, and recreates and commits the released name.
+  Other cases fail a rename barrier, then close or reopen and materialize a crash state, verify
+  retained data and revision bytes when cleanup publication fails, and check that a pass removing
+  two tombstones uses one parent barrier. These tests were written from the updated requirement
+  before implementation; this review phase does not run a separate failing-before verification.
+- Lesson: exception exits and deferred cleanup belong to the same publication protocol as the
+  successful operation; test each boundary through its next admission, close, and reopen.
+- Vision check: the existing restore verdicts above still apply. These corrections preserve
+  historical data and route publication through shared boundaries; their work is limited to
+  resource lifecycle operations and adds no per-record, query, or ordinary commit work.
+- Focused verification: 211 tests completed, 0 failures, 0 errors,
+  0 skips. The selection covered `DirectoryEntryDurabilityTest`, both IN_MEMORY lifetime
+  suites, `DurableFilesTest`, both platform barrier suites and `io.sirix.backup.*`, with unrelated
+  prerequisite test tasks excluded. The final run passed after moving fault injection to the actual
+  file/directory channel-opening boundary, which also exercises barriers inside platform renames.
+  Mutation, broader tests and lint remain owned by the outer pipeline.
