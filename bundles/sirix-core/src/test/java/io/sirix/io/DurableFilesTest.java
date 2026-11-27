@@ -13,7 +13,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
@@ -149,9 +148,9 @@ final class DurableFilesTest {
       default -> root.resolve("a/b");
     };
     try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, temp.resolve("links"))) {
-      try (final MockedStatic<FileChannel> ignored = mockStatic(FileChannel.class, invocation -> {
-        if (invocation.getMethod().getName().equals("open") && directory.equals(invocation.getArgument(0))) {
-          throw new IOException("directory open refused");
+      try (final MockedStatic<DurableFiles> ignored = mockStatic(DurableFiles.class, invocation -> {
+        if (invocation.getMethod().getName().equals("syncDirectory") && directory.equals(invocation.getArgument(0))) {
+          throw DurableFiles.barrierFailure(directory, new IOException("directory force refused"));
         }
         return invocation.callRealMethod();
       })) {
@@ -171,9 +170,9 @@ final class DurableFilesTest {
     final Path leaf = root.resolve("existing");
     try (final DirectoryCrashModel model = DirectoryCrashModel.start(root, temp.resolve("links"))) {
       Files.createDirectory(leaf);
-      try (final MockedStatic<FileChannel> ignored = mockStatic(FileChannel.class, invocation -> {
-        if (invocation.getMethod().getName().equals("open") && root.equals(invocation.getArgument(0))) {
-          throw new IOException("directory open refused");
+      try (final MockedStatic<DurableFiles> ignored = mockStatic(DurableFiles.class, invocation -> {
+        if (invocation.getMethod().getName().equals("syncDirectory") && root.equals(invocation.getArgument(0))) {
+          throw DurableFiles.barrierFailure(root, new IOException("directory force refused"));
         }
         return invocation.callRealMethod();
       })) {
@@ -185,16 +184,19 @@ final class DurableFilesTest {
     assertTrue(Files.isDirectory(temp.resolve("crashed/existing")));
   }
 
-  /** TXN-616: rollback errors must not replace the directory barrier's original failure. */
+  /**
+   * TXN-616: rollback errors must not replace the directory barrier's original failure. Inject at the
+   * shared barrier boundary: Windows uses kernel32 rather than a directory FileChannel.
+   */
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void failedCreationRetainsBothBarrierAndCleanupFailures(final boolean directory) {
     final Path entry = temp.resolve("entry");
     final IOException barrierFailure = new IOException("directory force refused");
     final IOException cleanupFailure = new IOException("entry deletion refused");
-    try (final MockedStatic<FileChannel> channels = mockStatic(FileChannel.class, invocation -> {
-      if (invocation.getMethod().getName().equals("open") && temp.equals(invocation.getArgument(0))) {
-        throw barrierFailure;
+    try (final MockedStatic<DurableFiles> barriers = mockStatic(DurableFiles.class, invocation -> {
+      if (invocation.getMethod().getName().equals("syncDirectory") && temp.equals(invocation.getArgument(0))) {
+        throw DurableFiles.barrierFailure(temp, barrierFailure);
       }
       return invocation.callRealMethod();
     }); final MockedStatic<Files> files = mockStatic(Files.class, invocation -> {

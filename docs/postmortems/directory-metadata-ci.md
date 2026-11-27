@@ -45,6 +45,40 @@
   run it through an alias as well as a direct path. See the lesson fragment
   [directory-metadata-ci](../lessons.d/directory-metadata-ci.md).
 
+## Windows rollback-failure fixture
+
+- Fix / issue: PR #1508, TXN-616; Windows core-non-index job
+  [140704231748](https://github.com/sirixdb/sirix/actions/runs/46057026533/job/140704231748).
+- Symptom and trigger: both `failedCreationRetainsBothBarrierAndCleanupFailures` cases failed
+  with no exception thrown. The job completed 12,336 tests with exactly these two failures.
+- Root cause: the fixture injected a directory-open failure into `FileChannel.open`. Windows
+  uses kernel32 for directory barriers, so the injection never ran and creation succeeded.
+  Platform-independent rollback fixtures must inject at a boundary every platform executes.
+- Fix: inject at `DurableFiles.syncDirectory` for file creation, each new directory ancestor and
+  existing-directory retries. All other calls execute their real methods; platform barrier tests
+  still exercise the real native implementation separately.
+- Regression and oracle: the existing parameterized test invokes real creation and rollback,
+  then checks the original barrier cause, the suppressed cleanup error, and the retained entry.
+  TXN-616's failure contract supplies the oracle; replacing the barrier error with the cleanup
+  error or discarding the latter must fail. The linked Windows run provides the failing evidence.
+- Vision check: restores portable verification of strict durability errors without changing
+  engine behavior, defaults, or path cost. Production sources are unchanged, so this correction
+  introduces no production logic requiring mutation testing.
+- Lesson: inject shared behavior failures at the shared boundary rather than an OS-specific
+  implementation; verify each native implementation in its own platform tests. See
+  [LESSONS.md](../LESSONS.md) and the directory-metadata CI lesson fragment.
+- Local validation: the command below passed **36 tests with zero failures, errors or skips**,
+  including both cleanup-error cases and all directory-creation retries. Its required isolated
+  startup, allocation, ownership and identity dependencies also completed without failures
+  (two policy-specific cases skipped). `:sirix-core:spotlessJavaCheck` and `git diff --check`
+  passed. This is Linux evidence; native Windows confirmation belongs to the hosted rerun.
+
+  ```sh
+  ./gradlew :sirix-core:test --tests io.sirix.io.DurableFilesTest \
+    --tests io.sirix.io.PosixDirectoryBarriersTest \
+    --tests io.sirix.io.WindowsDirectoryBarriersTest -PtestHeapMin=256m -PtestHeapMax=1g
+  ```
+
 ## Local validation
 
 - Reproduced the macOS encryption failure on Linux with the original fixture and a symlinked
