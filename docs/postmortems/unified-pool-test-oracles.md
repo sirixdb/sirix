@@ -55,3 +55,33 @@ The shared fake has one release/recharge mode: success without touching bytes, o
 The unused OS-effect toggle and counter are removed. Real OS effects remain the responsibility of
 `PlatformReleaseSemanticsTest` and `OptimisticReaderReleaseStressTest`, which use the real backend.
 The existing clean allocation fork and exact reflective contracts are unchanged.
+
+
+## Follow-up: pre-admission baselines and completed concurrency witnesses
+
+- Fix / issue: R12–R14. The earlier R2, R3, R10 and R11 corrections remain present.
+- Symptom: A fallback decode could wrongly retain scratch or evict guarded images before the test
+  sampled its baseline; shutdown could be delayed until after the transfer finished; readers could
+  reject every recharged version while stable-owner reads kept the stress test green.
+- Trigger: Mutate account/cache/eviction state during fallback admission; deschedule the shutdown
+  thread before its call; return false for validation of every recharged owner.
+- Root cause: These are missing observation boundaries: post-decode values cannot constrain decode,
+  a thread-start signal cannot prove shutdown entry, and stable reads cannot witness recharged reads.
+- Why tests missed it: Planned acceptance scenarios had assertions on terminal state but lacked the
+  prerequisite events that made those assertions relevant to the required execution.
+- Regression tests: The fallback test now captures all four account/cache/eviction values before
+  each decode and requires equality both immediately on fallback admission and after closing it.
+  The shutdown test keeps the transfer gated until `isTerminated()` observes admission closed or
+  the overlapping call has actually refused; the wait is bounded and the existing final retry is
+  preserved. The reader stress test pauses the first published recharged owner, requires a known
+  valid read, and waits for a reader that selected that checkpoint before reading to validate it;
+  it also requires a positive churn-read count. The checkpoint is cleared before churn resumes.
+- Lesson: Snapshot before the transition being constrained, observe entry inside the operation's
+  protocol, and require each reader population to produce successful validated reads.
+
+Pre-verification traces cover fallback admission, normal close and failed assertions (which now
+also return the fallback lease); shutdown that waits, spins, refuses or fails to enter; and readers
+scheduled before publication, at the paused checkpoint, or after churn resumes. The shutdown witness
+uses the existing admission query; no new runtime API, reflective alternative or scheduler-state
+requirement is introduced. These scenarios remain planned until the implementation lands; compiling
+and selecting them is not evidence of their runtime conformance.

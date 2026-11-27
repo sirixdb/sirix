@@ -14,6 +14,7 @@ import java.lang.invoke.VarHandle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.SplittableRandom;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -35,8 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * differs for every version. A reader that snapshotted an even version {@code v} and finds word 0
  * equal to {@code mix(v)} must find every word equal to {@code mix(v)} if its validation succeeds.
  * A mismatch of word 0 means the owner has not published yet, or the bytes are stale or zero (a
- * released slot reads zeros or its old contents, MEM-104): the reader discards the read. The bounds
- * are iteration counts, never time.
+ * released slot reads zeros or its old contents, MEM-104): the reader discards the read.
  */
 @ResourceLock("FrameSlotAllocator.pressureListener")
 @MemPlanned(step = 1, value = {"MEM-104"})
@@ -87,6 +87,8 @@ final class OptimisticReaderReleaseStressTest {
     final AtomicLong validatedChurn = new AtomicLong();
     final AtomicLong discarded = new AtomicLong();
     final AtomicInteger violations = new AtomicInteger();
+    final AtomicInteger rechargedOwner = new AtomicInteger(-1);
+    final CountDownLatch rechargedValidated = new CountDownLatch(1);
     final List<Throwable> failures = new ArrayList<>();
     final List<Thread> threads = new ArrayList<>();
     for (int reader = 0; reader < READERS; reader++) {
@@ -94,7 +96,8 @@ final class OptimisticReaderReleaseStressTest {
       final Thread thread = new Thread(() -> {
         try {
           while (!done.get()) {
-            final int index = random.nextInt(SLOTS);
+            final int checkpoint = rechargedOwner.get();
+            final int index = checkpoint >= 0 ? checkpoint : random.nextInt(SLOTS);
             final long result = readOnce(allocator, segments.get(index), classIdx, index);
             if (result == 0L) {
               discarded.incrementAndGet();
@@ -102,6 +105,9 @@ final class OptimisticReaderReleaseStressTest {
               (index < STABLE_SLOTS
                   ? validatedStable
                   : validatedChurn).incrementAndGet();
+              if (checkpoint >= 0) {
+                rechargedValidated.countDown();
+              }
             } else {
               violations.incrementAndGet();
             }
@@ -133,6 +139,14 @@ final class OptimisticReaderReleaseStressTest {
             + reissued.slotIndex() + " (MEM-105: a returned slot is re-charged before a fresh index is minted)");
         owned[reissued.slotIndex()] = reissued;
         publish(reissued);
+        if (round == 0) {
+          assertEquals(1L, readOnce(allocator, reissued.segment(), classIdx, reissued.slotIndex()),
+              "a known published recharged owner validates and contains its published bytes");
+          rechargedOwner.set(reissued.slotIndex());
+          assertTrue(rechargedValidated.await(10, TimeUnit.SECONDS),
+              "a reader validates the published recharged owner before the writer continues");
+          rechargedOwner.set(-1);
+        }
         final int ownedSpins = writer.nextInt(64);
         for (int spin = 0; spin < ownedSpins; spin++) {
           Thread.onSpinWait();
@@ -154,6 +168,7 @@ final class OptimisticReaderReleaseStressTest {
     synchronized (failures) {
       assertTrue(failures.isEmpty(), "a reader failed: " + failures);
     }
+    assertTrue(validatedChurn.get() > 0L, "readers validated reads of recharged owners");
     assertEquals(0, violations.get(), "a validated read observed bytes other than its owner's");
     assertTrue(validatedStable.get() > 0L,
         "readers validated reads of the stable owners (" + discarded.get() + " reads discarded)");

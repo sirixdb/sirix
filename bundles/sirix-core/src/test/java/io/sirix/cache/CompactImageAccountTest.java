@@ -252,26 +252,34 @@ final class CompactImageAccountTest {
     final FrameSlotAllocator allocator = newAllocator(unit);
     final MemCompactSeam.Pool pool = MemCompactSeam.create(allocator, SHARE_UNITS * unit);
     final List<Object> pinned = new ArrayList<>();
+    Object fallback = null;
     try {
       // Open decodes guard their cache entries: nothing can be evicted, so the account fills for good.
-      Object fallback = null;
       ScratchStats scratchBeforeFallback = null;
+      long account = 0L;
+      long cachedCount = 0L;
+      long cachedBytes = 0L;
+      long evicted = 0L;
       for (long key = 0; key < 4096 && fallback == null; key++) {
+        account = pool.accountBytes();
+        cachedCount = pool.cachedImageCount();
+        cachedBytes = pool.cachedImageBytes();
+        evicted = pool.evictedImageBytes();
         final ScratchStats beforeDecode = allocator.scratch().stats();
         final Object decoded = pool.decode(key, imageBytes);
         if (pool.scratchBacked(decoded)) {
           fallback = decoded;
           scratchBeforeFallback = beforeDecode;
+          assertEquals(account, pool.accountBytes(), "fallback admission does not touch the account");
+          assertEquals(cachedCount, pool.cachedImageCount(), "fallback admission retains no cache entry");
+          assertEquals(cachedBytes, pool.cachedImageBytes(), "fallback admission retains no cache bytes");
+          assertEquals(evicted, pool.evictedImageBytes(), "fallback admission never evicts a guarded image");
         } else {
           assertTrue(pool.retainedByCache(decoded), "an image served from the pool is retained by the cache");
           pinned.add(decoded);
         }
       }
       assertNotNull(fallback, "MEM-301 a full account of guarded images must serve the next decode from scratch");
-      final long account = pool.accountBytes();
-      final long cachedCount = pool.cachedImageCount();
-      final long cachedBytes = pool.cachedImageBytes();
-      final long evicted = pool.evictedImageBytes();
       assertNotNull(scratchBeforeFallback);
       final ScratchStats scratchHeld = allocator.scratch().stats();
       assertFalse(pool.retainedByCache(fallback), "MEM-301 the scratch decode is not retained by the cache");
@@ -286,6 +294,7 @@ final class CompactImageAccountTest {
       assertTrue(account <= pool.shareBytes(), "MEM-301 the account stays within the share");
       assertAccount(allocator, pool, unit, "an uncached decode");
       closeDecodeKeepingSlabs(allocator, pool, fallback);
+      fallback = null;
       assertEquals(account, pool.accountBytes(), "an uncached decode does not touch the account");
       assertEquals(cachedCount, pool.cachedImageCount(), "the cache does not retain the uncached decode");
       assertEquals(cachedBytes, pool.cachedImageBytes(), "the cache bytes are those of before the uncached decode");
@@ -296,6 +305,9 @@ final class CompactImageAccountTest {
       assertEquals(scratchBeforeFallback.lentBytes(), scratchReturned.lentBytes(),
           "closing the decode returns all borrowed scratch bytes");
     } finally {
+      if (fallback != null) {
+        closeDecodeKeepingSlabs(allocator, pool, fallback);
+      }
       pinned.forEach(decoded -> closeDecodeKeepingSlabs(allocator, pool, decoded));
       pool.shutdown();
       quiesce(allocator);

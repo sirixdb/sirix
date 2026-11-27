@@ -163,7 +163,7 @@ final class FrameReleaseFailureTest {
     fixture.releaseAll(fixture.fill(CLASS_IDX));
     final CountDownLatch releaseEntered = new CountDownLatch(1);
     final CountDownLatch finishRelease = new CountDownLatch(1);
-    final CountDownLatch shutdownStarted = new CountDownLatch(1);
+    final AtomicBoolean shutdownRefused = new AtomicBoolean();
     final ConcurrentLinkedQueue<Throwable> unexpected = new ConcurrentLinkedQueue<>();
     fixture.vm.observeRuns(run -> {
       releaseEntered.countDown();
@@ -186,11 +186,10 @@ final class FrameReleaseFailureTest {
       }
     }, "mem-107-transfer");
     final Thread shutdown = new Thread(() -> {
-      shutdownStarted.countDown();
       try {
         allocator.shutdown();
       } catch (final IllegalStateException inFlight) {
-        return;
+        shutdownRefused.set(true);
       } catch (final Throwable failure) {
         unexpected.add(failure);
       }
@@ -201,7 +200,16 @@ final class FrameReleaseFailureTest {
       transfer.start();
       assertTrue(releaseEntered.await(10, TimeUnit.SECONDS), "a transfer is inside a release call");
       shutdown.start();
-      assertTrue(shutdownStarted.await(10, TimeUnit.SECONDS), "shutdown attempts to overlap the gated transfer");
+      final long waitStarted = System.nanoTime();
+      boolean shutdownObserved = false;
+      while (!shutdownObserved && System.nanoTime() - waitStarted < TimeUnit.SECONDS.toNanos(10)) {
+        shutdownObserved = allocator.isTerminated() || shutdownRefused.get();
+        if (!shutdownObserved) {
+          Thread.yield();
+        }
+      }
+      assertTrue(shutdownObserved,
+          "shutdown closes admission or refuses while the transfer is still inside its release call");
     } finally {
       finishRelease.countDown();
       transfer.join(10_000L);
