@@ -13,8 +13,8 @@ import java.lang.foreign.MemorySegment;
  * A cacheable page for the MEM step-2 tests. It implements the {@link CacheablePage} guard, orphan
  * and close contract the sharded caches rely on, weighs what it is told to weigh and, when built
  * over an allocator frame, gives that frame back to the allocator the moment it is torn down, as a
- * real page does. A guarded page defers its teardown to the last guard release, so a cache that
- * evicts a guarded entry is observable as a closed page that still has a guard.
+ * real page does. A guarded page defers its teardown to the last guard release; the tests inspect
+ * cache membership separately to detect eviction while a guard is held.
  *
  * <p>
  * It is never "hot", so the second-chance reprieve of the clock order does not hide an eviction.
