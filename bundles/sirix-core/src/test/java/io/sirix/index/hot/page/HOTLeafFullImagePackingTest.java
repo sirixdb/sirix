@@ -19,7 +19,9 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 
@@ -171,24 +173,29 @@ final class HOTLeafFullImagePackingTest {
    * distinct keys returns it.
    *
    * <p>
-   * The work is bounded, not equated, because a comparison COUNT is not specified: the textbook bound
-   * on a binary search over {@code n} elements is {@code floor(log2 n) + 1} comparisons, and two
-   * correct searches inside that bound legitimately probe different slots. Per comparison the
-   * suffix-probe counter's contract is one lane per word or residual-byte load: a fixed-width suffix
-   * costs one 8-byte load whenever an 8-byte window starting at the suffix, or ending at its end,
-   * lies inside the slot region, and otherwise one load per set bit of its width; a mixed-width
-   * suffix is compared word by word then byte by byte up to the first difference, so it can never
-   * exceed one load per compared byte. The product of those two is the ceiling asserted here, which
-   * is what rejects a lookup that scans instead of searching, or that re-reads a suffix it already
-   * holds. The exact-count cases live in {@link #suffixReadAtTheSlotRegionBoundaryCostsOneLoad()} and
-   * {@link #borrowedOneByteLookupCountsOneLanePerProbedSlot()}, where the schedule is pinned by a
-   * singleton body and by the canonical search respectively.
+   * The work is equated, not bounded. Which slots a lookup reads comes from the JDK too: the counting
+   * comparator records the element {@code Arrays.binarySearch} hands it, so the probe sequence is the
+   * canonical midpoint search's own, never one written here. Every slot count below is
+   * {@code 2^k - 1}, which is what makes that sequence the ONLY one a midpoint search can take — a
+   * perfect tree splits evenly at every level, so {@code (low + high) >>> 1} selects the same slot
+   * whether the search carries an inclusive or an exclusive upper bound, for present and absent keys
+   * alike. At other sizes the two forms diverge and no exact comparison count is determined at all.
+   *
+   * <p>
+   * What each probed slot then costs comes from the suffix-probe counter's documented contract — one
+   * lane per word or residual-byte load — applied to the fixture's own geometry, which this test
+   * built and therefore knows: a full-width suffix costs one 8-byte load whenever an 8-byte window
+   * starting at the suffix, or ending at its end, lies inside the slot region, and otherwise one load
+   * per set bit of its width; a mixed-width suffix is compared word by word then byte by byte up to
+   * the first difference. Summing the contract over the JDK's probe sequence gives the exact lane
+   * count asserted here, which rejects a lookup that scans instead of searching, that re-reads a
+   * suffix it already holds, or that takes the multi-load fallback where a window fits.
    */
   @Test
   void packedWordLookupCountsOneLanePerLoad() {
     assumeTrue(VersioningType.hotMergeDiagEnabled(), "suffix probes are counted with sirix.hot.mergeDiag");
     for (int prefix = 0; prefix < Long.BYTES; prefix++) {
-      for (final int count : new int[] {1, 3, 9}) {
+      for (final int count : new int[] {1, 3, 7, 15}) {
         final byte[][] keys = new byte[count][Long.BYTES];
         final byte[][] suffixes = new byte[count][];
         for (int i = 0; i < count; i++) {
@@ -196,24 +203,20 @@ final class HOTLeafFullImagePackingTest {
           keys[i][Long.BYTES - 1] = (byte) (0x80 + i * 2);
           suffixes[i] = Arrays.copyOfRange(keys[i], prefix, Long.BYTES);
         }
-        // Every suffix is full width, so each comparison takes the single-word arm or its
-        // set-bit fallback.
-        assertLookupWork(suffixes, keys, prefix, Integer.bitCount(Long.BYTES - prefix));
+        assertLookupWork(suffixes, keys, prefix);
       }
     }
     // Mixed suffix widths take the compared-range path; keys differ only in their last bytes.
     for (final int prefix : new int[] {0, 1, 3}) {
-      final byte[][] stored = {bytes(prefix, 5, 0x10), bytes(prefix, 8, 0x20), bytes(prefix, 8, 0x30),
-          bytes(prefix, 9, 0x30), bytes(prefix, 9, 0x40), bytes(prefix, 12, 0x50)};
+      final byte[][] stored = {bytes(prefix, 5, 0x08), bytes(prefix, 5, 0x10), bytes(prefix, 8, 0x20),
+          bytes(prefix, 8, 0x30), bytes(prefix, 9, 0x30), bytes(prefix, 9, 0x40), bytes(prefix, 12, 0x50)};
       final byte[][] probes = new byte[stored.length][];
       for (int i = 0; i < stored.length; i++) {
         probes[i] = Arrays.copyOf(stored[i], Long.BYTES);
       }
-      // A compared range reads at most one load per byte it compares, and compares at most the
-      // probe's own tail.
       assertLookupWork(
           Arrays.stream(stored).map(key -> Arrays.copyOfRange(key, prefix, key.length)).toArray(byte[][]::new), probes,
-          prefix, Long.BYTES - prefix);
+          prefix);
     }
   }
 
@@ -226,21 +229,24 @@ final class HOTLeafFullImagePackingTest {
    * taken from {@link Arrays#binarySearch(Object[], Object, java.util.Comparator)} through a counting
    * comparator rather than from a search written here, so the expectation is the canonical binary
    * search's own work over the same keys — the equality is what would catch this path scanning a slot
-   * it had no reason to read, or reading one twice.
+   * it had no reason to read, or reading one twice. Seven keys make a perfect tree, so that probe
+   * sequence is the only one a midpoint search can take and the equality does not depend on which
+   * bound form the search carries.
    */
   @Test
   void borrowedOneByteLookupCountsOneLanePerProbedSlot() {
     assumeTrue(VersioningType.hotMergeDiagEnabled(), "suffix probes are counted with sirix.hot.mergeDiag");
-    final byte[][] suffixes = {{10}, {20}, {30}, {40}, {50}};
+    final byte[][] suffixes = {{10}, {20}, {30}, {40}, {50}, {60}, {70}};
     final byte[] frame = frame(suffixes);
-    for (int wanted = 5; wanted <= 55; wanted += 5) {
+    for (int wanted = 5; wanted <= 75; wanted += 5) {
       final byte[] tail = {(byte) wanted};
       final CanonicalSearch canonical = canonicalSearch(suffixes, tail);
       final long before = HOTLeafPage.suffixProbeReads();
       final byte[] value =
           HOTLeafBody.selectBorrowed(new ByteArrayBytesIn(frame), MODE, suffixes.length, used(suffixes), tail, 0, true);
       assertEquals(canonical.result() >= 0, value != null, "presence of key " + wanted);
-      assertEquals(canonical.comparisons(), HOTLeafPage.suffixProbeReads() - before, "lanes for key " + wanted);
+      assertEquals(canonical.probedSlots().length, HOTLeafPage.suffixProbeReads() - before,
+          "lanes for key " + wanted + ", probing " + Arrays.toString(canonical.probedSlots()));
     }
   }
 
@@ -264,10 +270,10 @@ final class HOTLeafFullImagePackingTest {
    * number of loads that implies comes from the contract above, not from a count written here.
    *
    * <p>
-   * These stay exact where the bounded cases in {@link #packedWordLookupCountsOneLanePerLoad()}
-   * cannot: a singleton body is one comparison under every correct binary search, which
+   * A singleton body is one comparison under every correct binary search, which
    * {@link Arrays#binarySearch(Object[], Object, java.util.Comparator)} confirms over the same
-   * suffix, so the lane count is the per-comparison load count on its own.
+   * suffix, so the lane count here is the per-comparison load count on its own — the same equality
+   * {@link #packedWordLookupCountsOneLanePerLoad()} asserts over longer probe sequences.
    */
   @Test
   void suffixReadAtTheSlotRegionBoundaryCostsOneLoad() {
@@ -291,10 +297,10 @@ final class HOTLeafFullImagePackingTest {
       body.validate(prefix, IndexType.PROJECTION);
       final byte[] suffix = Arrays.copyOfRange(key, prefix, key.length);
       final CanonicalSearch canonical = canonicalSearch(new byte[][] {suffix}, suffix);
-      assertEquals(1, canonical.comparisons(), "a singleton body is one comparison: " + where);
+      assertEquals(1, canonical.probedSlots().length, "a singleton body is one comparison: " + where);
       final long before = HOTLeafPage.suffixProbeReads();
       assertEquals(canonical.result(), body.findLongSuffix(key, prefix), "slot for " + where);
-      assertEquals(canonical.comparisons() * expectedLoads, HOTLeafPage.suffixProbeReads() - before,
+      assertEquals(canonical.probedSlots().length * expectedLoads, HOTLeafPage.suffixProbeReads() - before,
           "loads for " + where);
     }
   }
@@ -361,27 +367,75 @@ final class HOTLeafFullImagePackingTest {
     return used;
   }
 
-  private static void assertLookupWork(final byte[][] suffixes, final byte[][] keys, final int prefix,
-      final int maxLoadsPerComparison) {
+  private static void assertLookupWork(final byte[][] suffixes, final byte[][] keys, final int prefix) {
+    assertEquals(0, suffixes.length + 1 & suffixes.length,
+        "a perfect tree forces the midpoint sequence; " + suffixes.length + " slots would not");
     final HOTLeafBody body =
         HOTLeafBody.read(new ByteArrayBytesIn(frame(suffixes)), MODE, suffixes.length, used(suffixes));
     body.validate(prefix, IndexType.PROJECTION);
-    // floor(log2 n) + 1, the textbook comparison bound for a binary search over n elements.
-    final int maxComparisons = Integer.SIZE - Integer.numberOfLeadingZeros(suffixes.length);
-    final long maxLanes = (long) maxComparisons * maxLoadsPerComparison;
     for (final byte[] key : keys) {
       for (final byte[] probe : new byte[][] {key, successor(key)}) {
-        final CanonicalSearch canonical = canonicalSearch(suffixes, Arrays.copyOfRange(probe, prefix, Long.BYTES));
+        final byte[] tail = Arrays.copyOfRange(probe, prefix, Long.BYTES);
+        final CanonicalSearch canonical = canonicalSearch(suffixes, tail);
+        final long expectedLanes = contractLoads(suffixes, canonical.probedSlots(), tail, prefix);
         final long before = HOTLeafPage.suffixProbeReads();
         final int found = body.findLongSuffix(probe, prefix);
         final long lanes = HOTLeafPage.suffixProbeReads() - before;
-        final String where = Arrays.toString(probe) + " prefix " + prefix;
+        final String where = Arrays.toString(probe) + " prefix " + prefix + " over " + suffixes.length + " slots";
         assertEquals(canonical.result(), found, "slot for " + where);
-        assertTrue(lanes >= 1, "a lookup over " + suffixes.length + " slots must read a suffix: " + where);
-        assertTrue(lanes <= maxLanes, "lanes for " + where + ": " + lanes + " exceeds " + maxComparisons
-            + " comparisons of at most " + maxLoadsPerComparison + " loads");
+        assertEquals(expectedLanes, lanes,
+            "lanes for " + where + ", probing " + Arrays.toString(canonical.probedSlots()));
       }
     }
+  }
+
+  /**
+   * The counter's documented cost, summed over the slots the canonical search probed. The clauses are
+   * the ones {@link #packedWordLookupCountsOneLanePerLoad()} cites: one 8-byte load for a full-width
+   * suffix whose forward or back-aligned window lies inside the slot region, one load per set bit of
+   * its width when neither does, and a word-then-byte walk to the first difference otherwise. Every
+   * input here is the fixture's own geometry.
+   */
+  private static long contractLoads(final byte[][] suffixes, final int[] probedSlots, final byte[] tail,
+      final int prefix) {
+    final int wanted = Long.BYTES - prefix;
+    final int used = used(suffixes);
+    long loads = 0;
+    for (final int slot : probedSlots) {
+      final byte[] stored = suffixes[slot];
+      int start = 1;
+      for (int i = 0; i < slot; i++) {
+        start += suffixes[i].length + 2;
+      }
+      if (stored.length == wanted) {
+        // A window of Long.BYTES either starts at the suffix, or ends where the suffix ends.
+        loads += start + Long.BYTES <= used || start + wanted - Long.BYTES >= 0
+            ? 1
+            : Integer.bitCount(wanted);
+      } else {
+        loads += comparedLoads(stored, tail, Math.min(stored.length, wanted));
+      }
+    }
+    return loads;
+  }
+
+  /** Word loads, then byte loads, up to and including the first differing lane. */
+  private static int comparedLoads(final byte[] stored, final byte[] tail, final int length) {
+    int loads = 0;
+    int at = 0;
+    for (; at + Long.BYTES <= length; at += Long.BYTES) {
+      loads++;
+      if (!Arrays.equals(stored, at, at + Long.BYTES, tail, at, at + Long.BYTES)) {
+        return loads;
+      }
+    }
+    for (; at < length; at++) {
+      loads++;
+      if (stored[at] != tail[at]) {
+        return loads;
+      }
+    }
+    return loads;
   }
 
   private static byte[] successor(final byte[] key) {
@@ -390,22 +444,33 @@ final class HOTLeafFullImagePackingTest {
     return next;
   }
 
-  /** What the canonical binary search finds, and how many key comparisons it spent finding it. */
-  private record CanonicalSearch(int result, int comparisons) {
+  /** What the canonical binary search finds, and which slots it compared on the way. */
+  private record CanonicalSearch(int result, int[] probedSlots) {
   }
 
   /**
-   * The JDK's own binary search over the same suffixes, counting its comparisons.
+   * The JDK's own binary search over the same suffixes, recording the slots it compares.
    * {@link Arrays#compareUnsigned(byte[], byte[])} supplies the HOT suffix order — unsigned over the
-   * common prefix, then shorter-is-less — and {@code Arrays.binarySearch} supplies both the
-   * {@code -(insertion) - 1} miss encoding and the comparison count, so neither comes from the page.
+   * common prefix, then shorter-is-less — and {@code Arrays.binarySearch} supplies the
+   * {@code -(insertion) - 1} miss encoding, the midpoint schedule and the probe sequence, so none of
+   * them comes from the page. The comparator is handed the element at each midpoint, which is how the
+   * sequence is recovered without writing a search here.
    */
   private static CanonicalSearch canonicalSearch(final byte[][] sortedSuffixes, final byte[] tail) {
-    final int[] comparisons = new int[1];
+    final List<Integer> probed = new ArrayList<>();
     final int result = Arrays.binarySearch(sortedSuffixes, tail, (stored, probe) -> {
-      comparisons[0]++;
+      probed.add(slotOf(sortedSuffixes, stored));
       return Arrays.compareUnsigned(stored, probe);
     });
-    return new CanonicalSearch(result, comparisons[0]);
+    return new CanonicalSearch(result, probed.stream().mapToInt(Integer::intValue).toArray());
+  }
+
+  private static int slotOf(final byte[][] suffixes, final byte[] element) {
+    for (int slot = 0; slot < suffixes.length; slot++) {
+      if (suffixes[slot] == element) {
+        return slot;
+      }
+    }
+    throw new AssertionError("the comparator was handed an array outside the fixture");
   }
 }
