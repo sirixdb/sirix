@@ -231,7 +231,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         ? resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath)
         : resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath, compatibility);
     final StoreFeatures features = ((AbstractResourceSession<?, ?>) session).getStoreFeatures();
-    if (features.readOnlyCompat() == 0) {
+    if (!features.hasUnknownReadOnlyCompat()) {
       ProjectionSortedRunSpill.removeOrphanedRuns(resourceConfig);
     }
     return new OpenedSession<>(session, prepareDerivedIndexes(session, canonicalName), true);
@@ -240,7 +240,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private @Nullable JsonResourceSession prepareDerivedIndexes(final T session, final String canonicalName) {
     final ResourceConfiguration resourceConfig = session.getResourceConfig();
     final StoreFeatures features = ((AbstractResourceSession<?, ?>) session).getStoreFeatures();
-    if (features.readOnlyCompat() == 0 && DerivedIndexMaintainer.enabled(resourceConfig)
+    if (!features.hasUnknownReadOnlyCompat() && DerivedIndexMaintainer.enabled(resourceConfig)
         && resourceConfig.getValidTimeConfig() != null && session instanceof JsonResourceSession json
         && !DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
       final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) session;
@@ -518,6 +518,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         resourceID.set(dbConfig.getMaxResourceID());
         resourceConfig.setID(resourceID.getAndIncrement());
         dbConfig.setMaximumResourceID(resourceID.get());
+        // FMT-209: every creation, including a recreation under a former name, draws its own id.
+        resourceConfig.drawIncarnationIdForCreation();
         ResourceConfiguration.serialize(resourceConfig);
 
         // The settings and folder names must be durable before revision 0 commits into the resource;

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * Test-only global write/force log shared by every {@link RecordingFileChannel} of one recording
@@ -12,8 +13,9 @@ import java.util.Map;
  * protocol (data tail force → revisions force → secondary beacon → force → primary beacon →
  * commit-end forceAll) is captured faithfully.
  *
- * <p>Milestones mark "the API call acknowledged this revision to the client at sequence S" —
- * the verifier derives from them which revision MUST survive any crash at instant ≥ S.
+ * <p>
+ * Milestones mark "the API call acknowledged this revision to the client at sequence S" — the
+ * verifier derives from them which revision MUST survive any crash at instant ≥ S.
  */
 final class PowerLossRecorder {
 
@@ -27,9 +29,9 @@ final class PowerLossRecorder {
 
   /**
    * Per-write durability from the channel's open options. {@code DSYNC} = content (and
-   * retrieve-metadata per POSIX) durable at write-return; {@code SYNC} = content AND all
-   * metadata (including size extension) durable at write-return; {@code NONE} = buffered,
-   * durable only via a later force barrier.
+   * retrieve-metadata per POSIX) durable at write-return; {@code SYNC} = content AND all metadata
+   * (including size extension) durable at write-return; {@code NONE} = buffered, durable only via a
+   * later force barrier.
    */
   enum WriteDurability {
     NONE, DSYNC, SYNC
@@ -62,14 +64,18 @@ final class PowerLossRecorder {
     }
 
     long end() {
-      return offset + (bytes == null ? 0 : bytes.length);
+      return offset + (bytes == null
+          ? 0
+          : bytes.length);
     }
 
     @Override
     public String toString() {
       return switch (kind) {
         case WRITE -> "#" + seq + " WRITE " + file + " [" + offset + ", " + end() + ") len=" + bytes.length
-            + (durability == WriteDurability.NONE ? "" : " " + durability);
+            + (durability == WriteDurability.NONE
+                ? ""
+                : " " + durability);
         case FORCE -> "#" + seq + " FORCE " + file + " metaData=" + metaData;
         case TRUNCATE -> "#" + seq + " TRUNCATE " + file + " to " + newSize;
       };
@@ -84,17 +90,42 @@ final class PowerLossRecorder {
   private final Map<String, Milestone> milestones = new LinkedHashMap<>();
   private long nextSeq;
 
+  /**
+   * Optional observer invoked synchronously, on the recording thread, right after each op is recorded
+   * (that is, right after the underlying channel call returned). It lets a test observe state outside
+   * the two recorded channels, such as the resource settings file, at exact points of the op stream.
+   * It must not call back into the recorder.
+   */
+  private volatile Consumer<Op> opListener;
+
+  void setOpListener(final Consumer<Op> listener) {
+    this.opListener = listener;
+  }
+
+  private void notifyListener(final Op op) {
+    final Consumer<Op> listener = opListener;
+    if (listener != null) {
+      listener.accept(op);
+    }
+  }
+
   synchronized void recordWrite(final TargetFile file, final long offset, final byte[] bytes,
       final WriteDurability durability) {
-    ops.add(new Op(nextSeq++, file, OpKind.WRITE, offset, bytes, false, -1, durability));
+    final Op op = new Op(nextSeq++, file, OpKind.WRITE, offset, bytes, false, -1, durability);
+    ops.add(op);
+    notifyListener(op);
   }
 
   synchronized void recordForce(final TargetFile file, final boolean metaData) {
-    ops.add(new Op(nextSeq++, file, OpKind.FORCE, -1, null, metaData, -1, WriteDurability.NONE));
+    final Op op = new Op(nextSeq++, file, OpKind.FORCE, -1, null, metaData, -1, WriteDurability.NONE);
+    ops.add(op);
+    notifyListener(op);
   }
 
   synchronized void recordTruncate(final TargetFile file, final long newSize) {
-    ops.add(new Op(nextSeq++, file, OpKind.TRUNCATE, -1, null, false, newSize, WriteDurability.NONE));
+    final Op op = new Op(nextSeq++, file, OpKind.TRUNCATE, -1, null, false, newSize, WriteDurability.NONE);
+    ops.add(op);
+    notifyListener(op);
   }
 
   /** Marks "the API call that produced {@code acknowledgedRevision} has returned". */

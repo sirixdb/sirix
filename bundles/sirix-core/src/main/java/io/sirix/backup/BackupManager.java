@@ -439,6 +439,10 @@ public final class BackupManager {
    * every restored resource read-only.
    *
    * <p>
+   * Before verification, each restored resource receives a fresh incarnation id under FMT-209,
+   * including copied hidden derived resources; copied history and last-revert metadata are retained.
+   *
+   * <p>
    * The target must either not exist or be an empty directory. Failure cleanup follows the
    * best-effort policy in {@code docs/BACKUP.md}.
    *
@@ -453,7 +457,7 @@ public final class BackupManager {
    * @return a summary (resources restored, bytes, most recent revision per resource)
    * @throws SirixUsageException if {@code backupDir} is not a valid database/backup directory, or the
    *         target exists and is not an empty directory, or the target lies inside the backup
-   * @throws SirixIOException if copying or verification fails
+   * @throws SirixIOException if copying, incarnation-id publication or verification fails
    */
   public static BackupSummary restoreDatabase(final Path backupDir, final Path targetDir) {
     requireNonNull(backupDir);
@@ -493,6 +497,10 @@ public final class BackupManager {
       final long totalBytes = copyTree(source, target, rel -> isInMemoryResourceDirectory(source, rel),
           rel -> isTransientDatabaseFile(rel) || isTransientResourceFile(relativeToResource(rel)));
 
+      // FMT-209 / TXN-613/614: every restored resource is a new incarnation. Draw its id before the
+      // verification pass below first exposes it; copied history and derived state stay as copied.
+      drawRestoredIncarnationIds(target);
+
       // Verify derived stores without installing their owners first: opening a source session
       // could rebuild a damaged sibling and hide the corruption this pass must report.
       final VerifiedResources verified = verifyRestoredDatabase(target, databaseType);
@@ -503,6 +511,28 @@ public final class BackupManager {
       if (!success) {
         cleanupTarget(target, targetExisted);
       }
+    }
+  }
+
+  /**
+   * Publishes a fresh incarnation id (FMT-209) for every restored resource directory, hidden
+   * {@code $derived} resources included. Publication guarantees belong to
+   * {@link ResourceConfiguration#publishFreshIncarnationId(Path)}.
+   */
+  private static void drawRestoredIncarnationIds(final Path target) {
+    final Path resources = target.resolve(RESOURCES_DIR);
+    if (!Files.isDirectory(resources)) {
+      return;
+    }
+    try (final DirectoryStream<Path> entries = Files.newDirectoryStream(resources)) {
+      for (final Path resource : entries) {
+        // A settings file already proves this entry is a resource directory; avoid a second stat.
+        if (Files.exists(resource.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()))) {
+          ResourceConfiguration.publishFreshIncarnationId(resource);
+        }
+      }
+    } catch (final IOException e) {
+      throw new SirixIOException("Could not list the restored resources of " + target + ".", e);
     }
   }
 

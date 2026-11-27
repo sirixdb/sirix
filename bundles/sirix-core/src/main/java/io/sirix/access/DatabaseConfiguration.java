@@ -388,7 +388,7 @@ public final class DatabaseConfiguration {
    * unchanged; a replacement that happened but cannot be made durable fails at once with a
    * {@link SirixIOException} naming the directory.
    */
-  private static void moveIntoPlace(final Path tmpFile, final Path configFile) throws IOException {
+  static void moveIntoPlace(final Path tmpFile, final Path configFile) throws IOException {
     IOException lastError = null;
     for (int attempt = 0; attempt < CONFIG_IO_MAX_ATTEMPTS; attempt++) {
       try {

@@ -180,6 +180,14 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   private Instant commitTimestamp;
 
   /**
+   * FMT-209: revision number of the most recent commit that published a revert, {@code 0} when none.
+   * Carried forward unchanged by every later revision root, so the head answers it without an
+   * additional page read; persisted as the optional kind-local page-extension entry only when
+   * nonzero, so a resource that never reverted keeps byte-identical revision-root images.
+   */
+  private int lastRevertRevision;
+
+  /**
    * Create revision root page.
    */
   public RevisionRootPage() {
@@ -218,13 +226,16 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param currentMaxLevelOfRecordToRevisionsIndirectPages Current maximum level of indirect pages in
    *        the document index tree.
    * @param user which committed or is probably committing the revision
+   * @param lastRevertRevision FMT-209 last-revert revision, {@code 0} when the resource never
+   *        reverted
    */
   RevisionRootPage(final Page delegate, final int revision, final long maxNodeKeyInDocumentIndex,
       final long maxNodeKeyInChangedNodesIndex, final long maxNodeKeyInRecordToRevisionsIndex,
       final long revisionTimestampMicros, final String commitMessage,
       final int currentMaxLevelOfDocumentIndexIndirectPages, final int currentMaxLevelOfChangedNodesIndirectPages,
-      final int currentMaxLevelOfRecordToRevisionsIndirectPages, final User user) {
+      final int currentMaxLevelOfRecordToRevisionsIndirectPages, final User user, final int lastRevertRevision) {
     this.delegate = delegate;
+    this.lastRevertRevision = lastRevertRevision;
     this.revision = revision;
     this.maxNodeKeyInDocumentIndex = maxNodeKeyInDocumentIndex;
     this.maxNodeKeyInChangedNodesIndex = maxNodeKeyInChangedNodesIndex;
@@ -261,6 +272,26 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     currentMaxLevelOfChangedNodesIndirectPages = committedRevisionRootPage.currentMaxLevelOfChangedNodesIndirectPages;
     currentMaxLevelOfRecordToRevisionsIndirectPages =
         committedRevisionRootPage.currentMaxLevelOfRecordToRevisionsIndirectPages;
+    // FMT-209: the carry-forward seam; every later revision root keeps the last-revert revision.
+    lastRevertRevision = committedRevisionRootPage.lastRevertRevision;
+  }
+
+  /**
+   * The FMT-209 last-revert revision: the revision number of the most recent commit that published a
+   * revert, {@code 0} when none.
+   *
+   * @return the last-revert revision
+   */
+  public int getLastRevertRevision() {
+    return lastRevertRevision;
+  }
+
+  /**
+   * Records that the commit of this (uncommitted) revision root publishes a revert (FMT-209): its own
+   * revision number becomes the last-revert revision, published atomically with that commit.
+   */
+  public void markRevertPublished() {
+    lastRevertRevision = revision;
   }
 
   /**

@@ -119,7 +119,10 @@ restored to (must not exist yet or be empty). The restore:
 
 1. validates the backup has the database directory structure,
 2. copies it to the target, excluding runtime files and IN_MEMORY leftovers under TXN-615,
-3. **verifies** the result. The hidden derived resources go first: a derived resource is internal and
+3. regenerates every restored resource's incarnation id before opening it, including copied
+   hidden derived resources, while preserving history and last-revert metadata under
+   [FMT-209](../spec/FMT-disk-format.md#fmt-209--conditional-write-resource-metadata),
+4. **verifies** the result. The hidden derived resources go first: a derived resource is internal and
    has no user session, so each one is opened through the tool storage path — strict feature
    compatibility, directory structure, the uber beacon, the revision-root page and the durable
    frontier/mapping metadata. Mappings beyond the copied source head are rejected. They are
@@ -128,9 +131,9 @@ restored to (must not exist yet or be empty). The restore:
    exists to report. Each visible resource is then opened with a read-only transaction at its most
    recent revision. Together this exercises superblock validation, beacon checksums, the checksummed
    revision slots and the page-checksum chain on the root page,
-4. **reports** what it restored: `BackupSummary.resources()` for the visible resources and
+5. **reports** what it restored: `BackupSummary.resources()` for the visible resources and
    `BackupSummary.derivedResources()` for the hidden derived ones,
-5. on failure applies the [best-effort target cleanup](#backup-cli) described above.
+6. on failure applies the [best-effort target cleanup](#backup-cli) described above.
 
 The restored database is fully independent of the original and can live at any path:
 `dbsetting.obj` is re-bound to the actual directory on first open.
@@ -154,9 +157,10 @@ cp -a /path/to/database /path/to/backup-dir     # or rsync -a
 
 A cold copy includes the hidden `$derived` resources along with everything else, and may include
 the runtime files the CLI skips (`.lock`, `log/.commit`, `*.tmp*`). `restore` accepts such copies
-too — or simply point the server at the copied directory. Do **not** cold-copy while a writer is
-active: a commit could interleave with the copy and leave the data/revisions pair inconsistent; use
-`BackupManager` within the owning process for an online backup instead.
+too and regenerates resource identities as described above. Opening the copied directory directly
+preserves its copied incarnation ids; use `restore` to obtain fresh identities. Do **not** cold-copy
+while a writer is active: a commit could interleave with the copy and leave the data/revisions pair
+inconsistent; use `BackupManager` within the owning process for an online backup instead.
 
 These copy commands do not establish the API's durable-on-return guarantee; use the backup API or
 CLI when the completed copy must survive a power loss immediately.

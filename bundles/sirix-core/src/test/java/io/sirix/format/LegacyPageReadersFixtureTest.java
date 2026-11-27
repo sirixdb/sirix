@@ -1,5 +1,7 @@
 package io.sirix.format;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
@@ -40,6 +42,12 @@ public final class LegacyPageReadersFixtureTest {
         }
       }
     }
+    // This pre-freeze archive is a page-reader oracle, not an old settings-schema contract.
+    // Supply FMT-209's required metadata only in the extracted copy; retain every frozen page byte.
+    final Path settingsFile = directory.resolve("resources/fixture/ressetting.obj");
+    final JsonObject settings = JsonParser.parseString(Files.readString(settingsFile)).getAsJsonObject();
+    settings.addProperty("incarnationId", "0123456789abcdef");
+    Files.writeString(settingsFile, settings.toString());
     final Path data = directory.resolve("resources/fixture/data/sirix.data");
     final byte[] before = Files.readAllBytes(data);
     int usedEnd = before.length;
@@ -49,6 +57,7 @@ public final class LegacyPageReadersFixtureTest {
     try (final var database = Databases.openJsonDatabase(directory);
         final var session = database.beginResourceSession("fixture")) {
       assertTrue(session.getResourceConfig().verifyChecksumsOnRead);
+      assertEquals(0x0123456789abcdefL, session.getResourceConfig().getIncarnationId());
       assertEquals(3, session.getMostRecentRevisionNumber());
       final String[] expected = {"first", "revised", "third"};
       for (int revision = 1; revision <= 3; revision++) {
@@ -78,6 +87,7 @@ public final class LegacyPageReadersFixtureTest {
         final var original = session.beginNodeReadOnlyTrx(1)) {
       assertEquals("fourth", firstString(current));
       assertEquals("first", firstString(original));
+      assertEquals(0x0123456789abcdefL, session.getResourceConfig().getIncarnationId());
     }
   }
 

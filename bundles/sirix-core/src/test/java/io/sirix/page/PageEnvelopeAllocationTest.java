@@ -23,19 +23,23 @@ public final class PageEnvelopeAllocationTest {
 
   private static void check(final ThreadMXBean bean, final byte[] wire, final byte mask) {
     final BytesIn<?> source = Bytes.wrapForRead(wire);
+    final long thread = Thread.currentThread().threadId();
+    // Initialize the allocation probe and warm the same method used in the measured interval.
+    bean.getThreadAllocatedBytes(thread);
+    int checksum = readRepeatedly(source, mask);
+    final long before = bean.getThreadAllocatedBytes(thread);
+    checksum += readRepeatedly(source, mask);
+    final long allocated = bean.getThreadAllocatedBytes(thread) - before;
+    assertEquals(200_000 * mask, checksum);
+    assertTrue("Per-page allocation: " + allocated, allocated <= 1024);
+  }
+
+  private static int readRepeatedly(final BytesIn<?> source, final byte mask) {
     int checksum = 0;
     for (int i = 0; i < 100_000; i++) {
       source.position(0);
       checksum += PageKind.readVersionAndFlagsAllowing(source, mask);
     }
-    final long thread = Thread.currentThread().threadId();
-    final long before = bean.getThreadAllocatedBytes(thread);
-    for (int i = 0; i < 100_000; i++) {
-      source.position(0);
-      checksum += PageKind.readVersionAndFlagsAllowing(source, mask);
-    }
-    final long allocated = bean.getThreadAllocatedBytes(thread) - before;
-    assertEquals(200_000 * mask, checksum);
-    assertTrue("Per-page allocation: " + allocated, allocated <= 1024);
+    return checksum;
   }
 }

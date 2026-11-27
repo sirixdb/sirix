@@ -77,8 +77,8 @@ individual members below may be weaker. This is not a compiled API artifact.
 | `io.sirix.api.xml.XmlNodeTrx` | stable | [XmlNodeTrx.java](../bundles/sirix-core/src/main/java/io/sirix/api/xml/XmlNodeTrx.java) | `a4db928a4209c9210d1e3c9dbac3d18a5d98a936bb6fd20faa228600f42388ac` |
 | `io.sirix.api.xml.XmlResourceSession` | stable | [XmlResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/api/xml/XmlResourceSession.java) | `fa6715d6ca104bbfc1bd951386f07899f295ea20d728647fe8a613d60f5bbca3` |
 | `io.sirix.access.Databases` | stable | [Databases.java](../bundles/sirix-core/src/main/java/io/sirix/access/Databases.java) | `9d9e542a788d79d99fe64894c010e51beb45b324e20ca3cf589c94f6695cab21` |
-| `io.sirix.access.DatabaseConfiguration` | stable | [DatabaseConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseConfiguration.java) | `2f8b937af3ed96f880979d831d786fc3d149d8054fc1b332d952b0763f1bd057` |
-| `io.sirix.access.ResourceConfiguration` | stable | [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java) | `9692e0763564f1bb1df74941eaf0fbec7eb3e4f3247065a9c674418caac0bdb8` |
+| `io.sirix.access.DatabaseConfiguration` | stable | [DatabaseConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseConfiguration.java) | `237b09ddb88b9d0c4e2bbc1fa11af6ae19f712dbdefbdccdb04d79bc524fab3e` |
+| `io.sirix.access.ResourceConfiguration` | stable | [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java) | `38da128c39dfab8f4cfe95bd6fed03e2de6da4bf9a1e1005bd4747fb3dfee9b3` |
 | `io.sirix.access.DatabaseType` | stable | [DatabaseType.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseType.java) | `18193378a90740232020c9d63a3fde32e9da3a457512ffbdeac6ecd3d4699290` |
 | `io.sirix.access.User` | stable | [User.java](../bundles/sirix-core/src/main/java/io/sirix/access/User.java) | `641eff1314d825d395e9a5e8416fa4b5e1d404297179d6575f99460a75968857` |
 | `io.sirix.access.trx.node.AfterCommitState` | stable | [AfterCommitState.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AfterCommitState.java) | `d47399134850df4088e1c3b80289ca858cb3211a6862ebb5e46c55a451c6e681` |
@@ -1087,6 +1087,10 @@ Source: [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/siri
 [internal] public final ValidTimeConfig validTimeConfig;
 [internal] public final UUID resourceUuid;
 [stable] public static Builder newBuilder(final String resource);
+[internal] public long getIncarnationId();
+[internal] public static String formatIncarnationId(final long incarnationId);
+[internal] public void publishFreshIncarnationId();
+[internal] public static void publishFreshIncarnationId(final Path resourceDirectory);
 [internal] public BinaryEncodingVersion getBinaryEncodingVersion();
 [stable] public boolean customCommitTimestamps();
 [internal] public ResourceConfiguration setID(final long id);

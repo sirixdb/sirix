@@ -5523,12 +5523,21 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
+      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      final byte flags = source.readByte();
+      // FMT-209: the only revision-root extension entry is the optional last-revert revision.
+      final int lastRevertRevision = flags == 0
+          ? 0
+          : PageExtensions.readRevisionRootLastRevert(source, flags);
 
       switch (binaryVersion) {
         case V0 -> {
           Page delegate = new BitmapReferencesPage(RevisionRootPage.REVISION_ROOT_PAGE_REFERENCE_COUNT, source, type);
           final int revision = source.readInt();
+          if (lastRevertRevision > revision) {
+            throw new IllegalStateException("Corrupt revision root " + revision + ": last-revert revision "
+                + lastRevertRevision + " lies after it");
+          }
           final long maxNodeKeyInDocumentIndex = source.readLong();
           final long maxNodeKeyInChangedNodesIndex = source.readLong();
           final long maxNodeKeyInRecordToRevisionsIndex = source.readLong();
@@ -5553,7 +5562,7 @@ public enum PageKind {
           return new RevisionRootPage(delegate, revision, maxNodeKeyInDocumentIndex, maxNodeKeyInChangedNodesIndex,
               maxNodeKeyInRecordToRevisionsIndex, revisionTimestampMicros, commitMessage,
               currentMaxLevelOfDocumentIndexIndirectPages, currentMaxLevelOfChangedNodesIndirectPages,
-              currentMaxLevelOfRecordToRevisionsIndirectPages, user);
+              currentMaxLevelOfRecordToRevisionsIndirectPages, user, lastRevertRevision);
         }
         default -> throw new IllegalStateException();
       }
@@ -5564,7 +5573,13 @@ public enum PageKind {
         final SerializationType type) {
       RevisionRootPage revisionRootPage = (RevisionRootPage) page;
       sink.writeByte(REVISIONROOTPAGE.id);
-      writeVersionAndFlags(sink);
+      final int lastRevertRevision = revisionRootPage.getLastRevertRevision();
+      if (lastRevertRevision == 0) {
+        // FMT-209: a resource that never reverted keeps its revision-root image unchanged.
+        writeVersionAndFlags(sink);
+      } else {
+        writeVersionAndFlags(sink, (byte) 0, PageExtensions.lastRevertRevision(lastRevertRevision));
+      }
 
       Page delegate = revisionRootPage.delegate();
       PageKind.serializeDelegate(sink, delegate, type);

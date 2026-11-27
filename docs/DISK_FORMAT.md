@@ -55,6 +55,12 @@ nested values, are ignored. A non-object value is refused. Do not put settings r
 interpret or safely rewrite a resource there; skipped contents are not retained on rewrite.
 See `ResourceSettingsExtensionsTest` for independent settings mutations.
 
+The required `incarnationId` tail member follows the
+[CONF-102 schema](../spec/CONF-configuration.md#persisted-resource-schema-conf-102).
+Its generation, lifecycle and settings-rewrite invariants are owned by
+[FMT-209](../spec/FMT-disk-format.md#fmt-209--conditional-write-resource-metadata);
+its publication on truncate and restore is a durable settings replace (TXN-616).
+
 ### sirix.data (FILE_CHANNEL, the default)
 
 ```
@@ -272,8 +278,9 @@ unchanged body:
 stop-bit encoding (seven low data bits per byte, high bit means continue). Tags are unsigned,
 strictly ascending and unique. Tag bit 7 (`0x80`) marks a required entry; bit 6 (`0x40`)
 selects kind-local rather than shared meaning. Entries must be independent of other entries
-and pages so skipping is safe. The only assigned entry is specified in
-[UberPage store feature words](#uberpage-store-feature-words).
+and pages so skipping is safe. Assigned entries are specified in
+[UberPage store feature words](#uberpage-store-feature-words) and the
+[FMT-209 last-revert wire table](../spec/FMT-disk-format.md#wire-tables-fmt-102-fmt-104-fmt-106-fmt-209).
 Readers skip unknown optional entries by length and refuse unknown required entries. Truncated or overflowing
 lengths, lengths outside the block/page boundary, duplicate tags and descending tags are
 refused. Readers accept blocks larger than the writer limit when they fit the page.
@@ -314,7 +321,10 @@ byte (PIXD/PIXS/PIX1, PIXM). Enum-typed bytes on disk are always explicit stable
 fail-fast lookups, never ordinals.
 
 - **UberPage**: [store feature words and revision count](#uberpage-store-feature-words).
-- **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
+- **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user,
+  plus the optional last-revert envelope entry defined by the
+  [FMT-209 wire table](../spec/FMT-disk-format.md#wire-tables-fmt-102-fmt-104-fmt-106-fmt-209).
+  `LastRevertRevisionEntryTest` pins its bytes.
   The delegate's reference count and offsets are defined by
   [`RevisionRootPage`](../bundles/sirix-core/src/main/java/io/sirix/page/RevisionRootPage.java).
   Its bitmap delegate refuses slots beyond that known reference count;
@@ -559,7 +569,9 @@ defines the access policy for unknown bits:
 | `readOnlyCompat` | Permit read-only access | Refuse, including revert, truncate and index creation | Refuse |
 | `compat` | Ignore | Ignore | Refuse |
 
-This build implements the words but assigns no supported feature bits. Feature-word refusal raises
+Supported feature assignments and their publication rules are owned by
+[FMT-205](../spec/FMT-disk-format.md#fmt-205--uber-feature-encoding).
+Feature-word refusal raises
 `UnsupportedStoreFeatureException`, naming the word and hexadecimal mask and requesting an upgrade.
 Unknown UberPage versions raise its `UnsupportedFormatVersionException` subtype with the plain
 "unsupported format version" diagnostic and the value found; unknown flags and required entries

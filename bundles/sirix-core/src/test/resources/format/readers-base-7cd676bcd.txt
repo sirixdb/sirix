@@ -14,4 +14,7 @@ Only the closed database's .lock file was excluded from the archive.
 Do not regenerate with the current writer: this is a previous-writer oracle.
 LegacyPageReadersFixtureTest extracts its own private copy, verifies the prior
 revisions, appends revision 4, and checks the existing page bytes are untouched.
+The test adds the required FMT-209 incarnationId to the extracted settings only:
+this pre-freeze page-reader oracle does not establish old settings compatibility.
+The archive and all page images remain unchanged.
 For the per-kind page-image oracle, see readers-base-pages/README.txt.

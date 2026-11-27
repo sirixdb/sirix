@@ -62,8 +62,14 @@ class StoreFeaturesTest {
       assertThrows(UnsupportedOperationException.class, incompat::requireWritable);
       assertThrows(UnsupportedOperationException.class, incompat::requireToolCompatible);
       assertDoesNotThrow(readOnly::requireReadable);
-      assertThrows(UnsupportedOperationException.class, readOnly::requireWritable);
-      assertThrows(UnsupportedOperationException.class, readOnly::requireToolCompatible);
+      if (mask == StoreFeatures.CONDITIONAL_WRITE_METADATA) {
+        // FMT-209 assigns readOnlyCompat bit 0 and this engine maintains it.
+        assertDoesNotThrow(readOnly::requireWritable);
+        assertDoesNotThrow(readOnly::requireToolCompatible);
+      } else {
+        assertThrows(UnsupportedOperationException.class, readOnly::requireWritable);
+        assertThrows(UnsupportedOperationException.class, readOnly::requireToolCompatible);
+      }
       assertDoesNotThrow(compat::requireReadable);
       assertDoesNotThrow(compat::requireWritable);
       assertThrows(UnsupportedOperationException.class, compat::requireToolCompatible);
@@ -77,6 +83,27 @@ class StoreFeaturesTest {
     assertTrue(failure.getMessage().contains("readOnlyCompat"));
     assertTrue(failure.getMessage().contains("0x80000000"));
     assertTrue(failure.getMessage().contains("upgrade"));
+  }
+
+  @Test
+  void fmt209ConditionalWriteMetadataIsTheOnlyKnownBit() {
+    assertEquals(1, StoreFeatures.CONDITIONAL_WRITE_METADATA, "FMT-209 wire table: readOnlyCompat bit 0");
+    assertEquals(StoreFeatures.CONDITIONAL_WRITE_METADATA_FEATURES, new StoreFeatures(0, 1, 0));
+    // A known bit never hides an unknown one in the same word.
+    final var mixed = new StoreFeatures(0, StoreFeatures.CONDITIONAL_WRITE_METADATA | 2, 0);
+    final var failure = assertThrows(UnsupportedOperationException.class, mixed::requireWritable);
+    assertTrue(failure.getMessage().contains("0x2"), failure.getMessage());
+    assertFalse(failure.getMessage().contains("0x3"), failure.getMessage());
+    assertDoesNotThrow(mixed::requireReadable);
+    // Only unknown readOnlyCompat bits make the store read-only for this engine.
+    assertFalse(StoreFeatures.NONE.hasUnknownReadOnlyCompat());
+    assertFalse(StoreFeatures.CONDITIONAL_WRITE_METADATA_FEATURES.hasUnknownReadOnlyCompat());
+    assertTrue(mixed.hasUnknownReadOnlyCompat());
+    assertTrue(new StoreFeatures(0, Integer.MIN_VALUE, 0).hasUnknownReadOnlyCompat());
+    assertFalse(new StoreFeatures(0, 0, -1).hasUnknownReadOnlyCompat(), "compat bits never make a store read-only");
+    // The bit is readOnlyCompat only: in the other words bit 0 stays unknown.
+    assertThrows(UnsupportedOperationException.class, new StoreFeatures(1, 0, 0)::requireReadable);
+    assertThrows(UnsupportedOperationException.class, new StoreFeatures(0, 0, 1)::requireToolCompatible);
   }
 
   @Test
