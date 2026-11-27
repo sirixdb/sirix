@@ -549,6 +549,12 @@ allocation checks, add `--tests 'io.sirix.index.hot.HOTCommitAllocationBudgetTes
 The same fork runs `CommitTimestampProbeAllocationBudgetTest` and `PageEnvelopeAllocationTest`
 with blocking compilation (`-Xbatch`), so warmup completes before their unchanged allocation
 bounds are measured on slower ARM runners.
+It also selects the planned MEM allocation suites; the
+[MEM chapter](../spec/MEM-memory-pool.md) owns their evidence status and
+[MemSteps](../bundles/sirix-core/src/test/java/io/sirix/cache/MemSteps.java) owns their enablement.
+The fork's JVM arguments pin the object layout required by
+[`FrameReuseAllocationBudgetTest`](../bundles/sirix-core/src/test/java/io/sirix/cache/FrameReuseAllocationBudgetTest.java)'s
+fixed handle allowance; keep those arguments when running that suite separately.
 
 The normal core task also runs `StorageEpochStoreIdentityTest`,
 `StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM

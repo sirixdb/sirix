@@ -139,7 +139,9 @@ final class MemPoolSeam {
 
   static Object pressureKind(final boolean slotShortfall) {
     try {
-      return pressureMethod().getParameterTypes()[0].getField(slotShortfall ? "SLOTS" : "BYTES").get(null);
+      return pressureMethod().getParameterTypes()[0].getField(slotShortfall
+          ? "SLOTS"
+          : "BYTES").get(null);
     } catch (final ReflectiveOperationException e) {
       throw missing("ShortfallKind.BYTES / ShortfallKind.SLOTS", "MEM-103, MEM-202", 1);
     }
@@ -294,8 +296,8 @@ final class MemPoolSeam {
   record PressureRequest(boolean slotShortfall, long amount, int requestingClass) {
 
     static PressureRequest decode(final Object[] args) {
-      if (args == null || args.length != 3 || !(args[0] instanceof Enum<?> kind)
-          || !(args[1] instanceof Long amount) || !(args[2] instanceof Integer requestingClass)) {
+      if (args == null || args.length != 3 || !(args[0] instanceof Enum<?> kind) || !(args[1] instanceof Long amount)
+          || !(args[2] instanceof Integer requestingClass)) {
         throw new AssertionError("expected (ShortfallKind, long amount, int requestingClass)");
       }
       final boolean slot = switch (kind.name()) {

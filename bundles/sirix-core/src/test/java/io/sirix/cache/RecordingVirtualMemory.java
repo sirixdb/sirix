@@ -23,10 +23,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * a release call.
  *
  * <p>
- * The proxy binds the exact operations in {@link MemPlatformSeam}'s contract table, together
- * with {@code reserve(long)}, {@code commitFresh(MemorySegment)}, {@code populate(MemorySegment)}
- * and {@code release(MemorySegment)}. The first seven reservations are the size classes in order;
- * every region is aligned to {@value #REGION_ALIGNMENT} bytes. Reservations, fresh commitments,
+ * The proxy binds the exact operations in {@link MemPlatformSeam}'s contract table, together with
+ * {@code reserve(long)}, {@code commitFresh(MemorySegment)}, {@code populate(MemorySegment)} and
+ * {@code release(MemorySegment)}. The first seven reservations are the size classes in order; every
+ * region is aligned to {@value #REGION_ALIGNMENT} bytes. Reservations, fresh commitments,
  * population and whole-region releases delegate to real memory unless mapping is disabled. Run
  * release and re-charge report success without touching memory, except for injected failures.
  */

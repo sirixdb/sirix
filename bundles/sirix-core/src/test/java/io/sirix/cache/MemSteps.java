@@ -5,17 +5,17 @@ package io.sirix.cache;
 
 /**
  * Which steps of the MEM chapter ({@code spec/MEM-memory-pool.md}) have landed. The spec-derived
- * tests of a step carry {@link MemPlanned} and stay disabled until the step's constant here is
- * flipped to {@code true}: one edit per step, in this one file, which enables every test of that
- * step at once. A test cannot be switched on or off one by one, and none can be weakened by editing
- * its own annotation.
+ * tests of a step carry {@link MemPlanned} (or {@link MemPlannedProperty} for jqwik) and stay
+ * disabled until the step's constant here is flipped to {@code true}: one edit per step, in this
+ * one file, which enables every test of that step at once. A test cannot be switched on or off one
+ * by one, and none can be weakened by editing its own annotation.
  *
  * <p>
  * Running the planned tests before their step lands is possible without editing anything:
  * {@code -Dsirix.mem.planned=run} enables all of them, so a reviewer can watch them fail now.
  *
  * <ul>
- * <li>Step 1: MEM-101 to MEM-108, MEM-401, MEM-402 ({@code FrameSlotAllocator},
+ * <li>Step 1: MEM-101 to MEM-109, MEM-401, MEM-402 ({@code FrameSlotAllocator},
  * {@link VirtualMemory} backends).</li>
  * <li>Step 2: MEM-201 to MEM-203 (one frame budget in the buffer manager).</li>
  * <li>Step 3: MEM-301, MEM-302 (compact-image pool as a reservation).</li>
@@ -26,13 +26,13 @@ final class MemSteps {
   /** System property that enables every planned test regardless of the constants below. */
   static final String FORCE_PROPERTY = "sirix.mem.planned";
 
-  /** MEM-101..108, MEM-401, MEM-402 have landed. */
+  /** Whether MEM-101..109, MEM-401, MEM-402 have landed. */
   static final boolean STEP_1_LANDED = false;
 
-  /** MEM-201..203 have landed. */
+  /** Whether MEM-201..203 have landed. */
   static final boolean STEP_2_LANDED = false;
 
-  /** MEM-301, MEM-302 have landed. */
+  /** Whether MEM-301, MEM-302 have landed. */
   static final boolean STEP_3_LANDED = false;
 
   private MemSteps() {}

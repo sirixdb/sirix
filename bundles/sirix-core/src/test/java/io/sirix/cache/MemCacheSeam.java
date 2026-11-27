@@ -78,8 +78,8 @@ final class MemCacheSeam {
       final HeapCacheBudget heap) {
     final HeapCacheBudget.PropertyLookup lookup = lookup(properties);
     try {
-      final Constructor<BufferManagerImpl> constructor = BufferManagerImpl.class.getDeclaredConstructor(
-          long.class, HeapCacheBudget.PropertyLookup.class, HeapCacheBudget.class);
+      final Constructor<BufferManagerImpl> constructor = BufferManagerImpl.class.getDeclaredConstructor(long.class,
+          HeapCacheBudget.PropertyLookup.class, HeapCacheBudget.class);
       constructor.setAccessible(true);
       return constructor.newInstance(frameBudgetBytes, lookup, heap);
     } catch (final NoSuchMethodException e) {

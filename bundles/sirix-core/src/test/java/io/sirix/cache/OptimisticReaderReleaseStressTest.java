@@ -97,7 +97,9 @@ final class OptimisticReaderReleaseStressTest {
         try {
           while (!done.get()) {
             final int checkpoint = rechargedOwner.get();
-            final int index = checkpoint >= 0 ? checkpoint : random.nextInt(SLOTS);
+            final int index = checkpoint >= 0
+                ? checkpoint
+                : random.nextInt(SLOTS);
             final long result = readOnce(allocator, segments.get(index), classIdx, index);
             if (result == 0L) {
               discarded.incrementAndGet();
@@ -191,8 +193,8 @@ final class OptimisticReaderReleaseStressTest {
    *         validation), {@code 1} validated and every word is the owner's, {@code 2} validated but a
    *         word is not the owner's
    */
-  private static long readOnce(final FrameSlotAllocator allocator, final MemorySegment segment,
-      final int classIdx, final int index) {
+  private static long readOnce(final FrameSlotAllocator allocator, final MemorySegment segment, final int classIdx,
+      final int index) {
     final long version = allocator.acquireVersion(classIdx, index);
     if ((version & 1L) != 0L) {
       return 0L;

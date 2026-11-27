@@ -25,11 +25,11 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * and the change that lands MEM-103/104 must keep it.
  *
  * <p>
- * "Unchanged" permits a fixed 40-byte frame handle in the clean allocation fork's 64-bit JVM
- * layout (compressed references and class pointers, 8-byte alignment, ordinary object headers),
- * plus a JDK segment slice measured independently. Neither allowance executes the production
- * handle constructor. The scoped-segment control uses only the JDK API. Optimistic reads must
- * allocate nothing, and a positive control proves the measurement sees allocation.
+ * "Unchanged" permits a fixed 40-byte frame handle in the clean allocation fork's 64-bit JVM layout
+ * (compressed references and class pointers, 8-byte alignment, ordinary object headers), plus a JDK
+ * segment slice measured independently. Neither allowance executes the production handle
+ * constructor. The scoped-segment control uses only the JDK API. Optimistic reads must allocate
+ * nothing, and a positive control proves the measurement sees allocation.
  */
 @Isolated
 @MemPlanned(step = 1, value = {"MEM-102"})

@@ -82,10 +82,8 @@ final class MemTestOracleRegressionTest {
           assertFalse(invokePrimitive(recording, MemPlatformSeam.RELEASE_RUN, run));
           assertFalse(invokePrimitive(recording, MemPlatformSeam.RECHARGE, run));
         } else {
-          assertThrows(IllegalStateException.class,
-              () -> invokePrimitive(recording, MemPlatformSeam.RELEASE_RUN, run));
-          assertThrows(IllegalStateException.class,
-              () -> invokePrimitive(recording, MemPlatformSeam.RECHARGE, run));
+          assertThrows(IllegalStateException.class, () -> invokePrimitive(recording, MemPlatformSeam.RELEASE_RUN, run));
+          assertThrows(IllegalStateException.class, () -> invokePrimitive(recording, MemPlatformSeam.RECHARGE, run));
         }
         assertArrayEquals(expected, run.toArray(ValueLayout.JAVA_BYTE), "injected failures touch no bytes");
       }

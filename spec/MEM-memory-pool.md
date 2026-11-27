@@ -3,8 +3,11 @@
 Spec target: **1.0.0**. Chapter status: **Draft; captain decisions of 2026-11-26 folded in**.
 Code baseline: `bf3e95c7fbb61c2a054d0af90da3c3f20f6bd64c`
 (25 November 2026). [Conventions](CONV-conventions.md) define requirement status, evidence and
-conformance. Every requirement below is `proposed`; no test named here exists yet unless marked
-*existing*.
+conformance. Every requirement below remains `proposed`. The named acceptance tests now have
+sources in [the cache test package](../bundles/sirix-core/src/test/java/io/sirix/cache), but planned
+scenarios still await implementation and passing evidence.
+[MemSteps](../bundles/sirix-core/src/test/java/io/sirix/cache/MemSteps.java) owns their step
+enablement and forced-execution option; test-source presence alone establishes no conformance.
 
 ## Scope
 

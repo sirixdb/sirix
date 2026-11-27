@@ -12,10 +12,22 @@ import java.lang.reflect.Method;
  *
  * <table>
  * <caption>Step-1 VirtualMemory contract</caption>
- * <tr><th>Member</th><th>Meaning</th></tr>
- * <tr><td>{@code long osPageBytes()}</td><td>OS page size in bytes</td></tr>
- * <tr><td>{@code boolean releaseRun(MemorySegment run)}</td><td>release backing while keeping the run accessible</td></tr>
- * <tr><td>{@code boolean recharge(MemorySegment run)}</td><td>re-charge advice before reuse</td></tr>
+ * <tr>
+ * <th>Member</th>
+ * <th>Meaning</th>
+ * </tr>
+ * <tr>
+ * <td>{@code long osPageBytes()}</td>
+ * <td>OS page size in bytes</td>
+ * </tr>
+ * <tr>
+ * <td>{@code boolean releaseRun(MemorySegment run)}</td>
+ * <td>release backing while keeping the run accessible</td>
+ * </tr>
+ * <tr>
+ * <td>{@code boolean recharge(MemorySegment run)}</td>
+ * <td>re-charge advice before reuse</td>
+ * </tr>
  * </table>
  */
 final class MemPlatformSeam {
