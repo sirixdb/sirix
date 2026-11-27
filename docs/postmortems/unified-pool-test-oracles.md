@@ -85,3 +85,35 @@ scheduled before publication, at the paused checkpoint, or after churn resumes. 
 uses the existing admission query; no new runtime API, reflective alternative or scheduler-state
 requirement is introduced. These scenarios remain planned until the implementation lands; compiling
 and selecting them is not evidence of their runtime conformance.
+
+
+## Follow-up: account ownership and populated recharge runs
+
+- Fix / issue: R15–R16; the earlier scratch-lease, retained-slab, warm-capacity and pre-decode baseline
+  corrections (R2, R3, R11 and R12) remain intact.
+- Symptom: Frame or scratch charges could conceal an uncharged compact allocation; an untouched
+  anonymous macOS run could gain footprint on first write even if re-charge advice did nothing.
+- Trigger: Hold all frame budget, let a faulty pool map without reserving, then compare the pool
+  account with total commitment. Alternatively release a never-populated macOS run, return success
+  without MADV_FREE_REUSE, and write its first pages.
+- Root cause: Both observations lacked ownership provenance: global commitment was credited to the
+  pool, and first-touch allocation was credited to recharge.
+- Why tests missed it: Existing positive totals did not distinguish the source of a charge or the
+  cause of a footprint increase.
+- Regression tests: `MemTestOracleRegressionTest.unrelatedChargesCannotCoverThePoolAccount` uses
+  independently worked byte counts: 64 KiB charged entirely to frames cannot cover a 4 KiB pool;
+  72 KiB charged entirely to frames and scratch cannot cover it either; a separate 8 KiB reservation
+  covers either 4 KiB or 8 KiB of pool account. Every `assertAccount` caller and both close helpers
+  now exclude independently counted frame states and charged scratch backing, including retained
+  small buffers whose mappings are uncharged. Successful operations also check the overall budget,
+  frame/pool admission ceiling and non-execution ceiling. The macOS test populates runC, observes
+  its release drop without accessing it, observes re-charge accounting before any access, and retains
+  the first-write footprint assertion. Platform and compact-pool runtime scenarios remain planned.
+- Lesson: One owner's charge cannot prove another owner's reservation; populate native pages and
+  distinguish advice-time accounting from ordinary first-touch allocation.
+
+The macOS expectation is grounded in XNU's
+[resident reusable-page accounting](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/osfmk/vm/vm_object.c),
+`vm_object_reuse_pages`: removing a resident page's reusable state updates pmap reusable accounting.
+The immediate post-recharge observation rejects a no-op before subsequent writes can hide it. A real
+macOS lane is still required; a successful Linux compilation is not evidence of that native behavior.

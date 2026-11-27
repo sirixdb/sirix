@@ -60,7 +60,7 @@ final class PlatformReleaseSemanticsTest {
   private long granule;
   private MemorySegment runA;
   private MemorySegment runB;
-  /** Committed but never touched before its release: the macOS re-charge run. */
+  /** Separate run for macOS re-charge verification. */
   private MemorySegment runC;
 
   @BeforeEach
@@ -157,10 +157,17 @@ final class PlatformReleaseSemanticsTest {
   void macRechargeOfAnUntouchedRunRaisesTheFootprintOnFirstTouch() {
     assumeTrue(OS.isMacOSX(), "MEM-106 (5) is asserted on the macOS lane only");
     final Residency footprint = new MacFootprint();
-    assertTrue(MemPlatformSeam.releaseRun(vm, runC), "the untouched run releases");
+    fill(runC, PATTERN);
+    final long populated = footprint.bytes(runC);
+    assertTrue(MemPlatformSeam.releaseRun(vm, runC), "the populated run releases");
     final long released = footprint.bytes(runC);
+    assertTrue(populated - released >= RUN_BYTES,
+        "the populated run's release lowers the footprint by at least its size");
 
     assertTrue(MemPlatformSeam.recharge(vm, runC), "MADV_FREE_REUSE succeeds on a released run");
+    final long recharged = footprint.bytes(runC);
+    assertTrue(recharged - released >= RUN_BYTES / 2,
+        "re-charge restores the resident reusable pages' footprint before any access to the run");
     for (long offset = 0; offset < RUN_BYTES; offset += granule) {
       runC.set(ValueLayout.JAVA_LONG, offset, PATTERN);
     }

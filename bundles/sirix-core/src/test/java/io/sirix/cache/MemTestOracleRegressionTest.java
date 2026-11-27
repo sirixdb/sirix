@@ -97,6 +97,19 @@ final class MemTestOracleRegressionTest {
     assertEquals(2, recording.callsAfterRegionsReleased());
   }
 
+  @Test
+  @DisplayName("MEM-301 oracle cannot pay a pool account with another owner's charge")
+  void unrelatedChargesCannotCoverThePoolAccount() {
+    assertThrows(AssertionError.class,
+        () -> CompactImageAccountTest.assertPoolChargeCoverage(65536L, 65536L, 4096L, "owned frames"));
+    assertThrows(AssertionError.class,
+        () -> CompactImageAccountTest.assertPoolChargeCoverage(73728L, 73728L, 4096L, "frames and scratch"));
+    assertDoesNotThrow(
+        () -> CompactImageAccountTest.assertPoolChargeCoverage(73728L, 65536L, 4096L, "separate pool reservation"));
+    assertDoesNotThrow(
+        () -> CompactImageAccountTest.assertPoolChargeCoverage(73728L, 65536L, 8192L, "fully used pool reservation"));
+  }
+
   private static boolean invokePrimitive(final RecordingVirtualMemory recording, final String operation,
       final MemorySegment run) throws Throwable {
     final Method method = ReleasePrimitives.class.getMethod(operation, MemorySegment.class);

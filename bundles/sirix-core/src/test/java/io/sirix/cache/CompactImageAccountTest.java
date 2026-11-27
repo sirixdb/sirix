@@ -64,9 +64,37 @@ final class CompactImageAccountTest {
         "MEM-301 the account " + account + " exceeds the share " + pool.shareBytes() + " after " + after);
     assertEquals(0L, pool.slabBytes() % unit,
         "MEM-301 the account is reserved in slab-sized units, got " + pool.slabBytes() + " after " + after);
-    assertTrue(allocator.getPhysicalMemoryBytes() >= account,
-        "MEM-301 every byte of the account is charged to committedBytes: committed="
-            + allocator.getPhysicalMemoryBytes() + " account=" + account + " after " + after);
+    assertPoolCharge(allocator, pool, after);
+  }
+
+  private static long chargedScratchBytes(final FrameSlotAllocator allocator) {
+    return allocator.scratch().regionBytes() - allocator.scratch().unchargedIdleSmallBytes();
+  }
+
+  private static long poolCommittedBytes(final FrameSlotAllocator allocator) {
+    return allocator.getPhysicalMemoryBytes() - FrameBudgetOracle.chargedFrameBytes(allocator)
+        - chargedScratchBytes(allocator);
+  }
+
+  private static void assertPoolCharge(final FrameSlotAllocator allocator, final MemCompactSeam.Pool pool,
+      final String after) {
+    final long committed = allocator.getPhysicalMemoryBytes();
+    final long scratch = chargedScratchBytes(allocator);
+    final long nonPool = FrameBudgetOracle.chargedFrameBytes(allocator) + scratch;
+    assertTrue(scratch >= 0L, "scratch charges are nonnegative after " + after);
+    assertPoolChargeCoverage(committed, nonPool, pool.accountBytes(), after);
+    assertTrue(committed <= allocator.budgetBytes(), "MEM-301 total commitment stays within B after " + after);
+    assertTrue(committed - scratch <= FrameBudgetOracle.scratchCommitLimit(allocator),
+        "MEM-301 frame and pool charges stay within their admission limit after " + after);
+    assertTrue(allocator.nonExecutionCommittedBytes() <= FrameBudgetOracle.scratchCommitLimit(allocator),
+        "MEM-301 non-execution commitment stays within its admission limit after " + after);
+  }
+
+  static void assertPoolChargeCoverage(final long committed, final long nonPool, final long account,
+      final String after) {
+    assertTrue(committed - nonPool >= account,
+        "MEM-301 the account has its own charge after subtracting frames and scratch: pool committed="
+            + (committed - nonPool) + " account=" + account + " after " + after);
   }
 
   private static void closeLeaseKeepingSlabs(final FrameSlotAllocator allocator, final MemCompactSeam.Pool pool,
@@ -76,18 +104,18 @@ final class CompactImageAccountTest {
     pool.close(lease);
     assertEquals(mapped, pool.slabBytes(), "MEM-302 releasing a lease keeps every mapped slab");
     assertEquals(charged, allocator.getPhysicalMemoryBytes(), "MEM-302 releasing a lease keeps its charge");
+    assertPoolCharge(allocator, pool, "releasing a lease");
   }
 
   private static void closeDecodeKeepingSlabs(final FrameSlotAllocator allocator, final MemCompactSeam.Pool pool,
       final Object decoded) {
     final long mapped = pool.slabBytes();
-    final long charged = allocator.getPhysicalMemoryBytes() - allocator.scratch().regionBytes()
-        - pool.fallbackImageBytes() - pool.metadataBytes();
+    final long charged = poolCommittedBytes(allocator) - pool.fallbackImageBytes() - pool.metadataBytes();
     pool.closeDecoded(decoded);
     assertEquals(mapped, pool.slabBytes(), "MEM-302 closing a decode keeps every mapped slab");
-    assertEquals(charged, allocator.getPhysicalMemoryBytes() - allocator.scratch().regionBytes()
-        - pool.fallbackImageBytes() - pool.metadataBytes(), "MEM-302 closing a decode keeps its slab charge");
-    assertTrue(allocator.getPhysicalMemoryBytes() >= mapped, "MEM-302 every mapped slab stays charged");
+    assertEquals(charged, poolCommittedBytes(allocator) - pool.fallbackImageBytes() - pool.metadataBytes(),
+        "MEM-302 closing a decode keeps its slab charge");
+    assertPoolCharge(allocator, pool, "closing a decode");
   }
 
   @ParameterizedTest(name = "seed {0}")
@@ -102,6 +130,7 @@ final class CompactImageAccountTest {
     final Random random = new Random(seed);
     try {
       assertEquals(SHARE_UNITS * unit, pool.shareBytes(), "the pool reports the share it was given");
+      assertAccount(allocator, pool, unit, "construction");
       for (int step = 0; step < 300; step++) {
         final int operation = random.nextInt(6);
         final String name;
@@ -339,7 +368,7 @@ final class CompactImageAccountTest {
       assertEquals(charged, allocator.getPhysicalMemoryBytes(), "MEM-302 releasing leases refunds no slab charge");
       assertTrue(mapped > 0L, "slabs are mapped");
       assertEquals(mapped, pool.slabBytes(), "MEM-302 idle slabs stay mapped after every lease was released");
-      assertTrue(allocator.getPhysicalMemoryBytes() >= mapped, "MEM-302 idle slabs stay charged");
+      assertAccount(allocator, pool, unit, "releasing every lease");
 
       // Recycle a budget's worth of frames, then ask for more than the transfer can supply.
       FrameSlotAllocator.FrameSlot frame;
@@ -355,8 +384,7 @@ final class CompactImageAccountTest {
       assertFalse(allocator.reserveScratchCommittedBytes(beyond),
           "a request only the idle slabs could serve is refused, not served from them");
       assertEquals(mapped, pool.slabBytes(), "MEM-302 a transfer never takes budget from a mapped slab");
-      assertTrue(allocator.getPhysicalMemoryBytes() >= mapped,
-          "MEM-302 the slabs are still charged after the transfer");
+      assertAccount(allocator, pool, unit, "the refused transfer");
       final long servable = FrameBudgetOracle.scratchCommitLimit(allocator) - allocator.getPhysicalMemoryBytes();
       assertTrue(allocator.reserveScratchCommittedBytes(servable), "the recycled frames did serve what they could");
       allocator.refundCommittedBytes(servable);
