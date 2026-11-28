@@ -79,6 +79,16 @@ additional compatibility exemptions.
   as required by REST-102, and is noted in release notes.
 * Experimental items are exempt; they only get a release-notes mention.
 
+### Removed without an alias
+
+| Removed | Replacement | Contract and rationale |
+|---|---|---|
+| Query parameter `lastTopLevelNodeKey` on JSON resource serialization (`GET` without `query`) | `startNodeKey` | [REST-213](../spec/REST-api.md#rest-213--retired-pagination-parameter) |
+
+Clients that send `lastTopLevelNodeKey` must send `startNodeKey` instead, retaining
+`nextTopLevelNodes` as the page size. Verify that the client or SDK emits the new name
+before retrying.
+
 ## Recent wire-format changes (already in effect)
 
 * **Concrete fused node-type names.** `withMetaData` now reports the stored

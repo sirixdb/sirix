@@ -23,6 +23,42 @@
 # After a refactor, `pr_mutation.py dispositions --check/--remap` lists stale entries and
 # proposes their new identities for review.
 
+# REST-213: RoutingContext.queryParam returns a list even when the name is absent.
+[[mutant]]
+class = "io.sirix.rest.crud.json.JsonGet"
+method = "getSerializedBody"
+descriptor = "(Lio/sirix/api/json/JsonResourceSession;[ILjava/lang/Long;Lio/vertx/ext/web/RoutingContext;)Lio/vertx/core/buffer/Buffer;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [46]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "25f9ea0546d5940f49d6e1d021016cb8e2177ba5"
+justification = """REST-213 / Vert.x RoutingContext.queryParam contract: startNodeKey returns
+a non-null List, empty when absent. This compiler-generated assertion checks that list,
+not the optional first cursor value. No admitted request can reach its null failure arm.
+Removing it changes no cursor parsing, validation, response, error, persisted state,
+allocation, IO, iteration or storage work. RetiredPaginationParameterTest exercises
+absent cursors and successive present cursors across four pages. The complete PR #1513
+PIT artifact from run 46130158907 reports this exact identity as SURVIVED."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.json.PaginationParametersKt"
+method = "rejectRetiredPaginationParameter"
+descriptor = "(Lio/vertx/ext/web/RoutingContext;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [12]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNullExpressionValue"
+kind = "equivalent"
+checked_at = "25f9ea0546d5940f49d6e1d021016cb8e2177ba5"
+justification = """REST-213 / Vert.x RoutingContext.queryParam contract: lastTopLevelNodeKey
+returns a non-null List, empty when absent, including a nonempty list for an empty value.
+This compiler-generated assertion checks the list before the presence check. No admitted
+request can reach its null failure arm. Removing it changes no rejection, status, message,
+serialization, persisted state, allocation, IO, iteration or storage work.
+RetiredPaginationParameterTest exercises absence, numeric, malformed and empty values,
+both names together and reads without pagination. The complete PR #1513 PIT artifact
+from run 46130158907 reports this exact identity as SURVIVED."""
+
 
 [[mutant]]
 class = "io.sirix.cli.commands.BackupKt"
