@@ -223,7 +223,7 @@ A mutating request whose target is the whole document root, or that has no singl
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** The server never accepted `lastTopLevelNodeKey` after the rename to `startNodeKey` and silently ignored it, so a client still sending it received the first page for every request. This requirement replaces that silence with a refusal; it deliberately adds no alias, because the schema was not frozen when the rename landed (REST-101, REST-102). Unknown query parameters in general stay ignored; widening that is a separate 1.0 decision.
 
-A JSON read that carries the retired pagination parameter `lastTopLevelNodeKey` MUST fail with status 400 and a message naming `startNodeKey` as its replacement, whether or not `startNodeKey` is also present and whatever the parameter's value, and MUST NOT serialize any page. The paginated read MUST continue after the node key given in `startNodeKey` and MUST advance with it; the replacement name is the only accepted spelling.
+A JSON resource GET without `query` that carries the retired pagination parameter `lastTopLevelNodeKey` MUST fail with status 400 and a message naming `startNodeKey` as its replacement, whether or not `startNodeKey` is also present and whatever the parameter's value, even without `nextTopLevelNodes`, and MUST NOT serialize any page. The paginated read MUST continue after the node key given in `startNodeKey` and MUST advance with it; the replacement name is the only accepted spelling.
 
 ## Machine contract and route coverage (REST-101)
 

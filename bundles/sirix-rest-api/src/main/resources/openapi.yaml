@@ -1006,9 +1006,9 @@ components:
         the cursor must belong to that subtree in every selected revision
         (otherwise 400). Cursor 0 selects the initial page only for the
         document root; a non-document subtree-root cursor yields an empty page.
-        This is the former `lastTopLevelNodeKey`. The server does not read the former name: a JSON read
-        carrying `lastTopLevelNodeKey` fails with `400` naming `startNodeKey`, whether or not
-        `startNodeKey` is also present, because ignoring it would serve the first page for every request.
+        Formerly named `lastTopLevelNodeKey`. On JSON serialization requests (without `query`),
+        carrying the former name fails with `400` naming `startNodeKey`, regardless of its value
+        or the presence of `startNodeKey` or `nextTopLevelNodes`.
       schema: { type: integer, format: int64 }
     numberOfNodes:
       name: numberOfNodes

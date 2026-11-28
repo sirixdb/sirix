@@ -14,7 +14,7 @@
 - Why tests missed it: every pagination test used the new name, so no test could notice that the old
   one stopped working; the schema carried no statement about the retired name, and the clients live in
   other repositories with their own suites that never ran against the server.
-- Regression test: `RetiredPaginationParameterTest` (offline, `./gradlew :sirix-rest-api:test --tests
+- Regression test: `RetiredPaginationParameterTest` (offline, `./gradlew :sirix-rest-api:offlineTest --tests
   'io.sirix.rest.crud.json.RetiredPaginationParameterTest'`). Pages a 20-element array through
   `startNodeKey`, and asserts the old name gets 400 naming `startNodeKey` alone, with the new name,
   with any value and without pagination. The refusal tests fail on the previous head (200, first

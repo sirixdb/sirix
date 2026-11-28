@@ -81,12 +81,13 @@ additional compatibility exemptions.
 
 ### Removed without an alias
 
-| Removed | Replacement | Behaviour now | Why no alias |
-|---|---|---|---|
-| Query parameter `lastTopLevelNodeKey` on the paginated JSON read (`nextTopLevelNodes`) | `startNodeKey` | `400` whose message names `startNodeKey`, also when both are sent ([REST-213](../spec/REST-api.md#rest-213--retired-pagination-parameter)) | The rename landed without an alias and the server has ignored the old name since, so a client sending it got the first page on every request. An alias would be new surface to keep through 1.x; a refusal makes the stale client visible. The REST schema is not frozen yet ([REST-101](../spec/REST-api.md#rest-101--one-rest-schema-baseline)). |
+| Removed | Replacement | Contract and rationale |
+|---|---|---|
+| Query parameter `lastTopLevelNodeKey` on JSON resource serialization (`GET` without `query`) | `startNodeKey` | [REST-213](../spec/REST-api.md#rest-213--retired-pagination-parameter) |
 
-The Python, TypeScript and Kotlin clients send `startNodeKey` from their release that carries this
-change; older client releases must be upgraded.
+Clients that send `lastTopLevelNodeKey` must send `startNodeKey` instead, retaining
+`nextTopLevelNodes` as the page size. Verify that the client or SDK emits the new name
+before retrying.
 
 ## Recent wire-format changes (already in effect)
 
