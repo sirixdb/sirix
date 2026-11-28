@@ -1,0 +1,1292 @@
+{
+ "first_night": "2026-11-28",
+ "latest_night": "2026-11-28",
+ "otava": true,
+ "releases": [
+  {
+   "date": "2020-01-04",
+   "tag": "sirix-0.9.5"
+  },
+  {
+   "date": "2022-05-30",
+   "tag": "sirix-0.9.6"
+  },
+  {
+   "date": "2023-11-16",
+   "tag": "sirix-0.10.0"
+  },
+  {
+   "date": "2023-11-17",
+   "tag": "sirix-0.10.1"
+  },
+  {
+   "date": "2023-11-17",
+   "tag": "sirix-0.10.2"
+  },
+  {
+   "date": "2023-11-19",
+   "tag": "sirix-0.10.3"
+  },
+  {
+   "date": "2023-12-02",
+   "tag": "sirix-0.10.4"
+  },
+  {
+   "date": "2023-12-02",
+   "tag": "sirix-0.10.5"
+  },
+  {
+   "date": "2024-02-07",
+   "tag": "sirix-0.11.0"
+  },
+  {
+   "date": "2026-03-29",
+   "tag": "sirix-0.11.1"
+  },
+  {
+   "date": "2026-04-01",
+   "tag": "sirix-1.0.0-alpha"
+  },
+  {
+   "date": "2026-04-06",
+   "tag": "sirix-1.0.0-alpha2"
+  },
+  {
+   "date": "2026-04-07",
+   "tag": "sirix-1.0.0-alpha3"
+  },
+  {
+   "date": "2026-04-07",
+   "tag": "sirix-1.0.0-alpha4"
+  },
+  {
+   "date": "2026-04-11",
+   "tag": "sirix-1.0.0-alpha5"
+  },
+  {
+   "date": "2026-05-29",
+   "tag": "sirix-1.0.0-alpha6"
+  },
+  {
+   "date": "2026-05-29",
+   "tag": "sirix-1.0.0-alpha7"
+  },
+  {
+   "date": "2026-05-30",
+   "tag": "sirix-1.0.0-alpha8"
+  },
+  {
+   "date": "2026-05-31",
+   "tag": "sirix-1.0.0-alpha10"
+  },
+  {
+   "date": "2026-05-31",
+   "tag": "sirix-1.0.0-alpha9"
+  },
+  {
+   "date": "2026-06-04",
+   "tag": "sirix-1.0.0-alpha11"
+  },
+  {
+   "date": "2026-06-04",
+   "tag": "sirix-1.0.0-alpha12"
+  },
+  {
+   "date": "2026-06-05",
+   "tag": "sirix-1.0.0-alpha13"
+  },
+  {
+   "date": "2026-06-05",
+   "tag": "sirix-1.0.0-alpha14"
+  },
+  {
+   "date": "2026-06-05",
+   "tag": "sirix-1.0.0-alpha15"
+  },
+  {
+   "date": "2026-06-06",
+   "tag": "sirix-1.0.0-alpha16"
+  },
+  {
+   "date": "2026-06-06",
+   "tag": "sirix-1.0.0-alpha17"
+  },
+  {
+   "date": "2026-06-07",
+   "tag": "sirix-1.0.0-alpha18"
+  },
+  {
+   "date": "2026-06-09",
+   "tag": "sirix-1.0.0-alpha19"
+  },
+  {
+   "date": "2026-06-09",
+   "tag": "sirix-1.0.0-alpha20"
+  },
+  {
+   "date": "2026-06-10",
+   "tag": "sirix-1.0.0-alpha21"
+  },
+  {
+   "date": "2026-06-10",
+   "tag": "sirix-1.0.0-alpha22"
+  },
+  {
+   "date": "2026-06-12",
+   "tag": "sirix-1.0.0-beta1"
+  },
+  {
+   "date": "2026-06-13",
+   "tag": "sirix-1.0.0-beta2"
+  },
+  {
+   "date": "2026-06-19",
+   "tag": "sirix-1.0.0-beta3"
+  },
+  {
+   "date": "2026-06-19",
+   "tag": "sirix-1.0.0-beta4"
+  },
+  {
+   "date": "2026-07-07",
+   "tag": "sirix-1.0.0-beta5"
+  },
+  {
+   "date": "2026-07-11",
+   "tag": "sirix-1.0.0-beta6"
+  },
+  {
+   "date": "2026-07-16",
+   "tag": "sirix-1.0.0-beta7"
+  }
+ ],
+ "schema": 1,
+ "series": [
+  {
+   "benchmark": "BitmapReferencesPageBenchmark.randomLookup",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "518be2d652c4",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly BitmapReferencesPageBenchmark.randomLookup{populationCount=500,populationPattern=dense} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 0.0009813333333333334,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "populationCount": "500",
+    "populationPattern": "dense"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "BitmapReferencesPageBenchmark.randomLookup",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "8e27a3917925",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly BitmapReferencesPageBenchmark.randomLookup{populationCount=500,populationPattern=dense} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 4.760542557579996,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "populationCount": "500",
+    "populationPattern": "dense"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "BitmapReferencesPageBenchmark.randomLookup",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "d63ac7d8c35a",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly BitmapReferencesPageBenchmark.randomLookup{populationCount=500,populationPattern=dense} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 4.751120083040703,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "populationCount": "500",
+    "populationPattern": "dense"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "HotIndirectPageLookupBenchmark.lookupFound",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "59014a2aa368",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly HotIndirectPageLookupBenchmark.lookupFound{discBitCount=16,numChildren=16} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 23.025389048243163,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "discBitCount": "16",
+    "numChildren": "16"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "HotIndirectPageLookupBenchmark.lookupFound",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "38528ce95b61",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly HotIndirectPageLookupBenchmark.lookupFound{discBitCount=16,numChildren=16} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 23.027782884240658,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "discBitCount": "16",
+    "numChildren": "16"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "HotIndirectPageLookupBenchmark.lookupMissingEquality",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "03bac79f839a",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly HotIndirectPageLookupBenchmark.lookupMissingEquality{discBitCount=16,numChildren=16} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 23.771269940133173,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "discBitCount": "16",
+    "numChildren": "16"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "HotIndirectPageLookupBenchmark.lookupMissingEquality",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "fdf6a430e9f1",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly HotIndirectPageLookupBenchmark.lookupMissingEquality{discBitCount=16,numChildren=16} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 23.710514461774203,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "discBitCount": "16",
+    "numChildren": "16"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "NodeReferencesMergeBenchmark.mergeAdoptingBitmap",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "784d69b978eb",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly NodeReferencesMergeBenchmark.mergeAdoptingBitmap{distribution=STRIDED,setSize=4096} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 26281.3664,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "distribution": "STRIDED",
+    "setSize": "4096"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "NodeReferencesMergeBenchmark.mergeAdoptingBitmap",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "7196c3277975",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly NodeReferencesMergeBenchmark.mergeAdoptingBitmap{distribution=STRIDED,setSize=4096} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 4683.326830644997,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "distribution": "STRIDED",
+    "setSize": "4096"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "NodeReferencesMergeBenchmark.mergeAdoptingBitmap",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "308364971ea0",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly NodeReferencesMergeBenchmark.mergeAdoptingBitmap{distribution=STRIDED,setSize=4096} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 4689.871010046749,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "distribution": "STRIDED",
+    "setSize": "4096"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "NodeReferencesMergeBenchmark.mergeCopyingBitmap",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "ae0d9fba48e3",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly NodeReferencesMergeBenchmark.mergeCopyingBitmap{distribution=STRIDED,setSize=4096} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 35473.3664,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "distribution": "STRIDED",
+    "setSize": "4096"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "NodeReferencesMergeBenchmark.mergeCopyingBitmap",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "ff06a458c7f4",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly NodeReferencesMergeBenchmark.mergeCopyingBitmap{distribution=STRIDED,setSize=4096} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 5491.114614595695,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "distribution": "STRIDED",
+    "setSize": "4096"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "NodeReferencesMergeBenchmark.mergeCopyingBitmap",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "5f9be450bf22",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly NodeReferencesMergeBenchmark.mergeCopyingBitmap{distribution=STRIDED,setSize=4096} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 5510.739343076382,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "distribution": "STRIDED",
+    "setSize": "4096"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "PageCodecEncodeBenchmark.lz77Encode",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "9c76ee45573d",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly PageCodecEncodeBenchmark.lz77Encode{shape=INCOMPRESSIBLE} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 5.413333333333333,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "shape": "INCOMPRESSIBLE"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "PageCodecEncodeBenchmark.lz77Encode",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "ba7b79b45830",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly PageCodecEncodeBenchmark.lz77Encode{shape=INCOMPRESSIBLE} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 73249.43203199495,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "shape": "INCOMPRESSIBLE"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "PageCodecEncodeBenchmark.lz77Encode",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "045474a39751",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly PageCodecEncodeBenchmark.lz77Encode{shape=INCOMPRESSIBLE} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 73086.749033387,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "shape": "INCOMPRESSIBLE"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "PageCodecEncodeBenchmark.lz77Encode",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "0051b7c93b06",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly PageCodecEncodeBenchmark.lz77Encode{shape=RECORD_HEAP} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 5.413333333333333,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "shape": "RECORD_HEAP"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "PageCodecEncodeBenchmark.lz77Encode",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "778f7919cc4d",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly PageCodecEncodeBenchmark.lz77Encode{shape=RECORD_HEAP} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 48961.284499855,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "shape": "RECORD_HEAP"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "PageCodecEncodeBenchmark.lz77Encode",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "448c7a56ca7c",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly PageCodecEncodeBenchmark.lz77Encode{shape=RECORD_HEAP} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 48889.83122058774,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "shape": "RECORD_HEAP"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "PageCodecEncodeBenchmark.zeroRunEncodeFromArray",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "5d78728ba321",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly PageCodecEncodeBenchmark.zeroRunEncodeFromArray{shape=ZERO_RUNS} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 1.1136,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "shape": "ZERO_RUNS"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "PageCodecEncodeBenchmark.zeroRunEncodeFromArray",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "a5e2fc0b666c",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly PageCodecEncodeBenchmark.zeroRunEncodeFromArray{shape=ZERO_RUNS} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 11139.251157934665,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "shape": "ZERO_RUNS"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "PageCodecEncodeBenchmark.zeroRunEncodeFromArray",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "58fe024db51e",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly PageCodecEncodeBenchmark.zeroRunEncodeFromArray{shape=ZERO_RUNS} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 11122.594472025161,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "shape": "ZERO_RUNS"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "PageSerializeBenchmark.deserialize",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "4f7e5848c3f3",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly PageSerializeBenchmark.deserialize{slots=1000} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 9261.0,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "slots": "1000"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "PageSerializeBenchmark.deserialize",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "e6e7eedba865",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly PageSerializeBenchmark.deserialize{slots=1000} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 45913.70198872966,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "slots": "1000"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "PageSerializeBenchmark.deserialize",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "cb53b67384bd",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly PageSerializeBenchmark.deserialize{slots=1000} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 45727.27900242571,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "slots": "1000"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "PageSerializeBenchmark.serialize",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "4a38cff93459",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly PageSerializeBenchmark.serialize{slots=1000} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 7523.488,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "slots": "1000"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "PageSerializeBenchmark.serialize",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "809c0c7cd4a3",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly PageSerializeBenchmark.serialize{slots=1000} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 56191.10598254738,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "slots": "1000"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "PageSerializeBenchmark.serialize",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "259d680fd2ff",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly PageSerializeBenchmark.serialize{slots=1000} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 55562.05840391033,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "slots": "1000"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "SegmentVarIntDecodeBenchmark.bulkEightByte",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "4ae7ab7449b7",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly SegmentVarIntDecodeBenchmark.bulkEightByte{widths=MIXED} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 35.12888888888889,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "widths": "MIXED"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "SegmentVarIntDecodeBenchmark.bulkEightByte",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "53a213f43466",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly SegmentVarIntDecodeBenchmark.bulkEightByte{widths=MIXED} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 1127765.655674913,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "widths": "MIXED"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "SegmentVarIntDecodeBenchmark.bulkEightByte",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "257e2ca63f25",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly SegmentVarIntDecodeBenchmark.bulkEightByte{widths=MIXED} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 1126000.9733232558,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "widths": "MIXED"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "SegmentVarIntDecodeBenchmark.byteWise",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "f93c04aeb622",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly SegmentVarIntDecodeBenchmark.byteWise{widths=MIXED} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 26.346666666666664,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "widths": "MIXED"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "SegmentVarIntDecodeBenchmark.byteWise",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "d79f2d00ee19",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly SegmentVarIntDecodeBenchmark.byteWise{widths=MIXED} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 866058.5387231323,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "widths": "MIXED"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "SegmentVarIntDecodeBenchmark.byteWise",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "b19fa804cdae",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly SegmentVarIntDecodeBenchmark.byteWise{widths=MIXED} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 866064.7957814117,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "widths": "MIXED"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "StringRegionDictionaryBenchmark.addValues",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "7f5ced285e5f",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "alloc_bytes_per_op",
+   "name": "jmh-nightly StringRegionDictionaryBenchmark.addValues{distinct=1024,lengths=SHORT} alloc_bytes_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 5.144,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "distinct": "1024",
+    "lengths": "SHORT"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "B/op"
+  },
+  {
+   "benchmark": "StringRegionDictionaryBenchmark.addValues",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "1a2f386ffbea",
+   "informational": false,
+   "kit": "jmh-nightly",
+   "metric": "cpu_ns_per_op",
+   "name": "jmh-nightly StringRegionDictionaryBenchmark.addValues{distinct=1024,lengths=SHORT} cpu_ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 43049.05207470266,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "distinct": "1024",
+    "lengths": "SHORT"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  },
+  {
+   "benchmark": "StringRegionDictionaryBenchmark.addValues",
+   "binary": "jvm",
+   "changes": [],
+   "conditions": "github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2",
+   "id": "3808e531a857",
+   "informational": true,
+   "kit": "jmh-nightly",
+   "metric": "ns_per_op",
+   "name": "jmh-nightly StringRegionDictionaryBenchmark.addValues{distinct=1024,lengths=SHORT} ns_per_op [jvm, github-ubuntu-24-04-intel-r-xeon-r-6975p-c-4cpu-15gib-3c26e7b2, hosted]",
+   "nights": [
+    {
+     "commit": "899c34c484bc7d917eb325754e28b917a15768b4",
+     "drift": null,
+     "fence": null,
+     "image": "ubuntu24/20261122.23.1",
+     "level": 42645.31316551227,
+     "night": "2026-11-28",
+     "processes": 20,
+     "run": "20261128T110016Z-b476d659",
+     "state": "insufficient-history"
+    }
+   ],
+   "params": {
+    "distinct": "1024",
+    "lengths": "SHORT"
+   },
+   "runner": "hosted",
+   "runtime": "openjdk version \"25.0.5.1\" 2026-11-17 LTS",
+   "unit": "ns/op"
+  }
+ ]
+}
