@@ -52,3 +52,21 @@ the platform moves by itself. Runtimes are recorded per arm of each run.
 | Changed | First entry. The results ledger starts here; no earlier run was recorded in it |
 | Comparable with | Nothing earlier |
 | Fingerprint | `9f768f25e456de0c5f26a9803525e121d18da7ca099a5f04f65e1f6d29e8aecc` |
+
+## 2026-11-28 — github-ubuntu-24.04-amd-epyc-7763 (new baseline)
+
+| Field | Value |
+|---|---|
+| Machine | GitHub-hosted runner `ubuntu-24.04`, x86_64, AMD EPYC 7763 64-Core Processor |
+| CPU | AMD EPYC 7763 64-Core Processor, 4 logical CPUs |
+| Memory | 16 GiB |
+| Storage | The runner's local disk; each run's capture names the filesystem that held its benchmark data |
+| Firmware | Not identified: a hosted runner is a virtual machine and its firmware is not part of the fingerprint |
+| Kernel and OS | Whatever the provider's `ubuntu-24.04` image ships; not part of the fingerprint and recorded in each run's capture |
+| Frequency policy | Not controlled: the provider's hypervisor sets it |
+| Runtimes | Temurin 25 (`actions/setup-java`, `distribution: temurin`, `java-version: 25`). A run records the runtime of each arm |
+| Load control | The runner is shared with other tenants' virtual machines and is not isolated; CPU time is measured per run in fresh JMH processes and compared only within this condition |
+| Benchmark set | The nightly's curated set, `bundles/sirix-query/bench/nightly/benchmarks.json` |
+| Changed | First entry for a hosted runner. Nightly runs 46068849973 (stopped at the JMH build, before any fingerprint was printed) and 46099221087 (refused with this fingerprint) |
+| Comparable with | Nothing earlier |
+| Fingerprint | `a238619b683ade3aefd5d05cb45cfbcff8562982a231262d9d804000803f3751` |
