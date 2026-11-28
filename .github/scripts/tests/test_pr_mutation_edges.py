@@ -486,8 +486,8 @@ class CommandLineEdgeTest(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertEqual(self.exit_code(args)[0], 2)
         parsed = mutation.build_parser().parse_args(['run', '--output', 'x'])
-        # docs/VERIFICATION.md: PIT processes share a 22-minute execution budget.
-        self.assertEqual((parsed.seconds, parsed.blocking, parsed.root), (1320, False, REPOSITORY))
+        # docs/VERIFICATION.md: PIT processes share a 40-minute execution budget.
+        self.assertEqual((parsed.seconds, parsed.blocking, parsed.root), (2400, False, REPOSITORY))
         self.assertIn('requires --check, --remap or both',
                       self.exit_code(['dispositions', '--report', 'r'])[2])
         self.assertIn('--check requires --base',

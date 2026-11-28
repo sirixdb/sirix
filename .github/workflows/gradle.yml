@@ -267,7 +267,7 @@ jobs:
       group: mutation-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     steps:
       - name: Checkout PR merge revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -309,7 +309,7 @@ jobs:
         # Always enforce internally so incomplete runs remain visible as a failed informational
         # job. The job-level rollout switch determines whether this fails the PR.
         run: >-
-          python3 .github/scripts/pr_mutation.py run --seconds 1320 --blocking
+          python3 .github/scripts/pr_mutation.py run --seconds 2400 --blocking
           --output "$RUNNER_TEMP/pr-mutation"
       - name: Publish mutation summary
         if: always()

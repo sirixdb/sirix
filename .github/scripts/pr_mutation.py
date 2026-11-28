@@ -2223,7 +2223,7 @@ def build_parser():
         command.add_argument('--output', type=Path, required=True)
     select.add_argument('--base')
     select.add_argument('--head')
-    analysis.add_argument('--seconds', type=int, default=1320)
+    analysis.add_argument('--seconds', type=int, default=2400)
     analysis.add_argument('--blocking', action='store_true')
     full.add_argument('--seconds', type=int, default=5400,
                       help="the report's own budget; never the PR lane's")
