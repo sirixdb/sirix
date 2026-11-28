@@ -182,7 +182,7 @@ a short reason explaining the performance cost; do not weaken allocation or work
 `PIT changed-source mutation testing` in [gradle.yml](../.github/workflows/gradle.yml) runs
 independently of the test lanes after `Build` and the short `Python mutation tooling` job,
 and reuses that run's compiled output. It adds no dependency to the test, Sonar or deploy lanes.
-Its **30-minute job limit** is below the Linux query test lane (45 minutes); PIT processes share a **22-minute execution budget**, leaving
+Its **55-minute job limit** outlives the analysis with margin; PIT processes share a **40-minute execution budget**, leaving
 room for setup and report upload. Each module may use all the time still left except a
 `MIN_MODULE_SECONDS` floor for every module after it. Modules run in name order; a module that
 finishes early donates its remainder to those that follow. If the remaining budget cannot
@@ -488,7 +488,7 @@ Local reproduction (JDK 25; compile the selected modules' `classes testClasses` 
 python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'
 python3 .github/scripts/pr_mutation.py select \
   --base "$(git rev-parse origin/main)" --head "$(git rev-parse HEAD)" --output /tmp/pr-mutation
-python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 1320
+python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 2400
 # Add --blocking to enforce the clean-run criterion locally (CONV-202, CONV-204).
 ```
 
