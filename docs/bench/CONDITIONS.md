@@ -53,7 +53,7 @@ the platform moves by itself. Runtimes are recorded per arm of each run.
 | Comparable with | Nothing earlier |
 | Fingerprint | `9f768f25e456de0c5f26a9803525e121d18da7ca099a5f04f65e1f6d29e8aecc` |
 
-## 2026-11-28 — github-ubuntu-24.04-amd-epyc-7763 (new baseline)
+## 2026-11-28 — github-ubuntu-2404-amd-epyc-7763 (new baseline)
 
 | Field | Value |
 |---|---|
