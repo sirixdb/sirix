@@ -15,7 +15,7 @@ import org.gradle.plugins.signing.Sign
 
 description = 'PIT interceptor and result listener for the SirixDB PR mutation lane (CI only).'
 
-def pitestVersion = '1.25.5'
+def pitestVersion = '1.30.2'
 
 dependencies {
     // PIT supplies these to its own tool classpath; shipping copies would risk a version skew.
