@@ -21,9 +21,9 @@ sum  (for $r in SRC where B and M return $r.N)
 
 where `B` is zero or more boolean field tests, `M` is zero or more array-membership tests over a
 path of one or more named object steps (`$r.user.tags[] = "admin"`), at least one of `B`/`M` is
-present, and `N` is a numeric field of the record. QRY-101 defines the exact set. The chapter
-also covers the brackit detection that hands this shape to the executor and the fallback for
-everything outside it.
+present, and `N` is a direct field of the record, numeric for `sum`. QRY-101 defines the exact
+set. The chapter also covers the brackit detection that hands this shape to the executor and
+the fallback for everything outside it.
 
 Out of scope: secondary indexes (CAS, path, name), the projection index and the question of
 giving it a membership column (a separate specification, decision D3), group-by, order-by, string or numeric literals
@@ -103,9 +103,10 @@ leaves of these two kinds:
 The surrounding expression MUST be claimed as follows:
 
 - `count(for $r in SRC <where> return $r)` as the filtered count;
-- `count(…)` or `sum(…)` with `return $r.N`, `N` a direct field, as the predicated aggregate;
-- `avg`, `min` and `max` with `return $r.N` MAY be claimed through the same annotation. QRY-205
-  says when they may be served.
+- `count(…)` or `sum(…)` with `return $r.N`, `N` a direct field, as the predicated aggregate.
+
+`avg`, `min` and `max` are not claimed by this chapter. QRY-205 is reserved and MUST NOT be
+reused.
 
 Claims MUST keep today's strict-anchor rule: a predicated aggregate is claimed only when
 `findSoundAnchorField()` finds a field. A membership leaf is false on every record that lacks
@@ -185,9 +186,13 @@ route MUST NOT return a result for a query on which the interpreter raises an er
 
 A record satisfies a membership leaf exactly when at least one element of the array reached by
 `$r.p1…pk[]` equals `L` under the interpreter's string equality, which is codepoint equality with
-no normalization. Each record that satisfies the whole conjunction MUST contribute exactly once,
-whatever the number of matching elements. A sum MUST add its `N` value once, and a count MUST
-add one. The corpus MUST cover:
+no normalization. Each record that satisfies the whole conjunction MUST be folded at most once,
+whatever the number of matching elements. A sum MUST fold its `N` value once when present,
+subject to QRY-203/204, and add nothing when missing. `count(… return $r)` MUST add one per
+matching record.
+`count(… return $r.N)` MUST add one when `N` is present, regardless of its value kind (including
+`null`, strings, booleans, objects and arrays), and zero when `N` is missing. Counting a present
+non-numeric value MUST NOT raise a numeric-type error. The corpus MUST cover:
 
 | row | record |
 |---|---|
@@ -205,15 +210,17 @@ add one. The corpus MUST cover:
 
 - **Level:** MUST · **Status:** proposed · **Since:** 1.0
 - **Code:** new route kernel; `checkedAggregateResult`, `MixedAgg`
-- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` rows T1–T8, each in a record that satisfies the rest of the conjunction and again in one that does not.
+- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` rows T1–T8, each in a record that satisfies the rest of the conjunction and again in one that does not. T4/T5 run `sum(… return $r.N)`, `count(… return $r)` and `count(… return $r.N)` separately: missing `N` contributes nothing to sum and zero to field count, every present T5 value contributes one to field count without error, and record count contributes one in both rows. Sum errors are compared with the interpreter's error codes.
 - **Evidence class:** doc-only
-- **Gap/note:** The interpreter's results for T2, T3 and T5 decide the expected values. The test author records each one as observed. The route must reproduce them, not a value chosen here.
+- **Gap/note:** The interpreter's results for T2, T3 and sum in T5 decide the expected values. The test author records each one as observed. The route must reproduce them, not a value chosen here.
 
 The route MUST decide a record from columns only when the record's in-scope values have the
 types it models: booleans under each flag path, string elements under each member path, and
-integral numbers (QRY-204) under `N`. A page holding any other in-scope value MUST be declined
-for that page. If the record path cannot evaluate such a value with interpreter semantics, the
-query MUST be refused. Type checks MUST look only at values that the interpreter would evaluate:
+integral numbers (QRY-204) under `N` for sum. `count(… return $r.N)` depends only on the presence
+of `N`, not its value kind; `count(… return $r)` does not inspect `N`. A page holding any other
+in-scope value MUST be declined for that page. If the record path cannot evaluate such a value
+with interpreter semantics, the query MUST be refused. Type checks MUST look only at values that
+the interpreter would evaluate:
 a record that fails a flag test MUST NOT cause an error because of its `N` value. The corpus
 MUST cover:
 
@@ -222,8 +229,8 @@ MUST cover:
 | T1 | flag field missing |
 | T2 | flag field `null`, a string, a number, an object or an array |
 | T3 | an array element that is a number, `null`, a boolean, a nested array holding `L`, or an object holding `L`, before the matching element and after it |
-| T4 | `N` missing in a matching record (sum adds nothing; `count(… return $r.N)` adds 0) |
-| T5 | `N` is `null`, a string or a boolean in a matching record (the interpreter's error) |
+| T4 | `N` missing in a matching record (sum adds nothing; `count(… return $r.N)` adds 0; `count(… return $r)` adds 1) |
+| T5 | `N` is `null`, a string, a boolean, an object or an array in a matching record (sum reproduces the interpreter's error; both count forms add 1 without error) |
 | T6 | `N` a decimal (`1.5`) or a double (a shredder-typed double) in a matching record |
 | T7 | the same field name nested elsewhere in the record (`user.active`, `user.score`, `profile.tags`) |
 | T8 | records whose keys come in different orders (`tags` before `name`, `user` last, `active` after `user`) |
@@ -232,27 +239,16 @@ MUST cover:
 
 - **Level:** MUST · **Status:** proposed · **Since:** 1.0
 - **Code:** `MixedAgg` (`addLong`, `addLongBatch`, `addDecimal`, `result`), `requireOrderIndependentAggregate`
-- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` rows N1–N4.
+- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` rows N1–N3.
 - **Evidence class:** doc-only
 - **Gap/note:** The rule is today's predicated-aggregate rule, applied to the new route.
 
 Integer sums MUST be exact over any number of records, including totals outside the signed
 64-bit range (N1: values near `Long.MAX_VALUE` and `Long.MIN_VALUE` whose total overflows a
 `long`). The result type and value MUST be the interpreter's. Decimal values MUST be summed
-exactly. If any value that contributes to a `sum` (or `avg`) is a double, the query MUST be
+exactly. If any value that contributes to a `sum` is a double, the query MUST be
 refused (N2), because the interpreter's sum of doubles depends on order. An empty selection MUST
-give `xs:integer` 0 for `sum` and `count` (N3) and the empty sequence for `avg`/`min`/`max` (N4).
-
-### QRY-205 — Other aggregate functions
-
-- **Level:** MAY · **Status:** proposed · **Since:** 1.0
-- **Code:** `predicateStatsCache`, `statsToSequence`
-- **Verified by:** **Planned:** the differential test runs `avg`/`min`/`max` on every row and asserts equality only (served or refused).
-- **Evidence class:** doc-only
-- **Gap/note:** —
-
-The route MAY serve `avg`, `min` and `max` from the same count/sum/min/max pass, provided every
-QRY-2xx requirement holds for them. Otherwise it MUST refuse them.
+give `xs:integer` 0 for `sum` and `count` (N3).
 
 ## Requirements — scope, attribution and fallback
 
@@ -346,9 +342,10 @@ result and MUST NOT publish anything to a result cache. A query that is claimed 
 - **Gap/note:** —
 
 The result MUST NOT depend on the executor's thread count or on scheduling order. Each page
-MUST be handled (served or declined) exactly once. Each record MUST contribute at most once, and
-exactly once if it matches. Workers MUST NOT share mutable state in the per-page loop beyond
-what the existing scans already share (the page cursor and the page-skip bitmap publication).
+MUST be handled (served or declined) exactly once. Each record MUST be folded at most once,
+with its contribution determined by QRY-202 if it matches. Workers MUST NOT share mutable state
+in the per-page loop beyond what the existing scans already share (the page cursor and the
+page-skip bitmap publication).
 Partial results MUST be merged only after every worker has finished. A refusal or failure on any
 worker MUST lead to query refusal or propagation as in QRY-304, never to a partial result.
 
@@ -480,7 +477,8 @@ both exist, the route MUST stay off by default.
 
 The projection-index membership column (D3) gets its own specification. Disjunctions that contain a membership leaf, membership over arrays of objects (`$r.a[].b`),
 numeric and boolean literals in membership tests, nested `N` (`$r.user.score`), and group-by over
-this filter keep their current route. None of them is claimed by QRY-101.
+this filter keep their current route. Serving `avg`, `min` and `max` is a later extension.
+None of them is claimed by QRY-101.
 
 ## Traceability
 
@@ -492,8 +490,7 @@ this filter keep their current route. None of them is claimed by QRY-101.
 | QRY-201 | `RegionPredicatedAggregateDifferentialTest`; jqwik `RegionPredicatedAggregateProperty` | proposed |
 | QRY-202 | `RegionPredicatedAggregateDifferentialTest` rows E1–E9 | proposed |
 | QRY-203 | `RegionPredicatedAggregateDifferentialTest` rows T1–T8 | proposed |
-| QRY-204 | `RegionPredicatedAggregateDifferentialTest` rows N1–N4 | proposed |
-| QRY-205 | `RegionPredicatedAggregateDifferentialTest` avg/min/max columns | proposed |
+| QRY-204 | `RegionPredicatedAggregateDifferentialTest` rows N1–N3 | proposed |
 | QRY-301 | `RegionPredicatedAggregateScopeTest` with mutation seams | proposed |
 | QRY-302 | `RegionPredicatedAggregateAttributionTest`; QRY-501 fixture | proposed |
 | QRY-303 | `RegionPredicatedAggregateSeamTest` | proposed |
