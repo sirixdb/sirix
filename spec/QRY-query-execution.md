@@ -4,8 +4,15 @@ Spec target: **1.0.0**. Chapter status: **Draft; captain decisions of 2026-11-28
 Code baseline: sirix `321a718f63929166e8bcb9ccd3ddfabc20635e83`, brackit
 `master` `e6515a9ffa0a9565db7baa024b1a9a9c42ec63c0` (28 November 2026).
 [Conventions](CONV-conventions.md) define requirement status, evidence and conformance. Every
-requirement below is `proposed`. Every new test named here is **Planned**; none is implemented
-by this change.
+requirement below remains `proposed`. The named sirix tests now have sources in
+[the scan test package](../bundles/sirix-query/src/test/java/io/sirix/query/scan) and, for QRY-501
+and QRY-502, [the budget test package](../bundles/sirix-query/src/test/java/io/sirix/query/budget).
+Step-dependent checks stay **Planned** until the step that enables them lands:
+[QrySteps](../bundles/sirix-query/src/test/java/io/sirix/query/scan/QrySteps.java) owns their step
+enablement and forced-execution option, and test-source presence alone establishes no conformance.
+For QRY-101 to QRY-103, the sirix tests check the consumed brackit snapshot; brackit-local tests
+remain planned. QRY-103's negative table, `interpreterObservations` and
+`fixturesHoldTheirLocations` run without waiting for a landing step.
 Tests are derived from this chapter by a separate test author before implementation (CONV-103).
 
 ## Scope
@@ -86,7 +93,7 @@ Code reading of the baseline gives four reasons, and each one shapes a requireme
 
 - **Level:** MUST · **Status:** proposed · **Since:** 1.0
 - **Code:** brackit [VectorizedGroupByDetection.java] `extractPredicate`, `arrayContains`, `tryAnnotate`; brackit [PredicateNode.java]
-- **Verified by:** **Planned:** brackit `NestedArrayMembershipDetectionTest`: for each claimed form below, the annotated `PREDICATE_TREE`, `VECTORIZED_AGGREGATE`/`AGGREGATE_FIELD` or `VECTORIZED_COUNT` equals the expected value. For each form listed in QRY-103, no claim is made.
+- **Verified by:** **Planned:** sirix `NestedArrayMembershipDetectionTest` through the consumed brackit snapshot; brackit-local counterpart: for each claimed form below, the annotated `PREDICATE_TREE`, `VECTORIZED_AGGREGATE`/`AGGREGATE_FIELD` or `VECTORIZED_COUNT` equals the expected value. For each form listed in QRY-103, no claim is made.
 - **Evidence class:** doc-only
 - **Gap/note:** Today only the `some … satisfies` form over a direct field is claimed.
 
@@ -117,7 +124,7 @@ Claims MUST keep today's strict-anchor rule: a predicated aggregate is claimed o
 
 - **Level:** MUST · **Status:** proposed · **Since:** 1.0
 - **Code:** brackit `PredicateNode` (sealed); sirix `SirixVectorizedExecutor` switches over it
-- **Verified by:** **Planned:** brackit `PredicateNodeMemberPathTest`: `ArrayContainsPath` keeps its path through `collectFields`, `excludesRecordsMissingField(p1)` is true, `excludesRecordsMissingField(pj)` for j > 1 alone does not make the leaf anchorable, equality and `toString` distinguish `["user","tags"]` from `["user.tags"]`. sirix compile of every exhaustive switch.
+- **Verified by:** **Planned:** sirix `PredicateNodeMemberPathTest` through the consumed brackit snapshot; brackit-local counterpart: `ArrayContainsPath` keeps its path through `collectFields`, `excludesRecordsMissingField(p1)` is true, `excludesRecordsMissingField(pj)` for j > 1 alone does not make the leaf anchorable, equality and `toString` distinguish `["user","tags"]` from `["user.tags"]`. sirix compile of every exhaustive switch.
 - **Evidence class:** doc-only
 - **Gap/note:** Representation and landing order decided 2026-11-28 (D1).
 
@@ -143,7 +150,7 @@ when brackit publishes. The brackit change and the sirix change MUST therefore l
 
 - **Level:** MUST · **Status:** proposed · **Since:** 1.0
 - **Code:** brackit `VectorizedGroupByDetection`
-- **Verified by:** **Planned:** `NestedArrayMembershipDetectionTest` negative table (one row per bullet).
+- **Verified by:** sirix `NestedArrayMembershipDetectionTest.unclaimedFormIsNotClaimed` (enabled): negative table for parseable forms. **Planned:** brackit-local counterpart.
 - **Evidence class:** doc-only
 - **Gap/note:** —
 
@@ -213,7 +220,7 @@ non-numeric value MUST NOT raise a numeric-type error. The corpus MUST cover:
 - **Code:** new route kernel; `checkedAggregateResult`, `MixedAgg`
 - **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` rows T1–T8, each in a record that satisfies the rest of the conjunction and again in one that does not. T4/T5 run `sum(… return $r.N)`, `count(… return $r)` and `count(… return $r.N)` separately: missing `N` contributes nothing to sum and zero to field count, every present T5 value contributes one to field count without error, and record count contributes one in both rows. Sum errors are compared with the interpreter's error codes.
 - **Evidence class:** doc-only
-- **Gap/note:** The interpreter's results for T2, T3 and sum in T5 decide the expected values. The test author records each one as observed. The route must reproduce them, not a value chosen here.
+- **Gap/note:** The interpreter's results for T2, T3 and sum in T5 decide the expected values. The recorded observations are owned by `RegionPredicatedAggregateDifferentialTest.observations` and checked by its enabled `interpreterObservations` test. The route must reproduce them, not a value chosen here.
 
 The route MUST decide a record from columns only when the record's in-scope values have the
 types it models: booleans under each flag path, string elements under each member path, and
@@ -436,7 +443,7 @@ page or per seam record, never once per value.
 
 - **Level:** MUST · **Status:** proposed · **Since:** 1.0
 - **Code:** bench harness; `bundles/sirix-benchmarks` `ArrayMembershipRouteBenchmark` (to extend)
-- **Verified by:** **Planned:** a CONV-302 timed verdict, route against baseline, on the Lemire 5M corpus on the reference rig at 1 and 12 threads. The other CONV-302 suites show no regression for queries the route does not claim.
+- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest.composedObjectServesAdminSum` checks routing and consumes all object members against interpreter outcomes; a CONV-302 timed verdict, route against baseline, on the Lemire 5M corpus on the reference rig at 1 and 12 threads. The other CONV-302 suites show no regression for queries the route does not claim.
 - **Evidence class:** doc-only
 - **Gap/note:** Decided 2026-11-28 (D4): the CONV-302 verdict is the gate, and the time target is informational.
 
@@ -453,7 +460,7 @@ MUST reach this route for its `admin_sum` member, as shown by the served counter
 
 - **Level:** MUST · **Status:** proposed · **Since:** 1.0
 - **Code:** new system property; brackit `brackit.predicate.arrayContains` (existing)
-- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` runs once with the switch on and once with it off. With it off, the route counters stay at zero and the results are unchanged.
+- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` runs once with the switch on and once with it off. With it off, the route counters stay at zero and the results are unchanged. **Planned:** `RegionPredicatedAggregateStartupTest` launches fresh JVMs for the pre-evidence default and explicit startup settings, crossed with both `arrayContainsColumnar` settings.
 - **Evidence class:** doc-only
 - **Gap/note:** Default decided 2026-11-28 (D2).
 
@@ -484,11 +491,11 @@ None of them is claimed by QRY-101.
 
 ## Traceability
 
-| Requirement | Planned verification | Status |
+| Requirement | Verification | Status |
 |---|---|---|
-| QRY-101 | brackit `NestedArrayMembershipDetectionTest` | proposed |
-| QRY-102 | brackit `PredicateNodeMemberPathTest`; sirix compile against both snapshots | proposed |
-| QRY-103 | `NestedArrayMembershipDetectionTest` negative table | proposed |
+| QRY-101 | sirix `NestedArrayMembershipDetectionTest`; brackit-local counterpart | proposed |
+| QRY-102 | sirix `PredicateNodeMemberPathTest`; brackit-local counterpart; sirix compile against both snapshots | proposed |
+| QRY-103 | sirix `NestedArrayMembershipDetectionTest` negative table (enabled); brackit-local counterpart planned | proposed |
 | QRY-201 | `RegionPredicatedAggregateDifferentialTest`; jqwik `RegionPredicatedAggregateProperty` | proposed |
 | QRY-202 | `RegionPredicatedAggregateDifferentialTest` rows E1–E9 | proposed |
 | QRY-203 | `RegionPredicatedAggregateDifferentialTest` rows T1–T8 | proposed |
@@ -503,8 +510,8 @@ None of them is claimed by QRY-101.
 | QRY-501 | `RegionPredicatedAggregateWorkBudgetTest` with positive and negative controls | proposed |
 | QRY-502 | `RegionPredicatedAggregateAllocationBudgetTest` | proposed |
 | QRY-503 | counter assertions in every test above | proposed |
-| QRY-504 | CONV-302 timed verdict on the Lemire 5M corpus | proposed |
-| QRY-601 | `RegionPredicatedAggregateDifferentialTest` switch-off run; default flip carries QRY-501 and QRY-504 evidence | proposed |
+| QRY-504 | `RegionPredicatedAggregateDifferentialTest.composedObjectServesAdminSum`; CONV-302 timed verdict on the Lemire 5M corpus | proposed |
+| QRY-601 | `RegionPredicatedAggregateDifferentialTest` switch-off run; `RegionPredicatedAggregateStartupTest` fresh-JVM switches; default flip carries QRY-501 and QRY-504 evidence | proposed |
 
 [VectorizedGroupByDetection.java]: https://github.com/sirixdb/brackit/blob/master/src/main/java/io/brackit/query/compiler/optimizer/walker/topdown/VectorizedGroupByDetection.java
 [PredicateNode.java]: https://github.com/sirixdb/brackit/blob/master/src/main/java/io/brackit/query/compiler/optimizer/PredicateNode.java
