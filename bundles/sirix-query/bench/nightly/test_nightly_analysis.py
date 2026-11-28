@@ -55,11 +55,18 @@ def otava_installed() -> bool:
 class Ledger:
     """Nightly run rows of a hosted runner: per night one run with twenty processes per series."""
 
-    def __init__(self, environment: dict[str, Any], runner: Mapping[str, str] | None = HOSTED) -> None:
+    def __init__(
+        self,
+        environment: dict[str, Any],
+        runner: Mapping[str, str] | None = HOSTED,
+        conditions: str = "gh-test",
+        first_run: int = 0,
+    ) -> None:
         self.environment = environment
         self.runner = dict(runner) if runner else None
+        self.conditions = conditions
         self.rows: list[dict[str, Any]] = []
-        self.count = 0
+        self.count = first_run  # ledgers merged into one file need disjoint run identifiers
 
     def night(self, index: int, series: Mapping[tuple[str, str], float], image: str | None = None) -> None:
         self.count += 1
@@ -75,7 +82,7 @@ class Ledger:
             "kit": "jmh-nightly",
             "plan": {"min_processes": 20, "benchmarks": None},
             "arms": {"head": {"commit": commit_of(index), "dirty": False, "binary": "jvm", "runtime": "Temurin 25"}},
-            "conditions": "gh-test",
+            "conditions": self.conditions,
             "fingerprint": bench_ledger.fingerprint(self.environment, runner),
             "environment": self.environment,
         }
@@ -107,12 +114,46 @@ class AnalysisTestCase(unittest.TestCase):
         self.base = Path(directory.name)
         self.environment = fake_environment(self.base, FakeRunner())
 
-    def ledger(self, runner: Mapping[str, str] | None = HOSTED) -> Ledger:
-        return Ledger(self.environment, runner)
+    def ledger(self, runner: Mapping[str, str] | None = HOSTED, **options: Any) -> Ledger:
+        return Ledger(self.environment, runner, **options)
 
 
 def stepped(before: int, after: int, level: float, factor: float) -> list[float]:
     return quiet(before, level) + quiet(after, level * factor, before)
+
+
+class CpuClassTest(AnalysisTestCase):
+    """CONV-303 automatic class baseline and CONV-304: a night is judged only within its CPU class."""
+
+    KEY = ("AlphaBenchmark.encode", CPU)
+
+    def classes(self, first: list[float], second: list[float]) -> dict[str, Any]:
+        one = self.ledger(conditions="class-a")
+        one.history({self.KEY: first})
+        two = self.ledger(conditions="class-b", first_run=1000)
+        two.history({self.KEY: second})
+        return nightly_analysis.analyse(one.rows + two.rows, use_otava=False)
+
+    def test_each_class_is_a_series_of_its_own_and_a_step_in_one_is_not_seen_in_the_other(self) -> None:
+        analysis = self.classes(stepped(20, 4, 1000.0, 1.05), quiet(24, 1500.0))
+        by_class = {series["conditions"]: series for series in analysis["series"]}
+        self.assertEqual({"class-a", "class-b"}, set(by_class))
+        self.assertEqual(24, len(by_class["class-a"]["nights"]))
+        self.assertEqual(24, len(by_class["class-b"]["nights"]))
+        self.assertEqual(1, len(by_class["class-a"]["changes"]))
+        self.assertEqual([], by_class["class-b"]["changes"])
+        self.assertEqual(2, len({series["id"] for series in analysis["series"]}))
+
+    def test_a_new_class_has_no_history_and_is_not_compared_with_the_old_one(self) -> None:
+        old = self.ledger(conditions="class-a")
+        old.history({self.KEY: quiet(20, 1000.0)})
+        new = self.ledger(conditions="class-b", first_run=1000)
+        new.night(20, {self.KEY: 3000.0})  # three times the level of class-a on the night after its history
+        analysis = nightly_analysis.analyse(old.rows + new.rows, use_otava=False)
+        series = {item["conditions"]: item for item in analysis["series"]}
+        self.assertEqual(["insufficient-history"], [night["state"] for night in series["class-b"]["nights"]])
+        self.assertEqual([], series["class-b"]["changes"])
+        self.assertEqual([], series["class-a"]["changes"])
 
 
 class ChangeTest(AnalysisTestCase):

@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
 
 import nightly_analysis  # noqa: E402
 import nightly_dashboard  # noqa: E402
-from test_nightly_analysis import ALLOC, CPU, WALL, AnalysisTestCase, Ledger, quiet, stepped  # noqa: E402
+from test_nightly_analysis import ALLOC, CPU, HOSTED, WALL, AnalysisTestCase, Ledger, quiet, stepped  # noqa: E402
 
 VOID = {"meta", "br", "line", "polyline", "circle", "link", "hr", "img", "input"}
 
@@ -306,6 +306,24 @@ class DashboardDetailTest(AnalysisTestCase):
         text = nightly_dashboard.render(analysis, repository=None)
         order = [text.index(title) for title in ("<strong>CPU time per operation", "<strong>Allocation per operation", "<strong>Wall-clock time per operation")]
         self.assertEqual(sorted(order), order)
+
+    def test_each_cpu_class_is_drawn_under_its_own_heading_and_never_joined(self) -> None:
+        one = Ledger(self.environment, HOSTED, conditions="class-a")
+        one.history({("AlphaBenchmark.encode", CPU): quiet(16, 1000.0), ("AlphaBenchmark.encode", ALLOC): quiet(16, 64.0)})
+        two = Ledger(self.environment, HOSTED, conditions="class-b", first_run=1000)
+        two.history({("AlphaBenchmark.encode", CPU): quiet(16, 1500.0)})
+        text = nightly_dashboard.render(nightly_analysis.analyse(one.rows + two.rows, use_otava=False), repository=None)
+        self.assertEqual(1, text.count("<section class='card'"))
+        self.assertEqual(3, text.count("<figure id='s-"))
+        self.assertEqual(2, text.count("<h3 class='cpu-class'>"))
+        a, b = text.index("<h3 class='cpu-class'>class-a"), text.index("<h3 class='cpu-class'>class-b")
+        self.assertLess(a, text.index("<strong>Allocation per operation"))
+        self.assertLess(text.index("<strong>Allocation per operation"), b)
+        self.assertEqual(text.count("<svg viewBox"), 3)  # one polyline per series: no chart holds two classes
+        balance = Balance()
+        balance.feed(text)
+        self.assertEqual([], balance.problems)
+        self.assertEqual([], balance.stack)
 
     def test_a_group_without_parameters_is_named_by_its_benchmark(self) -> None:
         analysis = self.analysis_of({("AlphaBenchmark.encode", CPU): quiet(16, 1000.0)})

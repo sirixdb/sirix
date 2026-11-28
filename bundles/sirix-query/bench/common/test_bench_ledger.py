@@ -2572,45 +2572,102 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(self.hosted, row["runner"])
         self.assertEqual(self.hosted, bench_ledger.load_run(out)["runner"])
         self.assertEqual("hosted", bench_ledger.runner_kind(row))
-        # The dedicated machine's own entry does not hold the hosted fingerprint, and the refusal names fields.
-        conditions.write_text(
-            condition_entry("2026-11-23", "laptop-1", "new baseline", bench_ledger.fingerprint(environment)),
-            encoding="utf-8",
-        )
-        again = self.base / "run2"
-        again.mkdir()
-        with self.assertRaises(LedgerError) as caught:
-            bench_ledger.begin(
-                again, tier="nightly", kit="jmh-nightly", night="2026-11-28", ledger=self.base / "ledger.jsonl",
-                arm_specs=[f"head,commit={COMMIT_B},binary=jvm,runtime=Temurin 25"], conditions=conditions,
-                root=root, runner=runner, now=NOW, runner_spec=HOSTED_RUNNER,
-            )  # fmt: skip
-        self.assertIn("fingerprint", str(caught.exception))
 
-    def test_a_new_cpu_model_on_the_same_runner_label_is_a_refused_unknown_condition(self) -> None:
-        root, runner = make_root(self.base), FakeRunner()
-        environment = bench_ledger.capture_environment(root=root, runner=runner, now=NOW)
+    def open_hosted(self, root: Path, conditions: Path, name: str, ledger: Path, runner_spec: str | None = HOSTED_RUNNER) -> dict[str, Any]:
+        out = self.base / name
+        out.mkdir()
+        return bench_ledger.begin(
+            out, tier="nightly", kit="jmh-nightly", night="2026-11-27", ledger=ledger,
+            arm_specs=[f"head,commit={COMMIT_B},binary=jvm,runtime=Temurin 25"], conditions=conditions,
+            root=root, runner=FakeRunner(), now=NOW, runner_spec=runner_spec,
+        )  # fmt: skip
+
+    def test_an_unknown_hosted_class_starts_its_own_baseline_under_a_derived_id(self) -> None:
+        root = make_root(self.base)
+        environment = bench_ledger.capture_environment(root=root, runner=FakeRunner(), now=NOW)
         conditions = self.base / "CONDITIONS.md"
         epyc = {**environment, "cpu": {**environment["cpu"], "model": "AMD EPYC 7763 64-Core Processor"}}
         conditions.write_text(
             condition_entry("2026-11-26", "gh-epyc", "new baseline", bench_ledger.fingerprint(epyc, self.hosted)),
             encoding="utf-8",
         )
+        before = conditions.read_text(encoding="utf-8")
         ledger = self.base / "ledger.jsonl"
-        previous = {
-            **self.run_row(epyc),
-            "conditions": "gh-epyc",
-        }
-        bench_ledger.append_rows(ledger, [previous])
-        out = self.base / "run"
-        out.mkdir()
-        with self.assertRaises(LedgerError) as caught:
-            bench_ledger.begin(
-                out, tier="nightly", kit="jmh-nightly", night="2026-11-27", ledger=ledger,
-                arm_specs=[f"head,commit={COMMIT_B},binary=jvm,runtime=Temurin 25"], conditions=conditions,
-                root=root, runner=runner, now=NOW, runner_spec=HOSTED_RUNNER,
-            )  # fmt: skip
-        self.assertIn("cpu_model", str(caught.exception))
+        first = self.open_hosted(root, conditions, "run1", ledger)
+        again = self.open_hosted(root, conditions, "run2", ledger)
+        value = bench_ledger.fingerprint(environment, self.hosted)
+        self.assertEqual(
+            f"github-ubuntu-24-04-test-cpu-9000-5cpu-31gib-{value[:8]}",
+            first["conditions"],
+        )
+        self.assertEqual(first["conditions"], again["conditions"])
+        self.assertEqual(value, first["fingerprint"])
+        self.assertEqual(before, conditions.read_text(encoding="utf-8"))  # a run edits no conditions entry
+
+    def test_a_derived_id_is_valid_where_an_id_is_read(self) -> None:
+        environment = fake_environment(self.base)
+        derived = bench_ledger.class_conditions_id(environment, self.hosted)
+        self.assertRegex(derived, r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+        row = self.run_row(environment)
+        row["conditions"] = derived
+        bench_ledger.validate_row(row)
+
+    def test_an_entry_keeps_its_id_and_an_entry_under_the_derived_id_keeps_the_series(self) -> None:
+        root = make_root(self.base)
+        environment = bench_ledger.capture_environment(root=root, runner=FakeRunner(), now=NOW)
+        value = bench_ledger.fingerprint(environment, self.hosted)
+        derived = bench_ledger.class_conditions_id(environment, self.hosted)
+        conditions = self.base / "CONDITIONS.md"
+        conditions.write_text(condition_entry("2026-11-28", derived, "new baseline", value), encoding="utf-8")
+        self.assertEqual(derived, self.open_hosted(root, conditions, "same", self.base / "l.jsonl")["conditions"])
+        conditions.write_text(condition_entry("2026-11-28", "gh-named", "new baseline", value), encoding="utf-8")
+        self.assertEqual("gh-named", self.open_hosted(root, conditions, "named", self.base / "l.jsonl")["conditions"])
+
+    def test_the_class_id_names_each_field_of_the_class(self) -> None:
+        base = fake_environment(self.base)
+        reference = bench_ledger.class_conditions_id(base, self.hosted)
+        for label, environment, runner in (
+            ("cpu model", {**base, "cpu": {**base["cpu"], "model": "AMD EPYC 7763 64-Core Processor"}}, self.hosted),
+            ("cpu count", {**base, "cpu": {**base["cpu"], "threads": 8}}, self.hosted),
+            ("memory", {**base, "memory_total_kb": 64 * 1024 * 1024}, self.hosted),
+            ("architecture", {**base, "architecture": "aarch64"}, self.hosted),
+            ("label", base, {**self.hosted, "label": "ubuntu-22.04"}),
+            ("provider", base, {**self.hosted, "provider": "azure"}),
+        ):
+            with self.subTest(label):
+                self.assertNotEqual(reference, bench_ledger.class_conditions_id(environment, runner))
+        self.assertEqual(reference, bench_ledger.class_conditions_id({**base, "kernel_release": "7.0"}, self.hosted))
+        self.assertEqual(reference, bench_ledger.class_conditions_id(base, {**self.hosted, "image": "other"}))
+
+    def test_a_dedicated_or_unrunnered_unknown_fingerprint_still_refuses(self) -> None:
+        root = make_root(self.base)
+        conditions = self.base / "CONDITIONS.md"
+        conditions.write_text(condition_entry("2026-11-26", "laptop-1", "new baseline", "0" * 64), encoding="utf-8")
+        for spec in (None, "kind=dedicated,provider=lab,label=xps"):
+            with self.subTest(spec), self.assertRaisesRegex(LedgerError, "holds this environment's fingerprint"):
+                self.open_hosted(root, conditions, f"d{spec is None}", self.base / "l.jsonl", spec)
+        self.assertIsNone(bench_ledger.class_conditions_id(fake_environment(self.base), None))
+
+    def test_a_hosted_class_with_an_unavailable_field_refuses(self) -> None:
+        conditions = self.base / "CONDITIONS.md"
+        conditions.write_text(condition_entry("2026-11-26", "laptop-1", "new baseline", "0" * 64), encoding="utf-8")
+        for label, overrides in (
+            ("cpu model", {"proc/cpuinfo": "processor\t: 0\n"}),
+            ("cpuinfo", {"proc/cpuinfo": None}),
+            ("memory", {"proc/meminfo": None}),
+        ):
+            with self.subTest(label):
+                root = make_root(self.base / label.replace(" ", "-"), **overrides)
+                with self.assertRaisesRegex(LedgerError, "holds this environment's fingerprint"):
+                    self.open_hosted(root, conditions, f"u{label.replace(' ', '')}", self.base / "l.jsonl")
+        for label, change in (
+            ("zero cpus", {"cpu": {**fake_environment(self.base)["cpu"], "threads": 0}}),
+            ("text memory", {"memory_total_kb": {"unavailable": "x"}}),
+            ("boolean memory", {"memory_total_kb": True}),
+            ("empty architecture", {"architecture": ""}),
+        ):
+            with self.subTest(label):
+                self.assertIsNone(bench_ledger.class_conditions_id({**fake_environment(self.base), **change}, self.hosted))
 
     def run_row(self, environment: dict[str, Any]) -> dict[str, Any]:
         row = run_row(environment, tier="nightly", night="2026-11-26", conditions="gh-epyc")

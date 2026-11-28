@@ -10,7 +10,8 @@
                           [--data PATH] [--night YYYY-MM-DD] [--min-pairs N] [--benchmark NAME ...]
                           [--runner kind=dedicated|hosted,provider=NAME,label=NAME[,image=TEXT]]
         Open a run: capture the environment, find its conditions entry, write DIR/run.json.
-        Refuses, before any timed process, when no conditions entry holds the fingerprint.
+        Refuses, before any timed process, when no conditions entry holds the fingerprint, unless the
+        runner is hosted and its class is fully known: that starts the class's own baseline (CONV-303).
         SPEC is name,commit=<40 hex>,binary=jvm|native|native-pgo[,dirty=true][,java=PATH|,runtime=TEXT].
         A hosted runner is fingerprinted by its class, not by its kernel (CONV-303).
     bench_ledger.py record --run DIR --benchmark NAME --metric NAME --unit UNIT --arm ARM --value V ...
@@ -471,6 +472,34 @@ def conditions_id(conditions: Path, value: str) -> str | None:
         if value in entry["fingerprints"]:
             return entry["id"]
     return None
+
+
+def class_conditions_id(
+    environment: Mapping[str, Any], runner: Mapping[str, Any] | None, value: str | None = None
+) -> str | None:
+    """CONV-303 automatic class baseline: the conditions id of a hosted CPU class, derived from its fingerprint.
+
+    None when the run is not hosted or a field of the class is unavailable (unreadable CPU model, no logical
+    CPU, memory that is not a number): an incomplete class would merge unlike machines, so that run refuses.
+    """
+    if runner is None or runner.get("kind") != HOSTED:
+        return None
+    cpu = environment["cpu"]
+    model, threads, memory = cpu["model"], cpu["threads"], environment["memory_total_kb"]
+    architecture = environment["architecture"]
+    if not _is_text(model) or not _is_text(architecture):
+        return None
+    for count in (threads, memory):
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            return None
+    fields = fingerprint_fields(environment, runner)
+    digest = value or fingerprint(environment, runner)
+
+    def name(text: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+    parts = [name(runner["provider"]), name(runner["label"]), name(model), f"{threads}cpu", f"{fields['memory_gib']}gib", digest[:8]]
+    return "-".join(part for part in parts if part)
 
 
 def _field_differences(ledger: Path, environment: Mapping[str, Any], runner: Mapping[str, Any] | None = None) -> str:
@@ -957,7 +986,7 @@ def begin(
     if runner_record is not None:
         row["runner"] = runner_record
     validate_row(row)  # arms, plan and tier are refused here, before the conditions record is consulted
-    entry = conditions_id(conditions, value)
+    entry = conditions_id(conditions, value) or class_conditions_id(environment, runner_record, value)
     if entry is None:
         raise LedgerError(
             f"no entry of {conditions} holds this environment's fingerprint {value}; it "
@@ -1537,6 +1566,9 @@ def _fingerprint(args: argparse.Namespace) -> int:
     environment = capture_environment()
     runner_record = parse_runner(args.runner) if args.runner else None
     print(fingerprint(environment, runner_record))
+    derived = class_conditions_id(environment, runner_record)
+    if derived is not None:
+        print(f"conditions id of this CPU class when no entry holds it: {derived}")
     print(json.dumps(fingerprint_fields(environment, runner_record), indent=2))
     return 0
 

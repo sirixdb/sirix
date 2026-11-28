@@ -17,6 +17,15 @@
   Making Otava the judge is not decided here.
   Decided by the maintainer on 2026-11-26: a hosted runner is fingerprinted by its class, not by its
   kernel or image.
+- Start a baseline automatically for each CPU class of the hosted pool
+  ([CONV-303](CONV-conventions.md#conv-303--results-ledger-and-conditions-record),
+  [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier)). A hosted run whose fingerprint
+  no conditions entry holds, and whose provider, label, architecture, CPU model, logical CPU count
+  and memory are all known, no longer refuses: it records a conditions id derived from the fingerprint
+  and starts that class's series. Nights are compared only within a class, Apache Otava runs per
+  series, and the dashboard draws each class separately. Dedicated runs and incomplete fingerprints
+  still refuse. Decided by the maintainer on 2026-11-28, after the hosted pool assigned an Intel Xeon
+  Platinum 8370C the day after the AMD EPYC 7763 entry was added and the night was refused.
 - Record the derived half of
   [TXN-613](TXN-transactions-durability.md#txn-613--backups-include-derived-resources) as
   implemented: a backup copies each backed-up resource's hidden `$derived` resource, a restore

@@ -322,14 +322,23 @@ class RunNightTest(NightlyTestCase):
         self.record(night="2026-11-28")  # another night is fine
         self.assertEqual({"2026-11-27", "2026-11-28"}, {r["night"] for r in self.rows() if r["kind"] == "run"})
 
-    def test_an_environment_with_no_conditions_entry_measures_nothing(self) -> None:
+    def test_an_unknown_hosted_cpu_class_starts_its_own_baseline_and_a_dedicated_one_measures_nothing(self) -> None:
         self.conditions.write_text("", encoding="utf-8")
+        first = self.record()
+        self.assertRegex(
+            [r for r in self.rows() if r["kind"] == "run"][0]["conditions"], r"^github-ubuntu-24-04-.*-[0-9a-f]{8}$"
+        )
+        self.assertTrue(first.complete)
+        self.assertEqual("", self.conditions.read_text(encoding="utf-8"))
+        second = self.record(night="2026-11-28")
+        runs = [r for r in self.rows() if r["kind"] == "run"]
+        self.assertEqual(1, len({r["conditions"] for r in runs}))
+        self.assertTrue(second.complete)
         jmh = FakeJmh()
         with self.assertRaises(bench_ledger.LedgerError) as caught:
-            self.record(jmh=jmh)
+            self.record(jmh=jmh, night="2026-11-29", runner_spec=None)
         self.assertIn("fingerprint", str(caught.exception))
         self.assertEqual([], jmh.calls)
-        self.assertFalse(self.ledger.exists())
 
     def test_the_inputs_are_checked_before_the_first_process(self) -> None:
         for options in (
