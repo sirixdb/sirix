@@ -4,7 +4,8 @@ Spec target: **1.0.0**. Chapter status: **Draft; captain decisions of 2026-11-28
 Code baseline: sirix `321a718f63929166e8bcb9ccd3ddfabc20635e83`, brackit
 `master` `e6515a9ffa0a9565db7baa024b1a9a9c42ec63c0` (28 November 2026).
 [Conventions](CONV-conventions.md) define requirement status, evidence and conformance. Every
-requirement below is `proposed`. No test named here exists yet; each one is **Planned**.
+requirement below is `proposed`. Every new test named here is **Planned**; none is implemented
+by this change.
 Tests are derived from this chapter by a separate test author before implementation (CONV-103).
 
 ## Scope
@@ -320,7 +321,7 @@ declines, it MUST clear any seam state it set, so that no later page applies tha
 
 - **Level:** MUST · **Status:** proposed · **Since:** 1.0
 - **Code:** `parallelGenericPredicateAggregate`, `evalCompiled`, `loadFieldsTypedGroups`, `VectorizedFallbackExpr`
-- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` asserts, for every row, which outcome occurred (served, page-declined or refused) and that the result is equal in each case. A mixed fixture (one page holding a double `score`) shows exactly one page declined and the others served.
+- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` asserts, for every row, which outcome occurred (served, page-declined or refused) and that the result is equal in each case. A mixed sum fixture (one page holding a decimal `score`) shows exactly one page declined and the others served; a contributing double instead requires query refusal (QRY-204).
 - **Evidence class:** doc-only
 - **Gap/note:** The record-at-a-time evaluator does not descend nested member paths today. Declined pages and seam records need that descent, or the query has to be refused.
 
@@ -397,8 +398,9 @@ For the admin-sum query and for the nested membership count on the fixture:
 
 A positive control MUST show that the counters see the work: on the same fixture, the route
 switched off (QRY-601) MUST show at least one full record-page read per scheduled page. A
-negative control MUST show that the bound detects a page being declined: one page holding a
-double `score` MUST show exactly one declined page and at least one more full record-page read.
+negative control for the admin-sum query MUST show that the bound detects a page being declined:
+one page holding a decimal `score` in a matching record MUST show exactly one declined page and
+at least one more full record-page read (QRY-203/204).
 
 ### QRY-502 — Allocation budget
 
@@ -438,8 +440,8 @@ page or per seam record, never once per value.
 - **Evidence class:** doc-only
 - **Gap/note:** Decided 2026-11-28 (D4): the CONV-302 verdict is the gate, and the time target is informational.
 
-The route MUST obtain a CONV-302 "faster" verdict against the baseline for the admin-sum query at
-1 and 12 threads. It MUST NOT obtain a "slower" verdict on any existing suite query. Target,
+The route MUST obtain a CONV-302 `improvement` verdict against the baseline for the admin-sum query at
+1 and 12 threads. It MUST NOT obtain a `regression` verdict on any existing suite query. Target,
 informational (D4): ≤ 0.6 s at 1 thread and ≤ 0.25 s at 12 threads on the
 reference rig. That is about twice the measured region `count(active)`, because the route also
 reads the string, number and ordinal columns. The full `{count, active, admin_sum}` object query
@@ -461,7 +463,7 @@ record path. The detector's claim of the new forms MUST be switchable on its own
 the existing `brackit.predicate.arrayContains` or by a new property.
 
 The route MUST be on by default. The change that turns the default on MUST carry passing QRY-501
-evidence (zero page declines on the fixture) and a CONV-302 "faster" verdict (QRY-504). Until
+evidence (zero page declines on the fixture) and the timed acceptance evidence of QRY-504. Until
 both exist, the route MUST stay off by default.
 
 ## Decisions (captain, 2026-11-28)
@@ -469,7 +471,7 @@ both exist, the route MUST stay off by default.
 | # | Question | Decided | Why |
 |---|---|---|---|
 | D1 | How brackit represents a nested member path (QRY-102) | A new sealed subtype `ArrayContainsPath(List<String> path, String value)`, with `ArrayContains` kept for depth 1, landed in three steps: a sirix change that compiles against both brackit snapshots, then the brackit change, then the sirix route. Rejected: changing `ArrayContains` itself to carry a path | Additive: the existing depth-1 leaf and its tests stay untouched |
-| D2 | Default of the route switch (QRY-601) | On by default once QRY-501 (zero declines on the fixture) and QRY-504 (faster verdict) pass. Rejected: opt-in, like `arrayContainsColumnar` | The shape is exact or refused by construction, and a route kept opt-in is not used by the benchmark it was built for |
+| D2 | Default of the route switch | Default and evidence gates are specified in QRY-601. Rejected: opt-in, like `arrayContainsColumnar` | The shape is exact or refused by construction, and a route kept opt-in is not used by the benchmark it was built for |
 | D3 | A membership (set) column in projection indexes, so the indexed route can answer the same shape | A separate specification after this route lands, not part of this chapter | It is an index-format change (FMT/CONF) with its own build and maintenance cost |
 | D4 | Whether the QRY-504 time target and the QRY-502 4 KiB tolerance are gates | The time target is informational and the CONV-302 verdict is the gate. The tolerance is fixed by the first measurement and is never widened after that. Rejected: hard gates now | A time figure from one rig is not a portable gate; the timed verdict already decides faster or slower |
 

@@ -9,11 +9,9 @@
   existential, NULL and type-mismatch semantics, exact integer folds, scope proofs from the path
   summary, record attribution with nested objects, page seams, page decline versus query refusal,
   thread-count independence, revision and cache correctness, and work, allocation and timed
-  budgets. Decided by the captain on 2026-11-28: brackit adds a new `ArrayContainsPath` leaf,
-  landed so that sirix compiles at every brackit snapshot; the route is on by default once its
-  work budget and a CONV-302 "faster" verdict pass; the projection-index membership column gets a
-  separate specification; the time target is informational, with the CONV-302 verdict as the
-  gate. No product behavior changes with this entry.
+  budgets. The chapter's [decisions](QRY-query-execution.md#decisions-captain-2026-11-28)
+  record the captain's choices on representation and landing order, default activation,
+  projection-index scope and acceptance gates. No product behavior changes with this entry.
 - Schedule the nightly trend tier and give it a hosted-runner class
   ([CONV-303](CONV-conventions.md#conv-303--results-ledger-and-conditions-record),
   [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier)). A run row may name its `runner`
