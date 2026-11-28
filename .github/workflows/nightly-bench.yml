@@ -32,7 +32,7 @@ concurrency:
 
 env:
   CANONICAL_REPOSITORY: sirixdb/sirix
-  DASHBOARD_URL: https://sirix.io/sirix/
+  DASHBOARD_URL: https://sirix.io/dashboard/
   NIGHTLY_DIR: bundles/sirix-query/bench/nightly
 
 jobs:
@@ -96,7 +96,7 @@ jobs:
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           if [ "$status" = 2 ]; then
-            echo "::error::The recorder refused to start. For an unknown fingerprint, add the entry printed below to docs/bench/CONDITIONS.md (CONV-303)."
+            echo "::error::The recorder refused to start. An unknown hosted CPU class starts its own baseline (CONV-303); a refusal means an incomplete fingerprint (an unreadable CPU model, CPU count or memory) or a ledger problem. The fields are printed below."
             python3 bundles/sirix-query/bench/common/bench_ledger.py fingerprint --runner "kind=hosted,provider=github,label=ubuntu-24.04" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
           exit 0

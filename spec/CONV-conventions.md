@@ -331,10 +331,10 @@ fresh-process equality; the measured sub-byte residual is recorded in the
 - **Level:** MUST
 - **Status:** partial
 - **Since:** 1.0
-- **Code:** [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `capture_environment`, `fingerprint_fields`, `fingerprint`, `parse_runner`, `parse_conditions`, `validate_row`, `append_rows`, `begin`, `record`, `commit`, `jmh_rows`; `bench_run_begin` in [bench-common.sh](../bundles/sirix-query/bench/common/bench-common.sh); [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh); [run-benchmark.sh](../bundles/sirix-query/bench/jsonbench/run-benchmark.sh); [CONDITIONS.md](../docs/bench/CONDITIONS.md).
+- **Code:** [bench_ledger.py](../bundles/sirix-query/bench/common/bench_ledger.py) `capture_environment`, `fingerprint_fields`, `fingerprint`, `parse_runner`, `class_conditions_id`, `parse_conditions`, `validate_row`, `append_rows`, `begin`, `record`, `commit`, `jmh_rows`; `bench_run_begin` in [bench-common.sh](../bundles/sirix-query/bench/common/bench-common.sh); [cold-rounds.sh](../bundles/sirix-query/bench/clickbench/cold-rounds.sh); [run-benchmark.sh](../bundles/sirix-query/bench/jsonbench/run-benchmark.sh); [CONDITIONS.md](../docs/bench/CONDITIONS.md).
 - **Verified by:** [test_bench_ledger.py](../bundles/sirix-query/bench/common/test_bench_ledger.py) `EnvironmentCaptureTest`, `CaptureDetailTest`, `RuntimeVersionTest`, `FingerprintTest`, `RunnerTest`, `CpuLegTest`, `ConditionsRecordTest`, `ConditionsDetailTest`, `RowSchemaTest`, `RowDetailTest`, `LedgerFileTest`, `LedgerFileDetailTest`, `RunDirectoryTest`, `ImporterTest`, `ImporterDetailTest`, `CommandLineTest`, `CommandLineDetailTest`; [test_kit_recording.py](../bundles/sirix-query/bench/common/test_kit_recording.py) `JsonBenchKitTest`, `ClickBenchColdRoundsTest`.
 - **Evidence class:** code+test (local execution, historical mutation results and pending remeasurement recorded in [MUTATION_DISPOSITIONS.md](../bundles/sirix-query/bench/common/MUTATION_DISPOSITIONS.md); the `Benchmark protocol tooling` CI job arrives with the same change and has not reported for this baseline)
-- **Gap/note:** The ClickBench cold rounds and the JSONBench runner record by themselves; the JMH module and the bitemporal kit do not, and their drivers call `bench_ledger.py`. The capture reads Linux sources; on another system each probe is recorded as unavailable. A kit does not know the runtime of an arm it launches through Gradle or of an ahead-of-time image and records it as unavailable unless the driver states it. The evidence a `continues` entry names is judged in review, not by the tool. The ledger of a dedicated measuring machine is local to it and is not committed; a pull request cites the rows it relies on. The nightly tier's ledger (CONV-304) is the one exception: the scheduled workflow appends to `ledger.jsonl` on the `nightly-data` branch, one commit per night, so that its history outlives any workflow artifact; no one else writes to that branch. A hosted runner cannot be found in the conditions record before it has run once: the first night on a new class of runner (a new CPU model, a new runner label) is refused by the fingerprint rule below, and the entry is added by a maintainer from the fingerprint the refusal prints.
+- **Gap/note:** The ClickBench cold rounds and the JSONBench runner record by themselves; the JMH module and the bitemporal kit do not, and their drivers call `bench_ledger.py`. The capture reads Linux sources; on another system each probe is recorded as unavailable. A kit does not know the runtime of an arm it launches through Gradle or of an ahead-of-time image and records it as unavailable unless the driver states it. The evidence a `continues` entry names is judged in review, not by the tool. The ledger of a dedicated measuring machine is local to it and is not committed; a pull request cites the rows it relies on. The nightly tier's ledger (CONV-304) is the one exception: the scheduled workflow appends to `ledger.jsonl` on the `nightly-data` branch, one commit per night, so that its history outlives any workflow artifact; no one else writes to that branch. A hosted runner cannot be found in the conditions record before it has run once: the first night on a new class of runner (a new CPU model, a new runner label) starts that class's own baseline by the automatic class rule below, and no maintainer edit is needed for it; only an incomplete fingerprint is refused.
 
 **Ledger.** Every timed run under the benchmark protocol — a per-change gate, a control such as an
 A/A run, a nightly run — MUST append its rows to the results ledger, the file `SIRIX_BENCH_LEDGER`
@@ -441,8 +441,32 @@ MUST name the control run in the ledger that shows results stayed comparable. A 
 the ledger MUST find the latest entry containing its fingerprint and record that entry's id as its
 `conditions`; when no entry holds the fingerprint, the run MUST refuse to start its timed processes,
 naming the fingerprint and the fields that differ from the
-previous run in the ledger. Rows that carry different conditions ids MUST NOT be compared with
-each other, in a trend window or in a learned threshold.
+previous run in the ledger, except for a hosted runner as the next paragraph says. Rows that carry
+different conditions ids MUST NOT be compared with each other, in a trend window or in a learned
+threshold.
+
+**Automatic class baseline.** A hosted runner's *CPU class* is its fingerprint: provider, label,
+architecture, CPU model, logical CPU count and memory in whole GiB. A run whose `runner` is
+`hosted` and whose fingerprint no entry holds MUST NOT refuse when every one of those fields is
+known; it starts that class's baseline by itself and records, as its `conditions`, the id
+`<provider>-<label>-<cpu model>-<n>cpu-<m>gib-<first 8 digits of the fingerprint>`, each name
+lowercased, with every run of other characters replaced by one hyphen (for the Intel Xeon Platinum
+8370C of 2026-11-28: `github-ubuntu-24-04-intel-r-xeon-r-platinum-8370c-cpu-2-80ghz-4cpu-16gib-c0157fed`). The id is a function of the fingerprint
+alone, so every later run on that class derives the same id and continues the same series, and no
+file is edited for it. The run's `environment` and `fingerprint` are the record of what the class is;
+no `CONDITIONS.md` entry is written by a run. A maintainer MAY describe a class by an entry whose id
+is the id the run derived and whose Fingerprint row holds the fingerprint: it names the same
+condition and keeps the series. An entry that holds the fingerprint under another id starts a new
+condition under that id, and nothing recorded under the derived id is compared with it. The
+existing entries stay valid and win over a derived id. The rule gives no run the right to compare
+with another class: a night is judged only against earlier nights of the same conditions id
+(CONV-304), with Apache Otava's change points computed per series and so per class, and a
+change of CPU class on a day is a new series that has no history, not a change in an old one.
+A class has no judged state until it has the recorded nights CONV-304 requires. A run still
+MUST refuse to start when its `runner` is `dedicated` or absent, or when a field of the hosted
+class is unavailable (a CPU model that could not be read, a logical CPU count of zero, a memory
+size that is not a number): a class built from an incomplete fingerprint would merge unlike
+machines.
 
 ### CONV-304 — Nightly trend tier
 
@@ -450,9 +474,9 @@ each other, in a trend window or in a learned threshold.
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [bench_trend.py](../bundles/sirix-query/bench/common/bench_trend.py) `nightly_series`, `state_of`, `is_informational`, `report`; the nightly recorder and publisher in [bench/nightly](../bundles/sirix-query/bench/nightly/README.md): `nightly_run.py` `run_night`, `nightly_analysis.py` `analyse`, `actionable`, `nightly_window.py` `verdict`, `publish_context`, `nightly_publish.py`, `nightly_issues.py` `open_issues`, `nightly_dashboard.py`; the workflow [nightly-bench.yml](../.github/workflows/nightly-bench.yml); [DEVELOPMENT.md](../docs/DEVELOPMENT.md#the-nightly-tier).
-- **Verified by:** [test_bench_trend.py](../bundles/sirix-query/bench/common/test_bench_trend.py) `QuartileTest`, `StateTest`, `SeriesTest`, `ReportTest`, `ZeroLevelTest`, `HostedRunnerTest`; in [bench/nightly](../bundles/sirix-query/bench/nightly): `test_nightly_run.py`, `test_nightly_analysis.py`, `test_nightly_window.py` (including the workflow's cron against the window on every day of three years), `test_nightly_publish.py`, `test_nightly_issues.py`, `test_nightly_dashboard.py`.
+- **Verified by:** [test_bench_trend.py](../bundles/sirix-query/bench/common/test_bench_trend.py) `QuartileTest`, `StateTest`, `SeriesTest`, `ReportTest`, `ZeroLevelTest`, `HostedRunnerTest`; in [bench/nightly](../bundles/sirix-query/bench/nightly): `test_nightly_run.py`, `test_nightly_analysis.py` (`CpuClassTest`), `test_nightly_window.py` (including the workflow's cron against the window on every day of three years), `test_nightly_publish.py`, `test_nightly_issues.py`, `test_nightly_dashboard.py`.
 - **Evidence class:** code+test (local execution on constructed histories, historical mutation results and pending remeasurement recorded in [MUTATION_DISPOSITIONS.md](../bundles/sirix-query/bench/common/MUTATION_DISPOSITIONS.md); the `Benchmark protocol tooling` CI job arrives with the same change and has not reported for this baseline)
-- **Gap/note:** A scheduled workflow now runs the nightly on GitHub-hosted runners (stage 1): CPU time and allocation per operation of a curated JMH set, judged here; wall-clock time recorded as information. No night had been recorded when this text was written, so the constants below have not met real nightly data; they are to be re-examined, in a change of their own, once the first window of nights exists. Wall-clock time on a dedicated benchmark machine (stage 2) is not scheduled by this requirement: it will be a second runner kind and its own conditions. Apache Otava runs beside the rule and is advisory; adopting it as the judge needs a decision recorded here and is not made. The workflow has not yet run on `main`, so the CPU-time noise of a hosted runner against the 2% bound is unmeasured. Decided by the maintainer on 2026-11-26: a hosted runner is fingerprinted by its class (CONV-303), not by its kernel or image.
+- **Gap/note:** A scheduled workflow now runs the nightly on GitHub-hosted runners (stage 1): CPU time and allocation per operation of a curated JMH set, judged here; wall-clock time recorded as information. No night had been recorded when this text was written, so the constants below have not met real nightly data; they are to be re-examined, in a change of their own, once the first window of nights exists. Wall-clock time on a dedicated benchmark machine (stage 2) is not scheduled by this requirement: it will be a second runner kind and its own conditions. Apache Otava runs beside the rule and is advisory; adopting it as the judge needs a decision recorded here and is not made. The workflow has not yet run on `main`, so the CPU-time noise of a hosted runner against the 2% bound is unmeasured. Decided by the maintainer on 2026-11-26: a hosted runner is fingerprinted by its class (CONV-303), not by its kernel or image. Decided by the maintainer on 2026-11-28: each CPU class of the hosted pool is a series of its own (CONV-303 automatic class baseline); the dashboard draws the classes separately and never joins them.
 
 **Run.** A nightly run measures one arm, `head`: the default branch's build at that night's commit,
 with at least 20 accepted fresh processes for every benchmark, under the machine rules of the

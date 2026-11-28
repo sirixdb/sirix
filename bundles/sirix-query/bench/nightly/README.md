@@ -52,8 +52,8 @@ this repository's project site is served below it. The address is `DASHBOARD_URL
 
 ## Running it by hand
 
-Commands run from the repository root. A hosted-runner fingerprint must be in
-[`docs/bench/CONDITIONS.md`](../../../../docs/bench/CONDITIONS.md) before the recorder will measure:
+Commands run from the repository root. A dedicated machine's fingerprint must be in
+[`docs/bench/CONDITIONS.md`](../../../../docs/bench/CONDITIONS.md) before the recorder will measure; a hosted class starts its own baseline:
 
 ```bash
 python3 bundles/sirix-query/bench/common/bench_ledger.py fingerprint \
@@ -74,14 +74,16 @@ python3 bundles/sirix-query/bench/nightly/nightly_issues.py --analysis /tmp/anal
 ledger. Local runs publish nothing: the publisher and the issue step refuse outside a scheduled or
 dispatched run of the default branch of the canonical repository.
 
-## When the recorder refuses a new machine
+## A new CPU class starts its own baseline
 
-CONV-303 refuses to measure when no conditions entry holds the run's fingerprint. A hosted runner's
-fingerprint is its class: the label, the architecture, the CPU model, the logical CPU count and the
-memory. GitHub's pool mixes processors, so the first night on a new CPU model fails with the fingerprint
-printed in the job summary. A maintainer appends a dated entry to `docs/bench/CONDITIONS.md` (a `new
-baseline`, since a different processor is a different condition) and the next night proceeds. Series of
-two conditions are never compared with each other, so each processor builds its own history.
+A hosted runner's fingerprint is its class: the label, the architecture, the CPU model, the logical CPU
+count and the memory. GitHub's pool mixes processors. A night on a class that no conditions entry holds
+does not refuse (CONV-303, automatic class baseline): the run records a conditions id derived from the
+fingerprint (`bench_ledger.py fingerprint --runner ...` prints it), every later night on that class derives
+the same id, and no file is edited. A night is judged only against earlier nights of the same id, Otava
+runs per series, and the dashboard draws each class under its own heading. The recorder still refuses on
+a dedicated or unnamed runner, and on a hosted class whose CPU model, CPU count or memory could not be read.
+A maintainer may describe a class with a `CONDITIONS.md` entry whose id is the derived one.
 
 ## The window
 

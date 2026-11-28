@@ -11,7 +11,9 @@ How it is used:
 
 - Every run that writes to the results ledger computes a fingerprint of the machine it runs on and
   looks it up here. The latest entry that holds the fingerprint gives the run its conditions id. A run
-  whose fingerprint is in no entry refuses to start and says which fields changed.
+  whose fingerprint is in no entry refuses to start and says which fields changed, except a hosted
+  run whose CPU class is fully known: it starts the class's own baseline under an id derived from the
+  fingerprint (below).
 - `python3 bundles/sirix-query/bench/common/bench_ledger.py fingerprint` prints the fingerprint of
   the current machine and the fields it is made of.
 - Entries are appended in date order and are not edited afterwards, except by a dated correction.
@@ -25,8 +27,10 @@ class of machine: its fingerprint is made of the runner's provider and label, th
 the logical CPU count and the memory, and not of the kernel and firmware that the provider changes with every
 image. `python3 bundles/sirix-query/bench/common/bench_ledger.py fingerprint --runner
 kind=hosted,provider=github,label=ubuntu-24.04` prints it on the runner, and the nightly job's summary prints it
-when it refuses an unknown one. Each CPU model GitHub's pool contains needs its own entry, because CPU time is
-not comparable across processors; the Machine row names the model, Load control says the runner is shared, and
+when it refuses an unknown one. Each CPU model GitHub's pool contains is its own condition, because CPU time is
+not comparable across processors. A class with no entry starts a baseline by itself under the id
+`bench_ledger.py fingerprint` prints (CONV-303, automatic class baseline); an entry is optional, and keeps
+the series only when its id is that derived one; the Machine row names the model, Load control says the runner is shared, and
 Benchmark set names the nightly's curated set.
 
 Every entry has the same thirteen rows. The fingerprint covers kernel release, operating system,

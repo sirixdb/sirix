@@ -59,6 +59,7 @@ th{font-weight:600;color:var(--muted)}td.num{font-variant-numeric:tabular-nums;w
 .pill.drift{color:var(--drift)}.pill.unconfirmed{color:var(--unconfirmed)}.pill.faster{color:var(--faster)}
 .pill.unstable{color:var(--unstable)}.pill.steady,.pill.insufficient-history{color:var(--muted)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:18px 0}
+h3.cpu-class{font-size:14px;margin:14px 0 0;color:var(--muted);font-weight:600;overflow-wrap:anywhere}
 .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:14px;margin-top:10px}
 figure{margin:0;min-width:0}figcaption{font-size:13px;color:var(--muted);margin-bottom:2px}
 figcaption strong{color:var(--fg)}svg{width:100%;height:auto;display:block}
@@ -293,12 +294,19 @@ def render(analysis: Mapping[str, Any], *, repository: str | None = None, genera
         members = sorted(
             groups[name],
             key=lambda item: (
-                JUDGED_ORDER.index(item["metric"]) if item["metric"] in JUDGED_ORDER else len(JUDGED_ORDER),
                 item["conditions"],
+                JUDGED_ORDER.index(item["metric"]) if item["metric"] in JUDGED_ORDER else len(JUDGED_ORDER),
             ),
         )
-        page.append(f"<section class='card' id='b-{_slug(name)}'><h2>{html.escape(name)}</h2><div class='charts'>")
+        page.append(f"<section class='card' id='b-{_slug(name)}'><h2>{html.escape(name)}</h2>")
+        shown_class = None
         for series in members:
+            if series["conditions"] != shown_class:
+                # CONV-303: each CPU class is a series of its own; its charts sit under its own heading.
+                if shown_class is not None:
+                    page.append("</div>")
+                shown_class = series["conditions"]
+                page.append(f"<h3 class='cpu-class'>{html.escape(shown_class)}</h3><div class='charts'>")
             latest = series["nights"][-1] if series["nights"] else None
             title = title_of(series["metric"])
             tag = " <span class='pill'>informational, not judged</span>" if series["informational"] else ""
