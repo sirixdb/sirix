@@ -13,6 +13,8 @@ dependencies {
     testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
     testImplementation testLibraries.brackit
     testImplementation implLibraries.xmlunit
+    // QRY-201's RegionPredicatedAggregateProperty is a jqwik property.
+    testImplementation testLibraries.jqwik
 }
 
 apply plugin: 'kotlin'
@@ -328,6 +330,33 @@ gradle.projectsEvaluated {
 tasks.named('test', Test).configure {
     exclude 'io/sirix/query/bench/bitemporal/BitemporalLoaderBudgetTest.class'
     dependsOn bitemporalLoaderAllocationTest
+}
+
+// QRY-502: the route's allocation budget counts allocation as the code writes it, in a clean JVM
+// with escape analysis and the Graal JIT off as in CONV-302's allocation legs (the Unlock flag
+// makes -UseJVMCICompiler a no-op on a HotSpot build without JVMCI). Planned until QRY step 3
+// lands (io.sirix.query.scan.QrySteps); until then the suite reports itself skipped.
+def regionPredicatedAggregateAllocationTest = tasks.register('regionPredicatedAggregateAllocationTest', Test) {
+    group = 'verification'
+    description = 'Checks the QRY-502 allocation budget of the column-served predicated aggregate in a clean JVM.'
+    reports.html.outputLocation = layout.buildDirectory.dir('reports/tests/test/region-predicated-aggregate-allocation')
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching 'io.sirix.query.budget.RegionPredicatedAggregateAllocationBudgetTest' }
+}
+gradle.projectsEvaluated {
+    def standardTest = tasks.named('test', Test).get()
+    regionPredicatedAggregateAllocationTest.configure { isolatedTest ->
+        standardTest.copyTo(isolatedTest)
+        isolatedTest.jvmArgs = standardTest.jvmArgs
+        isolatedTest.jvmArgs '-Xbatch', '-XX:+UnlockExperimentalVMOptions', '-XX:-UseJVMCICompiler',
+                '-XX:-DoEscapeAnalysis'
+    }
+}
+tasks.named('test', Test).configure {
+    exclude 'io/sirix/query/budget/RegionPredicatedAggregateAllocationBudgetTest.class'
+    dependsOn regionPredicatedAggregateAllocationTest
 }
 
 def temporalNodeReaderLifetimeGenericTest = tasks.register('temporalNodeReaderLifetimeGenericTest', Test) {

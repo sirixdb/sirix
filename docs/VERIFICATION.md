@@ -621,6 +621,8 @@ adds one exploratory seed. The identity suite inherits the JVM hash default, so 
 # Add -Dsirix.workBudget.print=true -i to print every captured counter table
 # The query test task also runs BitemporalLoaderBudgetTest in a clean JVM with blocking
 # compilation, via :sirix-query:bitemporalLoaderAllocationTest; run that task alone to isolate it.
+# It also runs the planned QRY-502 RegionPredicatedAggregateAllocationBudgetTest in a clean JVM
+# with escape analysis and the Graal JIT off, via :sirix-query:regionPredicatedAggregateAllocationTest.
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*' \
   --tests 'io.sirix.query.json.IndexedArrayPositionTest'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \

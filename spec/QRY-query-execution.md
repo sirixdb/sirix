@@ -4,8 +4,14 @@ Spec target: **1.0.0**. Chapter status: **Draft; captain decisions of 2026-11-28
 Code baseline: sirix `321a718f63929166e8bcb9ccd3ddfabc20635e83`, brackit
 `master` `e6515a9ffa0a9565db7baa024b1a9a9c42ec63c0` (28 November 2026).
 [Conventions](CONV-conventions.md) define requirement status, evidence and conformance. Every
-requirement below is `proposed`. Every new test named here is **Planned**; none is implemented
-by this change.
+requirement below remains `proposed`. The named sirix tests now have sources in
+[the scan test package](../bundles/sirix-query/src/test/java/io/sirix/query/scan) and, for QRY-501
+and QRY-502, [the budget test package](../bundles/sirix-query/src/test/java/io/sirix/query/budget),
+but they stay **Planned** until the step that enables them lands:
+[QrySteps](../bundles/sirix-query/src/test/java/io/sirix/query/scan/QrySteps.java) owns their step
+enablement and forced-execution option, and test-source presence alone establishes no conformance.
+The brackit tests named for QRY-101 to QRY-103 have sirix-side counterparts of the same names that
+check the published snapshot through sirix's compile chain; QRY-103's negative table runs today.
 Tests are derived from this chapter by a separate test author before implementation (CONV-103).
 
 ## Scope
