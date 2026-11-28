@@ -19,6 +19,17 @@
   `startNodeKey`, and asserts the old name gets 400 naming `startNodeKey` alone, with the new name,
   with any value and without pagination. The refusal tests fail on the previous head (200, first
   page).
+- Mutation evidence: PR #1513's complete PIT report in run `46130158907` killed all four
+  behavioral mutants. The two survivors remove Kotlin-generated assertions that the
+  `queryParam` result is non-null, at the retired-name guard and the new-name cursor read.
+  Vert.x's [queryParam contract](https://vertx.io/docs/apidocs/io/vertx/ext/web/RoutingContext.html#queryParam(java.lang.String))
+  returns a list even for an absent name, so neither assertion can fail for an admitted
+  request. The initial change omitted dispositions for these equivalent mutants, leaving
+  the mutation check red despite the behavior tests detecting every behavioral change.
+  `.github/mutation-dispositions.toml` now records both exact identities and their contract
+  arguments; `pr_mutation.py dispositions --check` judges them against that complete report
+  and census. Keep the behavior tests' request oracles rather than adding invalid null-returning
+  contexts solely to distinguish compiler assertions.
 - Lesson: renaming a request parameter is a contract change; the same change either keeps the old name
   with a deprecation or refuses it loudly. An ignored-by-design input must never be the failure mode
   of a rename ([lesson](../LESSONS.md)).
