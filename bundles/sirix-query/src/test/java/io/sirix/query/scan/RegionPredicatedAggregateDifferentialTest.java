@@ -36,11 +36,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * QRY-201 to QRY-204, QRY-304, QRY-503 and QRY-601: every query of the chapter's corpus table runs
- * with the interpreter (the oracle) and with the route, and the two outcomes, result type and value
- * or error code, must be equal. For every row the test also asserts which of QRY-304's outcomes
- * occurred (served, page-declined or refused) against the set the chapter allows for that row, and
- * that the route was reached at all.
+ * QRY-201 to QRY-204, QRY-304, QRY-503, QRY-504 and QRY-601: every query of the chapter's corpus
+ * table runs with the interpreter (the oracle) and with the route, and the two outcomes, result
+ * type and value or error code, must be equal. For every row the test also asserts which of
+ * QRY-304's outcomes occurred (served, page-declined or refused) against the set the chapter allows
+ * for that row, and that the route was reached at all.
  *
  * <p>
  * Each row is a base corpus of 1,500 Lemire-shaped records (about 14 pages, so most records are
@@ -53,7 +53,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * decimal {@code score} is declined while a contributing double refuses the sum (QRY-204, QRY-304);
  * a member path that another structure reaches is refused or decided by the record path (QRY-301,
  * row E6). Where a row could either be served or have its page declined without breaking a
- * requirement, both are allowed.
+ * requirement, both are allowed. Exceptional values skipped by the interpreter can also be served;
+ * the result or error must still equal the interpreter's outcome.
  *
  * <p>
  * {@link #interpreterObservations} is not planned: it records the interpreter's results for T2, T3
@@ -208,14 +209,17 @@ final class RegionPredicatedAggregateDifferentialTest {
           : "false";
       for (final String element : new String[] {"1", "null", "true", "[\"admin\"]", "{\"a\":\"admin\"}"}) {
         rows.add(row("T3" + sign + "before" + element, "element " + element + " before the matching element",
-            List.of(probe(active, tags(element, a), "777")), all(match ? NOT_SERVED : REACHED)));
+            List.of(probe(active, tags(element, a), "777")), all(match
+                ? NOT_SERVED
+                : REACHED)));
         rows.add(row("T3" + sign + "after" + element, "element " + element + " after the matching element",
             List.of(probe(active, tags(a, element), "777")), all(REACHED)));
       }
       rows.add(row("T4" + sign, "N missing", List.of(probe(active, tags(a), null)), all(SERVED_OR_DECLINED)));
       for (final String n : new String[] {"null", "\"7\"", "true", "{\"a\":1}", "[1]"}) {
-        rows.add(row("T5" + sign + n, "N is " + n, List.of(probe(active, tags(a), n)),
-            sumAndCounts(match ? NOT_SERVED : REACHED, SERVED_OR_DECLINED)));
+        rows.add(row("T5" + sign + n, "N is " + n, List.of(probe(active, tags(a), n)), sumAndCounts(match
+            ? NOT_SERVED
+            : REACHED, SERVED_OR_DECLINED)));
       }
       rows.add(row("T6" + sign + "decimal", "N a decimal", List.of(probe(active, tags(a), "1.5")), sumAndCounts(match
           ? DECLINED
@@ -435,8 +439,8 @@ final class RegionPredicatedAggregateDifferentialTest {
     final String sum = QryCorpus.adminSum(source);
     final String otherMembers = "{\"count\":" + count + ",\"active\":" + active + "}";
     final String full = "{\"count\":" + count + ",\"active\":" + active + ",\"admin_sum\":" + sum + "}";
-    final Outcome expected = Outcome.object(Map.of("count", fixture.interpreter(count),
-        "active", fixture.interpreter(active), "admin_sum", fixture.interpreter(sum)));
+    final Outcome expected = Outcome.object(Map.of("count", fixture.interpreter(count), "active",
+        fixture.interpreter(active), "admin_sum", fixture.interpreter(sum)));
     assertEquals(expected, fixture.interpreter(full));
     final Outcome[] actual = new Outcome[1];
     final Counters scalar = QrySeam.around(() -> actual[0] = fixture.route(resource, sum, THREADS));

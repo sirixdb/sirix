@@ -160,8 +160,8 @@ public final class QryFixture {
     }
   }
 
-  public Outcome routeWithStartupSwitch(final String resource, final int revision, final String query, final int threads)
-      throws Exception {
+  public Outcome routeWithStartupSwitch(final String resource, final int revision, final String query,
+      final int threads) throws Exception {
     try (var store = newStore();
         var ctx = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -255,7 +255,9 @@ public final class QryFixture {
     }
 
     private SirixVectorizedExecutor executor(final int revision, final int threads) {
-      final int bound = revision < 0 ? session.getMostRecentRevisionNumber() : revision;
+      final int bound = revision < 0
+          ? session.getMostRecentRevisionNumber()
+          : revision;
       return executors.computeIfAbsent(new ExecutorKey(bound, threads),
           key -> new SirixVectorizedExecutor(session, key.revision(), key.threads()));
     }
@@ -348,9 +350,10 @@ public final class QryFixture {
   }
 
   /**
-   * An observable query result: the item type class ({@code xs:integer}, {@code xs:decimal},
-   * {@code xs:double}, …) and value, or the error code. Two outcomes are equal exactly when QRY-201
-   * calls them equal.
+   * An observable query result: the atomic item type ({@code xs:integer}, {@code xs:decimal},
+   * {@code xs:double}, …) and value, recursively materialized object members, or the error code.
+   * Object members are consumed before the query's resources close. Two outcomes are equal exactly
+   * when QRY-201 calls them equal.
    */
   public record Outcome(String type, String value, String error) {
 

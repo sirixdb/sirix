@@ -22,9 +22,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * QRY-102: the nested member path's representation,
  * {@code PredicateNode.ArrayContainsPath(List<String>
  * path, String value)} (decision D1), as sirix consumes it from the brackit snapshot. The brackit
- * repository carries its own unit test of the same name for step 2; this one pins the contract the
- * sirix route depends on. The other half of QRY-102's evidence, that sirix compiles against both
- * the current and the new brackit, is the compile itself (step 1) and has no test.
+ * repository's planned counterpart belongs to step 2; this one pins the contract the sirix route
+ * depends on. The other half of QRY-102's evidence, that sirix compiles against both the current
+ * and the new brackit, is the compile itself (step 1) and has no test.
  */
 @QryPlanned(step = QrySteps.BRACKIT_DETECTION, value = "QRY-102")
 final class PredicateNodeMemberPathTest {

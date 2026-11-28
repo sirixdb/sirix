@@ -30,18 +30,19 @@ public final class RegionPredicatedAggregateStartupTest {
   @CsvSource({"unset,false", "unset,true", "false,false", "false,true", "true,false", "true,true"})
   @DisplayName("QRY-601/D2: pre-evidence default is off; startup switches are independent")
   void startupSwitchesAreIndependent(final String route, final boolean arrayContains) throws Exception {
-    final List<String> command = new ArrayList<>(List.of(
-        Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-        "--enable-preview", "--add-modules=jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED",
-        "-Xmx512m", "-Duser.home=" + directory, "-Djava.io.tmpdir=" + directory,
-        "-Dbrackit.predicate.arrayContains=true", "-Dsirix.scan.arrayContainsColumnar=" + arrayContains));
+    final List<String> command =
+        new ArrayList<>(List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "--enable-preview",
+            "--add-modules=jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED", "-Xmx512m",
+            "-Duser.home=" + directory, "-Djava.io.tmpdir=" + directory, "-Dbrackit.predicate.arrayContains=true",
+            "-Dsirix.scan.arrayContainsColumnar=" + arrayContains));
     if (!route.equals("unset")) {
       command.add("-D" + QrySeam.SWITCH_PROPERTY + "=" + route);
     }
     command.addAll(List.of("-cp", System.getProperty("sirix.qry.testClasspath"),
         RegionPredicatedAggregateStartupTest.class.getName(), directory.toString(), route));
     final Path output = directory.resolve("startup.log");
-    final ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(output.toFile());
+    final ProcessBuilder builder =
+        new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(output.toFile());
     builder.environment().remove("JAVA_TOOL_OPTIONS");
     builder.environment().remove("JDK_JAVA_OPTIONS");
     builder.environment().remove("_JAVA_OPTIONS");
@@ -73,8 +74,8 @@ public final class RegionPredicatedAggregateStartupTest {
           QryCorpus.nestedMembershipCount(fixture.src("lemire.jn")))) {
         final Outcome expected = fixture.interpreter(query);
         final Outcome[] actual = new Outcome[1];
-        final Counters counters = QrySeam.around(
-            () -> actual[0] = fixture.routeWithStartupSwitch("lemire.jn", -1, query, 1));
+        final Counters counters =
+            QrySeam.around(() -> actual[0] = fixture.routeWithStartupSwitch("lemire.jn", -1, query, 1));
         assertEquals(expected, actual[0], counters.toString());
         if (args[1].equals("true")) {
           assertEquals(RouteOutcome.SERVED, counters.outcome(), counters.toString());

@@ -23,7 +23,7 @@ package io.sirix.query.scan;
  * <li>Step 2: brackit adds {@code PredicateNode.ArrayContainsPath} and the detection of QRY-101,
  * and sirix consumes that snapshot: QRY-101, QRY-102.</li>
  * <li>Step 3: the sirix route: QRY-201 to QRY-204, QRY-301 to QRY-304, QRY-401 to QRY-403, QRY-501
- * to QRY-503, QRY-601.</li>
+ * to QRY-503, QRY-504's composed-query routing check, QRY-601.</li>
  * </ul>
  *
  * <p>

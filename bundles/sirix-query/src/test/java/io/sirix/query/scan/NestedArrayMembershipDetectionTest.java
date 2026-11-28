@@ -32,9 +32,9 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * QRY-101 and QRY-103: which {@code where} clauses the detector hands to the executor, read off the
  * optimized AST of sirix's own compile chain (the chain the route runs under; brackit is consumed
- * as a moving snapshot, so this is the detection sirix actually gets). The brackit repository
- * carries its own unit test of the same name for the detector change of step 2; this one checks the
- * published snapshot through sirix.
+ * as a moving snapshot, so this is the detection sirix actually gets). QRY-101 also plans a
+ * brackit-local test for the detector change of step 2; this one checks the consumed snapshot
+ * through sirix.
  *
  * <p>
  * A claimed form must carry the expected annotations: {@code VECTORIZED_COUNT} for

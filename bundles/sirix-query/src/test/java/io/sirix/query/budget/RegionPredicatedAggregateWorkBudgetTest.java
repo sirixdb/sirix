@@ -80,13 +80,15 @@ final class RegionPredicatedAggregateWorkBudgetTest {
     fixture.store("lemire.jn", QryCorpus.array(lemire));
     final List<String> aligned = new ArrayList<>(lemire);
     final int gap = SLOTS - (int) ((fixture.maxNodeKey("lemire.jn") + 1) % SLOTS);
-    int paddingNodes = gap < 8 ? gap + SLOTS : gap;
+    int paddingNodes = gap < 8
+        ? gap + SLOTS
+        : gap;
     while (paddingNodes > 15) {
       aligned.add(QryCorpus.lemire(-aligned.size(), "true", List.of(), "0"));
       paddingNodes -= 8;
     }
-    aligned.add(QryCorpus.lemire(-aligned.size(), "true",
-        Collections.nCopies(paddingNodes - 8, QryCorpus.str("guest")), "0"));
+    aligned.add(
+        QryCorpus.lemire(-aligned.size(), "true", Collections.nCopies(paddingNodes - 8, QryCorpus.str("guest")), "0"));
     fixture.store("aligned.jn", QryCorpus.array(aligned));
     final long boundary = fixture.maxNodeKey("aligned.jn") + 1;
     assertEquals(0, boundary % SLOTS, "fixture: the tail must start on a page boundary");

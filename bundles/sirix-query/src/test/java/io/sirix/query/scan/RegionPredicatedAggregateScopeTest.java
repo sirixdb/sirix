@@ -34,8 +34,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * not say which field path holds it. Every fixture here puts {@code tags} under exactly one of
  * {@code /[]/tags}, {@code /[]/user/tags}, {@code /[]/user/profile/tags}, {@code /[]/other/tags}
  * and {@code /[]/user/[]/tags}, and is queried by every member path; one more fixture holds the
- * literal under every location at once, at different frequencies, with same-name flag and {@code N}
- * fields nested in {@code user}, so a value counted from the wrong path changes the answer.
+ * literal under the four named object paths at different frequencies, with same-name flag and
+ * {@code N} fields nested in {@code user}, so a value counted from the wrong path changes the
+ * answer.
  *
  * <p>
  * Each answer equals the interpreter's, and the counters show where the route served, where it
