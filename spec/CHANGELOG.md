@@ -2,6 +2,16 @@
 
 ## 1.0.0 (unreleased)
 
+- Add the [QRY](QRY-query-execution.md) chapter (QRY-101 to QRY-601, all proposed): a
+  column-served route for `count`/`sum` over a conjunction of boolean flags and array-membership
+  tests on nested member paths (`$r.user.tags[] = "admin"`). It covers the brackit shapes that are
+  claimed and the ones that stay unclaimed, result and error equality with the interpreter,
+  existential, NULL and type-mismatch semantics, exact integer folds, scope proofs from the path
+  summary, record attribution with nested objects, page seams, page decline versus query refusal,
+  thread-count independence, revision and cache correctness, and work, allocation and timed
+  budgets. The chapter's [decisions](QRY-query-execution.md#decisions-captain-2026-11-28)
+  record the captain's choices on representation and landing order, default activation,
+  projection-index scope and acceptance gates. No product behavior changes with this entry.
 - Schedule the nightly trend tier and give it a hosted-runner class
   ([CONV-303](CONV-conventions.md#conv-303--results-ledger-and-conditions-record),
   [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier)). A run row may name its `runner`

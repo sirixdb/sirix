@@ -16,6 +16,7 @@ or frozen release artifact is claimed by this documentation change.
 | [JAPI](JAPI-java-api.md) / [manifest](JAPI-stable-api-manifest.md) | Java ownership/errors/hooks/identity and explicit compatibility inventory | P0 draft; three-tier boundary decided |
 | [REST](REST-api.md) | OpenAPI baseline, revisions, preconditions, authorization, errors | P0 draft |
 | [MEM](MEM-memory-pool.md) | one evictable memory pool: frames return budget across size classes, one cache frame budget with priority eviction, compact-image pool reservation | P0 draft (decisions of 2026-11-26 folded in) |
+| [QRY](QRY-query-execution.md) | column-served predicated count/sum with nested array membership: claimed shapes, interpreter equality, scope and seam proofs, threads, revisions, work/allocation budgets | P0 draft (captain decisions of 2026-11-28 folded in) |
 | [NATIVE](NATIVE-embedded-c-api.md) | JVM-free C/C++/Rust/Python embedding, stable ABI 1, JSON/XML parity | Design adopted for 1.0; runtime implementation pending |
 
 Requirement IDs are stable and never reused. Every numbered requirement has a test
@@ -27,7 +28,8 @@ See [changes](CHANGELOG.md) and [retired IDs](RETIRED.md).
 The P0 documentation slice intentionally leaves spec_trace.py, @Verifies, annotation
 migration, response validation, compiled API checking and the crash CI lane as planned
 work. This slice implements no product or CI behavior.
-Full MODEL/IDX/QRY/DIFF/LIM/SEC chapters and broader valid-time semantics remain P1;
+Full MODEL/IDX/DIFF/LIM/SEC chapters, query execution beyond the [QRY scope](QRY-query-execution.md#scope),
+and broader valid-time semantics remain P1;
 MCP/OPS and formal models remain later work. Required cross-cutting decisions already
 have stable owners here: HOT rules FMT-301–304, defaults CONF-106, budgets CONV-301,
 JSON replacement JAPI-301–302, derived backup TXN-613, conditional writes TXN-311 with
