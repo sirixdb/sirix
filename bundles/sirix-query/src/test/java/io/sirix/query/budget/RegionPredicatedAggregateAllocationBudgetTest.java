@@ -7,6 +7,7 @@ import com.sun.management.ThreadMXBean;
 import io.sirix.query.scan.QryCorpus;
 import io.sirix.query.scan.QryFixture;
 import io.sirix.query.scan.QryFixture.Outcome;
+import io.sirix.query.scan.QryFixture.OpenSession;
 import io.sirix.query.scan.QryPlanned;
 import io.sirix.query.scan.QrySeam;
 import io.sirix.query.scan.QrySeam.Counters;
@@ -99,18 +100,18 @@ final class RegionPredicatedAggregateAllocationBudgetTest {
     final String q4 = query(which, "p4.jn");
     final Outcome e1 = fixture.interpreter(q1);
     final Outcome e4 = fixture.interpreter(q4);
-    for (int i = 0; i < WARMUP; i++) {
-      assertEquals(e1, fixture.route("p1.jn", q1, 1));
-      assertEquals(e4, fixture.route("p4.jn", q4, 1));
+    try (OpenSession p1 = fixture.open("p1.jn"); OpenSession p4 = fixture.open("p4.jn")) {
+      for (int i = 0; i < WARMUP; i++) {
+        p1.clearResultCaches(-1, 1);
+        p4.clearResultCaches(-1, 1);
+        assertEquals(e1, p1.route(-1, q1, 1));
+        assertEquals(e4, p4.route(-1, q4, 1));
+      }
+      final long a1 = minimumAllocation(bean, p1, q1, e1);
+      final long a4 = minimumAllocation(bean, p4, q4, e4);
+      assertTrue(a4 - a1 <= TOLERANCE_BYTES, "A(4P) - A(P) = " + (a4 - a1) + " bytes > " + TOLERANCE_BYTES + " (A(P) = "
+          + a1 + " over " + pagesP + " pages, A(4P) = " + a4 + " over " + pages4P + " pages)");
     }
-    final Counters c1 = QrySeam.around(() -> fixture.route("p1.jn", q1, 1));
-    final Counters c4 = QrySeam.around(() -> fixture.route("p4.jn", q4, 1));
-    assertEquals(RouteOutcome.SERVED, c1.outcome(), "the measured query must be the route's: " + c1);
-    assertEquals(RouteOutcome.SERVED, c4.outcome(), "the measured query must be the route's: " + c4);
-    final long a1 = minimumAllocation(bean, "p1.jn", q1, e1);
-    final long a4 = minimumAllocation(bean, "p4.jn", q4, e4);
-    assertTrue(a4 - a1 <= TOLERANCE_BYTES, "A(4P) - A(P) = " + (a4 - a1) + " bytes > " + TOLERANCE_BYTES + " (A(P) = "
-        + a1 + " over " + pagesP + " pages, A(4P) = " + a4 + " over " + pages4P + " pages)");
   }
 
   private static String query(final int which, final String resource) {
@@ -119,14 +120,18 @@ final class RegionPredicatedAggregateAllocationBudgetTest {
         : QryCorpus.nestedMembershipCount(fixture.src(resource));
   }
 
-  private static long minimumAllocation(final ThreadMXBean bean, final String resource, final String query,
+  private static long minimumAllocation(final ThreadMXBean bean, final OpenSession session, final String query,
       final Outcome expected) throws Exception {
     long minimum = Long.MAX_VALUE;
     for (int i = 0; i < MEASURED; i++) {
+      session.clearResultCaches(-1, 1);
+      QrySeam.reset();
       final long before = bean.getTotalThreadAllocatedBytes();
-      final Outcome actual = fixture.route(resource, query, 1);
+      final Outcome actual = session.route(-1, query, 1);
       final long allocated = bean.getTotalThreadAllocatedBytes() - before;
       assertEquals(expected, actual);
+      final Counters counters = QrySeam.counters();
+      assertEquals(RouteOutcome.SERVED, counters.outcome(), "the measured scan must serve pages: " + counters);
       minimum = Math.min(minimum, allocated);
     }
     return minimum;

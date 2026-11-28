@@ -148,12 +148,18 @@ final class RegionPredicatedAggregateVersioningTest {
       final Outcome e2 = fixture.interpreter(r2);
       assertNotEquals(e1, e2, "fixture: revisions 1 and 2 must differ for " + form);
       try (OpenSession session = fixture.open(RES)) {
+        QrySeam.reset();
         for (int round = 0; round < 2; round++) {
           assertEquals(e1, session.route(1, r1, THREADS), versioning + " " + form + " revision 1, round " + round);
           assertEquals(e2, session.route(2, r2, THREADS), versioning + " " + form + " revision 2, round " + round);
+        }
+        assertTrue(QrySeam.counters().served() > 0, "manual revision sequence never served pages");
+        QrySeam.reset();
+        for (int round = 0; round < 2; round++) {
           assertEquals(e1, session.autoWired(r1), versioning + " " + form + " auto-wired revision 1, round " + round);
           assertEquals(e2, session.autoWired(r2), versioning + " " + form + " auto-wired revision 2, round " + round);
         }
+        assertTrue(QrySeam.counters().served() > 0, "auto-wired revision sequence never served pages");
       }
     }
   }
@@ -185,13 +191,15 @@ final class RegionPredicatedAggregateVersioningTest {
       assertNotEquals(expected[i][0], expected[i][1],
           "fixture: the pair must have different answers: " + sequence[i][1]);
     }
-    try (OpenSession session = fixture.open(RES)) {
-      for (int i = 0; i < sequence.length; i++) {
+    for (int i = 0; i < sequence.length; i++) {
+      try (OpenSession session = fixture.open(RES)) {
+        QrySeam.reset();
         for (int round = 0; round < 2; round++) {
           assertEquals(expected[i][0], session.route(1, sequence[i][0], THREADS), sequence[i][0]);
           assertEquals(expected[i][1], session.route(1, sequence[i][1], THREADS),
               "an answer was reused for " + sequence[i][1]);
         }
+        assertTrue(QrySeam.counters().served() > 0, "query-key sequence never served pages: " + sequence[i][0]);
       }
     }
   }

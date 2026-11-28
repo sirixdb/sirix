@@ -168,7 +168,7 @@ final class RegionPredicatedAggregateScopeTest {
             ? "admin"
             : "dev")
         .append("\"]}");
-      if (i % 6 == 0) {
+      if (i % 6 == 2) {
         sb.append(",\"score\":").append(10_000 + i);
       }
       sb.append('}');
@@ -280,6 +280,16 @@ final class RegionPredicatedAggregateScopeTest {
     final Counters counters = QrySeam.around(() -> bypassed[0] = fixture.route("every.jn", query, THREADS));
     assertTrue(counters.served() > 0, "the bypassed run served no page, so it cannot show anything: " + counters);
     assertNotEquals(expected, bypassed[0], "the " + proof + " proof is not load-bearing: bypassing it kept the answer");
+  }
+
+  @Test
+  @QryPlanned(step = QrySteps.ROUTE, value = "QRY-301")
+  @DisplayName("QRY-301: competing nested scores contribute when the value scope proof is bypassed")
+  void nestedScoresOccurOnMatchingRecords() throws Exception {
+    final String where = "$r.active and $r.other.tags[] = \"admin\"";
+    final Outcome nested = fixture.interpreter(Form.SUM.query(fixture.src("every.jn"), where, "user.score"));
+    assertEquals("xs:integer", nested.type());
+    assertTrue(Long.parseLong(nested.value()) > 0, nested.toString());
   }
 
   @Test

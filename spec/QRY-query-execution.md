@@ -442,7 +442,7 @@ page or per seam record, never once per value.
 
 - **Level:** MUST · **Status:** proposed · **Since:** 1.0
 - **Code:** bench harness; `bundles/sirix-benchmarks` `ArrayMembershipRouteBenchmark` (to extend)
-- **Verified by:** **Planned:** a CONV-302 timed verdict, route against baseline, on the Lemire 5M corpus on the reference rig at 1 and 12 threads. The other CONV-302 suites show no regression for queries the route does not claim.
+- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest.composedObjectServesAdminSum` checks routing and consumes all object members against interpreter outcomes; a CONV-302 timed verdict, route against baseline, on the Lemire 5M corpus on the reference rig at 1 and 12 threads. The other CONV-302 suites show no regression for queries the route does not claim.
 - **Evidence class:** doc-only
 - **Gap/note:** Decided 2026-11-28 (D4): the CONV-302 verdict is the gate, and the time target is informational.
 
@@ -459,7 +459,7 @@ MUST reach this route for its `admin_sum` member, as shown by the served counter
 
 - **Level:** MUST · **Status:** proposed · **Since:** 1.0
 - **Code:** new system property; brackit `brackit.predicate.arrayContains` (existing)
-- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` runs once with the switch on and once with it off. With it off, the route counters stay at zero and the results are unchanged.
+- **Verified by:** **Planned:** `RegionPredicatedAggregateDifferentialTest` runs once with the switch on and once with it off. With it off, the route counters stay at zero and the results are unchanged. **Planned:** `RegionPredicatedAggregateStartupTest` launches fresh JVMs for the pre-evidence default and explicit startup settings, crossed with both `arrayContainsColumnar` settings.
 - **Evidence class:** doc-only
 - **Gap/note:** Default decided 2026-11-28 (D2).
 
@@ -509,8 +509,8 @@ None of them is claimed by QRY-101.
 | QRY-501 | `RegionPredicatedAggregateWorkBudgetTest` with positive and negative controls | proposed |
 | QRY-502 | `RegionPredicatedAggregateAllocationBudgetTest` | proposed |
 | QRY-503 | counter assertions in every test above | proposed |
-| QRY-504 | CONV-302 timed verdict on the Lemire 5M corpus | proposed |
-| QRY-601 | `RegionPredicatedAggregateDifferentialTest` switch-off run; default flip carries QRY-501 and QRY-504 evidence | proposed |
+| QRY-504 | `RegionPredicatedAggregateDifferentialTest.composedObjectServesAdminSum`; CONV-302 timed verdict on the Lemire 5M corpus | proposed |
+| QRY-601 | `RegionPredicatedAggregateDifferentialTest` switch-off run; `RegionPredicatedAggregateStartupTest` fresh-JVM switches; default flip carries QRY-501 and QRY-504 evidence | proposed |
 
 [VectorizedGroupByDetection.java]: https://github.com/sirixdb/brackit/blob/master/src/main/java/io/brackit/query/compiler/optimizer/walker/topdown/VectorizedGroupByDetection.java
 [PredicateNode.java]: https://github.com/sirixdb/brackit/blob/master/src/main/java/io/brackit/query/compiler/optimizer/PredicateNode.java

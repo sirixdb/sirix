@@ -214,6 +214,9 @@ ext.nativeDowncallPreinitializeRequested =
     project.providers.gradleProperty(nativeDowncallPreinitializeProperty).getOrElse('false').toBoolean()
 
 test { queryTest ->
+    doFirst {
+        systemProperty 'sirix.qry.testClasspath', sourceSets.test.runtimeClasspath.asPath
+    }
     systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     useJUnitPlatform()
     systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")

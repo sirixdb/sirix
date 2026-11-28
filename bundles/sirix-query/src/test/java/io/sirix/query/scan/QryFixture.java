@@ -11,6 +11,7 @@ import io.brackit.query.atomic.DecNumeric;
 import io.brackit.query.atomic.IntNumeric;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.json.Object;
 import io.sirix.access.Databases;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -25,7 +26,10 @@ import io.sirix.settings.VersioningType;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -150,13 +154,13 @@ public final class QryFixture {
       final boolean routeEnabled) throws Exception {
     final boolean previous = QrySeam.setRouteEnabled(routeEnabled);
     try {
-      return routeAsSwitched(resource, revision, query, threads);
+      return routeWithStartupSwitch(resource, revision, query, threads);
     } finally {
       QrySeam.setRouteEnabled(previous);
     }
   }
 
-  private Outcome routeAsSwitched(final String resource, final int revision, final String query, final int threads)
+  public Outcome routeWithStartupSwitch(final String resource, final int revision, final String query, final int threads)
       throws Exception {
     try (var store = newStore();
         var ctx = SirixQueryContext.createWithJsonStore(store);
@@ -226,6 +230,10 @@ public final class QryFixture {
     private final SirixCompileChain chain;
     private final JsonResourceSession session;
     private final boolean previousSwitch;
+    private final Map<ExecutorKey, SirixVectorizedExecutor> executors = new HashMap<>();
+
+    private record ExecutorKey(int revision, int threads) {
+    }
 
     private OpenSession(final String resource) {
       previousSwitch = QrySeam.setRouteEnabled(true);
@@ -237,14 +245,23 @@ public final class QryFixture {
 
     /** The route's outcome with an executor of this session bound to {@code revision}. */
     public Outcome route(final int revision, final String query, final int threads) {
-      final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, threads);
+      final SirixVectorizedExecutor executor = executor(revision, threads);
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
       try {
         return evaluate(chain, ctx, query);
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
-        executor.close();
       }
+    }
+
+    private SirixVectorizedExecutor executor(final int revision, final int threads) {
+      final int bound = revision < 0 ? session.getMostRecentRevisionNumber() : revision;
+      return executors.computeIfAbsent(new ExecutorKey(bound, threads),
+          key -> new SirixVectorizedExecutor(session, key.revision(), key.threads()));
+    }
+
+    public void clearResultCaches(final int revision, final int threads) {
+      executor(revision, threads).clearAggregateResultCachesForBenchmarks();
     }
 
     /** The outcome through the chain's own auto-wiring, which resolves the executor from the source. */
@@ -256,6 +273,10 @@ public final class QryFixture {
     @Override
     public void close() throws Exception {
       try {
+        for (final SirixVectorizedExecutor executor : executors.values()) {
+          executor.close();
+        }
+        executors.clear();
         session.close();
         chain.close();
         ctx.close();
@@ -340,6 +361,13 @@ public final class QryFixture {
       if (result instanceof Atomic atomic) {
         return new Outcome(typeOf(atomic), atomic.stringValue(), null);
       }
+      if (result instanceof Object object) {
+        final Map<String, Outcome> members = new TreeMap<>();
+        for (int i = 0; i < object.len(); i++) {
+          members.put(object.name(i).getLocalName(), of(object.value(i)));
+        }
+        return object(members);
+      }
       return new Outcome(result.getClass().getSimpleName(), String.valueOf(result), null);
     }
 
@@ -350,6 +378,10 @@ public final class QryFixture {
     /** An {@code xs:integer} outcome. */
     public static Outcome integer(final long value) {
       return new Outcome("xs:integer", Long.toString(value), null);
+    }
+
+    public static Outcome object(final Map<String, Outcome> members) {
+      return new Outcome("object()", new TreeMap<>(members).toString(), null);
     }
 
     public boolean isError() {

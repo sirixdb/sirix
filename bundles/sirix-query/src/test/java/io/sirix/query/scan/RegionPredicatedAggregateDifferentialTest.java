@@ -71,6 +71,8 @@ final class RegionPredicatedAggregateDifferentialTest {
   private static final Set<RouteOutcome> SERVED = EnumSet.of(RouteOutcome.SERVED);
   private static final Set<RouteOutcome> SERVED_OR_DECLINED =
       EnumSet.of(RouteOutcome.SERVED, RouteOutcome.PAGE_DECLINED);
+  private static final Set<RouteOutcome> REACHED =
+      EnumSet.of(RouteOutcome.SERVED, RouteOutcome.PAGE_DECLINED, RouteOutcome.REFUSED);
   private static final Set<RouteOutcome> NOT_SERVED = EnumSet.of(RouteOutcome.PAGE_DECLINED, RouteOutcome.REFUSED);
   private static final Set<RouteOutcome> DECLINED = EnumSet.of(RouteOutcome.PAGE_DECLINED);
   private static final Set<RouteOutcome> REFUSED = EnumSet.of(RouteOutcome.REFUSED);
@@ -206,22 +208,22 @@ final class RegionPredicatedAggregateDifferentialTest {
           : "false";
       for (final String element : new String[] {"1", "null", "true", "[\"admin\"]", "{\"a\":\"admin\"}"}) {
         rows.add(row("T3" + sign + "before" + element, "element " + element + " before the matching element",
-            List.of(probe(active, tags(element, a), "777")), all(NOT_SERVED)));
+            List.of(probe(active, tags(element, a), "777")), all(match ? NOT_SERVED : REACHED)));
         rows.add(row("T3" + sign + "after" + element, "element " + element + " after the matching element",
-            List.of(probe(active, tags(a, element), "777")), all(NOT_SERVED)));
+            List.of(probe(active, tags(a, element), "777")), all(REACHED)));
       }
       rows.add(row("T4" + sign, "N missing", List.of(probe(active, tags(a), null)), all(SERVED_OR_DECLINED)));
       for (final String n : new String[] {"null", "\"7\"", "true", "{\"a\":1}", "[1]"}) {
         rows.add(row("T5" + sign + n, "N is " + n, List.of(probe(active, tags(a), n)),
-            sumAndCounts(NOT_SERVED, SERVED_OR_DECLINED)));
+            sumAndCounts(match ? NOT_SERVED : REACHED, SERVED_OR_DECLINED)));
       }
       rows.add(row("T6" + sign + "decimal", "N a decimal", List.of(probe(active, tags(a), "1.5")), sumAndCounts(match
           ? DECLINED
-          : NOT_SERVED, SERVED_OR_DECLINED)));
+          : REACHED, SERVED_OR_DECLINED)));
       rows.add(row("T6" + sign + "double", "N a shredder-typed double", List.of(probe(active, tags(a), "1.5e0")),
           sumAndCounts(match
               ? REFUSED
-              : NOT_SERVED, SERVED_OR_DECLINED)));
+              : REACHED, SERVED_OR_DECLINED)));
     }
     rows.add(row("T7", "the same field names nested elsewhere in the record", List.of(
         "{\"id\":-1,\"active\":true,\"user\":{\"name\":\"p\",\"active\":false,\"score\":5,\"tags\":[\"admin\"]},"
@@ -379,11 +381,13 @@ final class RegionPredicatedAggregateDifferentialTest {
     }
     final String sum = Form.SUM.query(fixture.src(resource), W, "score");
     final Outcome expected = fixture.interpreter(sum);
-    for (int run = 0; run < 3; run++) {
-      final Outcome[] actual = new Outcome[1];
-      final Counters counters = QrySeam.around(() -> actual[0] = fixture.route(resource, sum, THREADS));
-      assertEquals(expected, actual[0], "run " + run + " (" + counters + ")");
-      assertEquals(1, counters.refused(Refusal.DOUBLE_SUM), "run " + run + " was not refused again: " + counters);
+    try (var session = fixture.open(resource)) {
+      for (int run = 0; run < 3; run++) {
+        final Outcome[] actual = new Outcome[1];
+        final Counters counters = QrySeam.around(() -> actual[0] = session.route(-1, sum, THREADS));
+        assertEquals(expected, actual[0], "run " + run + " (" + counters + ")");
+        assertEquals(1, counters.refused(Refusal.DOUBLE_SUM), "run " + run + " was not refused again: " + counters);
+      }
     }
   }
 
@@ -417,6 +421,36 @@ final class RegionPredicatedAggregateDifferentialTest {
     final Counters counters = QrySeam.around(() -> actual[0] = fixture.route(resource, expanded, THREADS));
     assertEquals(expected, actual[0], what + " (" + counters + ")");
     assertEquals(RouteOutcome.SERVED, counters.outcome(), what + ": " + counters);
+  }
+
+  @Test
+  @QryPlanned(step = QrySteps.ROUTE, value = {"QRY-504", "QRY-503"})
+  @DisplayName("QRY-504: the full object query serves its admin_sum member from regions")
+  void composedObjectServesAdminSum() throws Exception {
+    final String resource = "composed-lemire.jn";
+    fixture.store(resource, QryCorpus.array(QryCorpus.lemireRecords(BASE_RECORDS, SEED)));
+    final String source = fixture.src(resource);
+    final String count = "count(" + source + ")";
+    final String active = "count(for $r in " + source + " where $r.active return $r)";
+    final String sum = QryCorpus.adminSum(source);
+    final String otherMembers = "{\"count\":" + count + ",\"active\":" + active + "}";
+    final String full = "{\"count\":" + count + ",\"active\":" + active + ",\"admin_sum\":" + sum + "}";
+    final Outcome expected = Outcome.object(Map.of("count", fixture.interpreter(count),
+        "active", fixture.interpreter(active), "admin_sum", fixture.interpreter(sum)));
+    assertEquals(expected, fixture.interpreter(full));
+    final Outcome[] actual = new Outcome[1];
+    final Counters scalar = QrySeam.around(() -> actual[0] = fixture.route(resource, sum, THREADS));
+    assertEquals(fixture.interpreter(sum), actual[0]);
+    assertEquals(RouteOutcome.SERVED, scalar.outcome(), scalar.toString());
+    final Outcome expectedOthers = fixture.interpreter(otherMembers);
+    final Counters others = QrySeam.around(() -> actual[0] = fixture.route(resource, otherMembers, THREADS));
+    assertEquals(expectedOthers, actual[0]);
+    final Counters composed = QrySeam.around(() -> actual[0] = fixture.route(resource, full, THREADS));
+    assertEquals(expected, actual[0], composed.toString());
+    assertEquals(others.served() + scalar.served(), composed.served(),
+        "admin_sum must account for the added region servings: " + composed);
+    assertEquals(0, composed.declined(), composed.toString());
+    assertEquals(0, composed.refused(), composed.toString());
   }
 
   static Stream<Arguments> variants() {

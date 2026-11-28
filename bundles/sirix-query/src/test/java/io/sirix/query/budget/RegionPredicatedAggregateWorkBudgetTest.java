@@ -5,6 +5,7 @@ package io.sirix.query.budget;
 
 import io.sirix.access.Databases;
 import io.sirix.io.StorageType;
+import io.sirix.node.NodeKind;
 import io.sirix.query.scan.QryCorpus;
 import io.sirix.query.scan.QryFixture;
 import io.sirix.query.scan.QryFixture.Outcome;
@@ -25,6 +26,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import static io.sirix.query.scan.QryCorpus.ADMIN;
@@ -56,8 +58,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Every page of the fixture holds records with the anchor fields, so every page is scheduled; the
  * page count is the document's node-key range over the 1,024 slots of a page. Item 3 compares the
  * fixture with itself plus a block of records lacking both {@code active} and {@code user} appended
- * at the end: the added pages must add no column read beyond what one boundary page shared with the
- * Lemire records reads, and no full record-page read.
+ * at a verified page boundary: the added pages must add no column or full record-page read.
  */
 @Isolated
 @QryPlanned(step = QrySteps.ROUTE, value = {"QRY-501", "QRY-503"})
@@ -77,11 +78,26 @@ final class RegionPredicatedAggregateWorkBudgetTest {
     fixture = new QryFixture(dir, DB, VersioningType.FULL, StorageType.FILE_CHANNEL, true);
     final List<String> lemire = QryCorpus.lemireRecords(RECORDS, SEED);
     fixture.store("lemire.jn", QryCorpus.array(lemire));
-    final List<String> withAnchorless = new ArrayList<>(lemire);
+    final List<String> aligned = new ArrayList<>(lemire);
+    final int gap = SLOTS - (int) ((fixture.maxNodeKey("lemire.jn") + 1) % SLOTS);
+    int paddingNodes = gap < 8 ? gap + SLOTS : gap;
+    while (paddingNodes > 15) {
+      aligned.add(QryCorpus.lemire(-aligned.size(), "true", List.of(), "0"));
+      paddingNodes -= 8;
+    }
+    aligned.add(QryCorpus.lemire(-aligned.size(), "true",
+        Collections.nCopies(paddingNodes - 8, QryCorpus.str("guest")), "0"));
+    fixture.store("aligned.jn", QryCorpus.array(aligned));
+    final long boundary = fixture.maxNodeKey("aligned.jn") + 1;
+    assertEquals(0, boundary % SLOTS, "fixture: the tail must start on a page boundary");
+    fixture.assertNodeAt("aligned.jn", boundary - 1, NodeKind.OBJECT_NAMED_STRING, "note");
+    final List<String> withAnchorless = new ArrayList<>(aligned);
     for (int i = 0; i < ANCHORLESS; i++) {
       withAnchorless.add("{\"id\":" + (RECORDS + i) + ",\"score\":" + i + ",\"note\":\"n\"}");
     }
     fixture.store("anchorless-tail.jn", QryCorpus.array(withAnchorless));
+    fixture.assertNodeAt("anchorless-tail.jn", boundary, NodeKind.OBJECT, null);
+    fixture.assertNodeAt("anchorless-tail.jn", boundary + 1, NodeKind.OBJECT_NAMED_NUMBER, "id");
     final List<String> withDecimal = new ArrayList<>(lemire);
     withDecimal.add(RECORDS / 2, QryCorpus.lemire(-1, "true", List.of(QryCorpus.str(ADMIN)), "12.5"));
     fixture.store("decimal-page.jn", QryCorpus.array(withDecimal));
@@ -135,15 +151,14 @@ final class RegionPredicatedAggregateWorkBudgetTest {
   @ValueSource(ints = {1, 4})
   @DisplayName("QRY-501 item 3: a page without the anchor field reads no region beyond the name-key column")
   void anchorlessPagesReadOnlyTheNameKeyColumn(final int threads) throws Exception {
-    final long addedPages = scheduledPages("anchorless-tail.jn") - scheduledPages("lemire.jn");
+    final long addedPages = scheduledPages("anchorless-tail.jn") - scheduledPages("aligned.jn");
     assertTrue(addedPages >= 10, "fixture: the anchorless tail must fill whole pages, got " + addedPages);
-    final String[] base = queries("lemire.jn");
+    final String[] base = queries("aligned.jn");
     final String[] tail = queries("anchorless-tail.jn");
     for (int q = 0; q < base.length; q++) {
-      final Counters without = cold("lemire.jn", base[q], threads, true, fixture.interpreter(base[q]));
+      final Counters without = cold("aligned.jn", base[q], threads, true, fixture.interpreter(base[q]));
       final Counters with = cold("anchorless-tail.jn", tail[q], threads, true, fixture.interpreter(tail[q]));
-      final long perPage = (without.columnReads() + without.served() - 1) / Math.max(1, without.served());
-      assertTrue(with.columnReads() - without.columnReads() <= perPage,
+      assertEquals(0, with.columnReads() - without.columnReads(),
           "anchorless pages read columns beyond the name key: " + without + " vs " + with);
       assertEquals(without.recordPageReads(), with.recordPageReads(),
           "anchorless pages read full record pages: " + without + " vs " + with);
