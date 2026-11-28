@@ -1,0 +1,60 @@
+/*
+ * Copyright (c) 2026, SirixDB. All rights reserved.
+ */
+package io.sirix.cache;
+
+import org.junit.jupiter.api.extension.ConditionEvaluationResult;
+import org.junit.jupiter.api.extension.ExecutionCondition;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.extension.ExtensionContext;
+
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.util.Optional;
+
+import static org.junit.platform.commons.support.AnnotationSupport.findAnnotation;
+
+/**
+ * Marks a spec-derived test of the MEM chapter whose behavior is not implemented yet. The chapter
+ * labels each such test <em>Planned</em> (CONV-102: a planned test MUST be labelled planned); this
+ * annotation is that label in code, and it keeps CI green until the named step lands: the test is
+ * disabled with a reason naming the requirement and the step, and {@link MemSteps} enables it.
+ *
+ * <p>
+ * The repository has no {@code @Verifies} annotation yet (CONV-104 lists it as planned work), so
+ * the requirement IDs of the annotation, of the class Javadoc and of the {@code @DisplayName}s are
+ * the traceability link.
+ */
+@Documented
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.TYPE, ElementType.METHOD})
+@ExtendWith(MemPlanned.Condition.class)
+@interface MemPlanned {
+
+  /** The MEM step (1, 2 or 3) whose landing enables the test. */
+  int step();
+
+  /** The requirement IDs the test verifies, e.g. {@code "MEM-103"}. */
+  String[] value();
+
+  /** Disables the annotated container or method until its step has landed. */
+  final class Condition implements ExecutionCondition {
+    @Override
+    public ConditionEvaluationResult evaluateExecutionCondition(final ExtensionContext context) {
+      final Optional<MemPlanned> planned =
+          context.getElement().flatMap(element -> findAnnotation(element, MemPlanned.class));
+      if (planned.isEmpty()) {
+        return ConditionEvaluationResult.enabled("not a planned MEM test");
+      }
+      final MemPlanned annotation = planned.get();
+      if (MemSteps.enabled(annotation.step())) {
+        return ConditionEvaluationResult.enabled(
+            String.join(", ", annotation.value()) + " enabled (step " + annotation.step() + ")");
+      }
+      return ConditionEvaluationResult.disabled(MemSteps.disabledReason(annotation.step(), annotation.value()));
+    }
+  }
+}

@@ -354,6 +354,8 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
         includeTestsMatching 'io.sirix.index.name.NameIndexRecheckAllocationBudgetTest'
         includeTestsMatching 'io.sirix.budget.CommitTimestampProbeAllocationBudgetTest'
         includeTestsMatching 'io.sirix.page.PageEnvelopeAllocationTest'
+        includeTestsMatching 'io.sirix.cache.FrameReuseAllocationBudgetTest'
+        includeTestsMatching 'io.sirix.cache.CompactImageAllocationBudgetTest'
     }
 }
 
@@ -505,7 +507,8 @@ gradle.projectsEvaluated {
     }
     dictionaryReadViewAllocationTest.configure {
         // Finish warmup compilations before measuring allocations, including on slower CI runners.
-        jvmArgs '-Xbatch'
+        jvmArgs '-Xbatch', '-XX:+UseCompressedOops', '-XX:+UseCompressedClassPointers',
+                '-XX:-UseCompactObjectHeaders', '-XX:ObjectAlignmentInBytes=8'
     }
     storageEpochStoreIdentityTest.configure {
         systemProperty 'sirix.codecBakeoff.probeInterval', '1'
@@ -571,6 +574,8 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/index/name/NameIndexRecheckAllocationBudgetTest*.class'
     exclude 'io/sirix/budget/CommitTimestampProbeAllocationBudgetTest*.class'
     exclude 'io/sirix/page/PageEnvelopeAllocationTest*.class'
+    exclude 'io/sirix/cache/FrameReuseAllocationBudgetTest*.class'
+    exclude 'io/sirix/cache/CompactImageAllocationBudgetTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'
